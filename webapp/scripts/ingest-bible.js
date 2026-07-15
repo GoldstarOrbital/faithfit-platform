@@ -41,6 +41,8 @@ const TARGETS = [
   { key: 'mark',      book: 'Mark',      book_id: 'MRK', api: 'mark',      chapters: 16,  translation: 'web' },
   { key: 'luke',      book: 'Luke',      book_id: 'LUK', api: 'luke',      chapters: 24,  translation: 'web' },
   { key: 'john',      book: 'John',      book_id: 'JHN', api: 'john',      chapters: 21,  translation: 'web' },
+  { key: 'james',     book: 'James',     book_id: 'JAS', api: 'james',     chapters: 5,   translation: 'web' },
+  { key: 'romans',    book: 'Romans',    book_id: 'ROM', api: 'romans',    chapters: 16,  translation: 'web' },
 ];
 
 // --- args ---

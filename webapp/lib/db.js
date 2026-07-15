@@ -191,6 +191,13 @@ CREATE TABLE IF NOT EXISTS breathing_sessions (
 `);
 
 db.exec(`
+CREATE TABLE IF NOT EXISTS bible_meta (
+  key TEXT PRIMARY KEY,
+  value TEXT
+);
+`);
+
+db.exec(`
 CREATE TABLE IF NOT EXISTS bible_verses (
   id TEXT PRIMARY KEY,
   book TEXT NOT NULL,
@@ -260,6 +267,37 @@ CREATE TABLE IF NOT EXISTS podcast_episodes (
   duration_sec INTEGER,
   published_at TEXT,
   UNIQUE(podcast_id, guid)
+);
+`);
+
+// --- migration: richer workouts (manual entry, notes, activity source, elevation) ---
+const wCols2 = db.prepare("PRAGMA table_info(workouts)").all().map(c => c.name);
+if (!wCols2.includes('note')) db.exec("ALTER TABLE workouts ADD COLUMN note TEXT");
+if (!wCols2.includes('source')) db.exec("ALTER TABLE workouts ADD COLUMN source TEXT DEFAULT 'app'"); // app | manual | ble | import
+if (!wCols2.includes('elevation_gain_m')) db.exec("ALTER TABLE workouts ADD COLUMN elevation_gain_m REAL");
+if (!wCols2.includes('duration_sec')) db.exec("ALTER TABLE workouts ADD COLUMN duration_sec INTEGER");
+
+// --- themed challenges (Strava-style, scripture/LotR flavored) ---
+db.exec(`
+CREATE TABLE IF NOT EXISTS challenges (
+  id TEXT PRIMARY KEY,
+  key TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  flavor TEXT,
+  scripture_ref TEXT,
+  metric TEXT NOT NULL DEFAULT 'distance_km',   -- distance_km | duration_min | workouts
+  target REAL NOT NULL,
+  theme TEXT,
+  activity_type TEXT                            -- NULL = any activity counts
+);
+CREATE TABLE IF NOT EXISTS user_challenges (
+  user_id TEXT NOT NULL,
+  challenge_id TEXT NOT NULL,
+  progress REAL DEFAULT 0,
+  joined_at TEXT DEFAULT (datetime('now')),
+  completed_at TEXT,
+  PRIMARY KEY (user_id, challenge_id)
 );
 `);
 
