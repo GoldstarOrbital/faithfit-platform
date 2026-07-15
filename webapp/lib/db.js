@@ -476,4 +476,11 @@ CREATE TABLE IF NOT EXISTS church_services (
 );
 `);
 
+// --- church official website (additive) — an alternate, key-free way to surface
+// real sermon/service videos: many churches already embed YouTube/Vimeo players
+// on their own site, so we can read those real embeds directly instead of only
+// relying on the YouTube Data API. ---
+const churchCols = db.prepare("PRAGMA table_info(churches)").all().map(c => c.name);
+if (!churchCols.includes('website_url')) db.exec('ALTER TABLE churches ADD COLUMN website_url TEXT');
+
 module.exports = db;

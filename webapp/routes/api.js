@@ -15,6 +15,7 @@ const strava = require('../lib/strava');
 const { searchNearbyChurches } = require('../lib/overpass');
 const youtube = require('../lib/youtube');
 const sermonSummary = require('../lib/sermon-summary');
+const { fetchChurchWebsiteEmbeds, isHttpUrl } = require('../lib/church-website');
 
 // Load real, public-domain Bible text (KJV/WEB) into bible_verses once at startup.
 loadBibleData();
@@ -1642,6 +1643,50 @@ router.post('/church/service/summarize', requireAuth, async (req, res) => {
   }
 
   res.json({ transcript, video_title: row.title, duration_sec: row.duration_sec });
+});
+
+// ---- Church official website: a free, key-free complement to the YouTube Data
+// API path. Most churches already embed their sermon player (YouTube/Vimeo
+// iframe) directly on their own site — we read that real embed and reuse it,
+// rather than requiring YOUTUBE_API_KEY just to find a channel. ----
+router.post('/churches/:osmId/website', requireAuth, (req, res) => {
+  const osmId = req.params.osmId;
+  const { website_url } = req.body || {};
+
+  // Same ownership check as link-youtube: only the user who has this real,
+  // OSM-verified church on their own profile may set its official website.
+  const me = db.prepare('SELECT church_osm_id, church_name FROM users WHERE id = ?').get(req.session.userId);
+  if (!me || me.church_osm_id !== osmId) return res.status(400).json({ error: 'church_not_on_profile', hint: 'Select this church on your profile before adding its website.' });
+
+  if (website_url === null || website_url === '') {
+    const existing = db.prepare('SELECT id FROM churches WHERE osm_id = ?').get(osmId);
+    if (existing) db.prepare('UPDATE churches SET website_url = NULL WHERE id = ?').run(existing.id);
+    return res.json({ ok: true });
+  }
+
+  if (!isHttpUrl(website_url)) return res.status(400).json({ error: 'invalid_url', hint: 'Enter a full website address, e.g. https://yourchurch.org' });
+
+  const existing = db.prepare('SELECT id FROM churches WHERE osm_id = ?').get(osmId);
+  if (existing) {
+    db.prepare('UPDATE churches SET website_url = ? WHERE id = ?').run(website_url, existing.id);
+  } else {
+    db.prepare('INSERT INTO churches (id, osm_id, name, website_url) VALUES (?, ?, ?, ?)').run(randomUUID(), osmId, me.church_name, website_url);
+  }
+  res.json({ ok: true });
+});
+
+// Fetch the church's real website and return whatever video embeds are
+// literally present on it right now (fetched live — not cached/guessed).
+router.get('/churches/:osmId/website-videos', requireAuth, async (req, res) => {
+  const church = db.prepare('SELECT website_url FROM churches WHERE osm_id = ?').get(req.params.osmId);
+  if (!church || !church.website_url) return res.status(400).json({ error: 'no_website', hint: "This church hasn't added an official website yet." });
+  try {
+    const embeds = await fetchChurchWebsiteEmbeds(church.website_url);
+    res.json({ embeds });
+  } catch (err) {
+    console.error('[churches/website-videos] fetch failed:', err.message);
+    res.status(502).json({ error: 'fetch_failed', hint: "Could not reach the church's website. Try again shortly." });
+  }
 });
 
 module.exports = router;

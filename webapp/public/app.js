@@ -916,6 +916,7 @@ async function renderProfile(main) {
       <div id="church-status" class="muted" style="margin-top:6px"></div>
       <div id="church-results" style="margin-top:10px"></div>
       <div id="youtube-link-section" style="margin-top:14px"></div>
+      <div id="church-website-section" style="margin-top:14px"></div>
     </div>
     <div class="card glass">
       <h2>This week's sermon transcript</h2>
@@ -1172,6 +1173,7 @@ function wireChurchFinder(me) {
   };
 
   wireYoutubeLink(me);
+  wireChurchWebsite(me);
   wireSermonSummary();
 }
 
@@ -1215,6 +1217,51 @@ async function wireYoutubeLink(me) {
       resultsEl.innerHTML = '<span class="muted">Search failed.</span>';
     }
   };
+}
+
+// ---- Church official website: a free, key-free way to embed real sermon
+// videos — most churches already embed a YouTube/Vimeo player on their own
+// site, so we just read that real embed instead of needing YOUTUBE_API_KEY. ----
+async function wireChurchWebsite(me) {
+  const section = document.getElementById('church-website-section');
+  if (!section || !me.user.church_osm_id) { if (section) section.innerHTML = ''; return; }
+
+  const osmId = me.user.church_osm_id;
+  section.innerHTML = `
+    <div class="field-label">Your church's official website</div>
+    <div class="muted" style="margin-bottom:6px">If your church embeds sermon videos on its own site, add the link here — free, no setup required.</div>
+    <input id="church-website-url" type="url" placeholder="https://yourchurch.org">
+    <button class="ghost" id="church-website-save" style="margin-top:6px">Save</button>
+    <div id="church-website-status" class="muted" style="margin-top:6px"></div>
+    <div id="church-website-videos" style="margin-top:8px"></div>
+  `;
+
+  const statusEl = document.getElementById('church-website-status');
+  const videosEl = document.getElementById('church-website-videos');
+
+  const loadVideos = async () => {
+    try {
+      const { embeds } = await api(`/churches/${encodeURIComponent(osmId)}/website-videos`);
+      if (!embeds || !embeds.length) { videosEl.innerHTML = '<span class="muted">No embedded videos found on that page yet.</span>'; return; }
+      videosEl.innerHTML = embeds.map(e => `
+        <div class="card glass" style="padding:8px;margin-bottom:8px">
+          <div style="position:relative;padding-top:56.25%;border-radius:8px;overflow:hidden">
+            <iframe src="${e.provider === 'vimeo' ? `https://player.vimeo.com/video/${encodeURIComponent(e.videoId)}` : `https://www.youtube-nocookie.com/embed/${encodeURIComponent(e.videoId)}`}" title="Church video" frameborder="0" allowfullscreen style="position:absolute;top:0;left:0;width:100%;height:100%"></iframe>
+          </div>
+        </div>`).join('');
+    } catch { videosEl.innerHTML = ''; }
+  };
+
+  document.getElementById('church-website-save').onclick = async () => {
+    const url = document.getElementById('church-website-url').value.trim();
+    statusEl.textContent = 'Saving…';
+    const res = await api(`/churches/${encodeURIComponent(osmId)}/website`, { method: 'POST', body: { website_url: url || null } });
+    if (res.error) { statusEl.textContent = res.hint || res.error; return; }
+    statusEl.textContent = url ? 'Saved. Looking for videos…' : 'Removed.';
+    if (url) await loadVideos();
+  };
+
+  await loadVideos();
 }
 
 // ---- Sermon transcript read-aloud: this week's service, real captions only.
