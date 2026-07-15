@@ -1,103 +1,79 @@
-# FaithFit Platform
+# FaithFit
 
-A faith-infused fitness social platform: microservices backend, biometric time-series pipeline,
-scripture trigger engine, gamification, and a SwiftUI iOS reference client.
+A faith-based fitness + social web app — Strava and Instagram, reimagined around
+scripture, community, and Christian identity instead of vanity metrics. Track real
+runs, pair them with scripture, share your journey, and grow with others.
 
-## Architecture
+**Live:** https://faithfit-demo-production.up.railway.app
 
-- **API Gateway**: Gloo Gateway (`infra/gloo-gateway/gateway.yaml`)
-- **Microservices** (`services/`): auth, user-profile, fitness, wearable-ingest, scripture-engine,
-  personalization, social-graph, gamification, notification, media, creator-tools
-- **Data layer**: Postgres + TimescaleDB (`biometric_data` hypertable), Redis cache
-- **Event bus**: Kafka (`eventbus/`) — see `eventbus/topics.md` for the domain event catalog
-- **External integrations**: YouVersion, Gloo, Apple HealthKit, Google Fit, Garmin, Fitbit, Oura, WHOOP
-  (`integrations/`, `wearables/`)
-- **iOS reference client**: SwiftUI skeleton (`ios/FaithFit/`)
+This is a real, production web app — a first-class responsive experience for both
+mobile-web and desktop. (A separate native iOS app is built in parallel elsewhere.)
 
-## Repo layout
+> The deployed application is entirely in [`webapp/`](webapp/). The other top-level
+> folders (`services/`, `migrations/`, `ios/`, `infra/`, `integrations/`, …) are an
+> earlier microservices scaffold that is **not used** by the live app and can be ignored.
 
-```
-migrations/          Postgres + TimescaleDB SQL migrations (schema exactly per spec)
-services/<name>/     One skeleton per microservice (Express + Dockerfile + tests)
-integrations/        YouVersion + Gloo adapter clients, mock servers, adapter interface docs
-wearables/           HealthKit/Google Fit/polling adapters, consent gate, normalization layer
-eventbus/             Kafka producer/consumer wrappers + topic catalog
-scripture-engine/    Scripture Trigger Engine pipeline + unit tests (pure, DB/Kafka-free core)
-ios/FaithFit/        SwiftUI skeleton (Home Feed, Workout screen, mock API client)
-infra/               K8s manifests, Helm chart, Terraform stubs, GitHub Actions, monitoring
-qa/                  E2E test plan, load test script, security checklist
-config/feature-flags.json   All third-party-dependent features, default OFF
-shared/              vault-client, feature-flags loader, retry/backoff helper
-```
+## What it does
+
+- **Real GPS run tracking** — live route on an OpenStreetMap/Leaflet map, haversine
+  distance, no API key required.
+- **Real Bluetooth heart-rate pairing** — Web Bluetooth against the standard BLE
+  Heart Rate Service (0x180D); works with real chest straps in Chrome/Edge.
+- **Scripture Trigger Engine** — a real pipeline that reads workout/biometric context,
+  maps it to scripture themes, and surfaces a fitting verse.
+- **Real Bible library** — 8,900+ verses of public-domain scripture (WEB/KJV) with
+  fast FTS5 full-text search. Complete Genesis, Psalms, Proverbs, and all four
+  Gospels, plus more. Ingested and verified by [`webapp/scripts/ingest-bible.js`](webapp/scripts/ingest-bible.js);
+  see the live [`/api/bible/coverage`](https://faithfit-demo-production.up.railway.app/api/bible/coverage).
+- **Social feed** — followers, posts (workouts + reflections), likes, comments,
+  Strava-style stat cards and Instagram-style stories.
+- **Workout visibility + sharing** — every post is private, followers-only, or public;
+  public workouts get a shareable, unauthenticated link (`/w/:id`) showing the route,
+  stats, and paired verse — without exposing private profile fields.
+- **Podcasts** — real, current episodes from independent Christian shows (The Bible
+  Recap, The Ten Minute Bible Hour, Ask NT Wright Anything, Christian History Almanac),
+  ingested from their public RSS feeds with an in-app audio player.
+- **Gamification** — XP/levels, badges, quests. **Breathing** box-breathing sessions.
+- **Verified quotes only** — every quote is scripture or a correctly-attributed,
+  fact-checked source. Nothing fabricated or misattributed.
+- **Secure, locked-down profile** — the bio can only be a real Bible verse that exists
+  in our library; email and password hash are never returned by any API.
+
+## Tech
+
+Single Node.js (>=22.5) Express process. `node:sqlite` (built-in `DatabaseSync`) with
+FTS5 for Bible search — no native addons to compile. Vanilla HTML/CSS/JS single-page
+app (no build step). Cookie-session auth with scrypt-hashed passwords. Rustic
+"silver / wood, illuminated-manuscript" theme. Deployed on Railway with a persistent
+volume so data survives redeploys.
 
 ## Running locally
 
 ```bash
-cp .env.example .env
-docker-compose up --build
-./infra/smoke-test.sh   # hits /health on every service
+cd webapp
+npm install
+npm start           # http://localhost:3000  (set PORT to override)
 ```
 
-Run scripture engine unit tests (pure logic, no infra needed):
+The Bible library loads from committed JSON on first boot; podcasts refresh from their
+RSS feeds in the background. To (re)ingest more scripture:
+
 ```bash
-node --test scripture-engine/tests/pipeline.test.js
+node scripts/ingest-bible.js            # all configured books, skips existing
+node scripts/ingest-bible.js genesis    # a single book
 ```
 
-## Required API keys / secrets (via vault in prod, `.env` locally)
+## Deployment
 
-| Key | Used by | Notes |
+Railway auto-deploys `webapp/` from `main` (Root Directory set to `webapp/`). A
+persistent volume is mounted at `/data` (`DATA_DIR=/data`) so the SQLite database
+survives redeploys — do not remove it. All Bible/podcast data loads are additive and
+idempotent, so redeploys never lose user data.
+
+## Environment
+
+| Var | Purpose | Default |
 |---|---|---|
-| `YOUVERSION_API_KEY` | scripture-engine, integrations/youversion | Contract/scopes NOT yet verified — see `integrations/youversion/adapter-interface.md` |
-| `GLOO_API_KEY` | creator-tools, integrations/gloo | Contract/scopes NOT yet verified — see `integrations/gloo/adapter-interface.md` |
-| `APNS_AUTH_KEY` | notification | Apple Push auth key (.p8) |
-| Google Fit OAuth client | wearable-ingest | Per-user OAuth, not a static key |
-| Garmin/Fitbit/Oura/WHOOP API keys | wearable-ingest (polling adapters) | Per-vendor developer app credentials |
-
-## Feature flag checklist (all default OFF — `config/feature-flags.json`)
-
-Before flipping any flag to `true` in a real environment, confirm:
-1. Contract verified against the vendor's current official docs (endpoints, auth, scopes).
-2. Rate limits understood and `shared/retry.js` backoff tuned accordingly.
-3. Licensing/data-use terms reviewed (especially YouVersion translation licensing).
-4. Consent flow (`wearables/consent.js`, `user_consents` table) covers the data this flag unlocks.
-5. Flag flipped per-environment via `FLAG_<NAME>` env override before a full code change, so it
-   can be reverted instantly.
-
-Flags: `youversion.read`, `youversion.write`, `gloo.read`, `gloo.write`, `wearable.healthkit`,
-`wearable.googlefit`, `wearable.garmin`, `wearable.fitbit`, `wearable.oura`, `wearable.whoop`,
-`scripture.personalization`, `notifications.push`.
-
-## Privacy / GDPR / CCPA compliance checklist
-
-- [ ] Explicit opt-in captured (`user_consents`) before any biometric ingestion
-- [ ] Explicit opt-in captured before scripture personalization (separate scope from biometric ingest)
-- [ ] Biometric data encrypted at rest and in transit
-- [ ] `audit_logs` populated for all data access outside the owning user (support tooling, admin)
-- [ ] Data export endpoint (user's own data, machine-readable)
-- [ ] Data deletion endpoint: cascades to `biometric_data`, `scripture_triggers`, `posts`, `workouts`,
-      wearable device links, and revokes third-party tokens
-- [ ] Data Processing Agreement on file with YouVersion, Gloo, and each wearable vendor before enabling
-      their integration in production
-- [ ] Privacy policy discloses exactly which biometric signals feed the scripture personalization model
-
-## What's implemented vs. stubbed
-
-Fully implemented with passing unit tests: scripture trigger engine pipeline (14 tests across
-scripture-engine/gamification/notification/wearables), gamification XP/quest/badge logic,
-notification composer, wearable normalization + consent gate, YouVersion/Gloo adapters with
-feature-flag gating + retry/backoff + mock servers.
-
-Stubbed (routes/Dockerfiles present, business logic marked `TODO`): the 11 services' actual
-DB-backed route handlers, HealthKit Swift background delivery, live Google Fit response parsing,
-Terraform apply, K8s secrets wiring. These are intentionally left as documented next steps rather
-than guessed at, per the "do not assume API contracts" rule in the spec.
-
-## Spin-off agent work breakdown
-
-This repo covers the deliverables originally scoped across Infra, Integrations, Wearable, Mobile,
-Gamification, and QA agent tracks (see spec section 6) — folded into one coherent scaffold instead
-of parallel agents, so schemas/interfaces stay consistent across services. Directory ownership maps
-1:1 to those tracks: `infra/` (Infra agent), `integrations/` (Integrations agent), `wearables/` +
-`ios/` (Wearable + Mobile agents), `services/gamification/` (Gamification agent), `qa/` (QA agent),
-`scripture-engine/` (ML/Personalization agent's rule-based baseline — see pipeline.js scoring function
-for the swap-in point for a real ranking model).
+| `PORT` | HTTP port | `3000` |
+| `DATA_DIR` | SQLite data directory (persistent volume in prod) | `webapp/data` |
+| `SESSION_SECRET` | cookie-session signing key | dev fallback — **set in prod** |
