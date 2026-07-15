@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>FaithFit Platform — Live Demo</title>
+<style>
+body { font-family: -apple-system, system-ui, sans-serif; max-width: 760px; margin: 40px auto; padding: 0 20px; background:#0b0d12; color:#e8e8ec; }
+h1 { font-size: 1.6rem; } code { background:#1c2029; padding:2px 6px; border-radius:4px; }
+section { margin-bottom: 28px; padding: 16px; border: 1px solid #262b36; border-radius: 10px; }
+button { background:#5b5bf0; color:white; border:none; padding:8px 14px; border-radius:8px; cursor:pointer; }
+pre { background:#12151c; padding:12px; border-radius:8px; overflow:auto; }
+a { color:#9db4ff; }
+</style>
+</head>
+<body>
+<h1>FaithFit Platform — Live Demo</h1>
+<p>Thin live slice of the full platform (source: <a href="https://github.com/GoldstarOrbital/faithfit-platform">GoldstarOrbital/faithfit-platform</a>). Exercises the real Scripture Trigger Engine and gamification logic — no database/Kafka required for this demo.</p>
+
+<section>
+<h3>Scripture Trigger Engine</h3>
+<button onclick="runTrigger('workout')">Simulate: mid-workout</button>
+<button onclick="runTrigger('stress')">Simulate: high stress</button>
+<pre id="out-trigger">—</pre>
+</section>
+
+<section>
+<h3>Gamification (XP / badges)</h3>
+<button onclick="runGamification()">Simulate: workout completed</button>
+<pre id="out-gami">—</pre>
+</section>
+
+<script>
+async function runTrigger(kind) {
+  const body = kind === 'workout'
+    ? { workout_type: 'run', movement_intensity: 0.9, stress_level: 1 }
+    : { workout_type: null, movement_intensity: 0, stress_level: 9 };
+  const res = await fetch('/api/demo/scripture-trigger', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  document.getElementById('out-trigger').textContent = JSON.stringify(await res.json(), null, 2);
+}
+async function runGamification() {
+  const res = await fetch('/api/demo/gamification', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ event_type: 'workout.completed', workouts_completed: 1 }) });
+  document.getElementById('out-gami').textContent = JSON.stringify(await res.json(), null, 2);
+}
+</script>
+</body>
+</html>

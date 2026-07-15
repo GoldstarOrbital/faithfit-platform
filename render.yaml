@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: faithfit-demo
+    runtime: node
+    plan: free
+    rootDir: demo-server
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
