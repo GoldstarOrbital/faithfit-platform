@@ -416,8 +416,16 @@ router.get('/motivation', (req, res) => {
   res.json(rows[Math.floor(Math.random() * rows.length)]);
 });
 
+// Podcasts with their most-recent real episodes (ingested from public RSS feeds).
 router.get('/podcasts', (req, res) => {
-  res.json(db.prepare('SELECT * FROM podcasts ORDER BY title').all());
+  const limit = Math.min(20, Math.max(1, Number(req.query.episodes) || 5));
+  const podcasts = db.prepare('SELECT id, title, host, description, theme, feed_url, artwork_url, last_fetched FROM podcasts ORDER BY title').all();
+  const epStmt = db.prepare(`
+    SELECT id, title, description, audio_url, link, duration_sec, published_at
+    FROM podcast_episodes WHERE podcast_id = ?
+    ORDER BY (published_at IS NULL), published_at DESC LIMIT ?
+  `);
+  res.json(podcasts.map(p => ({ ...p, episodes: epStmt.all(p.id, limit) })));
 });
 
 router.post('/breathing/complete', requireAuth, (req, res) => {

@@ -242,4 +242,25 @@ const workoutCols = db.prepare("PRAGMA table_info(workouts)").all().map(c => c.n
 // gps_path: JSON array of [lat,lng] for the real route, used by the public share page.
 if (!workoutCols.includes('gps_path')) db.exec("ALTER TABLE workouts ADD COLUMN gps_path TEXT");
 
+// --- migration: real podcast RSS ingestion (additive) ---
+const podcastCols = db.prepare("PRAGMA table_info(podcasts)").all().map(c => c.name);
+if (!podcastCols.includes('feed_url')) db.exec("ALTER TABLE podcasts ADD COLUMN feed_url TEXT");
+if (!podcastCols.includes('artwork_url')) db.exec("ALTER TABLE podcasts ADD COLUMN artwork_url TEXT");
+if (!podcastCols.includes('last_fetched')) db.exec("ALTER TABLE podcasts ADD COLUMN last_fetched TEXT");
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS podcast_episodes (
+  id TEXT PRIMARY KEY,
+  podcast_id TEXT NOT NULL,
+  guid TEXT NOT NULL,
+  title TEXT,
+  description TEXT,
+  audio_url TEXT,
+  link TEXT,
+  duration_sec INTEGER,
+  published_at TEXT,
+  UNIQUE(podcast_id, guid)
+);
+`);
+
 module.exports = db;

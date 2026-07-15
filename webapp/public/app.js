@@ -268,14 +268,29 @@ async function renderExplore(main) {
     `;
     document.getElementById('another-quote').onclick = () => renderExplore(main);
   } else if (state.exploreTab === 'podcasts') {
-    const podcasts = await api('/podcasts');
-    body.innerHTML = `<h2>Podcasts</h2><div class="card glass">` + podcasts.map(p => `
-      <div class="podcast-row">
-        <div class="podcast-art">🎙️</div>
-        <div class="podcast-meta"><div class="podcast-title">${p.title}</div><div class="podcast-sub">${p.host} · ${p.duration_min} min</div></div>
-        <div class="play-btn">▶</div>
-      </div>
-    `).join('') + `</div>`;
+    const podcasts = await api('/podcasts?episodes=4');
+    const fmtDur = s => s ? `${Math.round(s / 60)} min` : '';
+    const fmtDate = iso => { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }); };
+    body.innerHTML = `<h2>Podcasts</h2>
+      <p class="muted" style="margin-top:-6px;margin-bottom:12px">Real, current episodes from independent Christian shows — refreshed from each show's RSS feed.</p>` +
+      podcasts.map(p => `
+        <div class="card glass">
+          <div class="podcast-row" style="border-bottom:none">
+            <div class="podcast-art">🎙️</div>
+            <div class="podcast-meta"><div class="podcast-title">${escapeHtml(p.title)}</div><div class="podcast-sub">${escapeHtml(p.host)}</div></div>
+          </div>
+          <div class="muted" style="margin:2px 0 10px">${escapeHtml(p.description || '')}</div>
+          ${p.episodes && p.episodes.length ? p.episodes.map(e => `
+            <div class="episode">
+              <div class="episode-title">${escapeHtml(e.title)}</div>
+              <div class="episode-meta">${[fmtDate(e.published_at), fmtDur(e.duration_sec)].filter(Boolean).join(' · ')}</div>
+              ${e.audio_url
+                ? `<audio controls preload="none" src="${escapeHtml(e.audio_url)}" style="width:100%;margin-top:6px"></audio>`
+                : (e.link ? `<a href="${escapeHtml(e.link)}" target="_blank" rel="noopener">Listen ↗</a>` : '')}
+            </div>`).join('')
+            : `<div class="muted">Episodes loading — check back shortly.</div>`}
+        </div>
+      `).join('');
   }
 }
 

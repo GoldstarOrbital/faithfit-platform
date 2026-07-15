@@ -208,6 +208,10 @@ button.ghost:hover { background: var(--parch-1); border-color: var(--gold); }
 .podcast-title { font-weight:700; font-size:0.92rem; color: var(--ink); }
 .podcast-sub { font-size:0.75rem; color:var(--muted); }
 .play-btn { width:36px; height:36px; border-radius:50%; background: var(--parch-2); border:1px solid var(--silver-0); color:var(--forest); display:flex;align-items:center;justify-content:center; cursor:pointer; }
+.episode { padding:10px 0; border-top:1px solid var(--hairline-soft); }
+.episode-title { font-weight:600; font-size:0.9rem; color: var(--ink); line-height:1.35; }
+.episode-meta { font-size:0.74rem; color: var(--muted); margin-top:2px; }
+.episode audio { height:34px; filter: sepia(0.25) saturate(0.9); }
 
 /* ---- Profile ---- */
 .profile-header { display:flex; align-items:center; gap: 14px; margin-bottom: 14px; }

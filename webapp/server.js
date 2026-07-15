@@ -3,8 +3,11 @@ const path = require('path');
 const cookieSession = require('cookie-session');
 const { seed } = require('./lib/seed');
 const apiRoutes = require('./routes/api');
+const { startPodcastRefresh } = require('./lib/podcasts');
 
 seed();
+// Ingest real podcast episodes from public RSS feeds (background, non-blocking).
+startPodcastRefresh();
 
 const app = express();
 app.use(express.json());
