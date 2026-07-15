@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS workouts (
   calories INTEGER,
   avg_hr INTEGER,
   max_hr INTEGER,
+  distance_km REAL,
+  gps_points INTEGER,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -135,6 +137,48 @@ CREATE TABLE IF NOT EXISTS group_members (
   group_id TEXT NOT NULL,
   user_id TEXT NOT NULL,
   PRIMARY KEY (group_id, user_id)
+);
+`);
+
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS post_likes (
+  post_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (post_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS post_comments (
+  id TEXT PRIMARY KEY,
+  post_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  content TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS motivation_quotes (
+  id TEXT PRIMARY KEY,
+  text TEXT,
+  attribution TEXT,
+  theme TEXT
+);
+
+CREATE TABLE IF NOT EXISTS podcasts (
+  id TEXT PRIMARY KEY,
+  title TEXT,
+  host TEXT,
+  description TEXT,
+  duration_min INTEGER,
+  theme TEXT
+);
+
+CREATE TABLE IF NOT EXISTS breathing_sessions (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  pattern TEXT,
+  duration_sec INTEGER,
+  completed_at TEXT DEFAULT (datetime('now'))
 );
 `);
 

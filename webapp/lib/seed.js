@@ -68,6 +68,48 @@ function seed() {
   db.prepare('INSERT INTO posts (id, user_id, content, verse_id) VALUES (?, ?, ?, ?)')
     .run(randomUUID(), users[2].id, 'Rest day reflection before tomorrow’s yoga session.', 'psa.46.1');
 
+  // Follows — make it feel like a real social graph.
+  const insertFollow = db.prepare('INSERT OR IGNORE INTO followers (follower_id, followee_id) VALUES (?, ?)');
+  insertFollow.run(users[0].id, users[1].id);
+  insertFollow.run(users[0].id, users[2].id);
+  insertFollow.run(users[1].id, users[0].id);
+  insertFollow.run(users[2].id, users[0].id);
+  insertFollow.run(users[1].id, users[2].id);
+
+  // Likes + comments on the seeded posts so the feed feels alive on first load.
+  const posts = db.prepare('SELECT id FROM posts').all();
+  const insertLike = db.prepare('INSERT OR IGNORE INTO post_likes (post_id, user_id) VALUES (?, ?)');
+  const insertComment = db.prepare('INSERT INTO post_comments (id, post_id, user_id, content) VALUES (?, ?, ?, ?)');
+  posts.forEach(p => {
+    users.forEach(u => { if (Math.random() > 0.3) insertLike.run(p.id, u.id); });
+  });
+  if (posts[0]) {
+    insertComment.run(randomUUID(), posts[0].id, users[0].id, 'Way to go! That verse hit perfectly.');
+    insertComment.run(randomUUID(), posts[0].id, users[2].id, 'Isaiah 40:31 is one of my favorites 🙌');
+  }
+  if (posts[1]) {
+    insertComment.run(randomUUID(), posts[1].id, users[0].id, 'Needed this today.');
+  }
+
+  const quotes = [
+    { id: randomUUID(), text: 'She is clothed with strength and dignity; she can laugh at the days to come.', attribution: 'Proverbs 31:25', theme: 'strength' },
+    { id: randomUUID(), text: 'The body achieves what the mind believes.', attribution: 'Unknown', theme: 'motivation' },
+    { id: randomUUID(), text: 'Discipline is choosing between what you want now and what you want most.', attribution: 'Unknown', theme: 'discipline' },
+    { id: randomUUID(), text: 'I have set the Lord always before me. Because he is at my right hand, I will not be shaken.', attribution: 'Psalm 16:8', theme: 'peace' },
+    { id: randomUUID(), text: 'Do everything in love.', attribution: '1 Corinthians 16:14', theme: 'purpose' },
+  ];
+  const insertQuote = db.prepare('INSERT INTO motivation_quotes (id, text, attribution, theme) VALUES (@id, @text, @attribution, @theme)');
+  quotes.forEach(q => insertQuote.run(q));
+
+  const podcasts = [
+    { id: randomUUID(), title: 'Strength & Stillness', host: 'FaithFit Studios', description: 'Short devotionals for the drive home from the gym.', duration_min: 12, theme: 'devotion' },
+    { id: randomUUID(), title: 'The Long Run', host: 'Sam T.', description: 'Marathon training meets scripture meditation.', duration_min: 28, theme: 'endurance' },
+    { id: randomUUID(), title: 'Breath Prayer', host: 'Priya K.', description: 'Guided breathing paired with a single verse to hold onto.', duration_min: 8, theme: 'peace' },
+    { id: randomUUID(), title: 'Rest Day Theology', host: 'FaithFit Studios', description: 'Why rest is a spiritual discipline, not a cheat day.', duration_min: 19, theme: 'renewal' },
+  ];
+  const insertPodcast = db.prepare('INSERT INTO podcasts (id, title, host, description, duration_min, theme) VALUES (@id, @title, @host, @description, @duration_min, @theme)');
+  podcasts.forEach(p => insertPodcast.run(p));
+
   console.log('Seeded database with demo users, verses, badges, quests, groups.');
   return users;
 }

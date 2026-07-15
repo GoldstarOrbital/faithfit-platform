@@ -25,11 +25,18 @@ router.post('/session', (req, res) => {
 
 router.get('/me', (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'not_signed_in' });
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.session.userId);
-  const xp = db.prepare('SELECT * FROM user_xp WHERE user_id = ?').get(req.session.userId);
-  const badges = db.prepare(`SELECT b.* FROM user_badges ub JOIN badges b ON b.id = ub.badge_id WHERE ub.user_id = ?`).all(req.session.userId);
-  const consents = db.prepare('SELECT scope FROM user_consents WHERE user_id = ? AND revoked_at IS NULL').all(req.session.userId).map(r => r.scope);
-  res.json({ user, xp, badges, consents });
+  const uid = req.session.userId;
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(uid);
+  const xp = db.prepare('SELECT * FROM user_xp WHERE user_id = ?').get(uid);
+  const badges = db.prepare(`SELECT b.* FROM user_badges ub JOIN badges b ON b.id = ub.badge_id WHERE ub.user_id = ?`).all(uid);
+  const consents = db.prepare('SELECT scope FROM user_consents WHERE user_id = ? AND revoked_at IS NULL').all(uid).map(r => r.scope);
+  const stats = {
+    workouts: db.prepare("SELECT COUNT(*) c FROM workouts WHERE user_id = ? AND end_time IS NOT NULL").get(uid).c,
+    total_calories: db.prepare("SELECT COALESCE(SUM(calories),0) c FROM workouts WHERE user_id = ?").get(uid).c,
+    followers: db.prepare('SELECT COUNT(*) c FROM followers WHERE followee_id = ?').get(uid).c,
+    following: db.prepare('SELECT COUNT(*) c FROM followers WHERE follower_id = ?').get(uid).c,
+  };
+  res.json({ user, xp, badges, consents, stats });
 });
 
 function requireAuth(req, res, next) {
@@ -54,9 +61,10 @@ router.post('/consent', requireAuth, (req, res) => {
 
 // ---- feed ----
 router.get('/feed', (req, res) => {
+  const meId = req.session.userId;
   const posts = db.prepare(`
-    SELECT p.id, p.content, p.created_at, u.display_name author,
-           w.type workout_type, w.calories, w.avg_hr,
+    SELECT p.id, p.content, p.created_at, p.user_id author_id, u.display_name author,
+           w.type workout_type, w.calories, w.avg_hr, w.start_time, w.end_time, w.distance_km,
            v.reference verse_reference, v.text verse_text, v.youversion_id
     FROM posts p
     JOIN users u ON u.id = p.user_id
@@ -64,7 +72,44 @@ router.get('/feed', (req, res) => {
     LEFT JOIN scripture_verses v ON v.id = p.verse_id
     ORDER BY p.created_at DESC LIMIT 50
   `).all();
-  res.json(posts);
+
+  const withSocial = posts.map(p => {
+    const likeCount = db.prepare('SELECT COUNT(*) c FROM post_likes WHERE post_id = ?').get(p.id).c;
+    const likedByMe = meId ? !!db.prepare('SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?').get(p.id, meId) : false;
+    const comments = db.prepare(`
+      SELECT c.id, c.content, c.created_at, u.display_name author
+      FROM post_comments c JOIN users u ON u.id = c.user_id
+      WHERE c.post_id = ? ORDER BY c.created_at ASC
+    `).all(p.id);
+    let pace = null, distanceKm = p.distance_km ?? null;
+    if (p.workout_type && p.start_time && p.end_time) {
+      const mins = (new Date(p.end_time) - new Date(p.start_time)) / 60000;
+      if (distanceKm == null) distanceKm = +(mins / 6).toFixed(1); // fallback estimate when no real GPS data
+      pace = distanceKm > 0 ? (mins / distanceKm).toFixed(1) : null;
+    }
+    return { ...p, like_count: likeCount, liked_by_me: likedByMe, comments, distance_km: distanceKm, pace_min_per_km: pace };
+  });
+  res.json(withSocial);
+});
+
+router.post('/posts/:id/like', requireAuth, (req, res) => {
+  const existing = db.prepare('SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?').get(req.params.id, req.session.userId);
+  if (existing) {
+    db.prepare('DELETE FROM post_likes WHERE post_id = ? AND user_id = ?').run(req.params.id, req.session.userId);
+  } else {
+    db.prepare('INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)').run(req.params.id, req.session.userId);
+  }
+  const likeCount = db.prepare('SELECT COUNT(*) c FROM post_likes WHERE post_id = ?').get(req.params.id).c;
+  res.json({ liked: !existing, like_count: likeCount });
+});
+
+router.post('/posts/:id/comments', requireAuth, (req, res) => {
+  const { content } = req.body || {};
+  if (!content || !content.trim()) return res.status(400).json({ error: 'empty_comment' });
+  const id = randomUUID();
+  db.prepare('INSERT INTO post_comments (id, post_id, user_id, content) VALUES (?, ?, ?, ?)').run(id, req.params.id, req.session.userId, content.trim());
+  const comment = db.prepare(`SELECT c.id, c.content, c.created_at, u.display_name author FROM post_comments c JOIN users u ON u.id = c.user_id WHERE c.id = ?`).get(id);
+  res.json(comment);
 });
 
 // ---- workouts ----
@@ -115,14 +160,17 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   const hrs = samples.map(s => s.heart_rate).filter(Boolean);
   const avgHr = hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
   const maxHr = hrs.length ? Math.max(...hrs) : null;
-  const calories = Math.round((Date.now() - new Date(workout.start_time).getTime()) / 60000 * 8); // rough estimate
+  const { gps_distance_km, gps_points } = req.body || {};
+  // Calories: use real GPS distance if we have one (running ~ 60 kcal/km), else fall back to a duration-based estimate.
+  const durationMin = (Date.now() - new Date(workout.start_time).getTime()) / 60000;
+  const calories = gps_distance_km > 0 ? Math.round(gps_distance_km * 60) : Math.round(durationMin * 8);
 
-  db.prepare("UPDATE workouts SET end_time = datetime('now'), avg_hr = ?, max_hr = ?, calories = ? WHERE id = ?")
-    .run(avgHr, maxHr, calories, workout.id);
+  db.prepare("UPDATE workouts SET end_time = datetime('now'), avg_hr = ?, max_hr = ?, calories = ?, distance_km = ?, gps_points = ? WHERE id = ?")
+    .run(avgHr, maxHr, calories, gps_distance_km || null, gps_points || 0, workout.id);
 
   publish('workout.completed', { user_id: req.session.userId, workout_id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr });
 
-  res.json({ id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr });
+  res.json({ id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr, distance_km: gps_distance_km || null });
 });
 
 router.post('/posts', requireAuth, (req, res) => {
@@ -184,6 +232,24 @@ subscribe('workout.completed', (event) => {
     db.prepare('INSERT INTO notifications (id, user_id, type, payload) VALUES (?, ?, ?, ?)')
       .run(randomUUID(), event.user_id, message.type, JSON.stringify(message));
   });
+});
+
+// ---- motivation / podcasts / breathing (new social+wellness surfaces) ----
+router.get('/motivation', (req, res) => {
+  const rows = db.prepare('SELECT * FROM motivation_quotes').all();
+  res.json(rows[Math.floor(Math.random() * rows.length)]);
+});
+
+router.get('/podcasts', (req, res) => {
+  res.json(db.prepare('SELECT * FROM podcasts ORDER BY title').all());
+});
+
+router.post('/breathing/complete', requireAuth, (req, res) => {
+  const { pattern = 'box', duration_sec = 60 } = req.body || {};
+  db.prepare('INSERT INTO breathing_sessions (id, user_id, pattern, duration_sec) VALUES (?, ?, ?, ?)')
+    .run(randomUUID(), req.session.userId, pattern, duration_sec);
+  publish('workout.completed', { user_id: req.session.userId, workout_id: null, calories: 0, avg_hr: null, max_hr: null, kind: 'breathing' });
+  res.json({ ok: true });
 });
 
 module.exports = router;
