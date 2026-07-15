@@ -7,10 +7,10 @@
  */
 const express = require('express');
 const path = require('path');
-const { runPipeline, FALLBACK_VERSES } = require('../scripture-engine/pipeline');
-const { xpForEvent, levelForXp } = require('../services/gamification/src/logic/xp');
-const { badgeEligibility } = require('../services/gamification/src/logic/badges');
-const { composeForEvent } = require('../services/notification/src/composer');
+const { runPipeline, FALLBACK_VERSES } = require('./lib/pipeline');
+const { xpForEvent, levelForXp } = require('./lib/xp');
+const { badgeEligibility } = require('./lib/badges');
+const { composeForEvent } = require('./lib/composer');
 
 const app = express();
 app.use(express.json());
