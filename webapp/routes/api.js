@@ -9,9 +9,33 @@ const { badgeEligibility } = require('../lib/badges');
 const { composeForEvent } = require('../lib/composer');
 const { loadBibleData } = require('../lib/bible-load');
 const { hashPassword, verifyPassword } = require('../lib/password');
+const { ensureChallenges, applyWorkoutToChallenges } = require('../lib/challenges');
 
 // Load real, public-domain Bible text (KJV/WEB) into bible_verses once at startup.
 loadBibleData();
+// Seed / refresh the themed challenge catalog.
+ensureChallenges();
+
+// Activities FaithFit can track. Kept server-side so the client and validation
+// stay in sync. `d` = whether distance/pace is meaningful for that activity.
+const ACTIVITY_TYPES = [
+  { type: 'Run', icon: '🏃', d: true },
+  { type: 'Walk', icon: '🚶', d: true },
+  { type: 'Hike', icon: '🥾', d: true },
+  { type: 'Trail Run', icon: '⛰️', d: true },
+  { type: 'Cycle', icon: '🚴', d: true },
+  { type: 'Swim', icon: '🏊', d: true },
+  { type: 'Row', icon: '🚣', d: true },
+  { type: 'Elliptical', icon: '🌀', d: false },
+  { type: 'Strength', icon: '🏋️', d: false },
+  { type: 'HIIT', icon: '🔥', d: false },
+  { type: 'Yoga', icon: '🧘', d: false },
+  { type: 'Pilates', icon: '🤸', d: false },
+  { type: 'Climbing', icon: '🧗', d: false },
+  { type: 'Skiing', icon: '⛷️', d: true },
+  { type: 'Workout', icon: '💪', d: false },
+];
+const ACTIVITY_SET = new Set(ACTIVITY_TYPES.map(a => a.type));
 
 const router = express.Router();
 
@@ -279,13 +303,47 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
     pointCount = gps_points;
   }
 
-  db.prepare("UPDATE workouts SET end_time = datetime('now'), avg_hr = ?, max_hr = ?, calories = ?, distance_km = ?, gps_points = ?, gps_path = ? WHERE id = ?")
-    .run(avgHr, maxHr, calories, gps_distance_km || null, pointCount, pathJson, workout.id);
+  const durationSec = Math.max(0, Math.round((Date.now() - new Date(workout.start_time).getTime()) / 1000));
+  db.prepare("UPDATE workouts SET end_time = datetime('now'), avg_hr = ?, max_hr = ?, calories = ?, distance_km = ?, gps_points = ?, gps_path = ?, duration_sec = ? WHERE id = ?")
+    .run(avgHr, maxHr, calories, gps_distance_km || null, pointCount, pathJson, durationSec, workout.id);
 
   publish('workout.completed', { user_id: req.session.userId, workout_id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr });
+  const completedChallenges = applyWorkoutToChallenges(req.session.userId, { distance_km: gps_distance_km || 0, duration_sec: durationSec, type: workout.type });
+  notifyChallengeCompletions(req.session.userId, completedChallenges);
 
-  res.json({ id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr, distance_km: gps_distance_km || null });
+  res.json({ id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr, distance_km: gps_distance_km || null, duration_sec: durationSec, completed_challenges: completedChallenges.map(c => c.name) });
 });
+
+// Manually log a completed workout (Strava-style "add activity" — no live tracking).
+router.post('/workouts/manual', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  let { type = 'Run', duration_min, distance_km, calories, note, date, avg_hr } = req.body || {};
+  if (!ACTIVITY_SET.has(type)) return res.status(400).json({ error: 'invalid_activity_type' });
+  const durSec = Math.max(0, Math.round((Number(duration_min) || 0) * 60));
+  if (durSec === 0 && !(Number(distance_km) > 0)) return res.status(400).json({ error: 'need_duration_or_distance' });
+  const dist = Number(distance_km) > 0 ? Number(distance_km) : null;
+  const cal = Number(calories) > 0 ? Math.round(Number(calories)) : (dist ? Math.round(dist * 60) : Math.round((durSec / 60) * 8));
+  const when = date && !isNaN(new Date(date)) ? new Date(date).toISOString() : new Date().toISOString();
+  const start = new Date(new Date(when).getTime() - durSec * 1000).toISOString();
+  const id = randomUUID();
+  db.prepare(`INSERT INTO workouts (id, user_id, type, start_time, end_time, calories, avg_hr, distance_km, duration_sec, gps_points, note, source)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'manual')`)
+    .run(id, uid, type, start, when, cal, Number(avg_hr) > 0 ? Math.round(Number(avg_hr)) : null, dist, durSec, (note || '').toString().slice(0, 500) || null);
+
+  publish('workout.completed', { user_id: uid, workout_id: id, calories: cal, avg_hr: avg_hr || null });
+  const completed = applyWorkoutToChallenges(uid, { distance_km: dist || 0, duration_sec: durSec, type });
+  notifyChallengeCompletions(uid, completed);
+  res.status(201).json({ id, type, calories: cal, distance_km: dist, duration_sec: durSec, completed_challenges: completed.map(c => c.name) });
+});
+
+function notifyChallengeCompletions(userId, completed) {
+  for (const c of completed) {
+    db.prepare('INSERT INTO notifications (id, user_id, type, payload) VALUES (?, ?, ?, ?)')
+      .run(randomUUID(), userId, 'challenge_complete', JSON.stringify({ challenge: c.name, message: `Challenge complete: ${c.name}!` }));
+  }
+}
+
+router.get('/activity-types', (req, res) => res.json(ACTIVITY_TYPES));
 
 // Share a workout / reflection. Visibility defaults to the user's setting.
 router.post('/posts', requireAuth, (req, res) => {
@@ -435,6 +493,188 @@ router.get('/explore', (req, res) => {
   const groups = db.prepare('SELECT * FROM groups').all();
   const quests = db.prepare('SELECT * FROM quests').all();
   res.json({ groups, quests });
+});
+
+// ---- themed challenges ----
+router.get('/challenges', (req, res) => {
+  const me = req.session.userId || null;
+  const rows = db.prepare(`
+    SELECT c.*, uc.progress, uc.joined_at, uc.completed_at,
+           (SELECT COUNT(*) FROM user_challenges u WHERE u.challenge_id = c.id) AS participants
+    FROM challenges c
+    LEFT JOIN user_challenges uc ON uc.challenge_id = c.id AND uc.user_id = @me
+    ORDER BY c.target
+  `).all({ me });
+  res.json(rows.map(c => ({
+    ...c,
+    joined: !!c.joined_at,
+    progress: c.progress || 0,
+    percent: Math.min(100, Math.round(((c.progress || 0) / c.target) * 100)),
+    completed: !!c.completed_at,
+  })));
+});
+
+router.post('/challenges/:id/join', requireAuth, (req, res) => {
+  const c = db.prepare('SELECT id FROM challenges WHERE id = ? OR key = ?').get(req.params.id, req.params.id);
+  if (!c) return res.status(404).json({ error: 'challenge_not_found' });
+  db.prepare('INSERT OR IGNORE INTO user_challenges (user_id, challenge_id, progress) VALUES (?, ?, 0)').run(req.session.userId, c.id);
+  res.status(201).json({ ok: true, challenge_id: c.id });
+});
+
+router.post('/challenges/:id/leave', requireAuth, (req, res) => {
+  const c = db.prepare('SELECT id FROM challenges WHERE id = ? OR key = ?').get(req.params.id, req.params.id);
+  if (!c) return res.status(404).json({ error: 'challenge_not_found' });
+  db.prepare('DELETE FROM user_challenges WHERE user_id = ? AND challenge_id = ?').run(req.session.userId, c.id);
+  res.json({ ok: true });
+});
+
+// ---- analytics: fast, aggregated workout data for the Stats dashboard ----
+function completedWorkouts(uid) {
+  return db.prepare("SELECT type, calories, avg_hr, max_hr, distance_km, duration_sec, start_time, end_time FROM workouts WHERE user_id = ? AND end_time IS NOT NULL").all(uid);
+}
+
+router.get('/stats/summary', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const ws = completedWorkouts(uid);
+  const now = Date.now();
+  const dur = w => Number(w.duration_sec) || (w.start_time && w.end_time ? Math.max(0, (new Date(w.end_time) - new Date(w.start_time)) / 1000) : 0);
+  const sum = (arr, f) => arr.reduce((a, w) => a + (f(w) || 0), 0);
+  const within = (days) => ws.filter(w => (now - new Date(w.end_time).getTime()) <= days * 86400000);
+
+  const totals = (arr) => ({
+    workouts: arr.length,
+    distance_km: +sum(arr, w => w.distance_km).toFixed(2),
+    duration_min: Math.round(sum(arr, dur) / 60),
+    calories: Math.round(sum(arr, w => w.calories)),
+  });
+
+  // Streak: consecutive days (ending today or yesterday) with at least one workout.
+  const days = new Set(ws.map(w => new Date(w.end_time).toISOString().slice(0, 10)));
+  let streak = 0; let d = new Date();
+  const iso = (dt) => dt.toISOString().slice(0, 10);
+  if (!days.has(iso(d))) d.setDate(d.getDate() - 1); // allow streak to count through yesterday
+  while (days.has(iso(d))) { streak++; d.setDate(d.getDate() - 1); }
+
+  // Personal records.
+  const withDist = ws.filter(w => w.distance_km > 0);
+  const pace = w => (w.distance_km > 0 && dur(w) > 0) ? (dur(w) / 60) / w.distance_km : null;
+  const best = (arr, f) => arr.reduce((b, w) => (f(w) != null && (b == null || f(w) > f(b)) ? w : b), null);
+  const longest = best(withDist, w => w.distance_km);
+  const longestTime = best(ws, dur);
+  const fastest = withDist.filter(w => pace(w)).sort((a, b) => pace(a) - pace(b))[0] || null;
+
+  res.json({
+    lifetime: totals(ws),
+    this_week: totals(within(7)),
+    this_month: totals(within(30)),
+    streak_days: streak,
+    active_days: days.size,
+    records: {
+      longest_distance_km: longest ? +longest.distance_km.toFixed(2) : null,
+      longest_duration_min: longestTime ? Math.round(dur(longestTime) / 60) : null,
+      fastest_pace_min_km: fastest ? +pace(fastest).toFixed(2) : null,
+      most_calories: ws.length ? Math.max(...ws.map(w => w.calories || 0)) : null,
+      highest_hr: ws.length ? Math.max(...ws.map(w => w.max_hr || 0)) || null : null,
+    },
+  });
+});
+
+router.get('/stats/trends', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const weeks = Math.min(52, Math.max(4, Number(req.query.weeks) || 12));
+  const ws = completedWorkouts(uid);
+  const dur = w => (Number(w.duration_sec) || (w.start_time && w.end_time ? Math.max(0, (new Date(w.end_time) - new Date(w.start_time)) / 1000) : 0));
+  const now = new Date();
+  // Build week buckets ending today, going back `weeks` weeks (Mon-anchored not needed — rolling 7-day windows).
+  const buckets = [];
+  for (let i = weeks - 1; i >= 0; i--) {
+    const end = new Date(now); end.setDate(end.getDate() - i * 7);
+    const start = new Date(end); start.setDate(start.getDate() - 7);
+    buckets.push({ start, end, label: end.toISOString().slice(5, 10), workouts: 0, distance_km: 0, duration_min: 0, calories: 0 });
+  }
+  for (const w of ws) {
+    const t = new Date(w.end_time).getTime();
+    for (const b of buckets) {
+      if (t > b.start.getTime() && t <= b.end.getTime()) {
+        b.workouts++; b.distance_km += w.distance_km || 0; b.duration_min += dur(w) / 60; b.calories += w.calories || 0; break;
+      }
+    }
+  }
+  res.json(buckets.map(b => ({ label: b.label, workouts: b.workouts, distance_km: +b.distance_km.toFixed(2), duration_min: Math.round(b.duration_min), calories: Math.round(b.calories) })));
+});
+
+router.get('/stats/activity-breakdown', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const rows = db.prepare(`
+    SELECT type,
+           COUNT(*) count,
+           COALESCE(SUM(distance_km),0) distance_km,
+           COALESCE(SUM(duration_sec),0) duration_sec,
+           COALESCE(SUM(calories),0) calories
+    FROM workouts WHERE user_id = ? AND end_time IS NOT NULL
+    GROUP BY type ORDER BY count DESC
+  `).all(uid);
+  res.json(rows.map(r => ({ type: r.type, count: r.count, distance_km: +Number(r.distance_km).toFixed(2), duration_min: Math.round(r.duration_sec / 60), calories: r.calories })));
+});
+
+// ---- tailored recommendations (verse + podcast + challenge) ----
+router.get('/recommendations', (req, res) => {
+  const uid = req.session.userId || null;
+  // Pick a theme from the user's most recent activity, else a default rotation.
+  let theme = 'strength';
+  if (uid) {
+    const last = db.prepare("SELECT type FROM workouts WHERE user_id = ? AND end_time IS NOT NULL ORDER BY end_time DESC LIMIT 1").get(uid);
+    const map = { Run: 'perseverance', 'Trail Run': 'endurance', Hike: 'endurance', Walk: 'peace', Cycle: 'endurance', Swim: 'renewal', Yoga: 'peace', Pilates: 'peace', Strength: 'strength', HIIT: 'strength', Climbing: 'courage', Row: 'perseverance' };
+    if (last) theme = map[last.type] || 'strength';
+  }
+  // A verse from the real library (deterministic-ish pick by theme keyword search).
+  const kw = { perseverance: 'run', endurance: 'strength', peace: 'peace', renewal: 'renew', strength: 'strength', courage: 'courage' }[theme] || 'strength';
+  const verseRow = db.prepare(`
+    SELECT bv.book, bv.chapter, bv.verse, bv.text FROM bible_verses_fts f
+    JOIN bible_verses bv ON bv.rowid = f.rowid WHERE bible_verses_fts MATCH ? ORDER BY RANDOM() LIMIT 1
+  `).get(`${kw}*`) || db.prepare('SELECT book, chapter, verse, text FROM bible_verses ORDER BY RANDOM() LIMIT 1').get();
+  const verse = verseRow ? { reference: `${verseRow.book} ${verseRow.chapter}:${verseRow.verse}`, text: verseRow.text } : null;
+
+  // A recent podcast episode.
+  const ep = db.prepare(`
+    SELECT p.title show, e.title, e.audio_url, e.link, e.duration_sec
+    FROM podcast_episodes e JOIN podcasts p ON p.id = e.podcast_id
+    ORDER BY (e.published_at IS NULL), e.published_at DESC LIMIT 20
+  `).all();
+  const podcast = ep.length ? ep[Math.floor((verseRow ? verseRow.verse : 0) % ep.length)] : null;
+
+  // A challenge suggestion the user hasn't joined.
+  let challenge = null;
+  if (uid) {
+    challenge = db.prepare(`
+      SELECT c.key, c.name, c.description, c.scripture_ref FROM challenges c
+      WHERE c.id NOT IN (SELECT challenge_id FROM user_challenges WHERE user_id = ?)
+      ORDER BY c.target LIMIT 1`).get(uid);
+  }
+  res.json({ theme, verse, podcast, challenge });
+});
+
+// ---- transparent data export: everything we hold on the signed-in user ----
+router.get('/me/export', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const { password_hash, ...profile } = db.prepare('SELECT * FROM users WHERE id = ?').get(uid) || {};
+  const data = {
+    exported_at: new Date().toISOString(),
+    note: 'This is all the data FaithFit holds about your account. Email is included because this is your own export.',
+    profile,
+    workouts: db.prepare('SELECT * FROM workouts WHERE user_id = ?').all(uid),
+    biometric_samples: db.prepare('SELECT * FROM biometric_samples WHERE user_id = ?').all(uid),
+    posts: db.prepare('SELECT * FROM posts WHERE user_id = ?').all(uid),
+    comments: db.prepare('SELECT * FROM post_comments WHERE user_id = ?').all(uid),
+    followers: db.prepare('SELECT follower_id FROM followers WHERE followee_id = ?').all(uid),
+    following: db.prepare('SELECT followee_id FROM followers WHERE follower_id = ?').all(uid),
+    consents: db.prepare('SELECT scope, granted_at, revoked_at FROM user_consents WHERE user_id = ?').all(uid),
+    challenges: db.prepare('SELECT * FROM user_challenges WHERE user_id = ?').all(uid),
+    xp: db.prepare('SELECT * FROM user_xp WHERE user_id = ?').get(uid),
+    badges: db.prepare('SELECT badge_id, earned_at FROM user_badges WHERE user_id = ?').all(uid),
+  };
+  res.setHeader('Content-Disposition', 'attachment; filename="faithfit-my-data.json"');
+  res.json(data);
 });
 
 // ---- notifications ----

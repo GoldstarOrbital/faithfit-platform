@@ -30,6 +30,7 @@ async function render() {
   if (!state.me) return renderSignIn();
   if (state.tab === 'home') return renderHome(main);
   if (state.tab === 'workout') return renderWorkout(main);
+  if (state.tab === 'stats') return renderStats(main);
   if (state.tab === 'explore') return renderExplore(main);
   if (state.tab === 'profile') return renderProfile(main);
 }
@@ -124,11 +125,20 @@ function routeSvg(seed) {
 
 async function renderHome(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
-  const [posts, users, suggested] = await Promise.all([api('/feed'), api('/users'), api('/users/suggested').catch(() => [])]);
+  const [posts, users, suggested, rec] = await Promise.all([api('/feed'), api('/users'), api('/users/suggested').catch(() => []), api('/recommendations').catch(() => null)]);
   main.innerHTML = `
     <div class="stories">
       ${users.map(u => `<div class="story" data-user="${u.id}"><div class="story-ring"><div class="story-avatar">${initials(u.display_name)}</div></div><div class="story-label">${u.display_name.split(' ')[0]}</div></div>`).join('')}
     </div>
+    ${rec ? `
+    <div class="card glass foryou-card">
+      <div class="foryou-head">✦ For you</div>
+      ${rec.verse ? `<div class="verse-card" style="margin-bottom:10px"><div class="verse-ref">${rec.verse.reference}</div><div class="verse-text">${escapeHtml(rec.verse.text)}</div></div>` : ''}
+      <div class="foryou-grid">
+        ${rec.podcast ? `<div class="foryou-item"><div class="foryou-label">🎙️ Listen</div><div class="foryou-title">${escapeHtml(rec.podcast.title)}</div><div class="muted" style="font-size:0.74rem">${escapeHtml(rec.podcast.show)}</div>${rec.podcast.audio_url ? `<audio controls preload="none" src="${escapeHtml(rec.podcast.audio_url)}" style="width:100%;margin-top:6px;height:32px"></audio>` : ''}</div>` : ''}
+        ${rec.challenge ? `<div class="foryou-item foryou-challenge" data-join-key="${rec.challenge.key}"><div class="foryou-label">🏆 Try a challenge</div><div class="foryou-title">${escapeHtml(rec.challenge.name)}</div><div class="muted" style="font-size:0.74rem">${escapeHtml(rec.challenge.description || '')}</div><button class="follow-btn" style="margin-top:8px" data-join-key="${rec.challenge.key}">Join</button></div>` : ''}
+      </div>
+    </div>` : ''}
     ${suggested && suggested.length ? `
     <div class="card glass suggest-card">
       <div class="suggest-head">People to follow</div>
@@ -144,6 +154,11 @@ async function renderHome(main) {
     </div>` : ''}
     <div id="posts"></div>
   `;
+  main.querySelectorAll('[data-join-key]').forEach(el => { if (el.tagName === 'BUTTON') el.onclick = async (e) => {
+    e.stopPropagation();
+    await api(`/challenges/${el.dataset.joinKey}/join`, { method: 'POST' });
+    el.textContent = 'Joined ✓'; el.classList.add('following');
+  }; });
   main.querySelectorAll('.story[data-user]').forEach(el => el.onclick = () => renderUserProfile(el.dataset.user));
   main.querySelectorAll('.suggest-item').forEach(el => el.onclick = (e) => { if (!e.target.closest('[data-follow]')) renderUserProfile(el.dataset.user); });
   main.querySelectorAll('[data-follow]').forEach(btn => btn.onclick = async (e) => {
@@ -283,9 +298,96 @@ async function renderUserProfile(userId) {
   };
 }
 
+// Simple, dependency-free SVG bar chart (theme-colored).
+function barChart(data, valueKey, unit) {
+  const w = 320, h = 120, pad = 4;
+  const max = Math.max(1, ...data.map(d => d[valueKey]));
+  const bw = (w - pad * 2) / data.length;
+  const bars = data.map((d, i) => {
+    const bh = (d[valueKey] / max) * (h - 22);
+    const x = pad + i * bw, y = h - 18 - bh;
+    return `<rect x="${x + bw * 0.15}" y="${y}" width="${bw * 0.7}" height="${Math.max(1, bh)}" rx="2" fill="url(#barGrad)"/>` +
+      (i % Math.ceil(data.length / 6) === 0 ? `<text x="${x + bw / 2}" y="${h - 4}" font-size="8" fill="currentColor" opacity="0.6" text-anchor="middle">${d.label}</text>` : '');
+  }).join('');
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;color:var(--muted)">
+    <defs><linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="var(--emerald-2)"/><stop offset="1" stop-color="var(--forest)"/></linearGradient></defs>
+    ${bars}
+  </svg>`;
+}
+
+async function renderStats(main) {
+  document.querySelectorAll('nav button').forEach(b => b.style.display = '');
+  main.innerHTML = `<div class="card glass" style="text-align:center">Loading your stats…</div>`;
+  let summary, trends, breakdown, challenges;
+  try {
+    [summary, trends, breakdown, challenges] = await Promise.all([
+      api('/stats/summary'), api('/stats/trends?weeks=12'), api('/stats/activity-breakdown'), api('/challenges'),
+    ]);
+  } catch { main.innerHTML = '<div class="card glass">Could not load stats.</div>'; return; }
+
+  const mine = challenges.filter(c => c.joined);
+  const tile = (v, l) => `<div class="stat-tile"><div class="stat-tile-v">${v}</div><div class="stat-tile-l">${l}</div></div>`;
+  const wk = summary.this_week, mo = summary.this_month, life = summary.lifetime, rec = summary.records;
+  const actMax = Math.max(1, ...breakdown.map(b => b.count));
+
+  main.innerHTML = `
+    <h2>Your Stats</h2>
+    <div class="card glass streak-banner">
+      <div><div class="streak-num">${summary.streak_days}</div><div class="muted">day streak 🔥</div></div>
+      <div><div class="streak-num">${summary.active_days}</div><div class="muted">active days</div></div>
+      <div><div class="streak-num">${life.workouts}</div><div class="muted">workouts</div></div>
+    </div>
+
+    <div class="card glass">
+      <div class="stats-period-head">This week</div>
+      <div class="stat-tiles">${tile(wk.distance_km, 'km')}${tile(wk.duration_min, 'min')}${tile(wk.calories, 'kcal')}${tile(wk.workouts, 'sessions')}</div>
+      <div class="stats-period-head" style="margin-top:14px">This month</div>
+      <div class="stat-tiles">${tile(mo.distance_km, 'km')}${tile(mo.duration_min, 'min')}${tile(mo.calories, 'kcal')}${tile(mo.workouts, 'sessions')}</div>
+    </div>
+
+    <div class="card glass">
+      <div class="stats-period-head">Distance · last 12 weeks</div>
+      ${barChart(trends, 'distance_km')}
+    </div>
+
+    <div class="card glass">
+      <div class="stats-period-head">Personal records</div>
+      <div class="pr-grid">
+        <div class="pr"><span class="pr-l">Longest distance</span><span class="pr-v">${rec.longest_distance_km != null ? rec.longest_distance_km + ' km' : '—'}</span></div>
+        <div class="pr"><span class="pr-l">Longest session</span><span class="pr-v">${rec.longest_duration_min != null ? rec.longest_duration_min + ' min' : '—'}</span></div>
+        <div class="pr"><span class="pr-l">Fastest pace</span><span class="pr-v">${rec.fastest_pace_min_km != null ? rec.fastest_pace_min_km + ' /km' : '—'}</span></div>
+        <div class="pr"><span class="pr-l">Most calories</span><span class="pr-v">${rec.most_calories || '—'}</span></div>
+      </div>
+    </div>
+
+    ${breakdown.length ? `<div class="card glass">
+      <div class="stats-period-head">By activity</div>
+      ${breakdown.map(b => `<div class="act-row"><span class="act-name">${b.type}</span>
+        <span class="act-bar"><span style="width:${(b.count/actMax)*100}%"></span></span>
+        <span class="act-count">${b.count}× · ${b.distance_km > 0 ? b.distance_km + 'km' : b.duration_min + 'min'}</span></div>`).join('')}
+    </div>` : ''}
+
+    <div class="card glass">
+      <div class="stats-period-head">My challenges</div>
+      ${mine.length ? mine.map(c => challengeRow(c)).join('') : '<p class="muted">You haven\'t joined a challenge yet — see Explore › Challenges.</p>'}
+    </div>
+  `;
+}
+
+function challengeRow(c) {
+  const unit = c.metric === 'distance_km' ? 'km' : c.metric === 'duration_min' ? 'min' : '';
+  return `<div class="challenge-row ${c.completed ? 'done' : ''}">
+    <div class="challenge-top"><span class="challenge-name">${c.completed ? '✓ ' : ''}${c.name}</span>
+      <span class="challenge-prog">${(+c.progress).toFixed(c.metric==='distance_km'?1:0)}/${c.target} ${unit}</span></div>
+    <div class="challenge-track"><span style="width:${c.percent}%"></span></div>
+  </div>`;
+}
+
 async function renderExplore(main) {
   main.innerHTML = `
-    <div class="section-tabs">
+    <div class="section-tabs section-tabs-scroll">
+      <button data-etab="challenges" class="${state.exploreTab==='challenges'?'active':''}">Challenges</button>
       <button data-etab="groups" class="${state.exploreTab==='groups'?'active':''}">Groups</button>
       <button data-etab="breathe" class="${state.exploreTab==='breathe'?'active':''}">Breathe</button>
       <button data-etab="motivation" class="${state.exploreTab==='motivation'?'active':''}">Motivation</button>
@@ -296,7 +398,28 @@ async function renderExplore(main) {
   main.querySelectorAll('[data-etab]').forEach(b => b.onclick = () => { state.exploreTab = b.dataset.etab; renderExplore(main); });
   const body = document.getElementById('explore-body');
 
-  if (state.exploreTab === 'groups') {
+  if (state.exploreTab === 'challenges') {
+    const challenges = await api('/challenges');
+    body.innerHTML = `<h2>Challenges</h2>
+      <p class="muted" style="margin-top:-6px;margin-bottom:12px">Themed journeys through scripture and story. Join one — your workouts move you forward.</p>` +
+      challenges.map(c => `
+        <div class="card glass challenge-card ${c.completed ? 'done' : ''}">
+          <div class="challenge-hd">
+            <div><div class="challenge-name">${escapeHtml(c.name)}</div>
+              ${c.scripture_ref ? `<div class="challenge-ref">${escapeHtml(c.scripture_ref)}</div>` : ''}</div>
+            <button class="follow-btn ${c.joined ? 'following' : ''}" data-challenge="${c.key}" data-joined="${c.joined}">${c.completed ? '✓ Done' : c.joined ? 'Joined' : 'Join'}</button>
+          </div>
+          <div class="challenge-flavor">${escapeHtml(c.flavor || c.description || '')}</div>
+          ${c.joined ? `<div class="challenge-track"><span style="width:${c.percent}%"></span></div>
+            <div class="muted" style="font-size:0.74rem;margin-top:4px">${(+c.progress).toFixed(c.metric==='distance_km'?1:0)} / ${c.target} ${c.metric==='distance_km'?'km':c.metric==='duration_min'?'min':'workouts'} · ${c.percent}%</div>` :
+            `<div class="muted" style="font-size:0.76rem">Goal: ${c.target} ${c.metric==='distance_km'?'km':c.metric==='duration_min'?'minutes':'workouts'} · ${c.participants} joined</div>`}
+        </div>`).join('');
+    body.querySelectorAll('[data-challenge]').forEach(btn => btn.onclick = async () => {
+      const joined = btn.dataset.joined === 'true';
+      await api(`/challenges/${btn.dataset.challenge}/${joined ? 'leave' : 'join'}`, { method: 'POST' });
+      renderExplore(main);
+    });
+  } else if (state.exploreTab === 'groups') {
     const { groups, quests } = await api('/explore');
     body.innerHTML = `
       <h2>Groups</h2>
@@ -436,6 +559,11 @@ async function renderProfile(main) {
         ${[['public','🌍 Public'],['followers','👥 Followers'],['private','🔒 Only me']].map(([v,l]) => `<option value="${v}" ${((me.user.default_visibility||'public')===v)?'selected':''}>${l}</option>`).join('')}
       </select>
     </div>
+    <div class="card glass">
+      <h2>Your data</h2>
+      <div class="muted" style="margin-bottom:10px">Full transparency — download everything FaithFit stores about your account as a JSON file.</div>
+      <a class="ghost" id="data-export" href="/api/me/export" download="faithfit-my-data.json" style="display:block;text-align:center;text-decoration:none">⬇ Download my data</a>
+    </div>
     <button class="ghost" id="signout" style="width:100%">Sign out</button>
   `;
   document.getElementById('p-defvis').onchange = async (e) => {
@@ -525,22 +653,73 @@ function disconnectBle() {
   render();
 }
 
+let workoutMode = 'live'; // 'live' | 'manual'
+
 async function renderWorkout(main) {
+  if (!state.activityTypes) { try { state.activityTypes = await api('/activity-types'); } catch { state.activityTypes = [{type:'Run',icon:'🏃'}]; } }
+  const opts = state.activityTypes.map(a => `<option value="${a.type}">${a.icon} ${a.type}</option>`).join('');
+  const liveActive = workoutMode === 'live';
+
   main.innerHTML = `
+    ${!state.activeWorkout ? `<div class="section-tabs" style="margin-bottom:14px">
+      <button class="${liveActive?'active':''}" id="mode-live">● Live track</button>
+      <button class="${!liveActive?'active':''}" id="mode-manual">✎ Log manually</button>
+    </div>` : ''}
+    ${(liveActive || state.activeWorkout) ? `
     <div class="workout-screen">
-      <select id="workout-type" ${state.activeWorkout ? 'disabled' : ''}>
-        <option>Run</option><option>Strength</option><option>Cycle</option><option>Yoga</option>
-      </select>
+      <select id="workout-type" ${state.activeWorkout ? 'disabled' : ''}>${opts}</select>
       <div class="hr-ring"><div class="hr-display" id="hr-display">${state.hr || '--'}</div><div class="hr-label">BPM ${state.bleConnected ? '· 📶 live' : '· simulated'}</div></div>
       <div class="timer-display" id="timer-display">${formatElapsed(state.elapsed)}</div>
       <button class="start-stop-btn ${state.activeWorkout ? 'stop' : 'start'}" id="start-stop">${state.activeWorkout ? 'Stop' : 'Start'}</button>
       <div id="gps-status" class="muted"></div>
       <div id="map" style="width:100%;height:180px;border-radius:16px;overflow:hidden;display:none"></div>
       <div id="verse-preview" style="width:100%"></div>
-    </div>
+    </div>` : `
+    <div class="card glass">
+      <h2>Log a workout</h2>
+      <p class="muted" style="margin-top:-6px;margin-bottom:8px">Add an activity you did off-app.</p>
+      <label class="field-label">Activity</label>
+      <select id="m-type">${opts}</select>
+      <label class="field-label">Duration (minutes)</label>
+      <input class="input" id="m-duration" type="number" min="0" step="1" placeholder="e.g. 30" />
+      <label class="field-label">Distance (km) — optional</label>
+      <input class="input" id="m-distance" type="number" min="0" step="0.01" placeholder="e.g. 5.0" />
+      <label class="field-label">Calories — optional</label>
+      <input class="input" id="m-calories" type="number" min="0" step="1" placeholder="auto-estimated if blank" />
+      <label class="field-label">Note — optional</label>
+      <input class="input" id="m-note" type="text" maxlength="200" placeholder="How did it go?" />
+      <div id="m-status" class="muted" style="margin-top:8px"></div>
+      <button class="primary" id="m-save" style="width:100%;margin-top:12px">Save workout</button>
+    </div>`}
   `;
-  document.getElementById('start-stop').onclick = () => state.activeWorkout ? stopWorkout() : startWorkout();
+
+  const ml = document.getElementById('mode-live'), mm = document.getElementById('mode-manual');
+  if (ml) ml.onclick = () => { workoutMode = 'live'; renderWorkout(main); };
+  if (mm) mm.onclick = () => { workoutMode = 'manual'; renderWorkout(main); };
+
+  const ss = document.getElementById('start-stop');
+  if (ss) ss.onclick = () => state.activeWorkout ? stopWorkout() : startWorkout();
   if (state.activeWorkout && state.gpsPoints.length) initMap(true);
+
+  const save = document.getElementById('m-save');
+  if (save) save.onclick = async () => {
+    const status = document.getElementById('m-status');
+    const body = {
+      type: document.getElementById('m-type').value,
+      duration_min: document.getElementById('m-duration').value,
+      distance_km: document.getElementById('m-distance').value,
+      calories: document.getElementById('m-calories').value,
+      note: document.getElementById('m-note').value,
+    };
+    status.textContent = 'Saving…';
+    const res = await fetch('/api/workouts/manual', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) { status.textContent = data.error === 'need_duration_or_distance' ? 'Enter a duration or distance.' : 'Could not save — check your inputs.'; return; }
+    let msg = 'Workout logged! ✓';
+    if (data.completed_challenges && data.completed_challenges.length) msg += ` Challenge complete: ${data.completed_challenges.join(', ')} 🏆`;
+    status.textContent = msg;
+    ['m-duration','m-distance','m-calories','m-note'].forEach(id => document.getElementById(id).value = '');
+  };
 }
 
 function initMap(alreadyTracking) {
