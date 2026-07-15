@@ -7,12 +7,20 @@ const { xpForEvent, levelForXp } = require('../lib/xp');
 const { advanceQuestProgress } = require('../lib/quests');
 const { badgeEligibility } = require('../lib/badges');
 const { composeForEvent } = require('../lib/composer');
+const { loadBibleData } = require('../lib/bible-load');
+
+// Load real, public-domain Bible text (KJV/WEB) into bible_verses once at startup.
+loadBibleData();
 
 const router = express.Router();
 
 // ---- auth (demo: pick a user, no password — this is a local demo, not production auth) ----
 router.get('/users', (req, res) => {
-  res.json(db.prepare('SELECT id, display_name, bio FROM users').all());
+  res.json(db.prepare(`
+    SELECT id, display_name, bio_verse_ref, bio_verse_text, job, church, fitness_group, gym,
+      CASE WHEN show_age = 1 THEN age ELSE NULL END AS age
+    FROM users
+  `).all());
 });
 
 router.post('/session', (req, res) => {
@@ -26,7 +34,8 @@ router.post('/session', (req, res) => {
 router.get('/me', (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'not_signed_in' });
   const uid = req.session.userId;
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(uid);
+  const userRow = db.prepare('SELECT * FROM users WHERE id = ?').get(uid);
+  const { password_hash, ...user } = userRow || {};
   const xp = db.prepare('SELECT * FROM user_xp WHERE user_id = ?').get(uid);
   const badges = db.prepare(`SELECT b.* FROM user_badges ub JOIN badges b ON b.id = ub.badge_id WHERE ub.user_id = ?`).all(uid);
   const consents = db.prepare('SELECT scope FROM user_consents WHERE user_id = ? AND revoked_at IS NULL').all(uid).map(r => r.scope);
@@ -250,6 +259,110 @@ router.post('/breathing/complete', requireAuth, (req, res) => {
     .run(randomUUID(), req.session.userId, pattern, duration_sec);
   publish('workout.completed', { user_id: req.session.userId, workout_id: null, calories: 0, avg_hr: null, max_hr: null, kind: 'breathing' });
   res.json({ ok: true });
+});
+
+
+// ---- Secure profile: bio is restricted to a real Bible verse only. ----
+// Allowed free-text fields are limited to job, church, fitness_group, gym.
+// Age is optional and hidden by default (show_age).
+const ALLOWED_PROFILE_FIELDS = ['job', 'church', 'fitness_group', 'gym'];
+const MAX_FIELD_LEN = 80;
+
+router.put('/profile', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const { display_name, bio_verse_ref, job, church, fitness_group, gym, age, show_age } = req.body || {};
+
+  const updates = {};
+
+  if (display_name !== undefined) {
+    const name = String(display_name).trim().slice(0, 60);
+    if (!name) return res.status(400).json({ error: 'invalid_display_name' });
+    updates.display_name = name;
+  }
+
+  // Bio must match a verse actually present in our verified bible_verses table —
+  // never freeform text, and never fabricated/unverified scripture.
+  if (bio_verse_ref !== undefined) {
+    if (bio_verse_ref === null || bio_verse_ref === '') {
+      updates.bio_verse_ref = null;
+      updates.bio_verse_text = null;
+    } else {
+      const ref = String(bio_verse_ref).trim();
+      const m = ref.match(/^(.+?)\s+(\d+):(\d+)$/);
+      if (!m) return res.status(400).json({ error: 'invalid_verse_format', hint: 'Use "Book Chapter:Verse", e.g. "Philippians 4:13"' });
+      const [, book, chapter, verse] = m;
+      const row = db.prepare('SELECT text, book, chapter, verse, translation FROM bible_verses WHERE book = ? AND chapter = ? AND verse = ?')
+        .get(book.trim(), Number(chapter), Number(verse));
+      if (!row) return res.status(400).json({ error: 'verse_not_found', hint: 'That verse is not yet in our verified library. Try another reference.' });
+      updates.bio_verse_ref = `${row.book} ${row.chapter}:${row.verse}`;
+      updates.bio_verse_text = row.text;
+    }
+  }
+
+  for (const field of ALLOWED_PROFILE_FIELDS) {
+    const val = req.body ? req.body[field] : undefined;
+    if (val !== undefined) {
+      updates[field] = val === null ? null : String(val).trim().slice(0, MAX_FIELD_LEN);
+    }
+  }
+
+  if (age !== undefined) {
+    if (age === null || age === '') {
+      updates.age = null;
+    } else {
+      const n = Number(age);
+      if (!Number.isInteger(n) || n < 13 || n > 120) return res.status(400).json({ error: 'invalid_age' });
+      updates.age = n;
+    }
+  }
+
+  if (show_age !== undefined) updates.show_age = show_age ? 1 : 0;
+
+  const keys = Object.keys(updates);
+  if (!keys.length) return res.status(400).json({ error: 'no_fields' });
+
+  const setClause = keys.map(k => `${k} = @${k}`).join(', ');
+  db.prepare(`UPDATE users SET ${setClause} WHERE id = @id`).run({ ...updates, id: uid });
+
+  const { password_hash, email, ...safeUser } = db.prepare('SELECT * FROM users WHERE id = ?').get(uid);
+  res.json({ ok: true, user: safeUser });
+});
+
+// ---- Bible: real, public-domain (KJV/WEB) text, FTS5-backed fast search. ----
+// Coverage today: Philippians 1-4 (KJV), James 1-5 (WEB), Psalm 23 (WEB), Romans 8 (WEB).
+// This is a verified subset, not the complete 1,189-chapter canon — expanding over time.
+router.get('/bible/passage/:book/:chapter', (req, res) => {
+  const { book, chapter } = req.params;
+  const rows = db.prepare('SELECT book, chapter, verse, text, translation FROM bible_verses WHERE book = ? AND chapter = ? ORDER BY verse')
+    .all(book, Number(chapter));
+  if (!rows.length) return res.status(404).json({ error: 'not_found', hint: 'This chapter is not yet in our verified library.' });
+  res.json({ book, chapter: Number(chapter), translation: rows[0].translation, verses: rows });
+});
+
+router.get('/bible/search', (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'missing_query' });
+  // Prefix-match each word so partial terms like "streng" still find "strengtheneth".
+  const ftsQuery = q.replace(/["*]/g, '').trim().split(/\s+/).map(w => `${w}*`).join(' ');
+  const rows = db.prepare(`
+    SELECT bv.book, bv.chapter, bv.verse, bv.text, bv.translation
+    FROM bible_verses_fts f
+    JOIN bible_verses bv ON bv.rowid = f.rowid
+    WHERE bible_verses_fts MATCH ?
+    LIMIT 25
+  `).all(ftsQuery);
+  res.json({ query: q, count: rows.length, results: rows });
+});
+
+router.get('/bible/random', (req, res) => {
+  const row = db.prepare('SELECT book, chapter, verse, text, translation FROM bible_verses ORDER BY RANDOM() LIMIT 1').get();
+  if (!row) return res.status(404).json({ error: 'no_verses_loaded' });
+  res.json(row);
+});
+
+router.get('/bible/coverage', (req, res) => {
+  const rows = db.prepare('SELECT book, translation, MIN(chapter) min_ch, MAX(chapter) max_ch, COUNT(*) verse_count FROM bible_verses GROUP BY book, translation').all();
+  res.json({ note: 'Verified public-domain subset (KJV/WEB via bible-api.com), not the full canon.', coverage: rows });
 });
 
 module.exports = router;

@@ -180,3 +180,10 @@ h2 { font-size: 1.02rem; margin: 6px 0 12px; font-weight: 700; letter-spacing:-0
 .section-tabs { display:flex; gap:8px; margin-bottom:14px; }
 .section-tabs button { flex:1; padding:9px 0; border-radius:12px; border:1px solid var(--glass-border); background: rgba(255,255,255,0.04); color:var(--muted); font-weight:600; font-size:0.82rem; cursor:pointer; }
 .section-tabs button.active { background: linear-gradient(135deg, var(--accent), #9b8bff); color:white; border-color:transparent; }
+
+.field-label { display:block; margin-top:12px; margin-bottom:4px; font-size:0.85rem; color: var(--muted, #a0a8b8); }
+#p-verse, .card.glass input[type="text"], .card.glass input[type="number"] {
+  width:100%; padding:10px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06); color:inherit; font-size:0.95rem;
+}
+.verse-preview { background: rgba(255,255,255,0.06); border-radius:10px; padding:12px; font-size:0.9rem; line-height:1.4; }

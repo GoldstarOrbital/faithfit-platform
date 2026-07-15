@@ -222,6 +222,28 @@ async function renderProfile(main) {
       </div>
     </div>
     <div class="card glass">
+      <h2>Profile Details</h2>
+      <div class="muted" style="margin-bottom:10px">Your bio can only be a Bible verse — pick one from our verified library. Other fields are optional.</div>
+      <div id="verse-preview" class="verse-preview">${me.user.bio_verse_ref ? `📖 <strong>${me.user.bio_verse_ref}</strong> — "${me.user.bio_verse_text}"` : 'No verse selected yet.'}</div>
+      <label class="field-label">Bio verse</label>
+      <select id="p-verse"><option value="">— Select a verse —</option></select>
+      <label class="field-label">Job</label>
+      <input id="p-job" type="text" maxlength="80" placeholder="e.g. Nurse" value="${me.user.job || ''}">
+      <label class="field-label">Church</label>
+      <input id="p-church" type="text" maxlength="80" placeholder="e.g. Grace Community Church" value="${me.user.church || ''}">
+      <label class="field-label">Fitness group</label>
+      <input id="p-group" type="text" maxlength="80" placeholder="e.g. Sunrise 5K Fellowship" value="${me.user.fitness_group || ''}">
+      <label class="field-label">Gym</label>
+      <input id="p-gym" type="text" maxlength="80" placeholder="e.g. Anytime Fitness" value="${me.user.gym || ''}">
+      <div class="toggle-row">
+        <span>Show my age (optional)</span>
+        <label class="switch"><input type="checkbox" id="p-showage" ${me.user.show_age ? 'checked' : ''}><span class="slider"></span></label>
+      </div>
+      <input id="p-age" type="number" min="13" max="120" placeholder="Age" value="${me.user.age ?? ''}" style="max-width:120px">
+      <button class="primary" id="p-save" style="width:100%;margin-top:10px">Save Profile</button>
+      <div id="p-status" class="muted" style="margin-top:6px"></div>
+    </div>
+    <div class="card glass">
       <h2>Connected Devices</h2>
       <div class="muted" id="ble-status">${state.bleConnected ? `Connected: ${state.bleDevice?.name || 'Heart rate monitor'}` : 'No Bluetooth heart rate monitor connected.'}</div>
       <button class="ghost" style="width:100%;margin-top:10px" id="ble-connect">${state.bleConnected ? 'Disconnect' : 'Pair Bluetooth Heart Rate Monitor'}</button>
@@ -244,6 +266,49 @@ async function renderProfile(main) {
   document.getElementById('c-scripture').onchange = (e) => api('/consent', { method: 'POST', body: { scope: 'scripture_personalization', granted: e.target.checked } });
   document.getElementById('signout').onclick = () => { document.cookie = 'faithfit_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'; location.reload(); };
   document.getElementById('ble-connect').onclick = () => state.bleConnected ? disconnectBle() : connectBle();
+
+  // Populate the verified-verse picker from the real Bible library (never freeform).
+  const versePicker = document.getElementById('p-verse');
+  try {
+    const philippians = await api('/bible/passage/Philippians/4');
+    const james1 = await api('/bible/passage/James/1');
+    const psalm23 = await api('/bible/passage/Psalms/23');
+    const romans8 = await api('/bible/passage/Romans/8');
+    const options = [...philippians.verses, ...james1.verses, ...psalm23.verses, ...romans8.verses];
+    options.forEach(v => {
+      const ref = `${v.book} ${v.chapter}:${v.verse}`;
+      const opt = document.createElement('option');
+      opt.value = ref;
+      opt.textContent = `${ref} — ${v.text.slice(0, 50)}${v.text.length > 50 ? '…' : ''}`;
+      if (ref === me.user.bio_verse_ref) opt.selected = true;
+      versePicker.appendChild(opt);
+    });
+  } catch (e) { console.error('verse picker load failed', e); }
+
+  document.getElementById('p-save').onclick = async () => {
+    const status = document.getElementById('p-status');
+    status.textContent = 'Saving…';
+    try {
+      const body = {
+        bio_verse_ref: versePicker.value || null,
+        job: document.getElementById('p-job').value,
+        church: document.getElementById('p-church').value,
+        fitness_group: document.getElementById('p-group').value,
+        gym: document.getElementById('p-gym').value,
+        age: document.getElementById('p-age').value || null,
+        show_age: document.getElementById('p-showage').checked,
+      };
+      const res = await api('/profile', { method: 'PUT', body });
+      if (res.error) {
+        status.textContent = res.hint || ('Could not save: ' + res.error);
+      } else {
+        status.textContent = 'Saved.';
+        render();
+      }
+    } catch (e) {
+      status.textContent = e.message || 'Could not save.';
+    }
+  };
 }
 
 // ---- Web Bluetooth: real heart rate monitor pairing (standard GATT Heart Rate Service) ----

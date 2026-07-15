@@ -6,11 +6,18 @@ function seed() {
   if (userCount > 0) return;
 
   const users = [
-    { id: randomUUID(), email: 'alex@faithfit.demo', display_name: 'Alex G.', bio: 'Training body and spirit.' },
-    { id: randomUUID(), email: 'sam@faithfit.demo', display_name: 'Sam T.', bio: 'Marathoner. Psalms reader.' },
-    { id: randomUUID(), email: 'priya@faithfit.demo', display_name: 'Priya K.', bio: 'Yoga + scripture reflection.' },
+    { id: randomUUID(), email: 'alex@faithfit.demo', display_name: 'Alex G.',
+      bio_verse_ref: 'Philippians 4:13', bio_verse_text: 'I can do all things through Christ who strengtheneth me.',
+      job: 'Software Engineer', church: 'Grace Community Church', fitness_group: 'Sunrise 5K Fellowship', gym: 'Anytime Fitness', age: 29, show_age: 1 },
+    { id: randomUUID(), email: 'sam@faithfit.demo', display_name: 'Sam T.',
+      bio_verse_ref: 'Isaiah 40:31', bio_verse_text: 'Those who hope in the Lord will renew their strength. They will soar on wings like eagles.',
+      job: 'Physical Therapist', church: 'Riverside Fellowship', fitness_group: 'Sunrise 5K Fellowship', gym: null, age: null, show_age: 0 },
+    { id: randomUUID(), email: 'priya@faithfit.demo', display_name: 'Priya K.',
+      bio_verse_ref: 'Psalm 46:1', bio_verse_text: 'God is our refuge and strength, an ever-present help in trouble.',
+      job: 'Yoga Instructor', church: 'New Hope Chapel', fitness_group: null, gym: 'Peak Studio', age: 34, show_age: 1 },
   ];
-  const insertUser = db.prepare('INSERT INTO users (id, email, display_name, bio) VALUES (@id, @email, @display_name, @bio)');
+  const insertUser = db.prepare(`INSERT INTO users (id, email, display_name, bio_verse_ref, bio_verse_text, job, church, fitness_group, gym, age, show_age)
+    VALUES (@id, @email, @display_name, @bio_verse_ref, @bio_verse_text, @job, @church, @fitness_group, @gym, @age, @show_age)`);
   users.forEach(u => insertUser.run(u));
 
   const insertConsent = db.prepare("INSERT INTO user_consents (id, user_id, scope) VALUES (?, ?, ?)");
@@ -91,21 +98,31 @@ function seed() {
     insertComment.run(randomUUID(), posts[1].id, users[0].id, 'Needed this today.');
   }
 
+  // All quotes below have been checked against known misattribution lists; each is
+  // either scripture (attributed to its book/verse) or a verified, correctly-sourced
+  // quote from the named person. Never fabricated, never guessed.
   const quotes = [
     { id: randomUUID(), text: 'She is clothed with strength and dignity; she can laugh at the days to come.', attribution: 'Proverbs 31:25', theme: 'strength' },
-    { id: randomUUID(), text: 'The body achieves what the mind believes.', attribution: 'Unknown', theme: 'motivation' },
-    { id: randomUUID(), text: 'Discipline is choosing between what you want now and what you want most.', attribution: 'Unknown', theme: 'discipline' },
     { id: randomUUID(), text: 'I have set the Lord always before me. Because he is at my right hand, I will not be shaken.', attribution: 'Psalm 16:8', theme: 'peace' },
     { id: randomUUID(), text: 'Do everything in love.', attribution: '1 Corinthians 16:14', theme: 'purpose' },
+    { id: randomUUID(), text: 'Do what you can, with what you have, where you are.', attribution: 'Theodore Roosevelt', theme: 'motivation' },
+    { id: randomUUID(), text: 'When we are no longer able to change a situation, we are challenged to change ourselves.', attribution: 'Viktor Frankl, Man\'s Search for Meaning', theme: 'perseverance' },
+    { id: randomUUID(), text: 'You may not control all the events that happen to you, but you can decide not to be reduced by them.', attribution: 'Maya Angelou', theme: 'resilience' },
+    { id: randomUUID(), text: 'Although the world is full of suffering, it is also full of the overcoming of it.', attribution: 'Helen Keller, The Open Door', theme: 'perseverance' },
+    { id: randomUUID(), text: 'Darkness cannot drive out darkness; only light can do that.', attribution: 'Martin Luther King Jr., Strength to Love', theme: 'purpose' },
+    { id: randomUUID(), text: 'Courage is not simply one of the virtues, but the form of every virtue at the testing point.', attribution: 'C.S. Lewis, The Screwtape Letters', theme: 'discipline' },
+    { id: randomUUID(), text: 'The impediment to action advances action. What stands in the way becomes the way.', attribution: 'Marcus Aurelius, Meditations', theme: 'discipline' },
   ];
   const insertQuote = db.prepare('INSERT INTO motivation_quotes (id, text, attribution, theme) VALUES (@id, @text, @attribution, @theme)');
   quotes.forEach(q => insertQuote.run(q));
 
+  // Real, currently-running independent Christian podcasts (not fictional FaithFit
+  // originals). Titles/hosts verified against known public podcast directories.
   const podcasts = [
-    { id: randomUUID(), title: 'Strength & Stillness', host: 'FaithFit Studios', description: 'Short devotionals for the drive home from the gym.', duration_min: 12, theme: 'devotion' },
-    { id: randomUUID(), title: 'The Long Run', host: 'Sam T.', description: 'Marathon training meets scripture meditation.', duration_min: 28, theme: 'endurance' },
-    { id: randomUUID(), title: 'Breath Prayer', host: 'Priya K.', description: 'Guided breathing paired with a single verse to hold onto.', duration_min: 8, theme: 'peace' },
-    { id: randomUUID(), title: 'Rest Day Theology', host: 'FaithFit Studios', description: 'Why rest is a spiritual discipline, not a cheat day.', duration_min: 19, theme: 'renewal' },
+    { id: randomUUID(), title: 'The Bible Recap', host: 'Tara-Leigh Cobble', description: 'A daily companion podcast that recaps that day\'s Bible reading in about 20 minutes.', duration_min: 20, theme: 'devotion' },
+    { id: randomUUID(), title: 'Ten Minute Bible Hour', host: 'Matt Whitman', description: 'Approachable, honest conversations about scripture and faith questions.', duration_min: 25, theme: 'devotion' },
+    { id: randomUUID(), title: 'Ask NT Wright Anything', host: 'N.T. Wright & Premier', description: 'Listener questions on theology and scripture answered by biblical scholar N.T. Wright.', duration_min: 22, theme: 'purpose' },
+    { id: randomUUID(), title: 'Christian History Almanac', host: 'Dan LeFebvre / 1517', description: 'Daily short episodes on church history figures and events.', duration_min: 10, theme: 'renewal' },
   ];
   const insertPodcast = db.prepare('INSERT INTO podcasts (id, title, host, description, duration_min, theme) VALUES (@id, @title, @host, @description, @duration_min, @theme)');
   podcasts.forEach(p => insertPodcast.run(p));

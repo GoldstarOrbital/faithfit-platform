@@ -11,7 +11,15 @@ CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
   display_name TEXT,
-  bio TEXT,
+  bio_verse_ref TEXT,
+  bio_verse_text TEXT,
+  job TEXT,
+  church TEXT,
+  fitness_group TEXT,
+  gym TEXT,
+  age INTEGER,
+  show_age INTEGER DEFAULT 0,
+  password_hash TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
 
@@ -181,5 +189,45 @@ CREATE TABLE IF NOT EXISTS breathing_sessions (
   completed_at TEXT DEFAULT (datetime('now'))
 );
 `);
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS bible_verses (
+  id TEXT PRIMARY KEY,
+  book TEXT NOT NULL,
+  book_id TEXT,
+  chapter INTEGER NOT NULL,
+  verse INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  translation TEXT NOT NULL,
+  UNIQUE(book, chapter, verse, translation)
+);
+`);
+
+// FTS5 virtual table + sync triggers, created separately since some SQLite builds
+// are picky about mixing virtual-table DDL into a single multi-statement exec.
+db.exec(`
+  CREATE VIRTUAL TABLE IF NOT EXISTS bible_verses_fts USING fts5(
+    text, book, reference UNINDEXED, content='bible_verses', content_rowid='rowid'
+  );
+`);
+db.exec(`
+  CREATE TRIGGER IF NOT EXISTS bible_verses_ai AFTER INSERT ON bible_verses BEGIN
+    INSERT INTO bible_verses_fts(rowid, text, book, reference)
+    VALUES (new.rowid, new.text, new.book, new.book || ' ' || new.chapter || ':' || new.verse);
+  END;
+`);
+
+// --- migration: add secure-profile columns to pre-existing DBs (safe no-op on fresh DBs) ---
+const userCols = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+const addCol = (name, ddl) => { if (!userCols.includes(name)) db.exec(`ALTER TABLE users ADD COLUMN ${ddl}`); };
+addCol('bio_verse_ref', 'bio_verse_ref TEXT');
+addCol('bio_verse_text', 'bio_verse_text TEXT');
+addCol('job', 'job TEXT');
+addCol('church', 'church TEXT');
+addCol('fitness_group', 'fitness_group TEXT');
+addCol('gym', 'gym TEXT');
+addCol('age', 'age INTEGER');
+addCol('show_age', 'show_age INTEGER DEFAULT 0');
+addCol('password_hash', 'password_hash TEXT');
 
 module.exports = db;
