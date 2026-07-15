@@ -340,8 +340,9 @@ router.put('/profile', requireAuth, (req, res) => {
 });
 
 // ---- Bible: real, public-domain (KJV/WEB) text, FTS5-backed fast search. ----
-// Coverage today: Philippians 1-4 (KJV), James 1-5 (WEB), Psalm 23 (WEB), Romans 8 (WEB).
-// This is a verified subset, not the complete 1,189-chapter canon — expanding over time.
+// Coverage is a verified public-domain subset, expanding over time. See the live
+// /api/bible/coverage endpoint for the exact books/chapters currently loaded —
+// never hardcode a coverage claim here, it drifts. Ingestion: scripts/ingest-bible.js.
 router.get('/bible/passage/:book/:chapter', (req, res) => {
   const { book, chapter } = req.params;
   const rows = db.prepare('SELECT book, chapter, verse, text, translation FROM bible_verses WHERE book = ? AND chapter = ? ORDER BY verse')
@@ -355,14 +356,26 @@ router.get('/bible/search', (req, res) => {
   if (!q) return res.status(400).json({ error: 'missing_query' });
   // Prefix-match each word so partial terms like "streng" still find "strengtheneth".
   const ftsQuery = q.replace(/["*]/g, '').trim().split(/\s+/).map(w => `${w}*`).join(' ');
+
+  // Pagination — result volume grows with coverage, so cap per-page and expose total.
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const offset = (page - 1) * limit;
+
+  const total = db.prepare(`
+    SELECT COUNT(*) c FROM bible_verses_fts WHERE bible_verses_fts MATCH ?
+  `).get(ftsQuery).c;
+
   const rows = db.prepare(`
     SELECT bv.book, bv.chapter, bv.verse, bv.text, bv.translation
     FROM bible_verses_fts f
     JOIN bible_verses bv ON bv.rowid = f.rowid
     WHERE bible_verses_fts MATCH ?
-    LIMIT 25
-  `).all(ftsQuery);
-  res.json({ query: q, count: rows.length, results: rows });
+    ORDER BY rank
+    LIMIT ? OFFSET ?
+  `).all(ftsQuery, limit, offset);
+
+  res.json({ query: q, page, limit, total, count: rows.length, results: rows });
 });
 
 router.get('/bible/random', (req, res) => {
@@ -372,8 +385,9 @@ router.get('/bible/random', (req, res) => {
 });
 
 router.get('/bible/coverage', (req, res) => {
-  const rows = db.prepare('SELECT book, translation, MIN(chapter) min_ch, MAX(chapter) max_ch, COUNT(*) verse_count FROM bible_verses GROUP BY book, translation').all();
-  res.json({ note: 'Verified public-domain subset (KJV/WEB via bible-api.com), not the full canon.', coverage: rows });
+  const rows = db.prepare('SELECT book, translation, MIN(chapter) min_ch, MAX(chapter) max_ch, COUNT(DISTINCT chapter) chapters, COUNT(*) verse_count FROM bible_verses GROUP BY book, translation ORDER BY book').all();
+  const total = db.prepare('SELECT COUNT(*) c FROM bible_verses').get().c;
+  res.json({ note: 'Verified public-domain subset (KJV/WEB via bible-api.com), not the full canon.', total_verses: total, books: rows.length, coverage: rows });
 });
 
 module.exports = router;
