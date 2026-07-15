@@ -1,4 +1,4 @@
-# FaithFit
+# FitFaith
 
 A faith-based fitness + social web app — Strava and Instagram, reimagined around
 scripture, community, and Christian identity instead of vanity metrics. Track real

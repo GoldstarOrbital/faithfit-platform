@@ -301,4 +301,109 @@ CREATE TABLE IF NOT EXISTS user_challenges (
 );
 `);
 
+// --- OAuth / SSO identities (Sign in with Google, Apple, Microsoft, etc.) ---
+// A user can have zero or more linked identities; password_hash may be NULL for
+// identity-only accounts (a user who only ever signed in via a connector).
+db.exec(`
+CREATE TABLE IF NOT EXISTS user_identities (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  provider TEXT NOT NULL,          -- 'google' | 'apple' | 'microsoft' | ...
+  provider_user_id TEXT NOT NULL,  -- the 'sub' claim / provider's stable user id
+  email TEXT,
+  linked_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(provider, provider_user_id)
+);
+`);
+
+// --- Third-party data connectors (wearables / activity platforms) ---
+// Separate from sign-in identities: a connector grants FitFaith permission to
+// pull the user's activity data (e.g. Strava). Tokens are stored so we can
+// refresh and re-sync later; scope is recorded for transparency (shown to the
+// user, exportable via /api/me/export).
+db.exec(`
+CREATE TABLE IF NOT EXISTS user_connectors (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  provider TEXT NOT NULL,               -- 'strava' | ...
+  provider_user_id TEXT,
+  access_token TEXT,
+  refresh_token TEXT,
+  expires_at TEXT,
+  scope TEXT,
+  connected_at TEXT DEFAULT (datetime('now')),
+  last_synced_at TEXT,
+  UNIQUE(user_id, provider)
+);
+CREATE TABLE IF NOT EXISTS imported_activities (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  external_id TEXT NOT NULL,
+  workout_id TEXT,
+  imported_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(provider, external_id)
+);
+`);
+
+// --- migration: location-based church selection (Overpass, additive) ---
+const userCols2 = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+const addCol2 = (name, ddl) => { if (!userCols2.includes(name)) db.exec(`ALTER TABLE users ADD COLUMN ${ddl}`); };
+addCol2('church_osm_id', 'church_osm_id TEXT');
+addCol2('church_name', 'church_name TEXT');
+addCol2('church_lat', 'church_lat REAL');
+addCol2('church_lng', 'church_lng REAL');
+addCol2('church_address', 'church_address TEXT');
+
+// --- church devotionals (YouTube, additive, no-op unless YOUTUBE_API_KEY is set) ---
+db.exec(`
+CREATE TABLE IF NOT EXISTS churches (
+  id TEXT PRIMARY KEY,
+  osm_id TEXT UNIQUE,
+  name TEXT,
+  youtube_channel_id TEXT,
+  youtube_channel_title TEXT
+);
+CREATE TABLE IF NOT EXISTS church_devotionals (
+  id TEXT PRIMARY KEY,
+  church_id TEXT NOT NULL,
+  video_id TEXT NOT NULL,
+  title TEXT,
+  thumbnail_url TEXT,
+  published_at TEXT,
+  fetched_date TEXT NOT NULL,
+  UNIQUE(church_id, fetched_date)
+);
+`);
+
+// --- group chat + run meetups (additive) ---
+db.exec(`
+CREATE TABLE IF NOT EXISTS group_messages (
+  id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS group_events (
+  id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL,
+  creator_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  description TEXT,
+  activity_type TEXT,
+  event_time TEXT NOT NULL,
+  location_name TEXT,
+  lat REAL,
+  lng REAL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS event_rsvps (
+  event_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  PRIMARY KEY (event_id, user_id)
+);
+`);
+
 module.exports = db;

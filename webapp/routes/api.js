@@ -10,6 +10,10 @@ const { composeForEvent } = require('../lib/composer');
 const { loadBibleData } = require('../lib/bible-load');
 const { hashPassword, verifyPassword } = require('../lib/password');
 const { ensureChallenges, applyWorkoutToChallenges } = require('../lib/challenges');
+const oauth = require('../lib/oauth');
+const strava = require('../lib/strava');
+const { searchNearbyChurches } = require('../lib/overpass');
+const youtube = require('../lib/youtube');
 
 // Load real, public-domain Bible text (KJV/WEB) into bible_verses once at startup.
 loadBibleData();
@@ -110,6 +114,219 @@ router.get('/users', (req, res) => {
     FROM users
   `).all());
 });
+
+// ---- OAuth / SSO sign-in (Google, Apple, Microsoft — generic OIDC connector) ----
+// Only providers with real credentials configured (env vars) are reported —
+// the frontend hides buttons for anything not actually wired up.
+router.get('/auth/providers', (req, res) => {
+  res.json({ providers: oauth.listConfiguredProviders() });
+});
+
+function baseUrl(req) {
+  if (process.env.APP_BASE_URL) return process.env.APP_BASE_URL.replace(/\/$/, '');
+  const proto = req.headers['x-forwarded-proto'] || req.protocol;
+  return `${proto}://${req.get('host')}`;
+}
+
+// Kick off the Authorization Code + PKCE flow. `link=1` links the provider to
+// the CURRENTLY signed-in account instead of signing in / creating a new one.
+router.get('/auth/oauth/:provider/start', (req, res) => {
+  const { provider } = req.params;
+  if (!oauth.isConfigured(provider)) return res.status(404).json({ error: 'provider_not_configured' });
+  const { verifier, challenge } = oauth.generatePkce();
+  const state = oauth.b64url(require('crypto').randomBytes(16));
+  const nonce = oauth.b64url(require('crypto').randomBytes(16));
+  const link = req.query.link === '1' && !!req.session.userId;
+
+  req.session.oauthPending = { provider, state, nonce, verifier, link, userId: link ? req.session.userId : null, createdAt: Date.now() };
+  const redirectUri = `${baseUrl(req)}/api/auth/oauth/${provider}/callback`;
+  try {
+    const url = oauth.buildAuthorizationUrl(provider, { redirectUri, state, nonce, codeChallenge: challenge });
+    res.redirect(url);
+  } catch (err) {
+    res.status(400).json({ error: 'oauth_start_failed', detail: err.message });
+  }
+});
+
+async function handleOauthCallback(req, res) {
+  const { provider } = req.params;
+  const params = { ...req.query, ...req.body };
+  const pending = req.session.oauthPending;
+  const fail = (reason) => res.redirect(`/?oauth_error=${encodeURIComponent(reason)}`);
+
+  if (!pending || pending.provider !== provider) return fail('session_expired');
+  if (Date.now() - pending.createdAt > 10 * 60 * 1000) { req.session.oauthPending = null; return fail('session_expired'); }
+  if (!params.code || params.state !== pending.state) { req.session.oauthPending = null; return fail('state_mismatch'); }
+
+  try {
+    const redirectUri = `${baseUrl(req)}/api/auth/oauth/${provider}/callback`;
+    const tokens = await oauth.exchangeCodeForTokens(provider, { code: params.code, redirectUri, codeVerifier: pending.verifier });
+    if (!tokens.id_token) throw new Error('no_id_token_returned');
+    const claims = await oauth.verifyIdToken(provider, tokens.id_token, { nonce: pending.nonce });
+
+    const email = claims.email ? String(claims.email).trim().toLowerCase() : null;
+    const emailVerified = claims.email_verified === true || claims.email_verified === 'true';
+    const name = claims.name || (email ? email.split('@')[0] : `${oauth.PROVIDERS[provider].label} user`);
+
+    if (pending.link) {
+      // Linking to an already-signed-in account.
+      const existingOther = db.prepare('SELECT user_id FROM user_identities WHERE provider = ? AND provider_user_id = ?').get(provider, claims.sub);
+      if (existingOther && existingOther.user_id !== pending.userId) { req.session.oauthPending = null; return fail('identity_linked_elsewhere'); }
+      db.prepare(`INSERT INTO user_identities (id, user_id, provider, provider_user_id, email) VALUES (?,?,?,?,?)
+                  ON CONFLICT(provider, provider_user_id) DO UPDATE SET email = excluded.email`)
+        .run(randomUUID(), pending.userId, provider, claims.sub, email);
+      req.session.oauthPending = null;
+      return res.redirect('/?linked=' + provider);
+    }
+
+    // Sign-in-or-create.
+    let identity = db.prepare('SELECT user_id FROM user_identities WHERE provider = ? AND provider_user_id = ?').get(provider, claims.sub);
+    let userId;
+    if (identity) {
+      userId = identity.user_id;
+    } else if (email && emailVerified) {
+      // Link to an existing password account with the same, provider-verified email.
+      const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+      if (existingUser) {
+        userId = existingUser.id;
+        db.prepare('INSERT OR IGNORE INTO user_identities (id, user_id, provider, provider_user_id, email) VALUES (?,?,?,?,?)')
+          .run(randomUUID(), userId, provider, claims.sub, email);
+      }
+    }
+    if (!userId) {
+      // New account — no password (identity-only sign-in).
+      userId = randomUUID();
+      const uniqueEmail = email || `${provider}-${claims.sub}@login.faithfit`;
+      db.prepare('INSERT INTO users (id, email, display_name) VALUES (?, ?, ?)').run(userId, uniqueEmail, String(name).slice(0, 60));
+      db.prepare('INSERT OR IGNORE INTO user_xp (user_id, xp, level) VALUES (?, 0, 1)').run(userId);
+      db.prepare('INSERT INTO user_identities (id, user_id, provider, provider_user_id, email) VALUES (?,?,?,?,?)')
+        .run(randomUUID(), userId, provider, claims.sub, email);
+    }
+
+    req.session.oauthPending = null;
+    req.session.userId = userId;
+    res.redirect('/');
+  } catch (err) {
+    req.session.oauthPending = null;
+    console.error(`[oauth] ${provider} callback failed:`, err.message);
+    fail('sign_in_failed');
+  }
+}
+router.get('/auth/oauth/:provider/callback', handleOauthCallback);
+router.post('/auth/oauth/:provider/callback', handleOauthCallback); // Apple uses form_post
+
+// Linked sign-in identities + connected data connectors for the current user —
+// full transparency into what's linked, shown in Profile settings.
+router.get('/auth/connections', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const identities = db.prepare('SELECT provider, email, linked_at FROM user_identities WHERE user_id = ?').all(uid);
+  const connectors = db.prepare('SELECT provider, scope, connected_at, last_synced_at FROM user_connectors WHERE user_id = ?').all(uid);
+  res.json({ identities, connectors });
+});
+
+router.post('/auth/identities/:provider/unlink', requireAuth, (req, res) => {
+  db.prepare('DELETE FROM user_identities WHERE user_id = ? AND provider = ?').run(req.session.userId, req.params.provider);
+  res.json({ ok: true });
+});
+
+// ---- Device / wearable sync via Strava (real GPS-watch data, free to connect) ----
+router.get('/connectors/strava/configured', (req, res) => res.json({ configured: strava.isConfigured() }));
+
+router.get('/connectors/strava/start', requireAuth, (req, res) => {
+  if (!strava.isConfigured()) return res.status(404).json({ error: 'strava_not_configured' });
+  const state = oauth.b64url(require('crypto').randomBytes(16));
+  req.session.stravaPending = { state, userId: req.session.userId, createdAt: Date.now() };
+  const redirectUri = `${baseUrl(req)}/api/connectors/strava/callback`;
+  res.redirect(strava.buildAuthorizationUrl({ redirectUri, state }));
+});
+
+router.get('/connectors/strava/callback', async (req, res) => {
+  const pending = req.session.stravaPending;
+  const fail = (reason) => res.redirect(`/?strava_error=${encodeURIComponent(reason)}`);
+  if (!pending || Date.now() - pending.createdAt > 10 * 60 * 1000) { req.session.stravaPending = null; return fail('session_expired'); }
+  if (req.query.error) { req.session.stravaPending = null; return fail('access_denied'); }
+  if (req.query.state !== pending.state) { req.session.stravaPending = null; return fail('state_mismatch'); }
+
+  try {
+    const tokens = await strava.exchangeCodeForTokens(req.query.code);
+    db.prepare(`INSERT INTO user_connectors (id, user_id, provider, provider_user_id, access_token, refresh_token, expires_at, scope)
+                VALUES (?,?,?,?,?,?,?,?)
+                ON CONFLICT(user_id, provider) DO UPDATE SET
+                  provider_user_id=excluded.provider_user_id, access_token=excluded.access_token,
+                  refresh_token=excluded.refresh_token, expires_at=excluded.expires_at, scope=excluded.scope`)
+      .run(randomUUID(), pending.userId, 'strava', String(tokens.athlete?.id || ''), tokens.access_token, tokens.refresh_token,
+        new Date(tokens.expires_at * 1000).toISOString(), 'read,activity:read_all');
+    req.session.stravaPending = null;
+    await syncStravaForUser(pending.userId).catch(err => console.error('[strava] initial sync failed:', err.message));
+    res.redirect('/?connected=strava');
+  } catch (err) {
+    req.session.stravaPending = null;
+    console.error('[strava] callback failed:', err.message);
+    fail('connect_failed');
+  }
+});
+
+router.post('/connectors/strava/sync', requireAuth, async (req, res) => {
+  try {
+    const result = await syncStravaForUser(req.session.userId);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(502).json({ error: 'sync_failed', detail: err.message });
+  }
+});
+
+router.post('/connectors/:provider/disconnect', requireAuth, (req, res) => {
+  db.prepare('DELETE FROM user_connectors WHERE user_id = ? AND provider = ?').run(req.session.userId, req.params.provider);
+  res.json({ ok: true });
+});
+
+// Pull recent Strava activities and import any not already seen, mapped into
+// FaithFit's own workout model (source='strava'). Idempotent — dedupes by
+// Strava's activity id via imported_activities. Auto-refreshes an expired
+// access token using the stored refresh token.
+async function syncStravaForUser(userId) {
+  let conn = db.prepare('SELECT * FROM user_connectors WHERE user_id = ? AND provider = ?').get(userId, 'strava');
+  if (!conn) throw new Error('not_connected');
+
+  if (new Date(conn.expires_at).getTime() < Date.now() + 60000) {
+    const fresh = await strava.refreshTokens(conn.refresh_token);
+    db.prepare('UPDATE user_connectors SET access_token = ?, refresh_token = ?, expires_at = ? WHERE user_id = ? AND provider = ?')
+      .run(fresh.access_token, fresh.refresh_token, new Date(fresh.expires_at * 1000).toISOString(), userId, 'strava');
+    conn = { ...conn, access_token: fresh.access_token };
+  }
+
+  const activities = await strava.fetchRecentActivities(conn.access_token, { perPage: 30 });
+  let imported = 0;
+  for (const a of activities) {
+    const externalId = String(a.id);
+    const already = db.prepare('SELECT 1 FROM imported_activities WHERE provider = ? AND external_id = ?').get('strava', externalId);
+    if (already) continue;
+
+    const type = strava.mapActivityType(a);
+    const start = new Date(a.start_date).toISOString();
+    const durationSec = Math.round(a.elapsed_time || a.moving_time || 0);
+    const end = new Date(new Date(start).getTime() + durationSec * 1000).toISOString();
+    const distanceKm = a.distance ? +(a.distance / 1000).toFixed(2) : null;
+    const calories = a.calories || (distanceKm ? Math.round(distanceKm * 60) : Math.round((durationSec / 60) * 8));
+    const path = a.map?.summary_polyline ? strava.decodePolyline(a.map.summary_polyline) : null;
+
+    const workoutId = randomUUID();
+    db.prepare(`INSERT INTO workouts (id, user_id, type, start_time, end_time, calories, avg_hr, max_hr, distance_km, duration_sec, gps_points, gps_path, note, source)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'strava')`)
+      .run(workoutId, userId, type, start, end, calories, a.average_heartrate ? Math.round(a.average_heartrate) : null,
+        a.max_heartrate ? Math.round(a.max_heartrate) : null, distanceKm, durationSec, path ? path.length : 0,
+        path && path.length ? JSON.stringify(path) : null, a.name ? `Synced from Strava: ${a.name}`.slice(0, 500) : null);
+    db.prepare('INSERT INTO imported_activities (id, user_id, provider, external_id, workout_id) VALUES (?,?,?,?,?)')
+      .run(randomUUID(), userId, 'strava', externalId, workoutId);
+
+    publish('workout.completed', { user_id: userId, workout_id: workoutId, calories, avg_hr: a.average_heartrate || null });
+    const completed = applyWorkoutToChallenges(userId, { distance_km: distanceKm || 0, duration_sec: durationSec, type });
+    notifyChallengeCompletions(userId, completed);
+    imported++;
+  }
+  db.prepare('UPDATE user_connectors SET last_synced_at = ? WHERE user_id = ? AND provider = ?').run(new Date().toISOString(), userId, 'strava');
+  return { imported, checked: activities.length };
+}
 
 // Seeded demo accounts only — powers the "explore a demo profile" affordance on
 // the sign-in screen without exposing real users as passwordless login targets.
@@ -495,6 +712,133 @@ router.get('/explore', (req, res) => {
   res.json({ groups, quests });
 });
 
+// ---- group detail: chat (polling) + run meetups with RSVP ----
+function isGroupMember(groupId, userId) {
+  return !!db.prepare('SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?').get(groupId, userId);
+}
+
+router.get('/groups/:id', requireAuth, (req, res) => {
+  const group = db.prepare('SELECT * FROM groups WHERE id = ?').get(req.params.id);
+  if (!group) return res.status(404).json({ error: 'not_found' });
+  const memberCount = db.prepare('SELECT COUNT(*) c FROM group_members WHERE group_id = ?').get(group.id).c;
+  const isMember = isGroupMember(group.id, req.session.userId);
+  const messages = db.prepare(`
+    SELECT m.id, m.content, m.created_at, m.user_id author_id, u.display_name author
+    FROM group_messages m JOIN users u ON u.id = m.user_id
+    WHERE m.group_id = ? ORDER BY m.created_at ASC LIMIT 50
+  `).all(group.id);
+  const events = db.prepare(`
+    SELECT e.*,
+      (SELECT COUNT(*) FROM event_rsvps r WHERE r.event_id = e.id AND r.status = 'going') going_count,
+      (SELECT COUNT(*) FROM event_rsvps r WHERE r.event_id = e.id AND r.status = 'interested') interested_count,
+      (SELECT status FROM event_rsvps r WHERE r.event_id = e.id AND r.user_id = @me) my_rsvp
+    FROM group_events e
+    WHERE e.group_id = @gid AND e.event_time >= datetime('now')
+    ORDER BY e.event_time ASC
+  `).all({ gid: group.id, me: req.session.userId });
+  res.json({ group, member_count: memberCount, is_member: isMember, messages, events });
+});
+
+router.post('/groups/:id/join', requireAuth, (req, res) => {
+  const group = db.prepare('SELECT id FROM groups WHERE id = ?').get(req.params.id);
+  if (!group) return res.status(404).json({ error: 'not_found' });
+  db.prepare('INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)').run(group.id, req.session.userId);
+  res.json({ ok: true });
+});
+
+router.post('/groups/:id/leave', requireAuth, (req, res) => {
+  db.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').run(req.params.id, req.session.userId);
+  res.json({ ok: true });
+});
+
+router.get('/groups/:id/messages', requireAuth, (req, res) => {
+  const group = db.prepare('SELECT id FROM groups WHERE id = ?').get(req.params.id);
+  if (!group) return res.status(404).json({ error: 'not_found' });
+  if (!isGroupMember(group.id, req.session.userId)) return res.status(403).json({ error: 'not_a_member' });
+  const { after } = req.query;
+  let rows;
+  if (after) {
+    rows = db.prepare(`
+      SELECT m.id, m.content, m.created_at, m.user_id author_id, u.display_name author
+      FROM group_messages m JOIN users u ON u.id = m.user_id
+      WHERE m.group_id = ? AND m.created_at > ? ORDER BY m.created_at ASC
+    `).all(group.id, after);
+  } else {
+    rows = db.prepare(`
+      SELECT m.id, m.content, m.created_at, m.user_id author_id, u.display_name author
+      FROM group_messages m JOIN users u ON u.id = m.user_id
+      WHERE m.group_id = ? ORDER BY m.created_at ASC LIMIT 50
+    `).all(group.id);
+  }
+  res.json(rows);
+});
+
+router.post('/groups/:id/messages', requireAuth, (req, res) => {
+  const group = db.prepare('SELECT id FROM groups WHERE id = ?').get(req.params.id);
+  if (!group) return res.status(404).json({ error: 'not_found' });
+  if (!isGroupMember(group.id, req.session.userId)) return res.status(403).json({ error: 'not_a_member' });
+  const { content } = req.body || {};
+  if (!content || !content.trim()) return res.status(400).json({ error: 'empty_message' });
+  const trimmed = content.trim().slice(0, 1000);
+  const id = randomUUID();
+  db.prepare('INSERT INTO group_messages (id, group_id, user_id, content) VALUES (?, ?, ?, ?)').run(id, group.id, req.session.userId, trimmed);
+  const message = db.prepare(`
+    SELECT m.id, m.content, m.created_at, m.user_id author_id, u.display_name author
+    FROM group_messages m JOIN users u ON u.id = m.user_id WHERE m.id = ?
+  `).get(id);
+  res.json(message);
+});
+
+router.post('/groups/:id/events', requireAuth, (req, res) => {
+  const group = db.prepare('SELECT id FROM groups WHERE id = ?').get(req.params.id);
+  if (!group) return res.status(404).json({ error: 'not_found' });
+  if (!isGroupMember(group.id, req.session.userId)) return res.status(403).json({ error: 'not_a_member' });
+  const { title, description, activity_type, event_time, location_name, lat, lng } = req.body || {};
+  if (!title || !title.trim()) return res.status(400).json({ error: 'title_required' });
+  if (!event_time) return res.status(400).json({ error: 'event_time_required' });
+  const t = new Date(event_time);
+  if (isNaN(t.getTime())) return res.status(400).json({ error: 'invalid_event_time' });
+  const id = randomUUID();
+  db.prepare(`
+    INSERT INTO group_events (id, group_id, creator_id, title, description, activity_type, event_time, location_name, lat, lng)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, group.id, req.session.userId, title.trim(), description || null, activity_type || null, t.toISOString(), location_name || null, lat ?? null, lng ?? null);
+  const event = db.prepare('SELECT * FROM group_events WHERE id = ?').get(id);
+  res.status(201).json({ ...event, going_count: 0, interested_count: 0, my_rsvp: null });
+});
+
+router.get('/groups/:id/events', requireAuth, (req, res) => {
+  const group = db.prepare('SELECT id FROM groups WHERE id = ?').get(req.params.id);
+  if (!group) return res.status(404).json({ error: 'not_found' });
+  const events = db.prepare(`
+    SELECT e.*,
+      (SELECT COUNT(*) FROM event_rsvps r WHERE r.event_id = e.id AND r.status = 'going') going_count,
+      (SELECT COUNT(*) FROM event_rsvps r WHERE r.event_id = e.id AND r.status = 'interested') interested_count,
+      (SELECT status FROM event_rsvps r WHERE r.event_id = e.id AND r.user_id = @me) my_rsvp
+    FROM group_events e
+    WHERE e.group_id = @gid AND e.event_time >= datetime('now')
+    ORDER BY e.event_time ASC
+  `).all({ gid: group.id, me: req.session.userId });
+  res.json(events);
+});
+
+router.post('/events/:id/rsvp', requireAuth, (req, res) => {
+  const event = db.prepare('SELECT id FROM group_events WHERE id = ?').get(req.params.id);
+  if (!event) return res.status(404).json({ error: 'not_found' });
+  const { status } = req.body || {};
+  if (status === 'going' || status === 'interested') {
+    db.prepare(`
+      INSERT INTO event_rsvps (event_id, user_id, status) VALUES (?, ?, ?)
+      ON CONFLICT(event_id, user_id) DO UPDATE SET status = excluded.status
+    `).run(event.id, req.session.userId, status);
+  } else {
+    db.prepare('DELETE FROM event_rsvps WHERE event_id = ? AND user_id = ?').run(event.id, req.session.userId);
+  }
+  const goingCount = db.prepare("SELECT COUNT(*) c FROM event_rsvps WHERE event_id = ? AND status = 'going'").get(event.id).c;
+  const interestedCount = db.prepare("SELECT COUNT(*) c FROM event_rsvps WHERE event_id = ? AND status = 'interested'").get(event.id).c;
+  res.json({ ok: true, going_count: goingCount, interested_count: interestedCount, my_rsvp: (status === 'going' || status === 'interested') ? status : null });
+});
+
 // ---- themed challenges ----
 router.get('/challenges', (req, res) => {
   const me = req.session.userId || null;
@@ -660,7 +1004,7 @@ router.get('/me/export', requireAuth, (req, res) => {
   const { password_hash, ...profile } = db.prepare('SELECT * FROM users WHERE id = ?').get(uid) || {};
   const data = {
     exported_at: new Date().toISOString(),
-    note: 'This is all the data FaithFit holds about your account. Email is included because this is your own export.',
+    note: 'This is all the data FitFaith holds about your account. Email is included because this is your own export.',
     profile,
     workouts: db.prepare('SELECT * FROM workouts WHERE user_id = ?').all(uid),
     biometric_samples: db.prepare('SELECT * FROM biometric_samples WHERE user_id = ?').all(uid),
@@ -673,13 +1017,67 @@ router.get('/me/export', requireAuth, (req, res) => {
     xp: db.prepare('SELECT * FROM user_xp WHERE user_id = ?').get(uid),
     badges: db.prepare('SELECT badge_id, earned_at FROM user_badges WHERE user_id = ?').all(uid),
   };
-  res.setHeader('Content-Disposition', 'attachment; filename="faithfit-my-data.json"');
+  res.setHeader('Content-Disposition', 'attachment; filename="fitfaith-my-data.json"');
   res.json(data);
 });
 
 // ---- notifications ----
 router.get('/notifications', requireAuth, (req, res) => {
-  res.json(db.prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY delivered_at DESC LIMIT 20').all(req.session.userId));
+  const uid = req.session.userId;
+  const notifications = db.prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY delivered_at DESC LIMIT 20').all(uid);
+  const unread_count = db.prepare('SELECT COUNT(*) c FROM notifications WHERE user_id = ? AND read = 0').get(uid).c;
+  res.json({ notifications, unread_count });
+});
+
+router.post('/notifications/:id/read', requireAuth, (req, res) => {
+  const info = db.prepare('UPDATE notifications SET read = 1 WHERE id = ? AND user_id = ?').run(req.params.id, req.session.userId);
+  if (info.changes === 0) return res.status(404).json({ error: 'notification_not_found' });
+  res.json({ ok: true });
+});
+
+router.post('/notifications/read-all', requireAuth, (req, res) => {
+  db.prepare('UPDATE notifications SET read = 1 WHERE user_id = ? AND read = 0').run(req.session.userId);
+  res.json({ ok: true });
+});
+
+// Lightweight unread-count-only endpoint — for polling from the topbar bell
+// without pulling the full notification list each time.
+router.get('/notifications/unread-count', requireAuth, (req, res) => {
+  const count = db.prepare('SELECT COUNT(*) c FROM notifications WHERE user_id = ? AND read = 0').get(req.session.userId).c;
+  res.json({ count });
+});
+
+// ---- weekly leaderboard: current user + everyone they follow, ranked by a
+// chosen metric over the current week. Mirrors /stats/summary's this_week
+// window (rolling 7 days ending now, keyed off end_time) for consistency.
+const LEADERBOARD_METRICS = new Set(['distance_km', 'duration_min', 'workouts']);
+router.get('/leaderboard', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const metric = LEADERBOARD_METRICS.has(req.query.metric) ? req.query.metric : 'distance_km';
+  const days = 7;
+  const cutoff = new Date(Date.now() - days * 86400000).toISOString();
+
+  const memberIds = [uid, ...db.prepare('SELECT followee_id FROM followers WHERE follower_id = ?').all(uid).map(r => r.followee_id)];
+  const placeholders = memberIds.map(() => '?').join(',');
+  const users = db.prepare(`SELECT id, display_name FROM users WHERE id IN (${placeholders})`).all(...memberIds);
+
+  const dur = w => Number(w.duration_sec) || (w.start_time && w.end_time ? Math.max(0, (new Date(w.end_time) - new Date(w.start_time)) / 1000) : 0);
+  const valueFor = (memberId) => {
+    const ws = db.prepare(`
+      SELECT distance_km, duration_sec, start_time, end_time FROM workouts
+      WHERE user_id = ? AND end_time IS NOT NULL AND end_time >= ?
+    `).all(memberId, cutoff);
+    if (metric === 'distance_km') return +ws.reduce((a, w) => a + (Number(w.distance_km) || 0), 0).toFixed(2);
+    if (metric === 'duration_min') return Math.round(ws.reduce((a, w) => a + dur(w), 0) / 60);
+    return ws.length; // workouts
+  };
+
+  const ranked = users
+    .map(u => ({ user_id: u.id, display_name: u.display_name, value: valueFor(u.id), is_me: u.id === uid }))
+    .sort((a, b) => b.value - a.value)
+    .map((row, i) => ({ ...row, rank: i + 1 }));
+
+  res.json(ranked);
 });
 
 // ---- gamification + notification event handlers (in-process, mirrors the Kafka consumers) ----
@@ -811,6 +1209,31 @@ router.put('/profile', requireAuth, (req, res) => {
     updates.default_visibility = req.body.default_visibility;
   }
 
+  // Location-based church selection (a real place picked from /api/churches/search
+  // results, distinct from the free-text `church` field which stays as a manual
+  // fallback). Clearing is supported by passing church_osm_id: null.
+  if (req.body && req.body.church_osm_id !== undefined) {
+    if (req.body.church_osm_id === null) {
+      updates.church_osm_id = null;
+      updates.church_name = null;
+      updates.church_lat = null;
+      updates.church_lng = null;
+      updates.church_address = null;
+    } else {
+      const osmId = String(req.body.church_osm_id).trim().slice(0, 40);
+      const name = String(req.body.church_name || '').trim().slice(0, 120);
+      const lat = Number(req.body.church_lat);
+      const lng = Number(req.body.church_lng);
+      if (!osmId || !name) return res.status(400).json({ error: 'invalid_church' });
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return res.status(400).json({ error: 'invalid_church_location' });
+      updates.church_osm_id = osmId;
+      updates.church_name = name;
+      updates.church_lat = lat;
+      updates.church_lng = lng;
+      updates.church_address = req.body.church_address ? String(req.body.church_address).trim().slice(0, 200) : null;
+    }
+  }
+
   const keys = Object.keys(updates);
   if (!keys.length) return res.status(400).json({ error: 'no_fields' });
 
@@ -870,6 +1293,74 @@ router.get('/bible/coverage', (req, res) => {
   const rows = db.prepare('SELECT book, translation, MIN(chapter) min_ch, MAX(chapter) max_ch, COUNT(DISTINCT chapter) chapters, COUNT(*) verse_count FROM bible_verses GROUP BY book, translation ORDER BY book').all();
   const total = db.prepare('SELECT COUNT(*) c FROM bible_verses').get().c;
   res.json({ note: 'Verified public-domain subset (KJV/WEB via bible-api.com), not the full canon.', total_verses: total, books: rows.length, coverage: rows });
+});
+
+// ---- Location-based church discovery (free OpenStreetMap Overpass API, no key) ----
+router.get('/churches/search', async (req, res) => {
+  const lat = Number(req.query.lat);
+  const lng = Number(req.query.lng);
+  const radiusKm = Math.min(50, Math.max(0.5, Number(req.query.radius_km) || 5));
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return res.status(400).json({ error: 'invalid_coordinates' });
+  try {
+    const results = await searchNearbyChurches({ lat, lng, radiusM: Math.round(radiusKm * 1000) });
+    res.json(results);
+  } catch (err) {
+    console.error('[churches/search] error:', err.message);
+    res.status(502).json({ error: 'search_failed', hint: 'Could not reach the church directory. Try again shortly.' });
+  }
+});
+
+// ---- Church daily devotionals (YouTube, gated behind YOUTUBE_API_KEY) ----
+router.get('/youtube/configured', (req, res) => {
+  res.json({ configured: youtube.isConfigured() });
+});
+
+router.get('/youtube/search-channels', requireAuth, async (req, res) => {
+  if (!youtube.isConfigured()) return res.status(404).json({ error: 'not_configured' });
+  const q = String(req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'missing_query' });
+  try {
+    const results = await youtube.searchChannels(q);
+    res.json(results);
+  } catch (err) {
+    console.error('[youtube/search-channels] error:', err.message);
+    res.status(502).json({ error: 'search_failed' });
+  }
+});
+
+router.post('/churches/:osmId/link-youtube', requireAuth, (req, res) => {
+  const osmId = req.params.osmId;
+  const { channel_id, channel_title } = req.body || {};
+  if (!youtube.isConfigured()) return res.status(404).json({ error: 'not_configured' });
+  if (!channel_id) return res.status(400).json({ error: 'missing_channel_id' });
+
+  // The requesting user's own profile is the source of truth for this osm_id's
+  // name/lat/lng when the church row doesn't exist yet.
+  const me = db.prepare('SELECT church_osm_id, church_name FROM users WHERE id = ?').get(req.session.userId);
+  if (!me || me.church_osm_id !== osmId) return res.status(400).json({ error: 'church_not_on_profile', hint: 'Select this church on your profile before linking a channel.' });
+
+  const existing = db.prepare('SELECT id FROM churches WHERE osm_id = ?').get(osmId);
+  const title = channel_title ? String(channel_title).trim().slice(0, 120) : null;
+  if (existing) {
+    db.prepare('UPDATE churches SET youtube_channel_id = ?, youtube_channel_title = ? WHERE id = ?')
+      .run(String(channel_id).trim(), title, existing.id);
+  } else {
+    db.prepare('INSERT INTO churches (id, osm_id, name, youtube_channel_id, youtube_channel_title) VALUES (?, ?, ?, ?, ?)')
+      .run(randomUUID(), osmId, me.church_name, String(channel_id).trim(), title);
+  }
+  res.json({ ok: true });
+});
+
+router.get('/devotionals/today', requireAuth, (req, res) => {
+  const me = db.prepare('SELECT church_osm_id FROM users WHERE id = ?').get(req.session.userId);
+  if (!me || !me.church_osm_id) return res.json({ devotional: null });
+  const church = db.prepare('SELECT id, name FROM churches WHERE osm_id = ?').get(me.church_osm_id);
+  if (!church) return res.json({ devotional: null });
+  const today = new Date().toISOString().slice(0, 10);
+  const row = db.prepare('SELECT video_id, title, thumbnail_url, published_at FROM church_devotionals WHERE church_id = ? AND fetched_date = ?')
+    .get(church.id, today);
+  if (!row) return res.json({ devotional: null });
+  res.json({ devotional: { ...row, church_name: church.name } });
 });
 
 module.exports = router;

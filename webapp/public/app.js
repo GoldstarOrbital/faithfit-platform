@@ -16,7 +16,11 @@ async function api(path, opts = {}) {
   return res.json();
 }
 
-async function loadMe() { try { state.me = await api('/me'); } catch { state.me = null; } }
+async function loadMe() {
+  try { state.me = await api('/me'); } catch { state.me = null; }
+  if (state.me) { startNotifPolling(); }
+  else if (typeof notifPollTimer !== 'undefined' && notifPollTimer) { clearInterval(notifPollTimer); notifPollTimer = null; }
+}
 
 function setTab(tab) {
   if (state.activeWorkout && tab !== 'workout') { if (!confirm('Leave this screen? Your workout is still running.')) return; }
@@ -46,15 +50,37 @@ function timeAgo(iso) {
 
 let signInMode = 'login'; // 'login' | 'register'
 
+const OAUTH_ERROR_MESSAGES = {
+  session_expired: 'That sign-in link expired — please try again.',
+  state_mismatch: 'Sign-in could not be verified — please try again.',
+  sign_in_failed: 'Sign-in failed — please try again or use email + password.',
+  access_denied: 'Sign-in was cancelled.',
+  identity_linked_elsewhere: 'That account is already linked to a different FitFaith profile.',
+};
+
 async function renderSignIn() {
   const main = document.getElementById('main');
   document.querySelectorAll('nav button').forEach(b => b.style.display = 'none');
+
+  let providers = [];
+  try { providers = (await api('/auth/providers')).providers; } catch {}
+
+  const params = new URLSearchParams(location.search);
+  const oauthError = params.get('oauth_error');
+  if (oauthError) history.replaceState(null, '', location.pathname);
 
   const isRegister = signInMode === 'register';
   main.innerHTML = `
     <div class="card glass">
       <h2>${isRegister ? 'Create your account' : 'Welcome back'}</h2>
       <p class="muted">${isRegister ? 'Faith and fitness, together. Free to join.' : 'Sign in to continue your journey.'}</p>
+      ${oauthError ? `<p class="form-error">${OAUTH_ERROR_MESSAGES[oauthError] || 'Sign-in failed — please try again.'}</p>` : ''}
+      ${providers.length ? `
+        <div class="oauth-row">
+          ${providers.map(p => `<a class="ghost oauth-btn" href="/api/auth/oauth/${p.name}/start">Continue with ${p.label}</a>`).join('')}
+        </div>
+        <div class="auth-divider"><span>or</span></div>
+      ` : ''}
       <form id="auth-form" autocomplete="on">
         ${isRegister ? `
         <label class="field-label">Name</label>
@@ -125,11 +151,19 @@ function routeSvg(seed) {
 
 async function renderHome(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
-  const [posts, users, suggested, rec] = await Promise.all([api('/feed'), api('/users'), api('/users/suggested').catch(() => []), api('/recommendations').catch(() => null)]);
+  const [posts, users, suggested, rec, devo] = await Promise.all([api('/feed'), api('/users'), api('/users/suggested').catch(() => []), api('/recommendations').catch(() => null), api('/devotionals/today').catch(() => null)]);
   main.innerHTML = `
     <div class="stories">
       ${users.map(u => `<div class="story" data-user="${u.id}"><div class="story-ring"><div class="story-avatar">${initials(u.display_name)}</div></div><div class="story-label">${u.display_name.split(' ')[0]}</div></div>`).join('')}
     </div>
+    ${devo && devo.devotional ? `
+    <div class="card glass foryou-card">
+      <div class="foryou-head">🎬 Today's devotional from ${escapeHtml(devo.devotional.church_name || 'your church')}</div>
+      <div class="foryou-title" style="margin-bottom:6px">${escapeHtml(devo.devotional.title || '')}</div>
+      <div style="position:relative;padding-top:56.25%;border-radius:10px;overflow:hidden">
+        <iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(devo.devotional.video_id)}" title="Today's devotional" frameborder="0" allowfullscreen style="position:absolute;top:0;left:0;width:100%;height:100%"></iframe>
+      </div>
+    </div>` : ''}
     ${rec ? `
     <div class="card glass foryou-card">
       <div class="foryou-head">✦ For you</div>
@@ -385,9 +419,11 @@ function challengeRow(c) {
 }
 
 async function renderExplore(main) {
+  document.querySelectorAll('nav button').forEach(b => b.style.display = '');
   main.innerHTML = `
     <div class="section-tabs section-tabs-scroll">
       <button data-etab="challenges" class="${state.exploreTab==='challenges'?'active':''}">Challenges</button>
+      <button data-etab="leaderboard" class="${state.exploreTab==='leaderboard'?'active':''}">Leaderboard</button>
       <button data-etab="groups" class="${state.exploreTab==='groups'?'active':''}">Groups</button>
       <button data-etab="breathe" class="${state.exploreTab==='breathe'?'active':''}">Breathe</button>
       <button data-etab="motivation" class="${state.exploreTab==='motivation'?'active':''}">Motivation</button>
@@ -419,14 +455,37 @@ async function renderExplore(main) {
       await api(`/challenges/${btn.dataset.challenge}/${joined ? 'leave' : 'join'}`, { method: 'POST' });
       renderExplore(main);
     });
+  } else if (state.exploreTab === 'leaderboard') {
+    if (!state.leaderboardMetric) state.leaderboardMetric = 'distance_km';
+    const metricLabels = { distance_km: 'Distance', duration_min: 'Duration', workouts: 'Workouts' };
+    const fmtValue = (row) => state.leaderboardMetric === 'distance_km' ? `${row.value.toFixed(1)} km`
+      : state.leaderboardMetric === 'duration_min' ? `${row.value} min`
+      : `${row.value} workout${row.value === 1 ? '' : 's'}`;
+    const rows = await api(`/leaderboard?metric=${state.leaderboardMetric}&period=week`);
+    body.innerHTML = `
+      <h2>Weekly Leaderboard</h2>
+      <p class="muted" style="margin-top:-6px;margin-bottom:12px">You and everyone you follow, ranked by this week's activity.</p>
+      <div class="section-tabs" style="margin-bottom:12px">
+        ${Object.entries(metricLabels).map(([m, l]) => `<button data-metric="${m}" class="${state.leaderboardMetric===m?'active':''}">${l}</button>`).join('')}
+      </div>
+      ${rows.length ? rows.map(row => `
+        <div class="card glass" style="display:flex;align-items:center;gap:12px;padding:12px 16px;${row.is_me ? 'border-left:3px solid var(--emerald);background:linear-gradient(180deg, var(--parch-2), var(--parch-1));' : ''}">
+          <div class="muted" style="width:24px;font-weight:700;text-align:center">${row.rank}</div>
+          <div class="avatar-sm">${initials(row.display_name)}</div>
+          <div style="flex:1;font-weight:${row.is_me ? '700' : '500'}">${escapeHtml(row.display_name)}${row.is_me ? ' (you)' : ''}</div>
+          <div style="font-weight:700;font-variant-numeric:tabular-nums">${fmtValue(row)}</div>
+        </div>`).join('') : '<div class="muted">Follow a few people to see them on your leaderboard.</div>'}
+    `;
+    body.querySelectorAll('[data-metric]').forEach(btn => btn.onclick = () => { state.leaderboardMetric = btn.dataset.metric; renderExplore(main); });
   } else if (state.exploreTab === 'groups') {
     const { groups, quests } = await api('/explore');
     body.innerHTML = `
       <h2>Groups</h2>
-      ${groups.map(g => `<div class="card glass"><strong>${g.name}</strong><div class="muted">${g.description}</div></div>`).join('')}
+      ${groups.map(g => `<div class="card glass" data-group="${g.id}" style="cursor:pointer"><strong>${escapeHtml(g.name)}</strong><div class="muted">${escapeHtml(g.description || '')}</div></div>`).join('')}
       <h2>Quests</h2>
       ${quests.map(q => `<div class="card glass"><strong>${q.name}</strong><div class="muted">${q.description} · theme: ${q.theme}</div></div>`).join('')}
     `;
+    body.querySelectorAll('[data-group]').forEach(el => el.onclick = () => renderGroupDetail(el.dataset.group));
   } else if (state.exploreTab === 'breathe') {
     body.innerHTML = `
       <div class="card glass" style="text-align:center">
@@ -495,9 +554,195 @@ async function renderExplore(main) {
   }
 }
 
+// Group detail: chat (5s polling) + upcoming meetups with RSVP.
+async function renderGroupDetail(groupId) {
+  const main = document.getElementById('main');
+  if (state.groupPollTimer) { clearInterval(state.groupPollTimer); state.groupPollTimer = null; }
+  document.querySelectorAll('nav button').forEach(b => b.style.display = 'none');
+  main.innerHTML = `<button class="ghost back-btn" id="group-back">← Back</button><div class="card glass" style="text-align:center">Loading…</div>`;
+  document.getElementById('group-back').onclick = () => {
+    if (state.groupPollTimer) { clearInterval(state.groupPollTimer); state.groupPollTimer = null; }
+    state.tab = 'explore'; render();
+  };
+  let data;
+  try { data = await api(`/groups/${groupId}`); } catch { main.innerHTML = '<div class="card glass">Could not load group.</div>'; return; }
+  const g = data.group;
+  let lastTs = data.messages.length ? data.messages[data.messages.length - 1].created_at : null;
+
+  const activityOpts = async () => {
+    if (!state.activityTypes) { try { state.activityTypes = await api('/activity-types'); } catch { state.activityTypes = [{ type: 'Run', icon: '🏃' }]; } }
+    return state.activityTypes.map(a => `<option value="${a.type}">${a.icon} ${a.type}</option>`).join('');
+  };
+
+  const fmtEventTime = iso => { const d = new Date(iso); return isNaN(d) ? iso : d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); };
+
+  const renderEvents = (events) => events.map(e => `
+    <div class="card glass challenge-card" data-event="${e.id}">
+      <div class="challenge-hd">
+        <div><div class="challenge-name">${escapeHtml(e.title)}</div>
+          <div class="challenge-ref">${e.activity_type ? escapeHtml(e.activity_type) + ' · ' : ''}${fmtEventTime(e.event_time)}${e.location_name ? ' · ' + escapeHtml(e.location_name) : ''}</div></div>
+      </div>
+      ${e.description ? `<div class="challenge-flavor">${escapeHtml(e.description)}</div>` : ''}
+      <div class="muted" style="font-size:0.76rem;margin-bottom:8px">${e.going_count} going · ${e.interested_count} interested</div>
+      <div class="action-row" style="border-top:none;padding-top:0;margin-top:0">
+        <button class="follow-btn ${e.my_rsvp === 'going' ? 'following' : ''}" data-rsvp="${e.id}" data-status="going">I'm going</button>
+        <button class="follow-btn ${e.my_rsvp === 'interested' ? 'following' : ''}" data-rsvp="${e.id}" data-status="interested">Interested</button>
+      </div>
+    </div>`).join('') || '<p class="muted">No upcoming meetups yet.</p>';
+
+  main.innerHTML = `
+    <button class="ghost back-btn" id="group-back">← Back</button>
+    <div class="card glass">
+      <h2 style="margin-top:0">${escapeHtml(g.name)}</h2>
+      <div class="muted" style="margin-bottom:10px">${escapeHtml(g.description || '')}</div>
+      <div class="muted" style="margin-bottom:10px">${data.member_count} member${data.member_count === 1 ? '' : 's'}</div>
+      <button class="follow-btn ${data.is_member ? 'following' : ''}" id="group-join-leave">${data.is_member ? 'Leave group' : 'Join group'}</button>
+    </div>
+    <div class="card glass">
+      <h2>Upcoming meetups</h2>
+      <div id="group-events">${renderEvents(data.events)}</div>
+      ${data.is_member ? `<button class="ghost" style="width:100%;margin-top:10px" id="plan-meetup-toggle">+ Plan a meetup</button>
+      <div id="meetup-form" style="display:none;margin-top:10px">
+        <input type="text" id="mf-title" placeholder="Title" />
+        <select id="mf-activity"><option value="">Activity type…</option></select>
+        <input type="datetime-local" id="mf-time" class="input" style="margin-bottom:8px" />
+        <input type="text" id="mf-location" placeholder="Location name" />
+        <input type="text" id="mf-description" placeholder="Description (optional)" />
+        <button class="primary" style="width:100%" id="mf-submit">Create meetup</button>
+      </div>` : ''}
+    </div>
+    <div class="card glass">
+      <h2>Chat</h2>
+      ${data.is_member ? `
+        <div class="comments" id="group-messages" style="display:flex;max-height:340px;overflow-y:auto">
+          ${data.messages.map(m => `<div class="comment"><b>${escapeHtml(m.author)}</b>${escapeHtml(m.content)}<span class="muted" style="margin-left:6px;font-size:0.7rem">${timeAgo(m.created_at)} ago</span></div>`).join('')}
+        </div>
+        <div class="comment-input-row">
+          <input type="text" placeholder="Message the group…" id="group-msg-input" />
+          <button id="group-msg-send">Send</button>
+        </div>` : `<p class="muted">Join the group to see and send messages.</p>`}
+    </div>
+  `;
+
+  document.getElementById('group-back').onclick = () => {
+    if (state.groupPollTimer) { clearInterval(state.groupPollTimer); state.groupPollTimer = null; }
+    state.tab = 'explore'; render();
+  };
+
+  document.getElementById('group-join-leave').onclick = async () => {
+    await api(`/groups/${groupId}/${data.is_member ? 'leave' : 'join'}`, { method: 'POST' });
+    renderGroupDetail(groupId);
+  };
+
+  const wireRsvp = () => {
+    document.querySelectorAll('[data-rsvp]').forEach(btn => btn.onclick = async () => {
+      const eventId = btn.dataset.rsvp, status = btn.dataset.status;
+      const card = btn.closest('[data-event]');
+      const wasActive = btn.classList.contains('following');
+      const r = await api(`/events/${eventId}/rsvp`, { method: 'POST', body: { status: wasActive ? null : status } });
+      card.querySelectorAll('[data-rsvp]').forEach(b => b.classList.remove('following'));
+      if (!wasActive) btn.classList.add('following');
+      card.querySelector('.muted').textContent = `${r.going_count} going · ${r.interested_count} interested`;
+    });
+  };
+  wireRsvp();
+
+  if (data.is_member) {
+    const messagesEl = document.getElementById('group-messages');
+    const sendMsg = async () => {
+      const input = document.getElementById('group-msg-input');
+      if (!input.value.trim()) return;
+      const msg = await api(`/groups/${groupId}/messages`, { method: 'POST', body: { content: input.value } });
+      input.value = '';
+      messagesEl.insertAdjacentHTML('beforeend', `<div class="comment"><b>${escapeHtml(msg.author)}</b>${escapeHtml(msg.content)}<span class="muted" style="margin-left:6px;font-size:0.7rem">${timeAgo(msg.created_at)} ago</span></div>`);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      lastTs = msg.created_at;
+    };
+    document.getElementById('group-msg-send').onclick = sendMsg;
+    document.getElementById('group-msg-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendMsg(); });
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    state.groupPollTimer = setInterval(async () => {
+      try {
+        const fresh = await api(`/groups/${groupId}/messages${lastTs ? `?after=${encodeURIComponent(lastTs)}` : ''}`);
+        if (fresh.length) {
+          fresh.forEach(m => {
+            messagesEl.insertAdjacentHTML('beforeend', `<div class="comment"><b>${escapeHtml(m.author)}</b>${escapeHtml(m.content)}<span class="muted" style="margin-left:6px;font-size:0.7rem">${timeAgo(m.created_at)} ago</span></div>`);
+          });
+          lastTs = fresh[fresh.length - 1].created_at;
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+      } catch { /* ignore transient poll errors */ }
+    }, 5000);
+  }
+
+  if (data.is_member) {
+    document.getElementById('mf-activity').innerHTML += await activityOpts();
+    document.getElementById('plan-meetup-toggle').onclick = () => {
+      const f = document.getElementById('meetup-form');
+      f.style.display = f.style.display === 'none' ? 'block' : 'none';
+    };
+    document.getElementById('mf-submit').onclick = async () => {
+      const title = document.getElementById('mf-title').value.trim();
+      const eventTime = document.getElementById('mf-time').value;
+      if (!title || !eventTime) { alert('Title and date/time are required.'); return; }
+      try {
+        await api(`/groups/${groupId}/events`, {
+          method: 'POST',
+          body: {
+            title,
+            activity_type: document.getElementById('mf-activity').value || null,
+            event_time: new Date(eventTime).toISOString(),
+            location_name: document.getElementById('mf-location').value.trim() || null,
+            description: document.getElementById('mf-description').value.trim() || null,
+          },
+        });
+        renderGroupDetail(groupId);
+      } catch { alert('Could not create meetup.'); }
+    };
+  }
+}
+
 async function renderProfile(main) {
+  document.querySelectorAll('nav button').forEach(b => b.style.display = '');
   const me = await api('/me');
   state.me = me;
+
+  let connections = { identities: [], connectors: [] }, providers = [], stravaConfigured = false;
+  try {
+    const [connRes, provRes, stravaRes] = await Promise.all([
+      api('/auth/connections'), api('/auth/providers'), api('/connectors/strava/configured'),
+    ]);
+    connections = connRes; providers = provRes.providers || []; stravaConfigured = !!stravaRes.configured;
+  } catch (e) { console.error('connections load failed', e); }
+
+  const linkedProviders = new Map(connections.identities.map(i => [i.provider, i]));
+  const stravaConn = connections.connectors.find(c => c.provider === 'strava');
+
+  const providerRows = providers.map(p => {
+    const idn = linkedProviders.get(p.name);
+    if (idn) {
+      return `<div class="toggle-row"><span>Linked · ${escapeHtml(idn.email || p.label)}</span><button class="ghost" data-unlink="${p.name}">Unlink</button></div>`;
+    }
+    return `<div class="toggle-row"><span>${p.label}</span><a class="ghost" href="/api/auth/oauth/${p.name}/start?link=1">Link ${p.label}</a></div>`;
+  }).join('');
+
+  let stravaRow = '';
+  if (stravaConfigured) {
+    if (stravaConn) {
+      const lastSync = stravaConn.last_synced_at ? `${timeAgo(stravaConn.last_synced_at)} ago` : 'never';
+      stravaRow = `
+        <div class="toggle-row"><span>Connected · last synced ${lastSync}</span></div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="ghost" id="strava-sync" style="flex:1">Sync now</button>
+          <button class="ghost" id="strava-disconnect" style="flex:1">Disconnect</button>
+        </div>
+        <div id="strava-sync-status" class="muted" style="margin-top:6px"></div>`;
+    } else {
+      stravaRow = `<a class="ghost" href="/api/connectors/strava/start" style="display:block;text-align:center;text-decoration:none">Connect Strava</a>`;
+    }
+  }
+
   main.innerHTML = `
     <div class="card glass">
       <div class="profile-header">
@@ -539,6 +784,20 @@ async function renderProfile(main) {
       <div id="p-status" class="muted" style="margin-top:6px"></div>
     </div>
     <div class="card glass">
+      <h2>Find your church</h2>
+      <div class="muted" style="margin-bottom:10px">Search real churches near you using OpenStreetMap — pick the one you attend.</div>
+      <div id="church-current">${me.user.church_name ? `📍 <strong>${escapeHtml(me.user.church_name)}</strong>${me.user.church_address ? ` — ${escapeHtml(me.user.church_address)}` : ''} <button class="ghost" id="church-clear" style="margin-left:8px">Clear</button>` : '<span class="muted">No church selected yet.</span>'}</div>
+      <button class="ghost" id="church-find" style="width:100%;margin-top:10px">📍 Find churches near me</button>
+      <div id="church-status" class="muted" style="margin-top:6px"></div>
+      <div id="church-results" style="margin-top:10px"></div>
+      <div id="youtube-link-section" style="margin-top:14px"></div>
+    </div>
+    <div class="card glass">
+      <h2>Connected accounts</h2>
+      ${providers.length ? providerRows : '<div class="muted">No sign-in providers are configured on this server.</div>'}
+      ${stravaConfigured ? `<div class="muted" style="margin:10px 0 4px;font-weight:600">Strava</div>${stravaRow}` : ''}
+    </div>
+    <div class="card glass">
       <h2>Connected Devices</h2>
       <div class="muted" id="ble-status">${state.bleConnected ? `Connected: ${state.bleDevice?.name || 'Heart rate monitor'}` : 'No Bluetooth heart rate monitor connected.'}</div>
       <button class="ghost" style="width:100%;margin-top:10px" id="ble-connect">${state.bleConnected ? 'Disconnect' : 'Pair Bluetooth Heart Rate Monitor'}</button>
@@ -561,8 +820,8 @@ async function renderProfile(main) {
     </div>
     <div class="card glass">
       <h2>Your data</h2>
-      <div class="muted" style="margin-bottom:10px">Full transparency — download everything FaithFit stores about your account as a JSON file.</div>
-      <a class="ghost" id="data-export" href="/api/me/export" download="faithfit-my-data.json" style="display:block;text-align:center;text-decoration:none">⬇ Download my data</a>
+      <div class="muted" style="margin-bottom:10px">Full transparency — download everything FitFaith stores about your account as a JSON file.</div>
+      <a class="ghost" id="data-export" href="/api/me/export" download="fitfaith-my-data.json" style="display:block;text-align:center;text-decoration:none">⬇ Download my data</a>
     </div>
     <button class="ghost" id="signout" style="width:100%">Sign out</button>
   `;
@@ -577,6 +836,32 @@ async function renderProfile(main) {
     state.me = null; signInMode = 'login'; location.reload();
   };
   document.getElementById('ble-connect').onclick = () => state.bleConnected ? disconnectBle() : connectBle();
+
+  main.querySelectorAll('[data-unlink]').forEach(btn => {
+    btn.onclick = async () => {
+      await api(`/auth/identities/${btn.dataset.unlink}/unlink`, { method: 'POST' });
+      renderProfile(main);
+    };
+  });
+  const stravaSyncBtn = document.getElementById('strava-sync');
+  if (stravaSyncBtn) {
+    stravaSyncBtn.onclick = async () => {
+      const statusEl = document.getElementById('strava-sync-status');
+      statusEl.textContent = 'Syncing…';
+      try {
+        const res = await api('/connectors/strava/sync', { method: 'POST' });
+        statusEl.textContent = res.error ? `Sync failed: ${res.detail || res.error}` : `Synced — imported ${res.imported} of ${res.checked} activities.`;
+        renderProfile(main);
+      } catch (e) { statusEl.textContent = 'Sync failed.'; }
+    };
+  }
+  const stravaDisconnectBtn = document.getElementById('strava-disconnect');
+  if (stravaDisconnectBtn) {
+    stravaDisconnectBtn.onclick = async () => {
+      await api('/connectors/strava/disconnect', { method: 'POST' });
+      renderProfile(main);
+    };
+  }
 
   // Populate the verified-verse picker from the real Bible library (never freeform).
   const versePicker = document.getElementById('p-verse');
@@ -620,6 +905,103 @@ async function renderProfile(main) {
       status.textContent = e.message || 'Could not save.';
     }
   };
+
+  wireChurchFinder(me);
+}
+
+// ---- Location-based church selection (real data via OpenStreetMap Overpass) ----
+function wireChurchFinder(me) {
+  const statusEl = document.getElementById('church-status');
+  const resultsEl = document.getElementById('church-results');
+  const findBtn = document.getElementById('church-find');
+  const clearBtn = document.getElementById('church-clear');
+
+  findBtn.onclick = () => {
+    if (!navigator.geolocation) { statusEl.textContent = 'Location isn\'t supported in this browser.'; return; }
+    statusEl.textContent = 'Getting your location…';
+    resultsEl.innerHTML = '';
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        statusEl.textContent = 'Searching nearby churches…';
+        try {
+          const { latitude, longitude } = pos.coords;
+          const results = await api(`/churches/search?lat=${latitude}&lng=${longitude}&radius_km=8`);
+          if (!results.length) { statusEl.textContent = 'No churches found nearby — try a different location.'; return; }
+          statusEl.textContent = `Found ${results.length} nearby.`;
+          resultsEl.innerHTML = results.map(c => `
+            <div class="card glass" style="padding:10px;margin-bottom:6px">
+              <div style="font-weight:600">${escapeHtml(c.name)}</div>
+              ${c.address ? `<div class="muted" style="font-size:0.8rem">${escapeHtml(c.address)}</div>` : ''}
+              <button class="follow-btn" style="margin-top:6px" data-pick='${JSON.stringify(c).replace(/'/g, "&#39;")}'>Select</button>
+            </div>`).join('');
+          resultsEl.querySelectorAll('[data-pick]').forEach(btn => btn.onclick = async () => {
+            const c = JSON.parse(btn.dataset.pick);
+            statusEl.textContent = 'Saving…';
+            const res = await api('/profile', { method: 'PUT', body: {
+              church_osm_id: c.osm_id, church_name: c.name, church_lat: c.lat, church_lng: c.lng, church_address: c.address,
+            } });
+            if (res.error) { statusEl.textContent = res.hint || ('Could not save: ' + res.error); return; }
+            await loadMe();
+            render();
+          });
+        } catch (e) {
+          statusEl.textContent = 'Could not reach the church directory. Try again shortly.';
+        }
+      },
+      () => { statusEl.textContent = 'Location permission denied or unavailable — try again or check your browser settings.'; },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
+  if (clearBtn) clearBtn.onclick = async () => {
+    await api('/profile', { method: 'PUT', body: { church_osm_id: null } });
+    await loadMe();
+    render();
+  };
+
+  wireYoutubeLink(me);
+}
+
+// ---- Church daily devotionals: link a real YouTube channel to a selected church ----
+async function wireYoutubeLink(me) {
+  const section = document.getElementById('youtube-link-section');
+  if (!section || !me.user.church_osm_id) { if (section) section.innerHTML = ''; return; }
+  try {
+    const { configured } = await api('/youtube/configured');
+    if (!configured) { section.innerHTML = ''; return; }
+  } catch (e) { section.innerHTML = ''; return; }
+
+  section.innerHTML = `
+    <div class="field-label">Link your church's YouTube channel</div>
+    <div class="muted" style="margin-bottom:6px">Helps everyone at this church see today's devotional on their feed.</div>
+    <input id="yt-search" type="text" placeholder="Search for your church's channel…">
+    <button class="ghost" id="yt-search-btn" style="margin-top:6px">Search</button>
+    <div id="yt-results" style="margin-top:8px"></div>
+  `;
+  document.getElementById('yt-search-btn').onclick = async () => {
+    const q = document.getElementById('yt-search').value.trim();
+    const resultsEl = document.getElementById('yt-results');
+    if (!q) return;
+    resultsEl.innerHTML = '<span class="muted">Searching…</span>';
+    try {
+      const results = await api(`/youtube/search-channels?q=${encodeURIComponent(q)}`);
+      if (!results.length) { resultsEl.innerHTML = '<span class="muted">No channels found.</span>'; return; }
+      resultsEl.innerHTML = results.map(c => `
+        <div class="card glass" style="padding:10px;margin-bottom:6px;display:flex;align-items:center;gap:8px">
+          <div style="flex:1">${escapeHtml(c.title)}</div>
+          <button class="follow-btn" data-link='${JSON.stringify(c).replace(/'/g, "&#39;")}'>Link</button>
+        </div>`).join('');
+      resultsEl.querySelectorAll('[data-link]').forEach(btn => btn.onclick = async () => {
+        const c = JSON.parse(btn.dataset.link);
+        await api(`/churches/${encodeURIComponent(me.user.church_osm_id)}/link-youtube`, {
+          method: 'POST', body: { channel_id: c.channelId, channel_title: c.title },
+        });
+        resultsEl.innerHTML = '<span class="muted">Linked ✓</span>';
+      });
+    } catch (e) {
+      resultsEl.innerHTML = '<span class="muted">Search failed.</span>';
+    }
+  };
 }
 
 // ---- Web Bluetooth: real heart rate monitor pairing (standard GATT Heart Rate Service) ----
@@ -656,6 +1038,7 @@ function disconnectBle() {
 let workoutMode = 'live'; // 'live' | 'manual'
 
 async function renderWorkout(main) {
+  document.querySelectorAll('nav button').forEach(b => b.style.display = '');
   if (!state.activityTypes) { try { state.activityTypes = await api('/activity-types'); } catch { state.activityTypes = [{type:'Run',icon:'🏃'}]; } }
   const opts = state.activityTypes.map(a => `<option value="${a.type}">${a.icon} ${a.type}</option>`).join('');
   const liveActive = workoutMode === 'live';
@@ -844,4 +1227,92 @@ function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;
 
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => setTab(b.dataset.tab));
 
-(async () => { await loadMe(); render(); })();
+function showToast(message, isError) {
+  if (!message) return;
+  const el = document.createElement('div');
+  el.className = 'toast-banner';
+  el.style.cssText = `position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:200;padding:10px 18px;border-radius:var(--radius);font-size:0.85rem;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,0.25);color:#fff;background:${isError ? 'var(--seal)' : 'var(--forest)'};`;
+  el.textContent = message;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+function consumeSignedInRedirectParams() {
+  const params = new URLSearchParams(location.search);
+  const connected = params.get('connected');
+  const linked = params.get('linked');
+  const oauthError = params.get('oauth_error');
+  const stravaError = params.get('strava_error');
+  if (!connected && !linked && !oauthError && !stravaError) return;
+  let message = null, isError = false;
+  if (connected === 'strava') message = 'Strava connected — syncing your activities.';
+  if (linked) message = `Linked ${linked.charAt(0).toUpperCase() + linked.slice(1)} account.`;
+  if (oauthError) { message = OAUTH_ERROR_MESSAGES[oauthError] || 'Sign-in failed — please try again.'; isError = true; }
+  if (stravaError) { message = 'Strava connection failed — please try again.'; isError = true; }
+  history.replaceState(null, '', location.pathname);
+  showToast(message, isError);
+}
+
+// ---- notifications bell: unread badge + dropdown panel, polled every 30s ----
+let notifPollTimer = null;
+async function refreshNotifBadge() {
+  if (!state.me) return;
+  try {
+    const { unread_count } = await api('/notifications');
+    const badge = document.getElementById('notif-badge');
+    const wrap = document.getElementById('notif-wrap');
+    if (wrap) wrap.style.display = '';
+    if (badge) {
+      if (unread_count > 0) { badge.textContent = unread_count > 99 ? '99+' : String(unread_count); badge.style.display = ''; }
+      else badge.style.display = 'none';
+    }
+  } catch {}
+}
+function startNotifPolling() {
+  if (notifPollTimer) clearInterval(notifPollTimer);
+  refreshNotifBadge();
+  notifPollTimer = setInterval(refreshNotifBadge, 30000);
+}
+async function toggleNotifPanel() {
+  const panel = document.getElementById('notif-panel');
+  if (!panel) return;
+  if (panel.style.display === 'block') { panel.style.display = 'none'; return; }
+  panel.innerHTML = '<div class="muted" style="padding:8px">Loading…</div>';
+  panel.style.display = 'block';
+  const { notifications, unread_count } = await api('/notifications');
+  const fmtPayload = (n) => { try { return JSON.parse(n.payload || '{}').message || n.type; } catch { return n.type; } };
+  panel.innerHTML = `
+    <div class="notif-panel-head">
+      <h3>Notifications</h3>
+      ${unread_count > 0 ? `<button id="notif-mark-all">Mark all read</button>` : ''}
+    </div>
+    ${notifications.length ? notifications.map(n => `
+      <div class="notif-item ${n.read ? '' : 'unread'}" data-notif="${n.id}">
+        <div>${escapeHtml(fmtPayload(n))}</div>
+        <div class="notif-time">${timeAgo(n.delivered_at)} ago</div>
+      </div>`).join('') : '<div class="muted" style="padding:8px">No notifications yet.</div>'}
+  `;
+  const markAllBtn = document.getElementById('notif-mark-all');
+  if (markAllBtn) markAllBtn.onclick = async () => { await api('/notifications/read-all', { method: 'POST' }); toggleNotifPanel(); toggleNotifPanel(); refreshNotifBadge(); };
+  panel.querySelectorAll('[data-notif]').forEach(item => {
+    item.onclick = async () => {
+      await api(`/notifications/${item.dataset.notif}/read`, { method: 'POST' });
+      item.classList.remove('unread');
+      refreshNotifBadge();
+    };
+  });
+}
+document.addEventListener('DOMContentLoaded', () => {
+  const bellBtn = document.getElementById('notif-bell');
+  if (bellBtn) bellBtn.onclick = (e) => { e.stopPropagation(); toggleNotifPanel(); };
+  document.addEventListener('click', (e) => {
+    const panel = document.getElementById('notif-panel');
+    const wrap = document.getElementById('notif-wrap');
+    if (panel && panel.style.display === 'block' && wrap && !wrap.contains(e.target)) panel.style.display = 'none';
+  });
+});
+
+(async () => {
+  await loadMe();
+  if (state.me) consumeSignedInRedirectParams();
+  render();
+})();

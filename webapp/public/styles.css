@@ -1,4 +1,4 @@
-/* FaithFit — "Rustic Silver / Wood" theme.
+/* FitFaith — "Rustic Silver / Wood" theme.
    Aged parchment + weathered walnut + brushed pewter, with forest-green and
    hearth-gold accents. Illuminated-manuscript display type (Cinzel) over a
    readable serif body (Spectral). Textures are inline SVG data-URIs — no
@@ -267,6 +267,11 @@ h2 { font-family:'Cinzel', serif; font-size: 1.08rem; margin: 6px 0 12px; font-w
 a { color: var(--forest); text-decoration:none; font-weight:600; }
 a:hover { color: var(--gold); }
 
+/* ---- OAuth / SSO buttons ---- */
+.oauth-row { display:flex; flex-direction:column; gap:8px; margin-bottom:4px; }
+.oauth-btn { display:flex; align-items:center; justify-content:center; text-align:center; font-weight:600; }
+.oauth-btn:hover { color: var(--ink); }
+
 /* ---- Social: follow buttons, suggestions rail, profiles ---- */
 .follow-btn {
   background: linear-gradient(180deg, var(--emerald), var(--forest)); color:#eafff2;
@@ -342,6 +347,27 @@ a:hover { color: var(--gold); }
 .section-tabs-scroll { overflow-x:auto; scrollbar-width:none; flex-wrap:nowrap; }
 .section-tabs-scroll::-webkit-scrollbar { display:none; }
 .section-tabs-scroll button { flex: 0 0 auto; padding:9px 14px; }
+
+/* ---- Notifications bell + dropdown panel ---- */
+.notif-bell { position:relative; padding:8px; border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; background: var(--parch-2); border:1px solid var(--hairline); color: var(--ink-soft); cursor:pointer; }
+.notif-bell svg { width:19px; height:19px; }
+.notif-badge { position:absolute; top:-2px; right:-2px; min-width:16px; height:16px; padding:0 3px; border-radius:9px; background: var(--seal); color:#fff; font-size:0.62rem; font-weight:700; display:flex; align-items:center; justify-content:center; line-height:1; box-shadow: 0 0 0 2px var(--parch-0); }
+/* position:fixed (not absolute) so the panel stays anchored to the viewport
+   regardless of scroll position — the header is position:sticky, and an
+   absolutely-positioned descendant does not reliably track a stuck sticky
+   ancestor across all engines once the page has scrolled.
+   Uses #notif-panel (ID) rather than a class: the panel also carries
+   .card.glass, whose `.card.glass { position: relative }` rule has HIGHER
+   specificity than a single class selector and would otherwise win regardless
+   of source order — an ID selector guarantees this wins. */
+#notif-panel { position:fixed !important; top:60px; right:12px; width:300px; max-width:85vw; max-height:380px; overflow-y:auto; z-index:60; padding:10px; }
+.notif-panel-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+.notif-panel-head h3 { margin:0; font-size:0.9rem; }
+.notif-panel-head button { background:none; border:none; color: var(--forest); font-size:0.74rem; cursor:pointer; font-weight:600; }
+.notif-item { padding:8px 6px; border-bottom:1px solid var(--hairline); font-size:0.82rem; cursor:pointer; }
+.notif-item:last-child { border-bottom:none; }
+.notif-item.unread { background: rgba(70,192,127,0.08); border-left:2px solid var(--emerald); }
+.notif-item .notif-time { font-size:0.7rem; color: var(--muted); margin-top:2px; }
 
 /* Restrained, deliberate entrances — a gentle page turn rather than snappy micro-motion. */
 @media (prefers-reduced-motion: no-preference) {
