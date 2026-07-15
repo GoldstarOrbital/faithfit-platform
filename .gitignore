@@ -3,3 +3,5 @@ node_modules/
 *.log
 .DS_Store
 .github/workflows/
+webapp/data/*.db
+webapp/data/*.db-*
