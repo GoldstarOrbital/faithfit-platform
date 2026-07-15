@@ -357,6 +357,79 @@ router.get('/public/post/:id', (req, res) => {
   });
 });
 
+// ---- social graph: follow / discover / public profiles ----
+
+// Follow or unfollow another user (toggles). Notifies the followee.
+router.post('/users/:id/follow', requireAuth, (req, res) => {
+  const me = req.session.userId;
+  const target = req.params.id;
+  if (target === me) return res.status(400).json({ error: 'cannot_follow_self' });
+  const exists = db.prepare('SELECT 1 FROM users WHERE id = ?').get(target);
+  if (!exists) return res.status(404).json({ error: 'user_not_found' });
+
+  const already = db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(me, target);
+  if (already) {
+    db.prepare('DELETE FROM followers WHERE follower_id = ? AND followee_id = ?').run(me, target);
+  } else {
+    db.prepare('INSERT OR IGNORE INTO followers (follower_id, followee_id) VALUES (?, ?)').run(me, target);
+    const meName = db.prepare('SELECT display_name FROM users WHERE id = ?').get(me)?.display_name || 'Someone';
+    db.prepare('INSERT INTO notifications (id, user_id, type, payload) VALUES (?, ?, ?, ?)')
+      .run(randomUUID(), target, 'follow', JSON.stringify({ follower_id: me, message: `${meName} started following you` }));
+    publish('user.followed', { follower_id: me, followee_id: target });
+  }
+  const followers = db.prepare('SELECT COUNT(*) c FROM followers WHERE followee_id = ?').get(target).c;
+  res.json({ following: !already, followers_count: followers });
+});
+
+// People to follow: users the viewer doesn't already follow (and isn't), ranked by
+// follower count so there's always something to discover.
+router.get('/users/suggested', requireAuth, (req, res) => {
+  const me = req.session.userId;
+  const rows = db.prepare(`
+    SELECT u.id, u.display_name, u.bio_verse_ref,
+           (SELECT COUNT(*) FROM followers f WHERE f.followee_id = u.id) AS followers_count
+    FROM users u
+    WHERE u.id != @me
+      AND u.id NOT IN (SELECT followee_id FROM followers WHERE follower_id = @me)
+    ORDER BY followers_count DESC, u.display_name
+    LIMIT 12
+  `).all({ me });
+  res.json(rows);
+});
+
+// Public-facing profile for any user. Never exposes private fields (job/church/
+// gym/age/email). Posts respect the viewer's visibility (public to all; followers
+// if the viewer follows; everything if it's the viewer's own profile).
+router.get('/users/:id', (req, res) => {
+  const me = req.session.userId || null;
+  const u = db.prepare('SELECT id, display_name, bio_verse_ref, bio_verse_text FROM users WHERE id = ?').get(req.params.id);
+  if (!u) return res.status(404).json({ error: 'user_not_found' });
+
+  const stats = {
+    workouts: db.prepare("SELECT COUNT(*) c FROM workouts WHERE user_id = ? AND end_time IS NOT NULL").get(u.id).c,
+    followers: db.prepare('SELECT COUNT(*) c FROM followers WHERE followee_id = ?').get(u.id).c,
+    following: db.prepare('SELECT COUNT(*) c FROM followers WHERE follower_id = ?').get(u.id).c,
+  };
+  const is_me = me === u.id;
+  const is_following = me ? !!db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(me, u.id) : false;
+
+  const posts = db.prepare(`
+    SELECT p.id, p.content, p.created_at, p.visibility, p.workout_id,
+           w.type workout_type, w.calories, w.avg_hr, w.distance_km,
+           v.reference verse_reference, v.text verse_text
+    FROM posts p
+    LEFT JOIN workouts w ON w.id = p.workout_id
+    LEFT JOIN scripture_verses v ON v.id = p.verse_id
+    WHERE p.user_id = @uid AND (
+      p.visibility = 'public'
+      OR @me = @uid
+      OR (p.visibility = 'followers' AND EXISTS (SELECT 1 FROM followers f WHERE f.followee_id = @uid AND f.follower_id = @me)))
+    ORDER BY p.created_at DESC LIMIT 20
+  `).all({ uid: u.id, me });
+
+  res.json({ user: u, stats, is_me, is_following, posts });
+});
+
 // ---- explore ----
 router.get('/explore', (req, res) => {
   const groups = db.prepare('SELECT * FROM groups').all();

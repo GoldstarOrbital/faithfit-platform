@@ -124,13 +124,34 @@ function routeSvg(seed) {
 
 async function renderHome(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
-  const [posts, users] = await Promise.all([api('/feed'), api('/users')]);
+  const [posts, users, suggested] = await Promise.all([api('/feed'), api('/users'), api('/users/suggested').catch(() => [])]);
   main.innerHTML = `
     <div class="stories">
-      ${users.map(u => `<div class="story"><div class="story-ring"><div class="story-avatar">${initials(u.display_name)}</div></div><div class="story-label">${u.display_name.split(' ')[0]}</div></div>`).join('')}
+      ${users.map(u => `<div class="story" data-user="${u.id}"><div class="story-ring"><div class="story-avatar">${initials(u.display_name)}</div></div><div class="story-label">${u.display_name.split(' ')[0]}</div></div>`).join('')}
     </div>
+    ${suggested && suggested.length ? `
+    <div class="card glass suggest-card">
+      <div class="suggest-head">People to follow</div>
+      <div class="suggest-rail">
+        ${suggested.map(u => `
+          <div class="suggest-item" data-user="${u.id}">
+            <div class="avatar-sm suggest-avatar">${initials(u.display_name)}</div>
+            <div class="suggest-name">${escapeHtml(u.display_name)}</div>
+            <div class="suggest-sub">${u.followers_count} follower${u.followers_count===1?'':'s'}</div>
+            <button class="follow-btn" data-follow="${u.id}">Follow</button>
+          </div>`).join('')}
+      </div>
+    </div>` : ''}
     <div id="posts"></div>
   `;
+  main.querySelectorAll('.story[data-user]').forEach(el => el.onclick = () => renderUserProfile(el.dataset.user));
+  main.querySelectorAll('.suggest-item').forEach(el => el.onclick = (e) => { if (!e.target.closest('[data-follow]')) renderUserProfile(el.dataset.user); });
+  main.querySelectorAll('[data-follow]').forEach(btn => btn.onclick = async (e) => {
+    e.stopPropagation();
+    const r = await api(`/users/${btn.dataset.follow}/follow`, { method: 'POST' });
+    btn.textContent = r.following ? 'Following' : 'Follow';
+    btn.classList.toggle('following', r.following);
+  });
   const myId = state.me && state.me.user && state.me.user.id;
   const visLabel = { private: '🔒 Only me', followers: '👥 Followers', public: '🌍 Public' };
   const postsEl = document.getElementById('posts');
@@ -139,9 +160,9 @@ async function renderHome(main) {
     return `
     <div class="card glass" data-post="${p.id}">
       <div class="post-head">
-        <div class="avatar-sm">${initials(p.author)}</div>
+        <div class="avatar-sm post-user" data-user="${p.author_id}">${initials(p.author)}</div>
         <div style="flex:1">
-          <div class="post-author">${p.author}</div>
+          <div class="post-author post-user" data-user="${p.author_id}">${p.author}</div>
           <div class="post-time">${timeAgo(p.created_at)} ago${p.visibility && p.visibility !== 'public' ? ' · ' + visLabel[p.visibility] : ''}</div>
         </div>
         ${isMine ? `<select class="vis-select" data-vis="${p.id}" title="Who can see this">
@@ -173,6 +194,7 @@ async function renderHome(main) {
     </div>
   `; }).join('') || '<p class="muted">No posts yet.</p>';
 
+  postsEl.querySelectorAll('.post-user[data-user]').forEach(el => el.onclick = () => renderUserProfile(el.dataset.user));
   postsEl.querySelectorAll('[data-like]').forEach(btn => btn.onclick = async () => {
     await api(`/posts/${btn.dataset.like}/like`, { method: 'POST' });
     renderHome(main);
@@ -203,6 +225,62 @@ async function renderHome(main) {
     try { await navigator.clipboard.writeText(url); btn.textContent = '✓ Link copied'; setTimeout(() => renderHome(main), 1200); }
     catch { prompt('Copy this share link:', url); }
   });
+}
+
+// A tappable public profile for any member — social presence beyond the feed.
+async function renderUserProfile(userId) {
+  const main = document.getElementById('main');
+  document.querySelectorAll('nav button').forEach(b => b.style.display = '');
+  main.innerHTML = `<div class="card glass" style="text-align:center">Loading…</div>`;
+  let data;
+  try { data = await api(`/users/${userId}`); } catch { main.innerHTML = '<div class="card glass">Could not load profile.</div>'; return; }
+  const u = data.user;
+  const followBtn = data.is_me ? '' :
+    `<button class="follow-btn ${data.is_following ? 'following' : ''}" id="profile-follow">${data.is_following ? 'Following' : 'Follow'}</button>`;
+
+  main.innerHTML = `
+    <button class="ghost back-btn" id="profile-back">← Back</button>
+    <div class="card glass">
+      <div class="profile-header">
+        <div class="avatar">${initials(u.display_name)}</div>
+        <div style="flex:1">
+          <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <h2 style="margin:0">${escapeHtml(u.display_name)}</h2>${followBtn}
+          </div>
+          <div class="profile-stats">
+            <div><div class="v">${data.stats.workouts}</div><div class="l">Workouts</div></div>
+            <div><div class="v" id="pf-followers">${data.stats.followers}</div><div class="l">Followers</div></div>
+            <div><div class="v">${data.stats.following}</div><div class="l">Following</div></div>
+          </div>
+        </div>
+      </div>
+      ${u.bio_verse_ref ? `<div class="verse-card"><div class="verse-ref">${u.bio_verse_ref}</div><div class="verse-text">${escapeHtml(u.bio_verse_text || '')}</div></div>` : ''}
+    </div>
+    <div id="profile-posts">${data.posts.length ? '' : '<p class="muted">No posts to show yet.</p>'}</div>
+  `;
+
+  const pp = document.getElementById('profile-posts');
+  if (data.posts.length) pp.innerHTML = data.posts.map((p, i) => `
+    <div class="card glass">
+      <div class="post-time" style="margin-bottom:8px">${timeAgo(p.created_at)} ago</div>
+      ${p.content ? `<div class="post-content">${escapeHtml(p.content)}</div>` : ''}
+      ${p.workout_type ? `<div class="route-banner">${routeSvg(i)}<span class="badge-overlay">${p.workout_type}</span></div>
+        <div class="stat-row">
+          <div class="stat"><div class="v">${p.distance_km ?? '—'}</div><div class="l">km</div></div>
+          <div class="stat"><div class="v">${p.calories ?? '—'}</div><div class="l">kcal</div></div>
+          <div class="stat"><div class="v">${p.avg_hr ?? '—'}</div><div class="l">avg hr</div></div>
+        </div>` : ''}
+      ${p.verse_reference ? `<div class="verse-card"><div class="verse-ref">${p.verse_reference}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div></div>` : ''}
+    </div>`).join('');
+
+  document.getElementById('profile-back').onclick = () => { state.tab = 'home'; render(); };
+  const fb = document.getElementById('profile-follow');
+  if (fb) fb.onclick = async () => {
+    const r = await api(`/users/${userId}/follow`, { method: 'POST' });
+    fb.textContent = r.following ? 'Following' : 'Follow';
+    fb.classList.toggle('following', r.following);
+    document.getElementById('pf-followers').textContent = r.followers_count;
+  };
 }
 
 async function renderExplore(main) {

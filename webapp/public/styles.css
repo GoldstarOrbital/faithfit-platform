@@ -26,8 +26,11 @@
   --hairline: rgba(74,58,40,0.22);   /* engraved line on parchment */
   --hairline-soft: rgba(74,58,40,0.12);
   /* accents */
-  --forest: #3d5a45;
-  --forest-2: #4f7259;
+  --forest: #2f6b45;
+  --forest-2: #3f8a58;
+  --emerald: #46c07f;        /* luminous green — the futuristic highlight */
+  --emerald-2: #6fe6a5;
+  --emerald-glow: rgba(70,192,127,0.45);
   --gold: #a9812f;
   --gold-2: #c9a24a;
   --seal: #8e3b2e;      /* wax-seal red (likes, alerts) */
@@ -67,8 +70,16 @@ header.topbar {
   background-color: var(--walnut-0);
   background-image:
     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='60'%3E%3Cfilter id='w'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.012 0.11' numOctaves='3' seed='7'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.10 0 0 0 0 0.07 0 0 0 0 0.04 0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='200' height='60' filter='url(%23w)'/%3E%3C/svg%3E");
-  border-bottom: 2px solid var(--gold);
-  box-shadow: 0 2px 0 rgba(154,158,166,0.35), 0 6px 18px rgba(43,30,18,0.35);
+  border-bottom: 1px solid rgba(201,162,74,0.4);
+  box-shadow: 0 6px 18px rgba(43,30,18,0.35);
+  position: sticky;
+}
+/* Futuristic luminous rail beneath the wood header — emerald→gold sheen. */
+header.topbar::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--emerald) 20%, var(--gold-2) 55%, var(--emerald-2) 80%, transparent);
+  box-shadow: 0 0 10px var(--emerald-glow);
+  opacity: 0.9;
 }
 header.topbar .brand { display:flex; align-items:center; gap:9px; font-family:'Cinzel', serif; font-weight:700; font-size:1.2rem; letter-spacing:0.06em; }
 header.topbar .brand-word {
@@ -100,8 +111,9 @@ main { flex: 1; padding: 16px 16px 18px; overflow-y: auto; -webkit-overflow-scro
 .stories::-webkit-scrollbar { display:none; }
 .story { display:flex; flex-direction:column; align-items:center; gap:6px; flex-shrink:0; }
 .story-ring { width:60px; height:60px; border-radius:50%; padding:2.5px;
-  background: conic-gradient(from 210deg, var(--silver-0), var(--silver-2), var(--gold-2), var(--silver-1), var(--silver-0));
-  box-shadow: 0 2px 6px rgba(43,30,18,0.25); }
+  background: conic-gradient(from 210deg, var(--silver-0), var(--emerald), var(--silver-2), var(--gold-2), var(--emerald-2), var(--silver-0));
+  box-shadow: 0 2px 6px rgba(43,30,18,0.25), 0 0 10px var(--emerald-glow); }
+.story { cursor: pointer; }
 .story-avatar { width:100%; height:100%; border-radius:50%; background: var(--parch-2); color: var(--walnut-0); display:flex; align-items:center; justify-content:center; font-weight:700; font-family:'Cinzel',serif; border: 2px solid var(--parch-1); }
 .story-label { font-size:0.7rem; color: var(--muted); max-width:64px; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
@@ -162,12 +174,12 @@ nav.tabbar {
 }
 nav.tabbar button { flex: 1; background: none; border: none; color: rgba(243,234,214,0.6); padding: 7px 0 5px; font-size: 0.66rem; font-family:'Cinzel',serif; letter-spacing:0.03em; cursor: pointer; display:flex; flex-direction:column; align-items:center; gap:4px; border-radius:10px; transition: color .15s; }
 nav.tabbar button .icon svg { width: 23px; height: 23px; }
-nav.tabbar button.active { color: var(--gold-2); }
-nav.tabbar button.active .icon svg { filter: drop-shadow(0 0 6px rgba(201,162,74,0.5)); }
+nav.tabbar button.active { color: var(--emerald-2); }
+nav.tabbar button.active .icon svg { filter: drop-shadow(0 0 7px var(--emerald-glow)); }
 
 /* ---- Buttons ---- */
-button.primary { background: linear-gradient(180deg, var(--forest-2), var(--forest)); color: var(--parch-2); border: 1px solid rgba(20,30,22,0.4); border-radius: 12px; padding: 12px 18px; font-family:'Cinzel',serif; font-weight: 600; letter-spacing:0.03em; cursor: pointer; box-shadow: 0 1px 0 rgba(255,255,255,0.15) inset, 0 4px 12px rgba(43,30,18,0.25); }
-button.primary:hover { filter: brightness(1.06); }
+button.primary { background: linear-gradient(180deg, var(--emerald), var(--forest)); color: #eafff2; border: 1px solid rgba(70,192,127,0.5); border-radius: 12px; padding: 12px 18px; font-family:'Cinzel',serif; font-weight: 600; letter-spacing:0.03em; cursor: pointer; box-shadow: 0 1px 0 rgba(255,255,255,0.2) inset, 0 4px 14px rgba(47,107,69,0.35), 0 0 0 0 var(--emerald-glow); transition: box-shadow .2s, filter .2s; }
+button.primary:hover { filter: brightness(1.06); box-shadow: 0 1px 0 rgba(255,255,255,0.2) inset, 0 4px 14px rgba(47,107,69,0.4), 0 0 16px var(--emerald-glow); }
 button.primary:disabled { opacity: 0.5; cursor: default; }
 button.ghost { background: var(--parch-2); border: 1px solid var(--hairline); color: var(--ink); border-radius: 12px; padding: 10px 14px; cursor: pointer; font-family:inherit; font-weight:600; }
 button.ghost:hover { background: var(--parch-1); border-color: var(--gold); }
@@ -235,7 +247,7 @@ select, input[type=text] { background: var(--parch-2); border:1px solid var(--ha
 h2 { font-family:'Cinzel', serif; font-size: 1.08rem; margin: 6px 0 12px; font-weight: 600; letter-spacing:0.01em; color: var(--ink); }
 .section-tabs { display:flex; gap:8px; margin-bottom:14px; }
 .section-tabs button { flex:1; padding:9px 0; border-radius:10px; border:1px solid var(--hairline); background: var(--parch-2); color:var(--muted); font-family:inherit; font-weight:600; font-size:0.84rem; cursor:pointer; }
-.section-tabs button.active { background: linear-gradient(180deg, var(--forest-2), var(--forest)); color:var(--parch-2); border-color:transparent; }
+.section-tabs button.active { background: linear-gradient(180deg, var(--emerald), var(--forest)); color:#eafff2; border-color:transparent; box-shadow: 0 0 12px var(--emerald-glow); }
 
 .field-label { display:block; margin-top:12px; margin-bottom:4px; font-size:0.85rem; color: var(--ink-soft); }
 #p-verse, .card.glass input[type="text"], .card.glass input[type="number"] {
@@ -254,6 +266,39 @@ h2 { font-family:'Cinzel', serif; font-size: 1.08rem; margin: 6px 0 12px; font-w
 .auth-divider span { padding:0 12px; }
 a { color: var(--forest); text-decoration:none; font-weight:600; }
 a:hover { color: var(--gold); }
+
+/* ---- Social: follow buttons, suggestions rail, profiles ---- */
+.follow-btn {
+  background: linear-gradient(180deg, var(--emerald), var(--forest)); color:#eafff2;
+  border:1px solid rgba(70,192,127,0.5); border-radius:20px; padding:6px 16px;
+  font-family:'Cinzel',serif; font-size:0.76rem; font-weight:600; letter-spacing:0.02em; cursor:pointer;
+  box-shadow: 0 0 10px var(--emerald-glow); transition: box-shadow .2s, filter .2s;
+}
+.follow-btn:hover { filter:brightness(1.08); box-shadow:0 0 16px var(--emerald-glow); }
+.follow-btn.following { background: var(--parch-2); color: var(--forest); border-color: var(--forest); box-shadow:none; }
+
+.suggest-card { padding: 14px 14px 10px; }
+.suggest-head { font-family:'Cinzel',serif; font-size:0.92rem; color: var(--ink); margin-bottom:10px; }
+.suggest-rail { display:flex; gap:12px; overflow-x:auto; scrollbar-width:none; padding-bottom:4px; }
+.suggest-rail::-webkit-scrollbar { display:none; }
+.suggest-item { flex:0 0 132px; display:flex; flex-direction:column; align-items:center; gap:6px; text-align:center;
+  background: var(--parch-2); border:1px solid var(--hairline); border-radius:12px; padding:14px 10px; cursor:pointer; transition: box-shadow .2s, border-color .2s; }
+.suggest-item:hover { border-color: var(--emerald); box-shadow: 0 0 14px var(--emerald-glow); }
+.suggest-avatar { width:52px; height:52px; font-size:1.05rem; }
+.suggest-name { font-weight:700; font-size:0.86rem; color: var(--ink); line-height:1.2; }
+.suggest-sub { font-size:0.72rem; color: var(--muted); }
+.suggest-item .follow-btn { margin-top:2px; }
+
+.post-user { cursor:pointer; }
+.post-author.post-user:hover { color: var(--forest); }
+.back-btn { margin-bottom:12px; padding:8px 14px; }
+
+/* Interactive cards get a faint emerald edge + hover lift — the "futuristic" sheen. */
+.card.glass { position: relative; transition: box-shadow .2s; }
+.card.glass::before {
+  content: ''; position:absolute; inset:0; border-radius: var(--radius); pointer-events:none;
+  box-shadow: inset 0 1px 0 rgba(111,230,165,0.18);
+}
 
 /* Restrained, deliberate entrances — a gentle page turn rather than snappy micro-motion. */
 @media (prefers-reduced-motion: no-preference) {
