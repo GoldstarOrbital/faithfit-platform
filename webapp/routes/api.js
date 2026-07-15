@@ -35,7 +35,13 @@ router.get('/me', (req, res) => {
   if (!req.session.userId) return res.status(401).json({ error: 'not_signed_in' });
   const uid = req.session.userId;
   const userRow = db.prepare('SELECT * FROM users WHERE id = ?').get(uid);
-  const { password_hash, ...user } = userRow || {};
+  if (!userRow) {
+    // Stale session pointing at a user that no longer exists (e.g. DB was reset).
+    // Clear it and bounce to sign-in instead of rendering a broken "undefined" profile.
+    req.session = null;
+    return res.status(401).json({ error: 'not_signed_in' });
+  }
+  const { password_hash, ...user } = userRow;
   const xp = db.prepare('SELECT * FROM user_xp WHERE user_id = ?').get(uid);
   const badges = db.prepare(`SELECT b.* FROM user_badges ub JOIN badges b ON b.id = ub.badge_id WHERE ub.user_id = ?`).all(uid);
   const consents = db.prepare('SELECT scope FROM user_consents WHERE user_id = ? AND revoked_at IS NULL').all(uid).map(r => r.scope);
@@ -50,6 +56,11 @@ router.get('/me', (req, res) => {
 
 function requireAuth(req, res, next) {
   if (!req.session.userId) return res.status(401).json({ error: 'not_signed_in' });
+  const exists = db.prepare('SELECT 1 FROM users WHERE id = ?').get(req.session.userId);
+  if (!exists) {
+    req.session = null;
+    return res.status(401).json({ error: 'not_signed_in' });
+  }
   next();
 }
 
