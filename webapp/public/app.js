@@ -43,19 +43,76 @@ function timeAgo(iso) {
   return `${Math.floor(s/86400)}d`;
 }
 
+let signInMode = 'login'; // 'login' | 'register'
+
 async function renderSignIn() {
-  const users = await api('/users');
   const main = document.getElementById('main');
+  document.querySelectorAll('nav button').forEach(b => b.style.display = 'none');
+
+  const isRegister = signInMode === 'register';
   main.innerHTML = `
     <div class="card glass">
-      <h2>Choose a demo profile</h2>
-      <p class="muted">No password needed — pick a user to sign in as.</p>
-      ${users.map(u => `<button class="ghost" style="width:100%;margin-bottom:8px;text-align:left;display:flex;align-items:center;gap:10px" data-signin="${u.id}"><span class="avatar-sm">${initials(u.display_name)}</span><span>${u.display_name}<br><span class="muted">${u.bio || ''}</span></span></button>`).join('')}
+      <h2>${isRegister ? 'Create your account' : 'Welcome back'}</h2>
+      <p class="muted">${isRegister ? 'Faith and fitness, together. Free to join.' : 'Sign in to continue your journey.'}</p>
+      <form id="auth-form" autocomplete="on">
+        ${isRegister ? `
+        <label class="field-label">Name</label>
+        <input class="input" name="display_name" type="text" placeholder="Your name" autocomplete="name" required />` : ''}
+        <label class="field-label">Email</label>
+        <input class="input" name="email" type="email" placeholder="you@example.com" autocomplete="email" required />
+        <label class="field-label">Password</label>
+        <input class="input" name="password" type="password" placeholder="${isRegister ? 'At least 8 characters' : 'Your password'}" autocomplete="${isRegister ? 'new-password' : 'current-password'}" minlength="8" required />
+        <p class="form-error" id="auth-error" hidden></p>
+        <button class="primary" type="submit" style="width:100%;margin-top:12px">${isRegister ? 'Create account' : 'Sign in'}</button>
+      </form>
+      <p class="muted" style="margin-top:14px;text-align:center">
+        ${isRegister ? 'Already have an account?' : "Don't have an account yet?"}
+        <a href="#" id="auth-toggle">${isRegister ? 'Sign in' : 'Create one'}</a>
+      </p>
+      <div class="auth-divider"><span>or</span></div>
+      <button class="ghost" id="demo-open" style="width:100%">Explore a demo profile</button>
     </div>`;
-  main.querySelectorAll('[data-signin]').forEach(btn => {
-    btn.onclick = async () => { await api('/session', { method: 'POST', body: { user_id: btn.dataset.signin } }); await loadMe(); render(); };
-  });
-  document.querySelectorAll('nav button').forEach(b => b.style.display = 'none');
+
+  const errEl = main.querySelector('#auth-error');
+  const showErr = (msg) => { errEl.textContent = msg; errEl.hidden = false; };
+
+  main.querySelector('#auth-toggle').onclick = (e) => { e.preventDefault(); signInMode = isRegister ? 'login' : 'register'; renderSignIn(); };
+
+  main.querySelector('#auth-form').onsubmit = async (e) => {
+    e.preventDefault();
+    errEl.hidden = true;
+    const fd = new FormData(e.target);
+    const body = Object.fromEntries(fd.entries());
+    const endpoint = isRegister ? '/auth/register' : '/auth/login';
+    const res = await fetch('/api' + endpoint, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    if (res.ok) { await loadMe(); return render(); }
+    const data = await res.json().catch(() => ({}));
+    const messages = {
+      invalid_email: 'Please enter a valid email address.',
+      weak_password: 'Password must be at least 8 characters.',
+      missing_display_name: 'Please enter your name.',
+      email_taken: 'An account with that email already exists.',
+      invalid_credentials: 'Email or password is incorrect.',
+    };
+    showErr(messages[data.error] || 'Something went wrong. Please try again.');
+  };
+
+  main.querySelector('#demo-open').onclick = async () => {
+    const users = await api('/auth/demo-users');
+    main.innerHTML = `
+      <div class="card glass">
+        <h2>Explore a demo profile</h2>
+        <p class="muted">Example accounts with sample data — no password. Not real users.</p>
+        ${users.map(u => `<button class="ghost" style="width:100%;margin-bottom:8px;text-align:left;display:flex;align-items:center;gap:10px" data-demo="${u.id}"><span class="avatar-sm">${initials(u.display_name)}</span><span>${u.display_name}<br><span class="muted">${u.bio_verse_ref || ''}</span></span></button>`).join('')}
+        <button class="ghost" id="demo-back" style="width:100%;margin-top:6px">← Back to sign in</button>
+      </div>`;
+    main.querySelector('#demo-back').onclick = () => renderSignIn();
+    main.querySelectorAll('[data-demo]').forEach(btn => {
+      btn.onclick = async () => { await api('/auth/demo', { method: 'POST', body: { user_id: btn.dataset.demo } }); await loadMe(); render(); };
+    });
+  };
 }
 
 function routeSvg(seed) {
@@ -260,11 +317,14 @@ async function renderProfile(main) {
         <label class="switch"><input type="checkbox" id="c-scripture" ${me.consents.includes('scripture_personalization') ? 'checked' : ''}><span class="slider"></span></label>
       </div>
     </div>
-    <button class="ghost" id="signout" style="width:100%">Switch profile</button>
+    <button class="ghost" id="signout" style="width:100%">Sign out</button>
   `;
   document.getElementById('c-biometric').onchange = (e) => api('/consent', { method: 'POST', body: { scope: 'biometric_ingest', granted: e.target.checked } });
   document.getElementById('c-scripture').onchange = (e) => api('/consent', { method: 'POST', body: { scope: 'scripture_personalization', granted: e.target.checked } });
-  document.getElementById('signout').onclick = () => { document.cookie = 'faithfit_session=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;'; location.reload(); };
+  document.getElementById('signout').onclick = async () => {
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
+    state.me = null; signInMode = 'login'; location.reload();
+  };
   document.getElementById('ble-connect').onclick = () => state.bleConnected ? disconnectBle() : connectBle();
 
   // Populate the verified-verse picker from the real Bible library (never freeform).

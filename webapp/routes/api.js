@@ -8,13 +8,76 @@ const { advanceQuestProgress } = require('../lib/quests');
 const { badgeEligibility } = require('../lib/badges');
 const { composeForEvent } = require('../lib/composer');
 const { loadBibleData } = require('../lib/bible-load');
+const { hashPassword, verifyPassword } = require('../lib/password');
 
 // Load real, public-domain Bible text (KJV/WEB) into bible_verses once at startup.
 loadBibleData();
 
 const router = express.Router();
 
-// ---- auth (demo: pick a user, no password — this is a local demo, not production auth) ----
+// ---- auth: real email + password accounts (scrypt-hashed). ----
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function publicUser(row) {
+  if (!row) return null;
+  const { password_hash, email, ...rest } = row;
+  return rest;
+}
+
+// Create a real account. Password is scrypt-hashed; email is stored lowercased
+// and must be unique. Signs the new user in on success.
+router.post('/auth/register', (req, res) => {
+  const { email, password, display_name } = req.body || {};
+  const mail = String(email || '').trim().toLowerCase();
+  const name = String(display_name || '').trim().slice(0, 60);
+  const pw = String(password || '');
+
+  if (!EMAIL_RE.test(mail)) return res.status(400).json({ error: 'invalid_email' });
+  if (pw.length < 8) return res.status(400).json({ error: 'weak_password', hint: 'Use at least 8 characters.' });
+  if (!name) return res.status(400).json({ error: 'missing_display_name' });
+
+  const existing = db.prepare('SELECT 1 FROM users WHERE email = ?').get(mail);
+  if (existing) return res.status(409).json({ error: 'email_taken' });
+
+  const id = randomUUID();
+  db.prepare('INSERT INTO users (id, email, display_name, password_hash) VALUES (?, ?, ?, ?)')
+    .run(id, mail, name, hashPassword(pw));
+  db.prepare('INSERT OR IGNORE INTO user_xp (user_id, xp, level) VALUES (?, 0, 1)').run(id);
+
+  req.session.userId = id;
+  res.status(201).json({ ok: true, user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id)) });
+});
+
+// Sign in with email + password.
+router.post('/auth/login', (req, res) => {
+  const { email, password } = req.body || {};
+  const mail = String(email || '').trim().toLowerCase();
+  const row = db.prepare('SELECT * FROM users WHERE email = ?').get(mail);
+  // Constant-ish response: same error whether the email is unknown or the
+  // password is wrong, so we don't leak which emails have accounts.
+  if (!row || !verifyPassword(String(password || ''), row.password_hash)) {
+    return res.status(401).json({ error: 'invalid_credentials' });
+  }
+  req.session.userId = row.id;
+  res.json({ ok: true, user: publicUser(row) });
+});
+
+router.post('/auth/logout', (req, res) => {
+  req.session = null;
+  res.json({ ok: true });
+});
+
+// Sign in as one of the seeded EXAMPLE accounts (no password). Kept so people can
+// explore a populated app instantly — clearly optional demo content, not the
+// primary way to use FaithFit. Only works for the pre-seeded demo emails.
+router.post('/auth/demo', (req, res) => {
+  const { user_id } = req.body || {};
+  const user = db.prepare("SELECT * FROM users WHERE id = ? AND email LIKE '%@faithfit.demo'").get(user_id);
+  if (!user) return res.status(404).json({ error: 'demo_user_not_found' });
+  req.session.userId = user.id;
+  res.json({ ok: true, user: publicUser(user) });
+});
+
 router.get('/users', (req, res) => {
   res.json(db.prepare(`
     SELECT id, display_name, bio_verse_ref, bio_verse_text, job, church, fitness_group, gym,
@@ -23,12 +86,22 @@ router.get('/users', (req, res) => {
   `).all());
 });
 
+// Seeded demo accounts only — powers the "explore a demo profile" affordance on
+// the sign-in screen without exposing real users as passwordless login targets.
+router.get('/auth/demo-users', (req, res) => {
+  res.json(db.prepare(`
+    SELECT id, display_name, bio_verse_ref FROM users WHERE email LIKE '%@faithfit.demo' ORDER BY display_name
+  `).all());
+});
+
+// Back-compat: the old demo picker POSTed here. Route it through the demo path so
+// existing sessions/clients keep working, but restrict to seeded demo accounts.
 router.post('/session', (req, res) => {
   const { user_id } = req.body || {};
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(user_id);
+  const user = db.prepare("SELECT * FROM users WHERE id = ? AND email LIKE '%@faithfit.demo'").get(user_id);
   if (!user) return res.status(404).json({ error: 'user_not_found' });
   req.session.userId = user.id;
-  res.json({ ok: true, user });
+  res.json({ ok: true, user: publicUser(user) });
 });
 
 router.get('/me', (req, res) => {
@@ -41,7 +114,8 @@ router.get('/me', (req, res) => {
     req.session = null;
     return res.status(401).json({ error: 'not_signed_in' });
   }
-  const { password_hash, ...user } = userRow;
+  // Never expose email or password_hash in any API response (secure-profile rule).
+  const user = publicUser(userRow);
   const xp = db.prepare('SELECT * FROM user_xp WHERE user_id = ?').get(uid);
   const badges = db.prepare(`SELECT b.* FROM user_badges ub JOIN badges b ON b.id = ub.badge_id WHERE ub.user_id = ?`).all(uid);
   const consents = db.prepare('SELECT scope FROM user_consents WHERE user_id = ? AND revoked_at IS NULL').all(uid).map(r => r.scope);

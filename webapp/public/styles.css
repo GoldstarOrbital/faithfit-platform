@@ -187,3 +187,13 @@ h2 { font-size: 1.02rem; margin: 6px 0 12px; font-weight: 700; letter-spacing:-0
   background: rgba(255,255,255,0.06); color:inherit; font-size:0.95rem;
 }
 .verse-preview { background: rgba(255,255,255,0.06); border-radius:10px; padding:12px; font-size:0.9rem; line-height:1.4; }
+
+/* Auth form */
+.input { width:100%; padding:11px 12px; border-radius:10px; border:1px solid rgba(255,255,255,0.14);
+  background: rgba(255,255,255,0.06); color:inherit; font-size:0.95rem; font-family:inherit; margin-bottom:2px; }
+.input:focus { outline:none; border-color: var(--accent, #7c6bff); }
+.form-error { color:#ff8a8a; font-size:0.85rem; margin-top:10px; margin-bottom:0; }
+.auth-divider { display:flex; align-items:center; text-align:center; color:var(--muted,#a0a8b8); font-size:0.8rem; margin:16px 0; }
+.auth-divider::before, .auth-divider::after { content:''; flex:1; height:1px; background:rgba(255,255,255,0.12); }
+.auth-divider span { padding:0 12px; }
+a { color: var(--accent, #7c6bff); text-decoration:none; }
