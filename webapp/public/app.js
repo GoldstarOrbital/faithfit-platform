@@ -131,15 +131,22 @@ async function renderHome(main) {
     </div>
     <div id="posts"></div>
   `;
+  const myId = state.me && state.me.user && state.me.user.id;
+  const visLabel = { private: '🔒 Only me', followers: '👥 Followers', public: '🌍 Public' };
   const postsEl = document.getElementById('posts');
-  postsEl.innerHTML = posts.map((p, i) => `
+  postsEl.innerHTML = posts.map((p, i) => {
+    const isMine = p.author_id === myId;
+    return `
     <div class="card glass" data-post="${p.id}">
       <div class="post-head">
         <div class="avatar-sm">${initials(p.author)}</div>
         <div style="flex:1">
           <div class="post-author">${p.author}</div>
-          <div class="post-time">${timeAgo(p.created_at)} ago</div>
+          <div class="post-time">${timeAgo(p.created_at)} ago${p.visibility && p.visibility !== 'public' ? ' · ' + visLabel[p.visibility] : ''}</div>
         </div>
+        ${isMine ? `<select class="vis-select" data-vis="${p.id}" title="Who can see this">
+          ${['public','followers','private'].map(v => `<option value="${v}" ${p.visibility===v?'selected':''}>${visLabel[v]}</option>`).join('')}
+        </select>` : ''}
       </div>
       <div class="post-content">${escapeHtml(p.content || '')}</div>
       ${p.workout_type ? `
@@ -154,7 +161,7 @@ async function renderHome(main) {
       <div class="action-row">
         <button class="action-btn ${p.liked_by_me ? 'liked' : ''}" data-like="${p.id}">${p.liked_by_me ? '❤️' : '🤍'} <span class="n">${p.like_count}</span> kudos</button>
         <button class="action-btn" data-comment-toggle="${p.id}">💬 <span class="n">${p.comments.length}</span></button>
-        <button class="action-btn">↗ Share</button>
+        <button class="action-btn" data-share="${p.id}" data-vis="${p.visibility || 'public'}">↗ Share</button>
       </div>
       <div class="comments" id="comments-${p.id}" style="display:none">
         ${p.comments.map(c => `<div class="comment"><b>${c.author}</b>${escapeHtml(c.content)}</div>`).join('')}
@@ -164,7 +171,7 @@ async function renderHome(main) {
         </div>
       </div>
     </div>
-  `).join('') || '<p class="muted">No posts yet.</p>';
+  `; }).join('') || '<p class="muted">No posts yet.</p>';
 
   postsEl.querySelectorAll('[data-like]').forEach(btn => btn.onclick = async () => {
     await api(`/posts/${btn.dataset.like}/like`, { method: 'POST' });
@@ -180,6 +187,21 @@ async function renderHome(main) {
     if (!input.value.trim()) return;
     await api(`/posts/${id}/comments`, { method: 'POST', body: { content: input.value } });
     renderHome(main);
+  });
+  postsEl.querySelectorAll('[data-vis]').forEach(sel => {
+    if (sel.tagName !== 'SELECT') return;
+    sel.onchange = async () => {
+      await fetch(`/api/posts/${sel.dataset.vis}/visibility`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visibility: sel.value }),
+      });
+      renderHome(main);
+    };
+  });
+  postsEl.querySelectorAll('[data-share]').forEach(btn => btn.onclick = async () => {
+    if (btn.dataset.vis !== 'public') { alert('Set this workout to Public to get a shareable link.'); return; }
+    const url = `${location.origin}/w/${btn.dataset.share}`;
+    try { await navigator.clipboard.writeText(url); btn.textContent = '✓ Link copied'; setTimeout(() => renderHome(main), 1200); }
+    catch { prompt('Copy this share link:', url); }
   });
 }
 
@@ -316,9 +338,17 @@ async function renderProfile(main) {
         <span>Personalize scripture with my biometrics</span>
         <label class="switch"><input type="checkbox" id="c-scripture" ${me.consents.includes('scripture_personalization') ? 'checked' : ''}><span class="slider"></span></label>
       </div>
+      <label class="field-label">Default visibility for new workouts</label>
+      <select id="p-defvis">
+        ${[['public','🌍 Public'],['followers','👥 Followers'],['private','🔒 Only me']].map(([v,l]) => `<option value="${v}" ${((me.user.default_visibility||'public')===v)?'selected':''}>${l}</option>`).join('')}
+      </select>
     </div>
     <button class="ghost" id="signout" style="width:100%">Sign out</button>
   `;
+  document.getElementById('p-defvis').onchange = async (e) => {
+    await api('/profile', { method: 'PUT', body: { default_visibility: e.target.value } });
+    await loadMe();
+  };
   document.getElementById('c-biometric').onchange = (e) => api('/consent', { method: 'POST', body: { scope: 'biometric_ingest', granted: e.target.checked } });
   document.getElementById('c-scripture').onchange = (e) => api('/consent', { method: 'POST', body: { scope: 'scripture_personalization', granted: e.target.checked } });
   document.getElementById('signout').onclick = async () => {
@@ -475,6 +505,8 @@ async function startWorkout() {
     document.getElementById('timer-display').textContent = formatElapsed(state.elapsed);
     if (state.elapsed % 5 === 0) {
       const result = await api(`/workouts/${state.activeWorkout}/sample`, { method: 'POST', body: { heart_rate: state.hr, stress_level: Math.floor(Math.random() * 4) } });
+      state.lastVerseId = result.verse_id || null;
+      state.lastVerse = result.verse || null;
       const vp = document.getElementById('verse-preview');
       if (vp) vp.innerHTML = `<div class="verse-card" style="margin-top:12px"><div class="verse-ref">${result.verse.reference}</div><div class="verse-text">${escapeHtml(result.verse.snippet || '')}</div></div>`;
     }
@@ -484,13 +516,55 @@ async function startWorkout() {
 async function stopWorkout() {
   clearInterval(state.hrTimer);
   stopGps();
+  const workoutId = state.activeWorkout;
   const distanceKm = gpsDistanceKm();
-  const summary = await api(`/workouts/${state.activeWorkout}/stop`, { method: 'POST', body: { gps_distance_km: distanceKm, gps_points: state.gpsPoints.length } });
+  const summary = await api(`/workouts/${workoutId}/stop`, { method: 'POST', body: { gps_distance_km: distanceKm, gps_path: state.gpsPoints } });
   state.activeWorkout = null;
-  const distMsg = distanceKm > 0 ? ` · ${distanceKm.toFixed(2)} km via real GPS` : '';
-  alert(`Workout complete! ${summary.calories} kcal, avg HR ${summary.avg_hr ?? '--'}${distMsg}`);
   state.gpsPoints = []; state.leafletMap = null;
-  renderWorkout(document.getElementById('main'));
+  renderShareForm(document.getElementById('main'), { workoutId, summary, distanceKm, verseId: state.lastVerseId, verse: state.lastVerse });
+}
+
+// "Post this workout" — a deliberate step after completing, distinct from just
+// finishing. Add a caption + reflection and choose who can see it.
+function renderShareForm(main, ctx) {
+  const defVis = (state.me && state.me.user && state.me.user.default_visibility) || 'public';
+  const visLabel = { private: '🔒 Only me', followers: '👥 Followers', public: '🌍 Public (shareable link)' };
+  const s = ctx.summary || {};
+  const distMsg = ctx.distanceKm > 0 ? ` · ${ctx.distanceKm.toFixed(2)} km via GPS` : '';
+  main.innerHTML = `
+    <div class="card glass">
+      <h2>Workout complete 🎉</h2>
+      <p class="muted">${s.calories ?? '—'} kcal · avg HR ${s.avg_hr ?? '—'}${distMsg}</p>
+      ${ctx.verse ? `<div class="verse-card" style="margin:10px 0"><div class="verse-ref">${ctx.verse.reference}</div><div class="verse-text">${escapeHtml(ctx.verse.snippet || '')}</div></div>` : ''}
+      <label class="field-label">Add a caption or reflection</label>
+      <textarea class="input" id="share-caption" rows="3" placeholder="How did it go? What did this verse mean today?"></textarea>
+      <label class="field-label">Who can see this?</label>
+      <select class="input" id="share-vis">
+        ${['public','followers','private'].map(v => `<option value="${v}" ${v===defVis?'selected':''}>${visLabel[v]}</option>`).join('')}
+      </select>
+      <div id="share-result" class="muted" style="margin-top:10px"></div>
+      <div style="display:flex; gap:10px; margin-top:14px">
+        <button class="ghost" id="share-skip" style="flex:1">Skip</button>
+        <button class="primary" id="share-post" style="flex:2">Post workout</button>
+      </div>
+    </div>`;
+
+  main.querySelector('#share-skip').onclick = () => { state.lastVerseId = null; state.lastVerse = null; setTab('home'); };
+  main.querySelector('#share-post').onclick = async () => {
+    const content = main.querySelector('#share-caption').value.trim();
+    const visibility = main.querySelector('#share-vis').value;
+    const res = await api('/posts', { method: 'POST', body: { content, workout_id: ctx.workoutId, verse_id: ctx.verseId, visibility } });
+    state.lastVerseId = null; state.lastVerse = null;
+    if (res.share_url) {
+      const url = `${location.origin}${res.share_url}`;
+      main.querySelector('#share-result').innerHTML = `Posted! Public link: <a href="${res.share_url}" target="_blank">${url}</a>`;
+      main.querySelector('#share-post').textContent = 'View feed →';
+      main.querySelector('#share-post').onclick = () => setTab('home');
+      main.querySelector('#share-skip').style.display = 'none';
+    } else {
+      setTab('home');
+    }
+  };
 }
 
 function formatElapsed(s) { const m = Math.floor(s / 60), sec = s % 60; return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`; }

@@ -1,0 +1,91 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>FaithFit — Shared Workout</title>
+<meta name="theme-color" content="#2b1e14" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="/styles.css" />
+<style>
+  #share-wrap { max-width: 480px; margin: 0 auto; min-height: 100vh; display:flex; flex-direction:column; }
+  #share-main { flex:1; padding: 16px; }
+  #share-map { width:100%; height:220px; border-radius:12px; overflow:hidden; margin-bottom:12px; border:1px solid var(--walnut-edge); }
+  .share-foot { text-align:center; padding: 18px; }
+  .share-cta { display:inline-block; margin-top:6px; }
+</style>
+</head>
+<body>
+<div id="share-wrap">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2l7 3v6c0 5-3.5 8-7 11-3.5-3-7-6-7-11V5l7-3z"/><path d="M12 7v7M9 10h6"/>
+        </svg>
+      </span>
+      <span class="brand-word">FaithFit</span>
+    </div>
+  </header>
+  <main id="share-main"><div class="card glass" style="text-align:center">Loading…</div></main>
+  <div class="share-foot muted">
+    A shared workout on FaithFit — faith and fitness, together.<br>
+    <a class="share-cta" href="/">Open FaithFit →</a>
+  </div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  function esc(s){ return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function initials(n){ return (n||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase(); }
+
+  (async () => {
+    const id = location.pathname.split('/').filter(Boolean).pop();
+    const main = document.getElementById('share-main');
+    let data;
+    try {
+      const res = await fetch('/api/public/post/' + encodeURIComponent(id));
+      if (!res.ok) throw new Error('not found');
+      data = await res.json();
+    } catch {
+      main.innerHTML = '<div class="card glass" style="text-align:center"><h2>Not available</h2><p class="muted">This workout is private or doesn\'t exist.</p></div>';
+      return;
+    }
+
+    const w = data.workout;
+    const stat = (v, l) => `<div class="stat"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+    const statRow = w ? `<div class="stat-row">
+        ${stat(w.distance_km != null ? w.distance_km.toFixed(2) : '—', 'km')}
+        ${stat(w.pace_min_per_km != null ? w.pace_min_per_km : '—', 'min/km')}
+        ${stat(w.calories != null ? w.calories : '—', 'kcal')}
+        ${stat(w.avg_hr != null ? w.avg_hr : '—', 'avg hr')}
+      </div>` : '';
+    const verseBlock = data.verse ? `<div class="verse-card" style="margin-top:8px">
+        <div class="verse-ref">${esc(data.verse.reference)}</div>
+        <div class="verse-text">${esc(data.verse.text)}</div>
+      </div>` : '';
+
+    main.innerHTML = `
+      <div class="card glass">
+        <div class="post-head">
+          <span class="avatar-sm">${initials(data.author)}</span>
+          <div><div class="post-author">${esc(data.author)}</div>
+            <div class="post-time">${w ? esc(w.type) + ' · ' : ''}${new Date(data.created_at + 'Z').toLocaleDateString()}</div></div>
+        </div>
+        ${data.content ? `<div class="post-content">${esc(data.content)}</div>` : ''}
+        ${(data.route && data.route.length) ? '<div id="share-map"></div>' : ''}
+        ${statRow}
+        ${verseBlock}
+      </div>`;
+
+    if (data.route && data.route.length) {
+      const map = L.map('share-map', { zoomControl: false, attributionControl: false });
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+      const line = L.polyline(data.route, { color: '#3d5a45', weight: 4 }).addTo(map);
+      map.fitBounds(line.getBounds(), { padding: [20, 20] });
+    }
+  })();
+</script>
+</body>
+</html>

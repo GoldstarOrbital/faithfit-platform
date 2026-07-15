@@ -17,6 +17,7 @@ const router = express.Router();
 
 // ---- auth: real email + password accounts (scrypt-hashed). ----
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const VISIBILITIES = ['private', 'followers', 'public'];
 
 function publicUser(row) {
   if (!row) return null;
@@ -155,17 +156,24 @@ router.post('/consent', requireAuth, (req, res) => {
 
 // ---- feed ----
 router.get('/feed', (req, res) => {
-  const meId = req.session.userId;
+  const meId = req.session.userId || null;
+  // Visibility rules: public → everyone; followers → the author's followers (and
+  // the author); private → author only.
   const posts = db.prepare(`
     SELECT p.id, p.content, p.created_at, p.user_id author_id, u.display_name author,
+           p.visibility, p.workout_id,
            w.type workout_type, w.calories, w.avg_hr, w.start_time, w.end_time, w.distance_km,
            v.reference verse_reference, v.text verse_text, v.youversion_id
     FROM posts p
     JOIN users u ON u.id = p.user_id
     LEFT JOIN workouts w ON w.id = p.workout_id
     LEFT JOIN scripture_verses v ON v.id = p.verse_id
+    WHERE p.visibility = 'public'
+       OR p.user_id = @me
+       OR (p.visibility = 'followers' AND EXISTS (
+             SELECT 1 FROM followers f WHERE f.followee_id = p.user_id AND f.follower_id = @me))
     ORDER BY p.created_at DESC LIMIT 50
-  `).all();
+  `).all({ me: meId });
 
   const withSocial = posts.map(p => {
     const likeCount = db.prepare('SELECT COUNT(*) c FROM post_likes WHERE post_id = ?').get(p.id).c;
@@ -244,7 +252,7 @@ router.post('/workouts/:id/sample', requireAuth, (req, res) => {
 
   publish('verse.triggered', { user_id: req.session.userId, verse_id: result.verse.id, youversion_id: result.verse.youversion_id, trigger_type: result.context, payload: result.payload });
 
-  res.json({ context: result.context, verse: result.payload });
+  res.json({ context: result.context, verse: result.payload, verse_id: result.verse.id });
 });
 
 router.post('/workouts/:id/stop', requireAuth, (req, res) => {
@@ -254,25 +262,99 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   const hrs = samples.map(s => s.heart_rate).filter(Boolean);
   const avgHr = hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
   const maxHr = hrs.length ? Math.max(...hrs) : null;
-  const { gps_distance_km, gps_points } = req.body || {};
+  const { gps_distance_km, gps_points, gps_path } = req.body || {};
   // Calories: use real GPS distance if we have one (running ~ 60 kcal/km), else fall back to a duration-based estimate.
   const durationMin = (Date.now() - new Date(workout.start_time).getTime()) / 60000;
   const calories = gps_distance_km > 0 ? Math.round(gps_distance_km * 60) : Math.round(durationMin * 8);
 
-  db.prepare("UPDATE workouts SET end_time = datetime('now'), avg_hr = ?, max_hr = ?, calories = ?, distance_km = ?, gps_points = ? WHERE id = ?")
-    .run(avgHr, maxHr, calories, gps_distance_km || null, gps_points || 0, workout.id);
+  // Persist the real route (array of [lat,lng]) so a shared workout can render its
+  // map without the tracker still being open. Cap the stored point count to keep
+  // the row reasonable; the count column still records how many points were logged.
+  let pathJson = null, pointCount = 0;
+  if (Array.isArray(gps_path) && gps_path.length) {
+    const clean = gps_path.filter(p => Array.isArray(p) && p.length === 2 && Number.isFinite(p[0]) && Number.isFinite(p[1])).slice(0, 3000);
+    pointCount = clean.length;
+    if (clean.length) pathJson = JSON.stringify(clean);
+  } else if (Number.isInteger(gps_points)) {
+    pointCount = gps_points;
+  }
+
+  db.prepare("UPDATE workouts SET end_time = datetime('now'), avg_hr = ?, max_hr = ?, calories = ?, distance_km = ?, gps_points = ?, gps_path = ? WHERE id = ?")
+    .run(avgHr, maxHr, calories, gps_distance_km || null, pointCount, pathJson, workout.id);
 
   publish('workout.completed', { user_id: req.session.userId, workout_id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr });
 
   res.json({ id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr, distance_km: gps_distance_km || null });
 });
 
+// Share a workout / reflection. Visibility defaults to the user's setting.
 router.post('/posts', requireAuth, (req, res) => {
-  const { content, workout_id, verse_id } = req.body || {};
+  const { content, workout_id, verse_id, visibility } = req.body || {};
+  const uid = req.session.userId;
+
+  // A workout can only be posted by its owner.
+  if (workout_id) {
+    const w = db.prepare('SELECT 1 FROM workouts WHERE id = ? AND user_id = ?').get(workout_id, uid);
+    if (!w) return res.status(404).json({ error: 'workout_not_found' });
+  }
+
+  const userDefault = db.prepare('SELECT default_visibility FROM users WHERE id = ?').get(uid)?.default_visibility || 'public';
+  const vis = VISIBILITIES.includes(visibility) ? visibility : userDefault;
+
   const id = randomUUID();
-  db.prepare('INSERT INTO posts (id, user_id, content, workout_id, verse_id) VALUES (?, ?, ?, ?, ?)')
-    .run(id, req.session.userId, content, workout_id || null, verse_id || null);
-  res.json({ id });
+  db.prepare('INSERT INTO posts (id, user_id, content, workout_id, verse_id, visibility) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, uid, (content || '').toString().slice(0, 1000), workout_id || null, verse_id || null, vis);
+  res.status(201).json({ id, visibility: vis, share_url: vis === 'public' ? `/w/${id}` : null });
+});
+
+// Change a post's visibility after the fact (author only).
+router.patch('/posts/:id/visibility', requireAuth, (req, res) => {
+  const { visibility } = req.body || {};
+  if (!VISIBILITIES.includes(visibility)) return res.status(400).json({ error: 'invalid_visibility' });
+  const post = db.prepare('SELECT user_id FROM posts WHERE id = ?').get(req.params.id);
+  if (!post) return res.status(404).json({ error: 'not_found' });
+  if (post.user_id !== req.session.userId) return res.status(403).json({ error: 'forbidden' });
+  db.prepare('UPDATE posts SET visibility = ? WHERE id = ?').run(visibility, req.params.id);
+  res.json({ ok: true, visibility, share_url: visibility === 'public' ? `/w/${req.params.id}` : null });
+});
+
+// ---- public, unauthenticated workout share (Strava-style activity link) ----
+// Only PUBLIC posts are exposed, and only the author's display name — never the
+// private profile fields (job/church/gym/age/email).
+router.get('/public/post/:id', (req, res) => {
+  const p = db.prepare(`
+    SELECT p.id, p.content, p.created_at, p.visibility, u.display_name author,
+           w.type workout_type, w.calories, w.avg_hr, w.max_hr, w.distance_km,
+           w.start_time, w.end_time, w.gps_path,
+           v.reference verse_reference, v.text verse_text
+    FROM posts p
+    JOIN users u ON u.id = p.user_id
+    LEFT JOIN workouts w ON w.id = p.workout_id
+    LEFT JOIN scripture_verses v ON v.id = p.verse_id
+    WHERE p.id = ?
+  `).get(req.params.id);
+
+  if (!p || p.visibility !== 'public') return res.status(404).json({ error: 'not_found' });
+
+  let route = null;
+  if (p.gps_path) { try { route = JSON.parse(p.gps_path); } catch { route = null; } }
+
+  let durationMin = null, pace = null, distanceKm = p.distance_km ?? null;
+  if (p.start_time && p.end_time) durationMin = +(((new Date(p.end_time) - new Date(p.start_time)) / 60000).toFixed(1));
+  if (distanceKm > 0 && durationMin > 0) pace = +(durationMin / distanceKm).toFixed(1);
+
+  res.json({
+    id: p.id,
+    author: p.author,
+    content: p.content,
+    created_at: p.created_at,
+    workout: p.workout_type ? {
+      type: p.workout_type, calories: p.calories, avg_hr: p.avg_hr, max_hr: p.max_hr,
+      distance_km: distanceKm, duration_min: durationMin, pace_min_per_km: pace,
+    } : null,
+    route,
+    verse: p.verse_reference ? { reference: p.verse_reference, text: p.verse_text } : null,
+  });
 });
 
 // ---- explore ----
@@ -402,6 +484,11 @@ router.put('/profile', requireAuth, (req, res) => {
   }
 
   if (show_age !== undefined) updates.show_age = show_age ? 1 : 0;
+
+  if (req.body && req.body.default_visibility !== undefined) {
+    if (!VISIBILITIES.includes(req.body.default_visibility)) return res.status(400).json({ error: 'invalid_visibility' });
+    updates.default_visibility = req.body.default_visibility;
+  }
 
   const keys = Object.keys(updates);
   if (!keys.length) return res.status(400).json({ error: 'no_fields' });

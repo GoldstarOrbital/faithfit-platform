@@ -15,6 +15,11 @@ app.use(cookieSession({
 }));
 
 app.use('/api', apiRoutes);
+
+// Public, unauthenticated share page for a public workout (like a Strava activity
+// link). Serves a standalone page that fetches /api/public/post/:id client-side.
+app.get('/w/:id', (req, res) => res.sendFile(path.join(__dirname, 'public', 'share.html')));
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'faithfit-webapp' }));

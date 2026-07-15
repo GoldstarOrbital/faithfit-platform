@@ -229,5 +229,17 @@ addCol('gym', 'gym TEXT');
 addCol('age', 'age INTEGER');
 addCol('show_age', 'show_age INTEGER DEFAULT 0');
 addCol('password_hash', 'password_hash TEXT');
+// Default visibility for newly shared workouts/posts (private | followers | public).
+addCol('default_visibility', "default_visibility TEXT DEFAULT 'public'");
+
+// --- migration: post visibility model + stored GPS route (additive, volume-safe) ---
+const postCols = db.prepare("PRAGMA table_info(posts)").all().map(c => c.name);
+// ALTER ADD COLUMN with a DEFAULT backfills existing rows, so pre-existing posts
+// stay visible ('public') rather than vanishing behind the new visibility filter.
+if (!postCols.includes('visibility')) db.exec("ALTER TABLE posts ADD COLUMN visibility TEXT DEFAULT 'public'");
+
+const workoutCols = db.prepare("PRAGMA table_info(workouts)").all().map(c => c.name);
+// gps_path: JSON array of [lat,lng] for the real route, used by the public share page.
+if (!workoutCols.includes('gps_path')) db.exec("ALTER TABLE workouts ADD COLUMN gps_path TEXT");
 
 module.exports = db;
