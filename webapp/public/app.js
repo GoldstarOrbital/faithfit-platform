@@ -469,12 +469,12 @@ async function renderExplore(main) {
         ${Object.entries(metricLabels).map(([m, l]) => `<button data-metric="${m}" class="${state.leaderboardMetric===m?'active':''}">${l}</button>`).join('')}
       </div>
       ${rows.length ? rows.map(row => `
-        <div class="card glass" style="display:flex;align-items:center;gap:12px;padding:12px 16px;${row.is_me ? 'border-left:3px solid var(--emerald);background:linear-gradient(180deg, var(--parch-2), var(--parch-1));' : ''}">
-          <div class="muted" style="width:24px;font-weight:700;text-align:center">${row.rank}</div>
+        <div class="card glass lb-row ${row.is_me ? 'lb-me' : ''} ${row.rank <= 3 ? 'lb-top' : ''}">
+          <div class="lb-rank">${row.rank <= 3 ? ['🥇','🥈','🥉'][row.rank-1] : row.rank}</div>
           <div class="avatar-sm">${initials(row.display_name)}</div>
-          <div style="flex:1;font-weight:${row.is_me ? '700' : '500'}">${escapeHtml(row.display_name)}${row.is_me ? ' (you)' : ''}</div>
-          <div style="font-weight:700;font-variant-numeric:tabular-nums">${fmtValue(row)}</div>
-        </div>`).join('') : '<div class="muted">Follow a few people to see them on your leaderboard.</div>'}
+          <div class="lb-name">${escapeHtml(row.display_name)}${row.is_me ? ' <span class="muted">(you)</span>' : ''}</div>
+          <div class="lb-value">${fmtValue(row)}</div>
+        </div>`).join('') : '<div class="card glass muted" style="text-align:center">Follow a few people to see them on your leaderboard.</div>'}
     `;
     body.querySelectorAll('[data-metric]').forEach(btn => btn.onclick = () => { state.leaderboardMetric = btn.dataset.metric; renderExplore(main); });
   } else if (state.exploreTab === 'groups') {
@@ -1230,11 +1230,10 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => setTab(b.
 function showToast(message, isError) {
   if (!message) return;
   const el = document.createElement('div');
-  el.className = 'toast-banner';
-  el.style.cssText = `position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:200;padding:10px 18px;border-radius:var(--radius);font-size:0.85rem;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,0.25);color:#fff;background:${isError ? 'var(--seal)' : 'var(--forest)'};`;
+  el.className = 'toast-banner' + (isError ? ' toast-error' : '');
   el.textContent = message;
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 4000);
+  setTimeout(() => { el.classList.add('toast-out'); setTimeout(() => el.remove(), 250); }, 3600);
 }
 function consumeSignedInRedirectParams() {
   const params = new URLSearchParams(location.search);
