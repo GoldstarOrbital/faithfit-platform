@@ -114,4 +114,65 @@ function startDevotionalRefresh() {
   }, 12 * 60 * 60 * 1000).unref();
 }
 
-module.exports = { isConfigured, searchChannels, fetchLatestUpload, refreshTodaysDevotionals, startDevotionalRefresh };
+// Up to maxResults recent real videos uploaded by a channel, newest first.
+async function fetchRecentUploads(channelId, maxResults = 6) {
+  if (!isConfigured() || !channelId) return [];
+  const n = Math.min(50, Math.max(1, Number(maxResults) || 6));
+  const data = await ytFetch(`search?part=snippet&channelId=${encodeURIComponent(channelId)}&order=date&type=video&maxResults=${n}`);
+  const items = Array.isArray(data.items) ? data.items : [];
+  return items.map(it => {
+    const videoId = it.id && it.id.videoId;
+    if (!videoId) return null;
+    return {
+      videoId,
+      title: (it.snippet && it.snippet.title) || null,
+      description: (it.snippet && it.snippet.description) || null,
+      thumbnailUrl: (it.snippet && it.snippet.thumbnails && (it.snippet.thumbnails.high || it.snippet.thumbnails.default || {}).url) || null,
+      channelTitle: (it.snippet && it.snippet.channelTitle) || null,
+      publishedAt: (it.snippet && it.snippet.publishedAt) || null,
+    };
+  }).filter(Boolean);
+}
+
+// ISO-8601 duration (e.g. "PT48M12S") -> seconds.
+function parseIsoDuration(iso) {
+  const m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(String(iso || ''));
+  if (!m) return null;
+  const [, h, mi, s] = m;
+  return (Number(h) || 0) * 3600 + (Number(mi) || 0) * 60 + (Number(s) || 0);
+}
+
+// Find the longest video a channel uploaded in the last 8 days — a heuristic for
+// "this week's full service" vs. shorter daily devotional clips. Returns null if
+// nothing was uploaded in that window. Never fabricates a result.
+async function fetchWeeklyServiceVideo(channelId) {
+  if (!isConfigured() || !channelId) return null;
+  const since = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString();
+  const data = await ytFetch(`search?part=snippet&channelId=${encodeURIComponent(channelId)}&order=date&type=video&maxResults=25&publishedAfter=${encodeURIComponent(since)}`);
+  const items = Array.isArray(data.items) ? data.items : [];
+  const videoIds = items.map(it => it.id && it.id.videoId).filter(Boolean);
+  if (!videoIds.length) return null;
+  const detail = await ytFetch(`videos?part=contentDetails,snippet&id=${encodeURIComponent(videoIds.join(','))}`);
+  const detItems = Array.isArray(detail.items) ? detail.items : [];
+  let best = null;
+  let bestSec = -1;
+  for (const it of detItems) {
+    const sec = parseIsoDuration(it.contentDetails && it.contentDetails.duration);
+    if (sec == null) continue;
+    if (sec > bestSec) {
+      bestSec = sec;
+      best = {
+        videoId: it.id,
+        title: (it.snippet && it.snippet.title) || null,
+        publishedAt: (it.snippet && it.snippet.publishedAt) || null,
+        durationSec: sec,
+      };
+    }
+  }
+  return best;
+}
+
+module.exports = {
+  isConfigured, searchChannels, fetchLatestUpload, refreshTodaysDevotionals, startDevotionalRefresh,
+  fetchRecentUploads, fetchWeeklyServiceVideo,
+};

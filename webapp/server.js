@@ -5,6 +5,7 @@ const { seed } = require('./lib/seed');
 const apiRoutes = require('./routes/api');
 const { startPodcastRefresh } = require('./lib/podcasts');
 const youtube = require('./lib/youtube');
+const { startVideoLibraryRefresh } = require('./lib/videos');
 
 seed();
 // Ingest real podcast episodes from public RSS feeds (background, non-blocking).
@@ -12,6 +13,8 @@ startPodcastRefresh();
 // Church devotionals from YouTube — true no-op (not even a timer) unless
 // Alex has set YOUTUBE_API_KEY, since it requires his own Google Cloud project.
 if (youtube.isConfigured()) youtube.startDevotionalRefresh();
+// Curated video library — same YOUTUBE_API_KEY gate, true no-op when unset.
+if (youtube.isConfigured()) startVideoLibraryRefresh();
 
 const app = express();
 // Railway terminates TLS in front of the app — trust its X-Forwarded-* headers

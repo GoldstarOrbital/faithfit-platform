@@ -14,6 +14,7 @@ const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
 const { searchNearbyChurches } = require('../lib/overpass');
 const youtube = require('../lib/youtube');
+const sermonSummary = require('../lib/sermon-summary');
 
 // Load real, public-domain Bible text (KJV/WEB) into bible_verses once at startup.
 loadBibleData();
@@ -52,6 +53,51 @@ function publicUser(row) {
   const { password_hash, email, ...rest } = row;
   return rest;
 }
+
+// ---- shared image-upload cap (avatars + post photos) ----
+const MAX_IMAGE_BYTES = 250 * 1024; // 250KB
+function validateDataUrlImage(dataUrl) {
+  if (typeof dataUrl !== 'string' || !/^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(dataUrl)) {
+    return { ok: false, error: 'invalid_image', hint: 'Image must be a base64 data URL (data:image/...;base64,...).' };
+  }
+  const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
+  const bytes = Math.floor(base64.length * 3 / 4);
+  if (bytes > MAX_IMAGE_BYTES) {
+    return { ok: false, error: 'image_too_large', hint: `Image must be under ${Math.round(MAX_IMAGE_BYTES / 1024)}KB after resizing.` };
+  }
+  return { ok: true, bytes };
+}
+
+// ---- bio link allowlist: LinkedIn or known fundraiser platforms only ----
+const BIO_LINK_ALLOWLIST = {
+  'linkedin.com': 'LinkedIn ↗',
+  'gofundme.com': 'Support my fundraiser ↗',
+  'gofund.me': 'Support my fundraiser ↗',
+  'justgiving.com': 'Support my fundraiser ↗',
+  'classy.org': 'Support my fundraiser ↗',
+  'fundly.com': 'Support my fundraiser ↗',
+  'givesendgo.com': 'Support my fundraiser ↗',
+};
+function matchBioLinkLabel(urlStr) {
+  let u;
+  try { u = new URL(urlStr); } catch { return null; }
+  const host = u.hostname.toLowerCase();
+  for (const domain of Object.keys(BIO_LINK_ALLOWLIST)) {
+    if (host === domain || host.endsWith('.' + domain)) return BIO_LINK_ALLOWLIST[domain];
+  }
+  return null;
+}
+
+// ---- shared XP application (used by the workout.completed handler + partner bonuses) ----
+function applyXp(userId, amount) {
+  const current = db.prepare('SELECT * FROM user_xp WHERE user_id = ?').get(userId) || { xp: 0 };
+  const newXp = current.xp + amount;
+  const newLevel = levelForXp(newXp);
+  db.prepare("INSERT INTO user_xp (user_id, xp, level, updated_at) VALUES (?, ?, ?, datetime('now')) ON CONFLICT(user_id) DO UPDATE SET xp=excluded.xp, level=excluded.level, updated_at=excluded.updated_at")
+    .run(userId, newXp, newLevel);
+  return newXp;
+}
+const PARTNER_XP_BONUS = Math.max(10, Math.round(xpForEvent('workout.completed') * 0.25)); // +25% of base workout XP, min 10
 
 // Create a real account. Password is scrypt-hashed; email is stored lowercased
 // and must be unique. Signs the new user in on success.
@@ -110,9 +156,18 @@ router.post('/auth/demo', (req, res) => {
 router.get('/users', (req, res) => {
   res.json(db.prepare(`
     SELECT id, display_name, bio_verse_ref, bio_verse_text, job, church, fitness_group, gym,
-      CASE WHEN show_age = 1 THEN age ELSE NULL END AS age
+      CASE WHEN show_age = 1 THEN age ELSE NULL END AS age,
+      CASE WHEN avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar
     FROM users
   `).all());
+});
+
+// Dedicated lightweight endpoint for fetching a user's real avatar image lazily.
+// Kept out of list/feed responses so those payloads don't bloat with base64 images.
+router.get('/users/:id/avatar', (req, res) => {
+  const row = db.prepare('SELECT avatar_data FROM users WHERE id = ?').get(req.params.id);
+  if (!row || !row.avatar_data) return res.status(404).json({ error: 'no_avatar' });
+  res.json({ avatar_data: row.avatar_data });
 });
 
 // ---- OAuth / SSO sign-in (Google, Apple, Microsoft — generic OIDC connector) ----
@@ -402,7 +457,8 @@ router.get('/feed', (req, res) => {
   // the author); private → author only.
   const posts = db.prepare(`
     SELECT p.id, p.content, p.created_at, p.user_id author_id, u.display_name author,
-           p.visibility, p.workout_id,
+           CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS author_has_avatar,
+           p.visibility, p.workout_id, p.photo_data, p.photo_category,
            w.type workout_type, w.calories, w.avg_hr, w.start_time, w.end_time, w.distance_km,
            v.reference verse_reference, v.text verse_text, v.youversion_id
     FROM posts p
@@ -455,6 +511,36 @@ router.post('/posts/:id/comments', requireAuth, (req, res) => {
   res.json(comment);
 });
 
+// ---- workout partners: tag someone you worked out with, they must confirm ----
+// Validates each partner id is a real, distinct user (rejects self-tagging), inserts
+// a pending workout_partners row, and notifies the partner. No XP is awarded here —
+// bonus XP only happens once the partner confirms via /workout-partners/:id/respond.
+function tagWorkoutPartners(taggerId, workoutId, partnerUserIds) {
+  if (!Array.isArray(partnerUserIds) || !partnerUserIds.length) return { tagged: [], errors: [] };
+  const taggerName = db.prepare('SELECT display_name FROM users WHERE id = ?').get(taggerId)?.display_name || 'Someone';
+  const tagged = [], errors = [];
+  for (const rawId of partnerUserIds) {
+    const partnerId = String(rawId || '').trim();
+    if (!partnerId) continue;
+    if (partnerId === taggerId) { errors.push({ partner_user_id: partnerId, error: 'cannot_tag_self' }); continue; }
+    const exists = db.prepare('SELECT 1 FROM users WHERE id = ?').get(partnerId);
+    if (!exists) { errors.push({ partner_user_id: partnerId, error: 'user_not_found' }); continue; }
+    const id = randomUUID();
+    try {
+      db.prepare('INSERT INTO workout_partners (id, workout_id, tagged_by, partner_user_id, status) VALUES (?, ?, ?, ?, ?)')
+        .run(id, workoutId, taggerId, partnerId, 'pending');
+      db.prepare('INSERT INTO notifications (id, user_id, type, payload) VALUES (?, ?, ?, ?)')
+        .run(randomUUID(), partnerId, 'workout_partner_tag', JSON.stringify({
+          workout_partner_id: id, message: `${taggerName} tagged you as a workout partner — confirm to both get bonus XP`,
+        }));
+      tagged.push(partnerId);
+    } catch (e) {
+      errors.push({ partner_user_id: partnerId, error: 'already_tagged' });
+    }
+  }
+  return { tagged, errors };
+}
+
 // ---- workouts ----
 router.post('/workouts/start', requireAuth, (req, res) => {
   const { type = 'Run' } = req.body || {};
@@ -503,7 +589,7 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   const hrs = samples.map(s => s.heart_rate).filter(Boolean);
   const avgHr = hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
   const maxHr = hrs.length ? Math.max(...hrs) : null;
-  const { gps_distance_km, gps_points, gps_path } = req.body || {};
+  const { gps_distance_km, gps_points, gps_path, partner_user_ids } = req.body || {};
   // Calories: use real GPS distance if we have one (running ~ 60 kcal/km), else fall back to a duration-based estimate.
   const durationMin = (Date.now() - new Date(workout.start_time).getTime()) / 60000;
   const calories = gps_distance_km > 0 ? Math.round(gps_distance_km * 60) : Math.round(durationMin * 8);
@@ -527,14 +613,15 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   publish('workout.completed', { user_id: req.session.userId, workout_id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr });
   const completedChallenges = applyWorkoutToChallenges(req.session.userId, { distance_km: gps_distance_km || 0, duration_sec: durationSec, type: workout.type });
   notifyChallengeCompletions(req.session.userId, completedChallenges);
+  const partners = tagWorkoutPartners(req.session.userId, workout.id, partner_user_ids);
 
-  res.json({ id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr, distance_km: gps_distance_km || null, duration_sec: durationSec, completed_challenges: completedChallenges.map(c => c.name) });
+  res.json({ id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr, distance_km: gps_distance_km || null, duration_sec: durationSec, completed_challenges: completedChallenges.map(c => c.name), partner_tag_errors: partners.errors });
 });
 
 // Manually log a completed workout (Strava-style "add activity" — no live tracking).
 router.post('/workouts/manual', requireAuth, (req, res) => {
   const uid = req.session.userId;
-  let { type = 'Run', duration_min, distance_km, calories, note, date, avg_hr } = req.body || {};
+  let { type = 'Run', duration_min, distance_km, calories, note, date, avg_hr, partner_user_ids } = req.body || {};
   if (!ACTIVITY_SET.has(type)) return res.status(400).json({ error: 'invalid_activity_type' });
   const durSec = Math.max(0, Math.round((Number(duration_min) || 0) * 60));
   if (durSec === 0 && !(Number(distance_km) > 0)) return res.status(400).json({ error: 'need_duration_or_distance' });
@@ -550,7 +637,60 @@ router.post('/workouts/manual', requireAuth, (req, res) => {
   publish('workout.completed', { user_id: uid, workout_id: id, calories: cal, avg_hr: avg_hr || null });
   const completed = applyWorkoutToChallenges(uid, { distance_km: dist || 0, duration_sec: durSec, type });
   notifyChallengeCompletions(uid, completed);
-  res.status(201).json({ id, type, calories: cal, distance_km: dist, duration_sec: durSec, completed_challenges: completed.map(c => c.name) });
+  const partners = tagWorkoutPartners(uid, id, partner_user_ids);
+  res.status(201).json({ id, type, calories: cal, distance_km: dist, duration_sec: durSec, completed_challenges: completed.map(c => c.name), partner_tag_errors: partners.errors });
+});
+
+// Tag partners on an already-completed workout the caller owns (used from the
+// post-workout share screen, which is shown after /stop or /manual already ran).
+router.post('/workouts/:id/tag-partners', requireAuth, (req, res) => {
+  const workout = db.prepare('SELECT id FROM workouts WHERE id = ? AND user_id = ?').get(req.params.id, req.session.userId);
+  if (!workout) return res.status(404).json({ error: 'not_found' });
+  const { partner_user_ids } = req.body || {};
+  const partners = tagWorkoutPartners(req.session.userId, workout.id, partner_user_ids);
+  res.json({ ok: true, tagged: partners.tagged, errors: partners.errors });
+});
+
+// Respond to a pending workout-partner tag (must be the tagged partner). On accept,
+// both the workout owner and the confirming partner get a one-time bonus XP award —
+// gated on the pending → confirmed transition so it can never double-fire (the
+// UNIQUE(workout_id, partner_user_id) constraint also prevents duplicate rows).
+router.post('/workout-partners/:id/respond', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const tag = db.prepare('SELECT * FROM workout_partners WHERE id = ?').get(req.params.id);
+  if (!tag) return res.status(404).json({ error: 'not_found' });
+  if (tag.partner_user_id !== uid) return res.status(403).json({ error: 'forbidden' });
+  if (tag.status !== 'pending') return res.status(409).json({ error: 'already_responded' });
+
+  const { accept } = req.body || {};
+  const newStatus = accept ? 'confirmed' : 'declined';
+  const info = db.prepare("UPDATE workout_partners SET status = ? WHERE id = ? AND status = 'pending'").run(newStatus, tag.id);
+  if (info.changes === 0) return res.status(409).json({ error: 'already_responded' });
+
+  if (accept) {
+    applyXp(tag.tagged_by, PARTNER_XP_BONUS);
+    applyXp(tag.partner_user_id, PARTNER_XP_BONUS);
+    const partnerName = db.prepare('SELECT display_name FROM users WHERE id = ?').get(uid)?.display_name || 'Your partner';
+    db.prepare('INSERT INTO notifications (id, user_id, type, payload) VALUES (?, ?, ?, ?)')
+      .run(randomUUID(), tag.tagged_by, 'workout_partner_confirmed', JSON.stringify({
+        message: `${partnerName} confirmed the workout partner tag — you both earned +${PARTNER_XP_BONUS} XP!`,
+      }));
+  }
+  res.json({ ok: true, status: newStatus, bonus_xp: accept ? PARTNER_XP_BONUS : 0 });
+});
+
+// Pending partner-tag requests awaiting the current user's response.
+router.get('/workout-partners/pending', requireAuth, (req, res) => {
+  const rows = db.prepare(`
+    SELECT wp.id, wp.workout_id, wp.created_at, wp.tagged_by, u.display_name tagged_by_name,
+           w.type workout_type, w.calories, w.distance_km
+    FROM workout_partners wp
+    JOIN users u ON u.id = wp.tagged_by
+    LEFT JOIN workouts w ON w.id = wp.workout_id
+    WHERE wp.partner_user_id = ? AND wp.status = 'pending'
+    ORDER BY wp.created_at DESC
+  `).all(req.session.userId);
+  res.json(rows);
 });
 
 function notifyChallengeCompletions(userId, completed) {
@@ -563,8 +703,9 @@ function notifyChallengeCompletions(userId, completed) {
 router.get('/activity-types', (req, res) => res.json(ACTIVITY_TYPES));
 
 // Share a workout / reflection. Visibility defaults to the user's setting.
+const PHOTO_CATEGORIES = ['nature', 'animal', 'group'];
 router.post('/posts', requireAuth, (req, res) => {
-  const { content, workout_id, verse_id, visibility } = req.body || {};
+  const { content, workout_id, verse_id, visibility, photo_data, photo_category } = req.body || {};
   const uid = req.session.userId;
 
   // A workout can only be posted by its owner.
@@ -573,13 +714,41 @@ router.post('/posts', requireAuth, (req, res) => {
     if (!w) return res.status(404).json({ error: 'workout_not_found' });
   }
 
+  // Content policy (not automated detection): post photos may only be self-certified
+  // as nature, animal, or a group of people — never a solo person (that's what the
+  // profile picture, Task 1, is for).
+  let photoData = null, photoCategory = null;
+  if (photo_data) {
+    const check = validateDataUrlImage(photo_data);
+    if (!check.ok) return res.status(400).json({ error: check.error, hint: check.hint });
+    if (!PHOTO_CATEGORIES.includes(photo_category)) {
+      return res.status(400).json({
+        error: 'invalid_photo_category',
+        hint: 'Post photos can only be nature, animals, or groups of people — no single-person photos (use your profile picture for that).',
+      });
+    }
+    photoData = photo_data;
+    photoCategory = photo_category;
+  }
+
   const userDefault = db.prepare('SELECT default_visibility FROM users WHERE id = ?').get(uid)?.default_visibility || 'public';
   const vis = VISIBILITIES.includes(visibility) ? visibility : userDefault;
 
   const id = randomUUID();
-  db.prepare('INSERT INTO posts (id, user_id, content, workout_id, verse_id, visibility) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(id, uid, (content || '').toString().slice(0, 1000), workout_id || null, verse_id || null, vis);
+  db.prepare('INSERT INTO posts (id, user_id, content, workout_id, verse_id, visibility, photo_data, photo_category) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, uid, (content || '').toString().slice(0, 1000), workout_id || null, verse_id || null, vis, photoData, photoCategory);
   res.status(201).json({ id, visibility: vis, share_url: vis === 'public' ? `/w/${id}` : null });
+});
+
+// Community-enforcement report. No moderation queue/UI yet in this pass — this is
+// a foundation for a future admin review flow, not a complete moderation system.
+router.post('/posts/:id/report', requireAuth, (req, res) => {
+  const post = db.prepare('SELECT id FROM posts WHERE id = ?').get(req.params.id);
+  if (!post) return res.status(404).json({ error: 'not_found' });
+  const reason = (req.body && req.body.reason ? String(req.body.reason) : '').trim().slice(0, 300);
+  db.prepare('INSERT INTO post_reports (id, post_id, reporter_id, reason) VALUES (?, ?, ?, ?)')
+    .run(randomUUID(), post.id, req.session.userId, reason || null);
+  res.status(201).json({ ok: true });
 });
 
 // Change a post's visibility after the fact (author only).
@@ -677,7 +846,11 @@ router.get('/users/suggested', requireAuth, (req, res) => {
 // if the viewer follows; everything if it's the viewer's own profile).
 router.get('/users/:id', (req, res) => {
   const me = req.session.userId || null;
-  const u = db.prepare('SELECT id, display_name, bio_verse_ref, bio_verse_text FROM users WHERE id = ?').get(req.params.id);
+  const u = db.prepare(`
+    SELECT id, display_name, bio_verse_ref, bio_verse_text, bio_link_url, bio_link_label,
+           CASE WHEN avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar
+    FROM users WHERE id = ?
+  `).get(req.params.id);
   if (!u) return res.status(404).json({ error: 'user_not_found' });
 
   const stats = {
@@ -689,7 +862,7 @@ router.get('/users/:id', (req, res) => {
   const is_following = me ? !!db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(me, u.id) : false;
 
   const posts = db.prepare(`
-    SELECT p.id, p.content, p.created_at, p.visibility, p.workout_id,
+    SELECT p.id, p.content, p.created_at, p.visibility, p.workout_id, p.photo_data, p.photo_category,
            w.type workout_type, w.calories, w.avg_hr, w.distance_km,
            v.reference verse_reference, v.text verse_text
     FROM posts p
@@ -1156,9 +1329,38 @@ const MAX_FIELD_LEN = 80;
 
 router.put('/profile', requireAuth, (req, res) => {
   const uid = req.session.userId;
-  const { display_name, bio_verse_ref, job, church, fitness_group, gym, age, show_age } = req.body || {};
+  const { display_name, bio_verse_ref, job, church, fitness_group, gym, age, show_age, avatar_data, bio_link_url } = req.body || {};
 
   const updates = {};
+
+  if (avatar_data !== undefined) {
+    if (avatar_data === null) {
+      updates.avatar_data = null;
+      updates.avatar_updated_at = null;
+    } else {
+      const check = validateDataUrlImage(avatar_data);
+      if (!check.ok) return res.status(400).json({ error: check.error, hint: check.hint });
+      updates.avatar_data = avatar_data;
+      updates.avatar_updated_at = new Date().toISOString();
+    }
+  }
+
+  if (bio_link_url !== undefined) {
+    if (bio_link_url === null || bio_link_url === '') {
+      updates.bio_link_url = null;
+      updates.bio_link_label = null;
+    } else {
+      const label = matchBioLinkLabel(String(bio_link_url).trim());
+      if (!label) {
+        return res.status(400).json({
+          error: 'link_not_allowed',
+          hint: 'Only LinkedIn or fundraiser links (GoFundMe, JustGiving, Classy, Fundly, GiveSendGo) are allowed in your bio.',
+        });
+      }
+      updates.bio_link_url = String(bio_link_url).trim();
+      updates.bio_link_label = label;
+    }
+  }
 
   if (display_name !== undefined) {
     const name = String(display_name).trim().slice(0, 60);
@@ -1361,6 +1563,85 @@ router.get('/devotionals/today', requireAuth, (req, res) => {
     .get(church.id, today);
   if (!row) return res.json({ devotional: null });
   res.json({ devotional: { ...row, church_name: church.name } });
+});
+
+// ---- Curated video library (real YouTube channels, gated behind YOUTUBE_API_KEY) ----
+router.get('/videos', (req, res) => {
+  const category = String(req.query.category || '').trim();
+  const allowed = new Set(['kids', 'fitness', 'motivational']);
+  if (!allowed.has(category)) return res.status(400).json({ error: 'invalid_category' });
+  const rows = db.prepare(
+    'SELECT video_id, title, description, thumbnail_url, channel_title, published_at FROM videos WHERE category = ? ORDER BY published_at DESC LIMIT 20'
+  ).all(category);
+  res.json(rows);
+});
+
+// ---- AI sermon summary ("10 minute podcast review") ----
+// ISO week key, e.g. "2026-W28" — stable per calendar week (Mon-Sun, ISO 8601).
+function isoWeekKey(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+
+function getUserChurch(userId) {
+  const me = db.prepare('SELECT church_osm_id FROM users WHERE id = ?').get(userId);
+  if (!me || !me.church_osm_id) return null;
+  return db.prepare('SELECT id, name, youtube_channel_id FROM churches WHERE osm_id = ?').get(me.church_osm_id) || null;
+}
+
+router.get('/church/service/this-week', requireAuth, (req, res) => {
+  const church = getUserChurch(req.session.userId);
+  if (!church) return res.json({ service: null });
+  const week = isoWeekKey(new Date());
+  const row = db.prepare('SELECT video_id, title, duration_sec, published_at, transcript FROM church_services WHERE church_id = ? AND fetched_week = ?')
+    .get(church.id, week);
+  res.json({ service: row || null });
+});
+
+// No LLM/AI summarization here by design — this app never calls the Claude/
+// Anthropic API or any other paid LLM. This finds this week's real service
+// video and fetches its real (auto-generated) caption track, so the client
+// can read the actual transcript aloud via the browser's free Web Speech
+// API. If no transcript exists, that's reported plainly, never faked.
+router.post('/church/service/summarize', requireAuth, async (req, res) => {
+  const church = getUserChurch(req.session.userId);
+  if (!church) return res.status(400).json({ error: 'no_church', hint: 'Select a church on your profile first.' });
+  if (!church.youtube_channel_id) return res.status(400).json({ error: 'no_youtube_channel', hint: 'Link your church\'s YouTube channel first.' });
+  if (!youtube.isConfigured()) return res.status(404).json({ error: 'youtube_not_configured' });
+
+  const week = isoWeekKey(new Date());
+  let row = db.prepare('SELECT * FROM church_services WHERE church_id = ? AND fetched_week = ?').get(church.id, week);
+
+  if (!row) {
+    let video;
+    try {
+      video = await youtube.fetchWeeklyServiceVideo(church.youtube_channel_id);
+    } catch (err) {
+      console.error('[church/service/summarize] video lookup failed:', err.message);
+      return res.status(502).json({ error: 'video_lookup_failed' });
+    }
+    if (!video) return res.status(404).json({ error: 'no_service_found', hint: 'No full-service video was found for this week yet.' });
+    db.prepare(`
+      INSERT INTO church_services (id, church_id, video_id, title, duration_sec, published_at, fetched_week)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(church_id, fetched_week) DO UPDATE SET
+        video_id=excluded.video_id, title=excluded.title, duration_sec=excluded.duration_sec, published_at=excluded.published_at
+    `).run(randomUUID(), church.id, video.videoId, video.title, video.durationSec, video.publishedAt, week);
+    row = db.prepare('SELECT * FROM church_services WHERE church_id = ? AND fetched_week = ?').get(church.id, week);
+  }
+
+  let transcript = row.transcript;
+  if (!transcript) {
+    transcript = await sermonSummary.fetchTranscript(row.video_id);
+    if (!transcript) return res.status(404).json({ error: 'no_transcript', hint: 'No captions were available for this week\'s service video.' });
+    db.prepare('UPDATE church_services SET transcript = ? WHERE id = ?').run(transcript, row.id);
+  }
+
+  res.json({ transcript, video_title: row.title, duration_sec: row.duration_sec });
 });
 
 module.exports = router;

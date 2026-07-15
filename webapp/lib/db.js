@@ -406,4 +406,74 @@ CREATE TABLE IF NOT EXISTS event_rsvps (
 );
 `);
 
+// --- migration: profile pictures, bio link, post photos + reports, workout partners (additive) ---
+const userCols3 = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+const addCol3 = (name, ddl) => { if (!userCols3.includes(name)) db.exec(`ALTER TABLE users ADD COLUMN ${ddl}`); };
+addCol3('avatar_data', 'avatar_data TEXT');
+addCol3('avatar_updated_at', 'avatar_updated_at TEXT');
+addCol3('bio_link_url', 'bio_link_url TEXT');
+addCol3('bio_link_label', 'bio_link_label TEXT');
+
+const postCols2 = db.prepare("PRAGMA table_info(posts)").all().map(c => c.name);
+if (!postCols2.includes('photo_data')) db.exec("ALTER TABLE posts ADD COLUMN photo_data TEXT");
+if (!postCols2.includes('photo_category')) db.exec("ALTER TABLE posts ADD COLUMN photo_category TEXT");
+
+db.exec(`
+CREATE TABLE IF NOT EXISTS post_reports (
+  id TEXT PRIMARY KEY,
+  post_id TEXT NOT NULL,
+  reporter_id TEXT NOT NULL,
+  reason TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS workout_partners (
+  id TEXT PRIMARY KEY,
+  workout_id TEXT NOT NULL,
+  tagged_by TEXT NOT NULL,
+  partner_user_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(workout_id, partner_user_id)
+);
+`);
+
+// --- video library (YouTube, additive, no-op unless YOUTUBE_API_KEY is set) ---
+db.exec(`
+CREATE TABLE IF NOT EXISTS video_sources (
+  id TEXT PRIMARY KEY,
+  category TEXT NOT NULL,
+  channel_id TEXT NOT NULL,
+  channel_title TEXT,
+  added_note TEXT
+);
+CREATE TABLE IF NOT EXISTS videos (
+  id TEXT PRIMARY KEY,
+  category TEXT NOT NULL,
+  video_id TEXT NOT NULL,
+  title TEXT,
+  description TEXT,
+  thumbnail_url TEXT,
+  channel_title TEXT,
+  published_at TEXT,
+  fetched_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(category, video_id)
+);
+`);
+
+// --- weekly full-service sermon + AI summary (additive) ---
+db.exec(`
+CREATE TABLE IF NOT EXISTS church_services (
+  id TEXT PRIMARY KEY,
+  church_id TEXT NOT NULL,
+  video_id TEXT NOT NULL,
+  title TEXT,
+  duration_sec INTEGER,
+  published_at TEXT,
+  transcript TEXT,
+  summary TEXT,
+  fetched_week TEXT NOT NULL,
+  UNIQUE(church_id, fetched_week)
+);
+`);
+
 module.exports = db;
