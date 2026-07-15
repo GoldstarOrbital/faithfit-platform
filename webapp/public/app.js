@@ -119,7 +119,7 @@ function routeSvg(seed) {
   const pts = [];
   let x = 10, y = 55 + (seed % 20);
   for (let i = 0; i < 8; i++) { x += 20 + (i % 3) * 5; y += Math.sin(i + seed) * 18; pts.push(`${x},${Math.max(10, Math.min(100, y))}`); }
-  return `<svg viewBox="0 0 200 110" preserveAspectRatio="none"><polyline points="${pts.join(' ')}" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.85"/></svg>`;
+  return `<svg viewBox="0 0 200 110" preserveAspectRatio="none"><polyline points="${pts.join(' ')}" fill="none" stroke="#c8b273" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/></svg>`;
 }
 
 async function renderHome(main) {
@@ -427,7 +427,7 @@ function initMap(alreadyTracking) {
   const start = state.gpsPoints[0] || [37.7749, -122.4194];
   state.leafletMap = L.map(mapEl, { zoomControl: false, attributionControl: false }).setView(start, 16);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(state.leafletMap);
-  state.leafletLine = L.polyline(state.gpsPoints, { color: '#7c6bff', weight: 4 }).addTo(state.leafletMap);
+  state.leafletLine = L.polyline(state.gpsPoints, { color: '#3d5a45', weight: 4 }).addTo(state.leafletMap);
 }
 
 // ---- Real GPS tracking via Geolocation API ----
