@@ -1,0 +1,15 @@
+{
+  "youversion.read": false,
+  "youversion.write": false,
+  "gloo.read": false,
+  "gloo.write": false,
+  "wearable.healthkit": false,
+  "wearable.googlefit": false,
+  "wearable.garmin": false,
+  "wearable.fitbit": false,
+  "wearable.oura": false,
+  "wearable.whoop": false,
+  "scripture.personalization": false,
+  "notifications.push": false,
+  "_comment": "All third-party-dependent features default OFF. Flip only after keys/scopes are verified and vaulted."
+}

@@ -1,0 +1,18 @@
+replicaCount: 2
+image:
+  registry: ghcr.io/faithfit
+  tag: latest
+services:
+  - auth
+  - user-profile
+  - fitness
+  - wearable-ingest
+  - scripture-engine
+  - personalization
+  - social-graph
+  - gamification
+  - notification
+  - media
+  - creator-tools
+featureFlags:
+  defaultOff: true

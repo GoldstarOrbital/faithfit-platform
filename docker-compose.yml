@@ -1,0 +1,88 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: timescale/timescaledb-ha:pg16
+    environment:
+      POSTGRES_DB: faithfit
+      POSTGRES_USER: faithfit
+      POSTGRES_PASSWORD: faithfit_dev_only
+    ports: ["5432:5432"]
+    volumes:
+      - ./migrations:/docker-entrypoint-initdb.d
+      - pgdata:/home/postgres/pgdata
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    environment: { ZOOKEEPER_CLIENT_PORT: 2181 }
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    depends_on: [zookeeper]
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports: ["9092:9092"]
+
+  youversion-mock:
+    build: ./integrations/youversion
+    command: node mock-server.js
+    ports: ["5001:5001"]
+
+  gloo-mock:
+    build: ./integrations/gloo
+    command: node mock-server.js
+    ports: ["5002:5002"]
+
+  auth:
+    build: ./services/auth
+    ports: ["4001:4001"]
+    depends_on: [postgres]
+  user-profile:
+    build: ./services/user-profile
+    ports: ["4002:4002"]
+    depends_on: [postgres]
+  fitness:
+    build: ./services/fitness
+    ports: ["4003:4003"]
+    depends_on: [postgres, kafka]
+  wearable-ingest:
+    build: ./services/wearable-ingest
+    ports: ["4004:4004"]
+    depends_on: [postgres, kafka]
+  scripture-engine:
+    build: ./services/scripture-engine
+    ports: ["4005:4005"]
+    depends_on: [postgres, kafka, youversion-mock]
+  personalization:
+    build: ./services/personalization
+    ports: ["4006:4006"]
+    depends_on: [postgres, kafka]
+  social-graph:
+    build: ./services/social-graph
+    ports: ["4007:4007"]
+    depends_on: [postgres]
+  gamification:
+    build: ./services/gamification
+    ports: ["4008:4008"]
+    depends_on: [postgres, kafka]
+  notification:
+    build: ./services/notification
+    ports: ["4009:4009"]
+    depends_on: [kafka]
+  media:
+    build: ./services/media
+    ports: ["4010:4010"]
+  creator-tools:
+    build: ./services/creator-tools
+    ports: ["4011:4011"]
+    depends_on: [postgres, gloo-mock]
+
+volumes:
+  pgdata:

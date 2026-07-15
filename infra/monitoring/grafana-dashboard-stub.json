@@ -1,0 +1,9 @@
+{
+  "title": "FaithFit Platform Overview",
+  "panels": [
+    { "title": "Request rate by service", "type": "graph" },
+    { "title": "Biometric ingest throughput", "type": "graph" },
+    { "title": "verse.triggered events/min", "type": "graph" },
+    { "title": "Kafka consumer lag", "type": "graph" }
+  ]
+}

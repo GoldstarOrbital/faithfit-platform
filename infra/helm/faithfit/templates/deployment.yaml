@@ -1,0 +1,18 @@
+{{- range .Values.services }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ . }}
+  namespace: faithfit
+spec:
+  replicas: {{ $.Values.replicaCount }}
+  selector: { matchLabels: { app: {{ . }} } }
+  template:
+    metadata: { labels: { app: {{ . }} } }
+    spec:
+      containers:
+        - name: {{ . }}
+          image: "{{ $.Values.image.registry }}/{{ . }}:{{ $.Values.image.tag }}"
+          ports: [{ containerPort: 4000 }]
+---
+{{- end }}

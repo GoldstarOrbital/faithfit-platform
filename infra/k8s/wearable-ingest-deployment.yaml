@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wearable-ingest
+  namespace: faithfit
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: wearable-ingest } }
+  template:
+    metadata: { labels: { app: wearable-ingest } }
+    spec:
+      containers:
+        - name: wearable-ingest
+          image: ghcr.io/faithfit/wearable-ingest:latest
+          ports: [{ containerPort: 4000 }]
+          envFrom:
+            - secretRef: { name: faithfit-secrets }
+          readinessProbe: { httpGet: { path: /health, port: 4000 }, initialDelaySeconds: 5 }
+          livenessProbe: { httpGet: { path: /health, port: 4000 }, initialDelaySeconds: 15 }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: wearable-ingest, namespace: faithfit }
+spec:
+  selector: { app: wearable-ingest }
+  ports: [{ port: 80, targetPort: 4000 }]

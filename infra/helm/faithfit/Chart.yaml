@@ -1,0 +1,5 @@
+apiVersion: v2
+name: faithfit
+description: FaithFit platform Helm chart (stub)
+version: 0.1.0
+appVersion: "0.1.0"

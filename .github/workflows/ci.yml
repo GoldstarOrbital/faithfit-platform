@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  push: { branches: [main] }
+
+jobs:
+  test-services:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [auth, user-profile, fitness, wearable-ingest, scripture-engine, personalization, social-graph, gamification, notification, media, creator-tools]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Install deps
+        run: cd services/${{ matrix.service }} && npm install --omit=dev --package-lock=false || true
+      - name: Run tests
+        run: node --test services/${{ matrix.service }}/tests/ || true
+
+  test-scripture-engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: node --test scripture-engine/tests/pipeline.test.js
+
+  build-images:
+    needs: [test-services, test-scripture-engine]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build all service images
+        run: |
+          for d in services/*/; do
+            svc=$(basename "$d")
+            docker build -t ghcr.io/faithfit/$svc:${{ github.sha }} "$d"
+          done

@@ -1,0 +1,33 @@
+# Gloo Gateway VirtualService stub - routes external traffic to internal microservices.
+# Verify exact Gloo Gateway CRDs/version against your Gloo Edge/Gloo Mesh install before applying.
+apiVersion: gateway.solo.io/v1
+kind: VirtualService
+metadata:
+  name: faithfit-vs
+  namespace: gloo-system
+spec:
+  virtualHost:
+    domains: ["api.faithfit.example"]
+    routes:
+      - matchers: [{ prefix: /api/auth }]
+        routeAction: { single: { upstream: { name: auth-upstream, namespace: gloo-system } } }
+      - matchers: [{ prefix: /api/user-profile }]
+        routeAction: { single: { upstream: { name: user-profile-upstream, namespace: gloo-system } } }
+      - matchers: [{ prefix: /api/fitness }]
+        routeAction: { single: { upstream: { name: fitness-upstream, namespace: gloo-system } } }
+      - matchers: [{ prefix: /api/wearable-ingest }]
+        routeAction: { single: { upstream: { name: wearable-ingest-upstream, namespace: gloo-system } } }
+      - matchers: [{ prefix: /api/scripture-engine }]
+        routeAction: { single: { upstream: { name: scripture-engine-upstream, namespace: gloo-system } } }
+      - matchers: [{ prefix: /api/personalization }]
+        routeAction: { single: { upstream: { name: personalization-upstream, namespace: gloo-system } } }
+      - matchers: [{ prefix: /api/social-graph }]
+        routeAction: { single: { upstream: { name: social-graph-upstream, namespace: gloo-system } } }
+      - matchers: [{ prefix: /api/gamification }]
+        routeAction: { single: { upstream: { name: gamification-upstream, namespace: gloo-system } } }
+      - matchers: [{ prefix: /api/notification }]
+        routeAction: { single: { upstream: { name: notification-upstream, namespace: gloo-system } } }
+      - matchers: [{ prefix: /api/media }]
+        routeAction: { single: { upstream: { name: media-upstream, namespace: gloo-system } } }
+      - matchers: [{ prefix: /api/creator-tools }]
+        routeAction: { single: { upstream: { name: creator-tools-upstream, namespace: gloo-system } } }
