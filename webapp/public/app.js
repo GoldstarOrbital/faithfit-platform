@@ -1691,13 +1691,35 @@ function startNotifPolling() {
   refreshNotifBadge();
   notifPollTimer = setInterval(refreshNotifBadge, 30000);
 }
-async function toggleNotifPanel() {
+// Icon per notification type — makes a dense list scannable at a glance.
+const NOTIF_ICONS = {
+  follow: '👣',
+  kudos: '❤️',
+  comment: '💬',
+  challenge_complete: '🏆',
+  workout_partner_tag: '🤝',
+  workout_partner_confirmed: '⚡',
+  event_rsvp: '📍',
+  group_message: '💭',
+  devotional: '🎬',
+  streak: '🔥',
+  effort: '💪',
+  reflection: '📖',
+  verse: '📖',
+  badge: '🎖️',
+  quest: '🗺️',
+  journey: '🧭',
+};
+function notifIcon(type) { return NOTIF_ICONS[type] || '✦'; }
+
+// Render the panel body. Split out from the toggle so "mark all read" can
+// refresh in place instead of the old close-then-reopen double-toggle hack.
+async function renderNotifPanel() {
   const panel = document.getElementById('notif-panel');
   if (!panel) return;
-  if (panel.style.display === 'block') { panel.style.display = 'none'; return; }
-  panel.innerHTML = '<div class="muted" style="padding:8px">Loading…</div>';
-  panel.style.display = 'block';
-  const { notifications, unread_count } = await api('/notifications');
+  let data;
+  try { data = await api('/notifications'); } catch { return; }
+  const { notifications, unread_count } = data;
   const fmtPayload = (n) => { try { return JSON.parse(n.payload || '{}').message || n.type; } catch { return n.type; } };
   panel.innerHTML = `
     <div class="notif-panel-head">
@@ -1706,29 +1728,59 @@ async function toggleNotifPanel() {
     </div>
     ${notifications.length ? notifications.map(n => `
       <div class="notif-item ${n.read ? '' : 'unread'}" data-notif="${n.id}">
-        <div>${escapeHtml(fmtPayload(n))}</div>
-        <div class="notif-time">${timeAgo(n.delivered_at)} ago</div>
-      </div>`).join('') : '<div class="muted" style="padding:8px">No notifications yet.</div>'}
+        <span class="notif-icon">${notifIcon(n.type)}</span>
+        <div class="notif-body">
+          <div class="notif-text">${escapeHtml(fmtPayload(n))}</div>
+          <div class="notif-time">${timeAgo(n.delivered_at)} ago</div>
+        </div>
+      </div>`).join('') : '<div class="notif-empty">Nothing new yet — get moving and your encouragement will show up here.</div>'}
   `;
   const markAllBtn = document.getElementById('notif-mark-all');
-  if (markAllBtn) markAllBtn.onclick = async () => { await api('/notifications/read-all', { method: 'POST' }); toggleNotifPanel(); toggleNotifPanel(); refreshNotifBadge(); };
+  if (markAllBtn) markAllBtn.onclick = async (e) => {
+    e.stopPropagation();
+    await api('/notifications/read-all', { method: 'POST' });
+    await renderNotifPanel();
+    refreshNotifBadge();
+  };
   panel.querySelectorAll('[data-notif]').forEach(item => {
     item.onclick = async () => {
+      if (!item.classList.contains('unread')) return;
       await api(`/notifications/${item.dataset.notif}/read`, { method: 'POST' });
       item.classList.remove('unread');
       refreshNotifBadge();
     };
   });
 }
-document.addEventListener('DOMContentLoaded', () => {
+
+async function toggleNotifPanel() {
+  const panel = document.getElementById('notif-panel');
+  if (!panel) return;
+  if (panel.style.display === 'block') { panel.style.display = 'none'; return; }
+  panel.innerHTML = '<div class="notif-empty">Loading…</div>';
+  panel.style.display = 'block';
+  await renderNotifPanel();
+}
+
+function wireNotifBell() {
   const bellBtn = document.getElementById('notif-bell');
-  if (bellBtn) bellBtn.onclick = (e) => { e.stopPropagation(); toggleNotifPanel(); };
+  if (!bellBtn || bellBtn.dataset.wired) return;
+  bellBtn.dataset.wired = '1';
+  bellBtn.onclick = (e) => { e.stopPropagation(); toggleNotifPanel(); };
+  // The panel is a SIBLING of the header now, so an outside-click check against
+  // the bell's wrapper alone would close the panel on every click inside it.
   document.addEventListener('click', (e) => {
     const panel = document.getElementById('notif-panel');
     const wrap = document.getElementById('notif-wrap');
-    if (panel && panel.style.display === 'block' && wrap && !wrap.contains(e.target)) panel.style.display = 'none';
+    if (!panel || panel.style.display !== 'block') return;
+    if (panel.contains(e.target)) return;
+    if (wrap && wrap.contains(e.target)) return;
+    panel.style.display = 'none';
   });
-});
+}
+// Wire immediately if the DOM is already parsed (this script is loaded at the
+// end of <body>), otherwise wait for DOMContentLoaded.
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wireNotifBell);
+else wireNotifBell();
 
 (async () => {
   await loadMe();

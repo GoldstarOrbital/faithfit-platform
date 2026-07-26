@@ -100,6 +100,17 @@ function applyXp(userId, amount) {
 }
 const PARTNER_XP_BONUS = Math.max(10, Math.round(xpForEvent('workout.completed') * 0.25)); // +25% of base workout XP, min 10
 
+// ---- notifications: one place to create them, so every surface behaves the same ----
+// Never notifies a user about their own action (self-kudos, own comment, etc.).
+function notify(userId, type, message, extra) {
+  if (!userId) return;
+  db.prepare('INSERT INTO notifications (id, user_id, type, payload) VALUES (?, ?, ?, ?)')
+    .run(randomUUID(), userId, type, JSON.stringify({ message, ...(extra || {}) }));
+}
+function displayName(userId) {
+  return db.prepare('SELECT display_name FROM users WHERE id = ?').get(userId)?.display_name || 'Someone';
+}
+
 // Create a real account. Password is scrypt-hashed; email is stored lowercased
 // and must be unique. Signs the new user in on success.
 router.post('/auth/register', (req, res) => {
@@ -498,6 +509,11 @@ router.post('/posts/:id/like', requireAuth, (req, res) => {
     db.prepare('DELETE FROM post_likes WHERE post_id = ? AND user_id = ?').run(req.params.id, req.session.userId);
   } else {
     db.prepare('INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)').run(req.params.id, req.session.userId);
+    // Tell the author someone cheered them on — but never notify yourself.
+    const post = db.prepare('SELECT user_id FROM posts WHERE id = ?').get(req.params.id);
+    if (post && post.user_id !== req.session.userId) {
+      notify(post.user_id, 'kudos', `${displayName(req.session.userId)} gave you kudos`, { post_id: req.params.id });
+    }
   }
   const likeCount = db.prepare('SELECT COUNT(*) c FROM post_likes WHERE post_id = ?').get(req.params.id).c;
   res.json({ liked: !existing, like_count: likeCount });
@@ -509,6 +525,19 @@ router.post('/posts/:id/comments', requireAuth, (req, res) => {
   const id = randomUUID();
   db.prepare('INSERT INTO post_comments (id, post_id, user_id, content) VALUES (?, ?, ?, ?)').run(id, req.params.id, req.session.userId, content.trim());
   const comment = db.prepare(`SELECT c.id, c.content, c.created_at, u.display_name author FROM post_comments c JOIN users u ON u.id = c.user_id WHERE c.id = ?`).get(id);
+
+  const post = db.prepare('SELECT user_id FROM posts WHERE id = ?').get(req.params.id);
+  const snippet = content.trim().slice(0, 60);
+  if (post && post.user_id !== req.session.userId) {
+    notify(post.user_id, 'comment', `${displayName(req.session.userId)} commented: "${snippet}"`, { post_id: req.params.id });
+  }
+  // Conversation, not broadcast: everyone already in the thread hears the reply too.
+  const others = db.prepare(`
+    SELECT DISTINCT user_id FROM post_comments WHERE post_id = ? AND user_id != ? AND user_id != ?
+  `).all(req.params.id, req.session.userId, post ? post.user_id : '');
+  for (const o of others) {
+    notify(o.user_id, 'comment', `${displayName(req.session.userId)} also replied: "${snippet}"`, { post_id: req.params.id });
+  }
   res.json(comment);
 });
 
@@ -997,14 +1026,20 @@ router.get('/groups/:id/events', requireAuth, (req, res) => {
 });
 
 router.post('/events/:id/rsvp', requireAuth, (req, res) => {
-  const event = db.prepare('SELECT id FROM group_events WHERE id = ?').get(req.params.id);
+  const event = db.prepare('SELECT id, creator_id, title FROM group_events WHERE id = ?').get(req.params.id);
   if (!event) return res.status(404).json({ error: 'not_found' });
   const { status } = req.body || {};
   if (status === 'going' || status === 'interested') {
+    const had = db.prepare('SELECT status FROM event_rsvps WHERE event_id = ? AND user_id = ?').get(event.id, req.session.userId);
     db.prepare(`
       INSERT INTO event_rsvps (event_id, user_id, status) VALUES (?, ?, ?)
       ON CONFLICT(event_id, user_id) DO UPDATE SET status = excluded.status
     `).run(event.id, req.session.userId, status);
+    // Let the organiser know someone's coming (only on a real change, not a re-click).
+    if (event.creator_id !== req.session.userId && (!had || had.status !== status)) {
+      const verb = status === 'going' ? 'is going to' : 'is interested in';
+      notify(event.creator_id, 'event_rsvp', `${displayName(req.session.userId)} ${verb} "${event.title}"`, { event_id: event.id });
+    }
   } else {
     db.prepare('DELETE FROM event_rsvps WHERE event_id = ? AND user_id = ?').run(event.id, req.session.userId);
   }

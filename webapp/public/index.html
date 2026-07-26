@@ -31,10 +31,14 @@
           </svg>
           <span id="notif-badge" class="notif-badge" style="display:none">0</span>
         </button>
-        <div id="notif-panel" class="card glass notif-panel" style="display:none"></div>
       </div>
     </div>
   </header>
+  <!-- Notification panel lives OUTSIDE the header on purpose. The header sets a
+       light cream `color` for its wood background and creates its own stacking
+       context (position:sticky + z-index), so a panel nested inside it inherited
+       invisible light-on-light text and could not paint above the tab bar. -->
+  <div id="notif-panel" class="card glass notif-panel" style="display:none"></div>
   <main id="main"></main>
   <nav class="tabbar">
     <button data-tab="home"><span class="icon" aria-hidden="true">
