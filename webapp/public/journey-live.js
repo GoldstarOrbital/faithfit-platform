@@ -312,10 +312,14 @@ async function populateJourneyPicker() {
     + '<span class="jp-pct">' + (j.joined ? (j.percent + '%') : 'start') + '</span></button>';
 
   const scripture = list.filter(j => j.world === 'biblical');
-  const tales = list.filter(j => j.world !== 'biblical');
+  const middleEarth = list.filter(j => j.world === 'middle-earth');
+  const narnia = list.filter(j => j.world === 'narnia');
+  const tales = list.filter(j => j.world === 'fantasy');
   box.innerHTML = '<h2 style="margin-top:0">Choose a route</h2>'
     + '<div class="muted" style="margin-bottom:10px">Your real speed moves you through it — smart bike, treadmill, GPS, or a pace you set.</div>'
     + (scripture.length ? '<h3 class="journey-group">Walk the scriptures</h3>' + scripture.map(card).join('') : '')
+    + (middleEarth.length ? '<h3 class="journey-group">Middle-earth routes</h3>' + middleEarth.map(card).join('') : '')
+    + (narnia.length ? '<h3 class="journey-group">Narnia routes</h3>' + narnia.map(card).join('') : '')
     + (tales.length ? '<h3 class="journey-group">Tales &amp; long roads</h3>' + tales.map(card).join('') : '');
 
   box.querySelectorAll('[data-jp]').forEach((b) => {
