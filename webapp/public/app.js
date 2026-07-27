@@ -2001,6 +2001,24 @@ function journeyMapSvg(journey, waypoints, progressKm) {
 
 const fmtKm = n => (Math.round(Number(n) * 10) / 10).toFixed(1);
 
+const JOURNEY_COVER = {
+  biblical: '/assets/journeys/bible-cover.png',
+  'middle-earth': '/assets/journeys/middle-earth-cover.png',
+  narnia: '/assets/journeys/narnia-cover.png',
+  fantasy: '/assets/journeys/fantasy-cover.png'
+};
+
+function journeyCover(journey) {
+  const cover = JOURNEY_COVER[journey.world] || JOURNEY_COVER.fantasy;
+  const progress = Math.max(0, Math.min(100, Number(journey.percent) || 0));
+  return '<div class="journey-cover">'
+    + '<img src="' + cover + '" alt="" loading="lazy">'
+    + '<div class="journey-cover-shade"></div>'
+    + '<div class="journey-cover-top"><span>' + (JOURNEY_WORLD_LABEL[journey.world] || escapeHtml(journey.world)) + '</span><span>' + fmtKm(journey.total_km) + ' km</span></div>'
+    + '<div class="journey-cover-bottom"><span>' + (journey.completed ? '✓ Completed' : (journey.joined ? 'In progress' : 'Ready to ride')) + '</span><span>' + progress + '%</span></div>'
+    + '</div>';
+}
+
 async function renderJourneysTab(body) {
   body.innerHTML = '<div class="card glass" style="text-align:center">Loading journeys…</div>';
   let journeys;
@@ -2013,7 +2031,7 @@ async function renderJourneysTab(body) {
       + (j.elevation_m ? ' · ' + j.elevation_m + ' m' : '')
       + ' · ' + j.waypoint_count + ' waypoints · ' + j.travellers + ' travelling';
     return '<div class="card glass journey-card ' + (j.completed ? 'done' : '') + '" data-journey="' + escapeHtml(j.key) + '">'
-      + '<div class="journey-map-wrap">' + journeyMapSvg(j, [], prog) + '</div>'
+      + journeyCover(j)
       + '<div class="journey-hd"><div>'
       + '<div class="journey-name">' + escapeHtml(j.name) + '</div>'
       + '<div class="journey-sub">' + escapeHtml(j.subtitle || '') + '</div></div>'
