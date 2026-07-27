@@ -11,7 +11,8 @@ const { composeForEvent } = require('../lib/composer');
 const { loadBibleData } = require('../lib/bible-load');
 const { hashPassword, verifyPassword } = require('../lib/password');
 const { ensureChallenges, applyWorkoutToChallenges } = require('../lib/challenges');
-const { ensureJourneys, applyWorkoutToJourneys, advanceJourney } = require('../lib/journeys');
+const { ensureJourneys, applyWorkoutToJourneys, advanceJourney, lookupScriptureText } = require('../lib/journeys');
+const moments = require('../lib/moments');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
 const { searchNearbyChurches } = require('../lib/overpass');
@@ -706,9 +707,49 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
 });
 
 // Manually log a completed workout (Strava-style "add activity" — no live tracking).
+// Personal bests for effort encouragement, computed over the caller's own
+// history excluding the workout just saved, so "your longest this month" is a
+// real comparison rather than a comparison with itself.
+function personalBests(uid, excludeWorkoutId) {
+  const agg = db.prepare(`SELECT MAX(effort_score) AS bestEffortScore,
+                                 COUNT(*) AS priorSessionsWithZones
+                          FROM workouts
+                          WHERE user_id = ? AND id != ? AND time_in_zone IS NOT NULL`)
+    .get(uid, excludeWorkoutId) || {};
+
+  // Has this person ever been in zone 5 before today?
+  const everRows = db.prepare(`SELECT time_in_zone FROM workouts
+                               WHERE user_id = ? AND id != ? AND time_in_zone IS NOT NULL`)
+    .all(uid, excludeWorkoutId);
+  let everZone5 = false;
+  for (const r of everRows) {
+    let z; try { z = JSON.parse(r.time_in_zone); } catch { continue; }
+    if ((Number(z && z[5]) || 0) > 0) { everZone5 = true; break; }
+  }
+
+  // Longest single session at zone 4+ in the last 30 days, for "your longest
+  // hard effort" to be a true statement rather than a flourish.
+  const monthRows = db.prepare(`SELECT time_in_zone FROM workouts
+                                WHERE user_id = ? AND id != ?
+                                  AND start_time >= datetime('now', '-30 days')
+                                  AND time_in_zone IS NOT NULL`).all(uid, excludeWorkoutId);
+  let bestZone45Sec = 0;
+  for (const r of monthRows) {
+    let z; try { z = JSON.parse(r.time_in_zone); } catch { continue; }
+    bestZone45Sec = Math.max(bestZone45Sec, (Number(z && z[4]) || 0) + (Number(z && z[5]) || 0));
+  }
+
+  return {
+    everZone5,
+    bestZone45Sec,
+    bestEffortScore: Number(agg.bestEffortScore) || 0,
+    priorSessionsWithZones: Number(agg.priorSessionsWithZones) || 0,
+  };
+}
+
 router.post('/workouts/manual', requireAuth, (req, res) => {
   const uid = req.session.userId;
-  let { type = 'Run', duration_min, distance_km, calories, note, date, avg_hr, partner_user_ids, skip_journeys } = req.body || {};
+  let { type = 'Run', duration_min, distance_km, calories, note, date, avg_hr, partner_user_ids, skip_journeys, hr_samples } = req.body || {};
   if (!ACTIVITY_SET.has(type)) return res.status(400).json({ error: 'invalid_activity_type' });
   const durSec = Math.max(0, Math.round((Number(duration_min) || 0) * 60));
   if (durSec === 0 && !(Number(distance_km) > 0)) return res.status(400).json({ error: 'need_duration_or_distance' });
@@ -721,6 +762,40 @@ router.post('/workouts/manual', requireAuth, (req, res) => {
               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'manual')`)
     .run(id, uid, type, start, when, cal, Number(avg_hr) > 0 ? Math.round(Number(avg_hr)) : null, dist, durSec, (note || '').toString().slice(0, 500) || null);
 
+  // Measured heart rate from a live session: store the samples, then derive
+  // zones and a TRIMP-style effort score from them. Only ever populated when a
+  // real monitor was streaming — nothing here is modelled from pace.
+  let effortSummary = null;
+  if (Array.isArray(hr_samples) && hr_samples.length) {
+    const clean = hr_samples
+      .map(x => ({ hr: Math.round(Number(x && x.hr)), at: Math.round(Number(x && x.at) || 0) }))
+      .filter(x => Number.isFinite(x.hr) && x.hr > 0 && x.hr <= 250)
+      .slice(0, 20000);
+    if (clean.length) {
+      const insertSample = db.prepare('INSERT INTO biometric_samples (id, user_id, workout_id, time, heart_rate, stress_level) VALUES (?, ?, ?, ?, ?, ?)');
+      const startMs = new Date(start).getTime();
+      db.exec('BEGIN');
+      try {
+        for (const smp of clean) {
+          insertSample.run(randomUUID(), uid, id, new Date(startMs + smp.at * 1000).toISOString(), smp.hr, null);
+        }
+        db.exec('COMMIT');
+      } catch (e) { db.exec('ROLLBACK'); throw e; }
+
+      const me = db.prepare('SELECT max_hr, resting_hr, birth_year FROM users WHERE id = ?').get(uid);
+      const maxHr = effortLib.estimatedMaxHr(me || {});
+      effortSummary = effortLib.summariseEffort(
+        clean.map(x => ({ heart_rate: x.hr, time: new Date(startMs + x.at * 1000).toISOString() })),
+        maxHr, durSec);
+      const avg = Math.round(clean.reduce((a, b) => a + b.hr, 0) / clean.length);
+      const peak = clean.reduce((a, b) => Math.max(a, b.hr), 0);
+      db.prepare('UPDATE workouts SET avg_hr = ?, max_hr = ?, effort_score = ?, time_in_zone = ?, peak_zone = ? WHERE id = ?')
+        .run(avg, peak, effortSummary.effort_score, JSON.stringify(effortSummary.time_in_zone || {}),
+             effortSummary.peak_zone || null, id);
+      avg_hr = avg;
+    }
+  }
+
   publish('workout.completed', { user_id: uid, workout_id: id, calories: cal, avg_hr: avg_hr || null });
   const completed = applyWorkoutToChallenges(uid, { distance_km: dist || 0, duration_sec: durSec, type });
   notifyChallengeCompletions(uid, completed);
@@ -729,7 +804,16 @@ router.post('/workouts/manual', requireAuth, (req, res) => {
   // distance twice. The client sets skip_journeys for that case.
   if (!skip_journeys) notifyJourneyProgress(uid, applyWorkoutToJourneys(uid, { distance_km: dist || 0, duration_sec: durSec, type }));
   const partners = tagWorkoutPartners(uid, id, partner_user_ids);
-  res.status(201).json({ id, type, calories: cal, distance_km: dist, duration_sec: durSec, completed_challenges: completed.map(c => c.name), partner_tag_errors: partners.errors });
+  res.status(201).json({
+    id, type, calories: cal, distance_km: dist, duration_sec: durSec,
+    completed_challenges: completed.map(c => c.name),
+    partner_tag_errors: partners.errors,
+    // Encouragement that cites what actually happened, or nothing at all.
+    effort: effortSummary || null,
+    effort_note: effortSummary
+      ? effortLib.describeEffort(effortSummary, personalBests(uid, id))
+      : null,
+  });
 });
 
 // Tag partners on an already-completed workout the caller owns (used from the
@@ -2509,6 +2593,54 @@ router.delete('/webhooks/:id', requireAuth, (req, res) => {
   const r = webhooks.remove(req.session.userId, req.params.id);
   if (r.error) return res.status(404).json(r);
   res.json(r);
+});
+
+// --- The right word at the right physiological moment ----------------------
+// The live session posts its telemetry here every so often and gets back the
+// moment it is actually in, plus scripture chosen for that moment. Heart-rate
+// derived moments are only ever returned when a real monitor is streaming;
+// `measured` says which kind of read this was, and the client shows that.
+router.post('/live/moment', requireAuth, (req, res) => {
+  const b = req.body || {};
+  const me = db.prepare('SELECT max_hr, resting_hr, birth_year FROM users WHERE id = ?').get(req.session.userId);
+  const maxHr = effortLib.estimatedMaxHr(me || {});
+
+  const state = moments.classify({
+    elapsed_sec: b.elapsed_sec,
+    distance_km: b.distance_km,
+    total_km: b.total_km,
+    speed_kmh: b.speed_kmh,
+    recent_speeds: b.recent_speeds,
+    // Heart rate is passed through only when it came from a connected monitor.
+    hr: b.hr_measured ? b.hr : null,
+    recent_hr: b.hr_measured ? b.recent_hr : null,
+    max_hr: maxHr,
+    terrain: b.terrain,
+  });
+
+  // Resolve a verse we have not already shown this session. A reference that
+  // does not resolve against the local library is skipped, never invented.
+  const seen = Array.isArray(b.seen_refs) ? b.seen_refs.map(String) : [];
+  let verse = null;
+  const tried = seen.slice();
+  for (let i = 0; i < 6 && !verse; i++) {
+    const ref = moments.pickRef(state.moment, tried);
+    if (!ref) break;
+    const text = lookupScriptureText(ref);
+    if (text) verse = { reference: ref, text };
+    else tried.push(ref);
+  }
+
+  // A strap with no max-HR reference can stream all day and never produce a
+  // zone. Say so explicitly rather than degrading silently to 'steady'.
+  res.json({
+    ...state,
+    verse,
+    zone_available: !!maxHr,
+    zone_hint: (!maxHr && b.hr_measured)
+      ? 'Add your birth year or max heart rate in your profile to get zones and effort scoring.'
+      : null,
+  });
 });
 
 module.exports = router;

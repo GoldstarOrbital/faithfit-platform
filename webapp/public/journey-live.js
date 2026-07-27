@@ -16,6 +16,7 @@ function teardownJourneyLive() {
   try { journeyLive.session.stop(); } catch {}
   try { if (journeyLive.world) journeyLive.world.dispose(); } catch {}
   if (journeyLive.pushTimer) clearInterval(journeyLive.pushTimer);
+  if (journeyLive.momentTimer) clearInterval(journeyLive.momentTimer);
   journeyLive = null;
 }
 
@@ -36,6 +37,8 @@ async function renderJourneyLive(key) {
     '    <canvas id="live-canvas"></canvas>',
     '    <div class="live-hud">',
     '      <div class="live-hud-speed"><span id="live-speed">--</span><small>km/h</small></div>',
+    '      <div class="live-hud-hr"><span id="live-hr">--</span><small>bpm</small>',
+    '        <div class="live-hud-zone" id="live-zone"></div></div>',
     '      <div class="live-hud-right">',
     '        <div><span id="live-dist">' + fmtKm(startKm) + '</span><small> / ' + fmtKm(j.total_km) + ' km</small></div>',
     '        <div class="live-hud-src" id="live-src">Not connected</div>',
@@ -43,6 +46,7 @@ async function renderJourneyLive(key) {
     '    </div>',
     '    <div class="live-3d-fallback" id="live-fallback" hidden></div>',
     '    <div class="live-waypoint" id="live-waypoint" hidden></div>',
+    '    <div class="live-moment" id="live-moment" hidden></div>',
     '  </div>',
     '  <div class="card glass live-panel">',
     '    <div class="challenge-track"><span id="live-bar" style="width:' + (data.percent || 0) + '%"></span></div>',
@@ -55,6 +59,7 @@ async function renderJourneyLive(key) {
     '      <button class="ghost" id="src-sensor">Speed sensor / footpod</button>',
     '      <button class="ghost" id="src-gps">GPS (outdoors)</button>',
     '      <button class="ghost" id="src-manual">Set a pace</button>',
+    '      <button class="ghost" id="src-hr">Heart rate monitor</button>',
     '    </div>',
     '    <div class="muted live-note" id="live-note">Pair equipment for measured speed. A pace you set yourself is recorded as declared, not measured.</div>',
     '    <div class="live-controls">',
@@ -85,19 +90,25 @@ async function renderJourneyLive(key) {
     world.setDistance(startKm);
   }
 
+  // Every real heart-rate reading of the session, for the effort summary on save.
+  const hrSamples = [];
+
   const session = window.FitFaithSensors.createSession({
     onUpdate(s) {
+      if (s.hrMeasured && s.hr) hrSamples.push({ hr: s.hr, at: Math.round(s.elapsedSec) });
       const total = startKm + s.distanceKm;
       const shownSpeed = (s.source === 'manual') ? s.declaredPaceKmh : s.speedKmh;
       el('live-speed').textContent = (shownSpeed != null) ? Number(shownSpeed).toFixed(1) : '--';
       el('live-dist').textContent = fmtKm(total);
       el('live-src').textContent = s.sourceLabel;
+      // Blank unless a monitor is actually streaming. Never an estimate.
+      el('live-hr').textContent = (s.hrMeasured && s.hr) ? String(s.hr) : '--';
       if (world) { world.setDistance(total); world.setSpeed(shownSpeed || 0); }
       el('live-bar').style.width = Math.min(100, Math.round((total / j.total_km) * 100)) + '%';
     },
   });
 
-  journeyLive = { session, world, pushTimer: null, lastPushedKm: 0, key: j.key };
+  journeyLive = { session, world, pushTimer: null, momentTimer: null, lastPushedKm: 0, key: j.key };
 
   function showWaypoint(w) {
     const box = el('live-waypoint');
@@ -107,9 +118,16 @@ async function renderJourneyLive(key) {
       + '<div class="live-wp-title">' + escapeHtml(w.title) + '</div>'
       + (w.narrative ? '<div class="live-wp-narrative">' + escapeHtml(w.narrative) + '</div>' : '')
       + (w.scripture_ref
-        ? '<div class="verse-card"><div class="verse-ref">' + escapeHtml(w.scripture_ref) + '</div>'
-          + (w.scripture_text ? '<div class="verse-text">' + escapeHtml(w.scripture_text) + '</div>' : '') + '</div>'
+        ? '<div class="verse-card verse-tappable" data-verse-ref="' + escapeHtml(w.scripture_ref) + '">'
+          + '<div class="verse-ref">' + escapeHtml(w.scripture_ref) + '</div>'
+          + (w.scripture_text ? '<div class="verse-text">' + escapeHtml(w.scripture_text) + '</div>' : '')
+          + '<div class="verse-convo">\ud83d\udcac Talk about this</div>' + '</div>'
         : '');
+    const vb = box.querySelector('[data-verse-ref]');
+    if (vb) vb.onclick = () => {
+      teardownJourneyLive();
+      if (typeof renderVerseThread === 'function') renderVerseThread(vb.dataset.verseRef);
+    };
     setTimeout(() => { box.hidden = true; }, 14000);
   }
 
@@ -128,7 +146,88 @@ async function renderJourneyLive(key) {
     } catch { /* keep the session alive; the next tick retries */ }
   }
 
+  // --- The right word at the right physiological moment --------------------
+  // Ask the server where this session actually is every 45s and, when the
+  // moment changes, surface scripture for it. Verses are never repeated within
+  // a session, and each one opens into its own discussion.
+  const seenRefs = [];
+  let lastMoment = null;
+  let lastVerseAt = 0;
+  let zoneHintShown = false;
+
+  async function checkMoment() {
+    if (!journeyLive || !session.state.running) return;
+    const s = session.state;
+    // A verse every 45s would be noise, not company.
+    if (Date.now() - lastVerseAt < 240000) return;
+    let r;
+    try {
+      r = await api('/live/moment', {
+        method: 'POST',
+        body: {
+          elapsed_sec: s.elapsedSec,
+          distance_km: startKm + s.distanceKm,
+          total_km: j.total_km,
+          speed_kmh: s.speedKmh,
+          recent_speeds: s.recentSpeeds || [],
+          hr: s.hr,
+          hr_measured: !!s.hrMeasured,
+          recent_hr: s.recentHr || [],
+          terrain: j.terrain,
+          seen_refs: seenRefs,
+        },
+      });
+    } catch { return; }
+    if (!r) return;
+
+    const zoneEl = el('live-zone');
+    if (zoneEl) zoneEl.textContent = (r.measured && r.zone) ? ('Z' + r.zone) : '';
+    // Tell them once why a connected strap is not producing zones.
+    if (r.zone_hint && !zoneHintShown) { zoneHintShown = true; note(r.zone_hint); }
+
+    // Only speak when the moment actually turns, or on the first read.
+    if (r.moment === lastMoment) return;
+    lastMoment = r.moment;
+    if (!r.verse) return;
+    lastVerseAt = Date.now();
+    seenRefs.push(r.verse.reference);
+    showMoment(r);
+  }
+
+  function showMoment(r) {
+    const box = el('live-moment');
+    if (!box) return;
+    box.hidden = false;
+    box.innerHTML = '<div class="live-moment-hd">' + escapeHtml(r.label)
+      + '<span class="live-moment-src">' + (r.measured ? 'measured' : 'from pace &amp; route') + '</span></div>'
+      + '<div class="live-moment-why">' + escapeHtml(r.reason) + '</div>'
+      + '<div class="verse-card verse-tappable live-moment-verse" data-verse-ref="' + escapeHtml(r.verse.reference) + '">'
+      +   '<div class="verse-ref">' + escapeHtml(r.verse.reference) + '</div>'
+      +   '<div class="verse-text">' + escapeHtml(r.verse.text) + '</div>'
+      +   '<div class="verse-convo">\ud83d\udcac Talk about this</div>'
+      + '</div>';
+    const btn = box.querySelector('[data-verse-ref]');
+    if (btn) btn.onclick = () => {
+      // Scripture as conversation: the verse you were given mid-session opens
+      // straight into its thread rather than vanishing.
+      teardownJourneyLive();
+      if (typeof renderVerseThread === 'function') renderVerseThread(btn.dataset.verseRef);
+      else renderJourneyDetail(j.key);
+    };
+    setTimeout(() => { if (el('live-moment') === box) box.hidden = true; }, 30000);
+  }
+
   const btUnsupported = 'This browser has no Web Bluetooth — try Chrome or Edge.';
+  el('src-hr').onclick = async () => {
+    note('Pairing… choose your heart rate strap.');
+    try {
+      await session.connectHr();
+      note('Monitor connected. Your zones and effort are measured from here on.');
+    } catch (e) {
+      note(e && e.message === 'web_bluetooth_unsupported' ? btUnsupported
+        : 'No monitor paired. Without one, heart rate and zones stay blank — nothing is estimated.');
+    }
+  };
   el('src-ftms').onclick = async () => {
     note('Pairing… choose your trainer, bike or treadmill.');
     try { await session.connectFtms(); note('Connected. Measured speed is streaming from your equipment.'); }
@@ -156,6 +255,8 @@ async function renderJourneyLive(key) {
     if (!session.state.source) { note('Pick how you are moving first.'); return; }
     session.start();
     if (!journeyLive.pushTimer) journeyLive.pushTimer = setInterval(pushProgress, 5000);
+    if (!journeyLive.momentTimer) journeyLive.momentTimer = setInterval(checkMoment, 45000);
+    checkMoment();
     el('live-start').textContent = 'Running…';
     el('live-start').disabled = true;
   };
@@ -177,6 +278,9 @@ async function renderJourneyLive(key) {
           distance_km: +covered.toFixed(2),
           note: 'Travelled ' + j.name,
           skip_journeys: true,
+          // Only ever sent when a monitor was actually streaming, so the effort
+          // score and zone breakdown are measured rather than modelled.
+          ...(hrSamples.length ? { hr_samples: hrSamples } : {}),
         },
       }).catch(() => {});
     }

@@ -2044,8 +2044,10 @@ async function renderJourneyDetail(key) {
       + '<span class="journey-wp-title">' + escapeHtml(w.title) + '</span></div>'
       + (w.narrative ? '<div class="journey-wp-narrative">' + escapeHtml(w.narrative) + '</div>' : '')
       + (w.scripture_ref
-        ? '<div class="verse-card"><div class="verse-ref">' + escapeHtml(w.scripture_ref) + '</div>'
+        ? '<div class="verse-card verse-tappable" data-verse-ref="' + escapeHtml(w.scripture_ref) + '">'
+          + '<div class="verse-ref">' + escapeHtml(w.scripture_ref) + '</div>'
           + (w.scripture_text ? '<div class="verse-text">' + escapeHtml(w.scripture_text) + '</div>' : '')
+          + '<div class="verse-convo">\ud83d\udcac Talk about this</div>'
           + '</div>'
         : '')
       + '</div>'
@@ -2055,6 +2057,9 @@ async function renderJourneyDetail(key) {
   ).join('');
 
   shell(hero + '<h3 class="journey-group">Waypoints</h3>' + wps);
+  main.querySelectorAll('[data-verse-ref]').forEach(el => {
+    el.onclick = () => renderVerseThread(el.dataset.verseRef);
+  });
   document.getElementById('journey-join').onclick = async () => {
     await api('/journeys/' + encodeURIComponent(j.key) + '/' + (data.joined ? 'leave' : 'join'), { method: 'POST' });
     renderJourneyDetail(j.key);

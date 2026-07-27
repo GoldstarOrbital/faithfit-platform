@@ -128,6 +128,21 @@
     return { speedKmh: speedMs * 3.6, cadenceSpm: dv.getUint8(3) };
   }
 
+  // Heart Rate Measurement (0x2A37). Flags bit 0 selects uint8 vs uint16 BPM.
+  // Contact bits are respected: a strap reporting "not worn" gives no number
+  // rather than a stale one.
+  function parseHeartRate(dv) {
+    if (!dv || dv.byteLength < 2) return { hr: null };
+    const flags = dv.getUint8(0);
+    const wide = flags & 0x01;
+    if (wide && dv.byteLength < 3) return { hr: null };
+    const hr = wide ? dv.getUint16(1, true) : dv.getUint8(1);
+    // Bit 1 = contact supported, bit 2 = contact detected.
+    if ((flags & 0x02) && !(flags & 0x04)) return { hr: null, contact: false };
+    if (!Number.isFinite(hr) || hr <= 0 || hr > 250) return { hr: null };
+    return { hr, contact: true };
+  }
+
   // --- Live session --------------------------------------------------------
   // Integrates whatever speed source is active into accumulated distance.
   function createSession(opts) {
@@ -143,10 +158,24 @@
       running: false,
       device: null,
       declaredPaceKmh: null, // only set in manual mode; always labelled as declared
+      // Heart rate is null unless a real monitor is streaming. Nothing in this
+      // app may substitute an estimate for a measurement.
+      hr: null,
+      hrMeasured: false,
+      hrLabel: 'No monitor',
+      hrDevice: null,
+      recentHr: [],
+      recentSpeeds: [],
     };
     let tickTimer = null, lastTickAt = null, gpsWatchId = null, lastGpsPos = null;
 
-    function emit() { onUpdate({ ...state }); }
+    function emit() {
+      if (Number.isFinite(state.speedKmh) && state.speedKmh !== null && state.running) {
+        state.recentSpeeds.push(state.speedKmh);
+        if (state.recentSpeeds.length > 120) state.recentSpeeds.shift();
+      }
+      onUpdate({ ...state });
+    }
 
     // Integrate current speed into distance. Called on a fixed tick so every
     // source (BLE push, GPS, manual) accumulates the same way.
@@ -274,12 +303,47 @@
       if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
       if (gpsWatchId != null) { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null; }
       try { if (state.device && state.device.gatt.connected) state.device.gatt.disconnect(); } catch {}
+      try { if (state.hrDevice && state.hrDevice.gatt.connected) state.hrDevice.gatt.disconnect(); } catch {}
       emit();
+    }
+
+    // A heart-rate strap is a separate connection from the speed source, so it
+    // pairs independently: you can ride a dumb treadmill with a real strap, or
+    // a smart bike with none.
+    async function connectHr() {
+      if (!navigator.bluetooth) throw new Error('web_bluetooth_unsupported');
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: ['heart_rate'] }],
+        optionalServices: ['heart_rate'],
+      });
+      const server = await device.gatt.connect();
+      const svc = await server.getPrimaryService('heart_rate');
+      const ch = await svc.getCharacteristic('heart_rate_measurement');
+      await ch.startNotifications();
+      ch.addEventListener('characteristicvaluechanged', (e) => {
+        const r = parseHeartRate(e.target.value);
+        if (r.hr == null) return;           // dropped frame or strap not in contact
+        state.hr = r.hr;
+        state.hrMeasured = true;
+        state.recentHr.push(r.hr);
+        if (state.recentHr.length > 60) state.recentHr.shift();
+        emit();
+      });
+      device.addEventListener('gattserverdisconnected', () => {
+        // Go blank rather than hold the last reading: a stale BPM is a lie.
+        state.hr = null; state.hrMeasured = false; state.hrLabel = 'Monitor disconnected';
+        state.recentHr = [];
+        emit();
+      });
+      state.hrDevice = device;
+      state.hrLabel = device.name || 'Heart rate monitor';
+      emit();
+      return device;
     }
 
     return {
       state,
-      connectFtms, connectSensor, useGps, useDeclaredPace,
+      connectFtms, connectSensor, useGps, useDeclaredPace, connectHr,
       start, pause, stop,
       setWheelCircumference: (m) => { if (m > 0) wheelCircumferenceM = m; },
     };
@@ -288,6 +352,6 @@
   global.FitFaithSensors = {
     createSession,
     // exported for testing against synthetic frames
-    _parsers: { parseIndoorBikeData, parseTreadmillData, parseRscData, makeCscParser },
+    _parsers: { parseIndoorBikeData, parseTreadmillData, parseRscData, makeCscParser, parseHeartRate },
   };
 })(window);

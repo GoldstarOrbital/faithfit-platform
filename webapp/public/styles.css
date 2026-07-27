@@ -632,3 +632,27 @@ a:hover { color: var(--gold); }
 .wh-new input{flex:1;min-width:0}
 .wh-note{font-size:.78rem;margin-top:8px;line-height:1.45}
 .wh-note code{font-size:.76rem;background:rgba(0,0,0,.07);padding:1px 4px;border-radius:4px}
+
+
+/* Live HUD: heart rate sits beside speed, and reads '--' whenever no monitor
+   is streaming. Nothing in this app substitutes an estimate for a measurement. */
+.live-hud-hr{text-align:right;font-weight:800;font-size:1.35rem;line-height:1}
+.live-hud-hr small{font-size:.62rem;font-weight:600;opacity:.75;margin-left:2px}
+.live-hud-zone{font-size:.68rem;font-weight:700;opacity:.85;letter-spacing:.06em;margin-top:2px}
+
+/* The moment card: what the app thinks is happening, why it thinks so, and the
+   verse for it. The 'why' line is always shown so the read stays inspectable. */
+.live-moment{position:absolute;left:10px;right:10px;bottom:10px;padding:12px 14px;border-radius:14px;
+  background:rgba(20,14,10,.82);color:#f6efe4;backdrop-filter:blur(6px);animation:momentIn .5s ease}
+@keyframes momentIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.live-moment-hd{display:flex;justify-content:space-between;align-items:baseline;gap:8px;
+  font-weight:800;font-size:.95rem}
+.live-moment-src{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;
+  opacity:.7;border:1px solid rgba(255,255,255,.3);border-radius:999px;padding:2px 7px}
+.live-moment-why{font-size:.76rem;opacity:.75;margin-top:3px}
+.live-moment-verse{display:block;width:100%;text-align:left;margin-top:9px;background:rgba(255,255,255,.08);
+  border:0;border-radius:10px;padding:10px 12px;color:inherit;cursor:pointer;font:inherit}
+.live-moment-verse:hover{background:rgba(255,255,255,.14)}
+.live-moment-verse .verse-ref{font-weight:800;font-size:.8rem;opacity:.9}
+.live-moment-verse .verse-text{font-size:.86rem;line-height:1.45;margin-top:3px}
+.live-moment-tap{font-size:.72rem;opacity:.7;margin-top:6px}

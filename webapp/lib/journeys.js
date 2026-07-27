@@ -588,4 +588,4 @@ function advanceJourney(userId, journeyKey, addKm) {
   };
 }
 
-module.exports = { JOURNEYS, ASSUMED_KMH, ensureJourneys, applyWorkoutToJourneys, kmFromWorkout, advanceJourney };
+module.exports = { JOURNEYS, ASSUMED_KMH, ensureJourneys, applyWorkoutToJourneys, kmFromWorkout, advanceJourney, lookupScriptureText};
