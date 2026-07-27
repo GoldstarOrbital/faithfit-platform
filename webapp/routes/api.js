@@ -2071,4 +2071,359 @@ router.get('/stats/effort', requireAuth, (req, res) => {
   });
 });
 
+// ============================================================================
+// Scripture as conversation, not broadcast.
+// Every verse the app surfaces becomes an invitation to talk: one canonical
+// thread per verse, reflections with one level of replies, likes, and a
+// discovery surface of what's actually being discussed.
+//
+// Hard rule: a thread may only ever be opened on a verse that REALLY EXISTS in
+// our verified local bible_verses table. No fabricated scripture, ever.
+// ============================================================================
+
+const REFLECTION_MAX_LEN = 1000;
+
+// Parse "Book Chapter:Verse" and resolve it against the verified library.
+// Mirrors the validation used by PUT /profile's bio_verse_ref handler.
+// Returns { row } on success, or { error, hint } describing the rejection.
+function resolveVerseReference(raw) {
+  const ref = String(raw || '').trim();
+  const m = ref.match(/^(.+?)\s+(\d+):(\d+)$/);
+  if (!m) return { error: 'invalid_verse_format', hint: 'Use "Book Chapter:Verse", e.g. "Psalms 23:4"' };
+  const [, book, chapter, verse] = m;
+  const row = db.prepare('SELECT text, book, chapter, verse, translation FROM bible_verses WHERE book = ? AND chapter = ? AND verse = ?')
+    .get(book.trim(), Number(chapter), Number(verse));
+  if (!row) return { error: 'verse_not_found', hint: 'That verse is not in our verified library. Try another reference.' };
+  return { row };
+}
+
+function reflectionRows(threadId, meId) {
+  const rows = db.prepare(`
+    SELECT r.id, r.parent_id, r.content, r.created_at, r.user_id,
+           u.display_name AS author,
+           CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar,
+           (SELECT COUNT(*) FROM verse_reflection_likes l WHERE l.reflection_id = r.id) AS like_count
+    FROM verse_reflections r
+    JOIN users u ON u.id = r.user_id
+    WHERE r.thread_id = ?
+    ORDER BY r.created_at ASC
+  `).all(threadId);
+
+  const liked = new Set();
+  if (meId && rows.length) {
+    for (const l of db.prepare(`
+      SELECT l.reflection_id FROM verse_reflection_likes l
+      JOIN verse_reflections r ON r.id = l.reflection_id
+      WHERE r.thread_id = ? AND l.user_id = ?
+    `).all(threadId, meId)) liked.add(l.reflection_id);
+  }
+
+  const byId = new Map();
+  const top = [];
+  for (const r of rows) {
+    const item = { ...r, liked_by_me: liked.has(r.id), replies: [] };
+    byId.set(r.id, item);
+  }
+  for (const r of rows) {
+    const item = byId.get(r.id);
+    const parent = r.parent_id ? byId.get(r.parent_id) : null;
+    if (parent) parent.replies.push(item); else top.push(item);
+  }
+  return top;
+}
+
+// Open (or return the existing) conversation for a real verse.
+router.post('/verses/:reference/thread', requireAuth, (req, res) => {
+  const { row, error, hint } = resolveVerseReference(req.params.reference);
+  if (error) return res.status(400).json({ error, hint });
+
+  const canonical = `${row.book} ${row.chapter}:${row.verse}`;
+  const existing = db.prepare('SELECT * FROM verse_threads WHERE reference = ?').get(canonical);
+  if (existing) {
+    return res.json({ thread: existing, verse: row, created: false });
+  }
+
+  const prompt = req.body && req.body.prompt ? String(req.body.prompt).trim().slice(0, REFLECTION_MAX_LEN) : null;
+  const id = randomUUID();
+  db.prepare(`
+    INSERT INTO verse_threads (id, reference, book, chapter, verse, opened_by, prompt)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(id, canonical, row.book, row.chapter, row.verse, req.session.userId, prompt);
+  const thread = db.prepare('SELECT * FROM verse_threads WHERE id = ?').get(id);
+  res.status(201).json({ thread, verse: row, created: true });
+});
+
+// Read a verse conversation. Open to everyone; per-user fields only when signed in.
+router.get('/verses/:reference/thread', (req, res) => {
+  const { row, error, hint } = resolveVerseReference(req.params.reference);
+  if (error) return res.status(400).json({ error, hint });
+  const canonical = `${row.book} ${row.chapter}:${row.verse}`;
+  const thread = db.prepare('SELECT * FROM verse_threads WHERE reference = ?').get(canonical);
+  if (!thread) return res.json({ thread: null, verse: row, reflections: [] });
+  const meId = req.session.userId || null;
+  const opener = db.prepare('SELECT display_name FROM users WHERE id = ?').get(thread.opened_by);
+  res.json({
+    thread: { ...thread, opened_by_name: (opener && opener.display_name) || 'Someone' },
+    verse: row,
+    reflections: reflectionRows(thread.id, meId),
+  });
+});
+
+// Add a reflection, or a reply to one (exactly one level deep).
+router.post('/verses/threads/:id/reflections', requireAuth, (req, res) => {
+  const thread = db.prepare('SELECT * FROM verse_threads WHERE id = ?').get(req.params.id);
+  if (!thread) return res.status(404).json({ error: 'thread_not_found' });
+
+  const content = String((req.body && req.body.content) || '').trim();
+  if (!content) return res.status(400).json({ error: 'empty_reflection' });
+  if (content.length > REFLECTION_MAX_LEN) return res.status(400).json({ error: 'reflection_too_long', hint: `Keep it under ${REFLECTION_MAX_LEN} characters.` });
+
+  let parentId = null;
+  if (req.body && req.body.parent_id) {
+    const parent = db.prepare('SELECT id, user_id, parent_id, thread_id FROM verse_reflections WHERE id = ?').get(String(req.body.parent_id));
+    if (!parent || parent.thread_id !== thread.id) return res.status(400).json({ error: 'parent_not_found' });
+    // Only one level of nesting: replying to a reply attaches to its top-level parent.
+    parentId = parent.parent_id || parent.id;
+  }
+
+  const id = randomUUID();
+  db.prepare('INSERT INTO verse_reflections (id, thread_id, user_id, parent_id, content) VALUES (?, ?, ?, ?, ?)')
+    .run(id, thread.id, req.session.userId, parentId, content);
+
+  const me = req.session.userId;
+  const who = displayName(me);
+  const snippet = content.slice(0, 60);
+  const notified = new Set([me]);
+
+  if (parentId) {
+    const parentAuthor = db.prepare('SELECT user_id FROM verse_reflections WHERE id = ?').get(parentId);
+    if (parentAuthor && !notified.has(parentAuthor.user_id)) {
+      notified.add(parentAuthor.user_id);
+      notify(parentAuthor.user_id, 'reflection', `${who} replied on ${thread.reference}: "${snippet}"`, { reference: thread.reference, thread_id: thread.id });
+    }
+  }
+  if (!notified.has(thread.opened_by)) {
+    notified.add(thread.opened_by);
+    notify(thread.opened_by, 'reflection', `${who} reflected on ${thread.reference}: "${snippet}"`, { reference: thread.reference, thread_id: thread.id });
+  }
+
+  const created = db.prepare(`
+    SELECT r.id, r.parent_id, r.content, r.created_at, r.user_id, u.display_name AS author
+    FROM verse_reflections r JOIN users u ON u.id = r.user_id WHERE r.id = ?
+  `).get(id);
+  res.status(201).json({ ...created, like_count: 0, liked_by_me: false, replies: [] });
+});
+
+// Toggle a like on a reflection — mirrors /posts/:id/like.
+router.post('/verses/reflections/:id/like', requireAuth, (req, res) => {
+  const reflection = db.prepare('SELECT id, user_id, thread_id FROM verse_reflections WHERE id = ?').get(req.params.id);
+  if (!reflection) return res.status(404).json({ error: 'reflection_not_found' });
+  const uid = req.session.userId;
+  const existing = db.prepare('SELECT 1 FROM verse_reflection_likes WHERE reflection_id = ? AND user_id = ?').get(reflection.id, uid);
+  if (existing) {
+    db.prepare('DELETE FROM verse_reflection_likes WHERE reflection_id = ? AND user_id = ?').run(reflection.id, uid);
+  } else {
+    db.prepare('INSERT INTO verse_reflection_likes (reflection_id, user_id) VALUES (?, ?)').run(reflection.id, uid);
+    if (reflection.user_id !== uid) {
+      const thread = db.prepare('SELECT reference FROM verse_threads WHERE id = ?').get(reflection.thread_id);
+      notify(reflection.user_id, 'reflection', `${displayName(uid)} appreciated your reflection on ${thread ? thread.reference : 'a verse'}`, { reference: thread && thread.reference });
+    }
+  }
+  const likeCount = db.prepare('SELECT COUNT(*) c FROM verse_reflection_likes WHERE reflection_id = ?').get(reflection.id).c;
+  res.json({ liked: !existing, like_count: likeCount });
+});
+
+// Discovery surface: which verses people are actually talking about.
+router.get('/verses/discussed', (req, res) => {
+  const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 12));
+  const rows = db.prepare(`
+    SELECT t.id, t.reference, t.book, t.chapter, t.verse, t.prompt, t.created_at,
+           (SELECT COUNT(*) FROM verse_reflections r WHERE r.thread_id = t.id) AS reflection_count,
+           COALESCE((SELECT MAX(r.created_at) FROM verse_reflections r WHERE r.thread_id = t.id), t.created_at) AS last_activity
+    FROM verse_threads t
+    ORDER BY last_activity DESC
+    LIMIT ?
+  `).all(limit);
+  const withText = rows.map(t => {
+    const v = db.prepare('SELECT text FROM bible_verses WHERE book = ? AND chapter = ? AND verse = ?').get(t.book, t.chapter, t.verse);
+    return { ...t, text: v ? v.text : null };
+  });
+  res.json(withText);
+});
+
+// Lightweight counts so any verse card anywhere in the app can show its
+// conversation state ("3 reflections" vs "Start the conversation").
+router.get('/verses/thread-summary', (req, res) => {
+  const raw = String(req.query.refs || '').trim();
+  if (!raw) return res.json({});
+  const refs = raw.split('|').map(s => s.trim()).filter(Boolean).slice(0, 25);
+  const out = {};
+  for (const ref of refs) {
+    const t = db.prepare('SELECT id FROM verse_threads WHERE reference = ?').get(ref);
+    out[ref] = t
+      ? { thread_id: t.id, reflection_count: db.prepare('SELECT COUNT(*) c FROM verse_reflections WHERE thread_id = ?').get(t.id).c }
+      : { thread_id: null, reflection_count: 0 };
+  }
+  res.json(out);
+});
+
+// ============================================================================
+// Church at signup, with videos already embedded.
+// ============================================================================
+
+// Normalise a name for comparison: lowercase, strip accents and punctuation,
+// collapse whitespace.
+function normaliseName(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+// Words too generic to identify a specific church on their own.
+const CHURCH_STOPWORDS = new Set(['the', 'of', 'and', 'a', 'at', 'in', 'st', 'saint', 'church', 'churches', 'parish', 'chapel', 'cathedral', 'ministries', 'ministry', 'fellowship', 'community', 'congregation', 'assembly', 'tabernacle', 'official', 'tv', 'live', 'online', 'channel']);
+
+// CONFIDENT MATCH RULE (deliberately conservative — a wrong channel is worse
+// than no channel). A YouTube channel is auto-linked to a church only if:
+//   (a) the church's normalised name appears verbatim inside the normalised
+//       channel title, OR
+//   (b) EVERY distinctive token of the church name (tokens left after removing
+//       generic stopwords like "church"/"saint"/"the") appears in the channel
+//       title, AND there are at least 2 such distinctive tokens.
+// Anything else → no link. We never guess.
+function isConfidentChannelMatch(churchName, channelTitle) {
+  const church = normaliseName(churchName);
+  const channel = normaliseName(channelTitle);
+  if (!church || !channel) return false;
+  if (channel.includes(church)) return true;
+  const distinctive = church.split(' ').filter(w => w && !CHURCH_STOPWORDS.has(w));
+  if (distinctive.length < 2) return false;
+  const channelTokens = new Set(channel.split(' '));
+  return distinctive.every(w => channelTokens.has(w));
+}
+
+// Ensure a churches row exists for this osm_id, seeded from the caller's own
+// (OSM-verified) profile church fields.
+function ensureChurchRow(osmId, name) {
+  let row = db.prepare('SELECT * FROM churches WHERE osm_id = ?').get(osmId);
+  if (!row) {
+    db.prepare('INSERT INTO churches (id, osm_id, name) VALUES (?, ?, ?)').run(randomUUID(), osmId, name || null);
+    row = db.prepare('SELECT * FROM churches WHERE osm_id = ?').get(osmId);
+  }
+  return row;
+}
+
+// Auto-populate a church's videos the moment it's selected — no extra steps.
+// Cascade: already-linked channel → confident YouTube search match → the
+// church's own website embeds (free, key-free) → nothing (say so honestly).
+router.post('/churches/:osmId/auto-link', requireAuth, async (req, res) => {
+  const osmId = req.params.osmId;
+  // Same ownership check as link-youtube.
+  const me = db.prepare('SELECT church_osm_id, church_name FROM users WHERE id = ?').get(req.session.userId);
+  if (!me || me.church_osm_id !== osmId) {
+    return res.status(400).json({ error: 'church_not_on_profile', hint: 'Select this church on your profile before linking its videos.' });
+  }
+
+  const church = ensureChurchRow(osmId, me.church_name);
+
+  // 1. Someone at this church already linked the real channel.
+  if (church.youtube_channel_id) {
+    return res.json({
+      linked: true, method: 'existing_channel',
+      channel_id: church.youtube_channel_id, channel_title: church.youtube_channel_title,
+      message: `Linked from your church's channel${church.youtube_channel_title ? ` (${church.youtube_channel_title})` : ''}.`,
+    });
+  }
+
+  // 2. Confident YouTube Data API match (only when a key is configured).
+  if (youtube.isConfigured() && me.church_name) {
+    try {
+      const results = await youtube.searchChannels(me.church_name);
+      const top = results && results[0];
+      if (top && isConfidentChannelMatch(me.church_name, top.title)) {
+        db.prepare('UPDATE churches SET youtube_channel_id = ?, youtube_channel_title = ? WHERE id = ?')
+          .run(top.channelId, String(top.title).slice(0, 120), church.id);
+        return res.json({
+          linked: true, method: 'youtube_search',
+          channel_id: top.channelId, channel_title: top.title,
+          message: `Linked from your church's channel (${top.title}).`,
+        });
+      }
+    } catch (err) {
+      console.error('[churches/auto-link] youtube search failed:', err.message);
+    }
+  }
+
+  // 3. Free, key-free fallback: real embeds already on the church's own site.
+  if (church.website_url) {
+    try {
+      const embeds = await fetchChurchWebsiteEmbeds(church.website_url);
+      if (embeds && embeds.length) {
+        return res.json({
+          linked: true, method: 'website_embeds', embeds,
+          message: "Found videos on your church's website.",
+        });
+      }
+    } catch (err) {
+      console.error('[churches/auto-link] website fetch failed:', err.message);
+    }
+  }
+
+  res.json({
+    linked: false, method: 'none',
+    youtube_configured: youtube.isConfigured(),
+    message: youtube.isConfigured()
+      ? "We couldn't confidently find your church's channel — search for it manually."
+      : "We couldn't find videos for your church automatically. Add your church's website, or search for its channel manually once YouTube is configured.",
+  });
+});
+
+// The current user's church's recent videos, for the home feed.
+// Always HTTP 200 — an empty list is a normal, honest answer.
+router.get('/church/videos', requireAuth, async (req, res) => {
+  const me = db.prepare('SELECT church_osm_id, church_name FROM users WHERE id = ?').get(req.session.userId);
+  if (!me || !me.church_osm_id) return res.json({ videos: [], source: 'none', church_name: null });
+  const church = db.prepare('SELECT * FROM churches WHERE osm_id = ?').get(me.church_osm_id);
+  if (!church) return res.json({ videos: [], source: 'none', church_name: me.church_name });
+
+  if (church.youtube_channel_id && youtube.isConfigured()) {
+    try {
+      const uploads = await youtube.fetchRecentUploads(church.youtube_channel_id, 4);
+      if (uploads && uploads.length) {
+        return res.json({
+          church_name: church.name || me.church_name,
+          source: 'youtube_channel',
+          channel_title: church.youtube_channel_title,
+          videos: uploads.map(v => ({ provider: 'youtube', video_id: v.videoId, title: v.title, thumbnail_url: v.thumbnailUrl, published_at: v.publishedAt })),
+        });
+      }
+    } catch (err) {
+      console.error('[church/videos] youtube fetch failed:', err.message);
+    }
+  }
+
+  if (church.website_url) {
+    try {
+      const embeds = await fetchChurchWebsiteEmbeds(church.website_url);
+      if (embeds && embeds.length) {
+        return res.json({
+          church_name: church.name || me.church_name,
+          source: 'website',
+          videos: embeds.slice(0, 4).map(e => ({ provider: e.provider, video_id: e.videoId, title: null, thumbnail_url: null, published_at: null })),
+        });
+      }
+    } catch (err) {
+      console.error('[church/videos] website fetch failed:', err.message);
+    }
+  }
+
+  res.json({
+    videos: [], source: 'none',
+    church_name: church.name || me.church_name,
+    youtube_configured: youtube.isConfigured(),
+  });
+});
+
 module.exports = router;
