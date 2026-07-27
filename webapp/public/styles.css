@@ -657,3 +657,110 @@ a:hover { color: var(--gold); }
 .live-moment-verse .verse-ref{font-weight:800;font-size:.8rem;opacity:.9}
 .live-moment-verse .verse-text{font-size:.86rem;line-height:1.45;margin-top:3px}
 .live-moment-tap{font-size:.72rem;opacity:.7;margin-top:6px}
+
+/* ---- Modern social shell --------------------------------------------------
+   Keeps the parchment / walnut / forest palette, but uses the visual language
+   of current social apps: translucent chrome, generous radii, compact metadata,
+   floating navigation, and quiet borders instead of engraved panels. */
+:root { --radius: 18px; --surface-shadow: 0 12px 34px rgba(43,30,18,.10); }
+body {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background:
+    radial-gradient(900px 560px at 8% -8%, rgba(201,162,74,.22), transparent 65%),
+    radial-gradient(760px 560px at 100% 22%, rgba(70,192,127,.13), transparent 68%),
+    var(--parch-0);
+  font-size: 15px;
+  letter-spacing: -.005em;
+}
+#app {
+  max-width: 560px;
+  background: rgba(243,234,214,.42);
+  box-shadow: 0 0 70px rgba(43,30,18,.12);
+}
+header.topbar {
+  padding: 13px 18px;
+  background: rgba(43,30,18,.94);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-bottom-color: rgba(201,162,74,.28);
+  box-shadow: 0 8px 24px rgba(43,30,18,.2);
+}
+header.topbar .brand { font-size: 1.05rem; letter-spacing: .045em; }
+header.topbar .brand-mark svg { width: 23px; height: 23px; }
+main { padding: 18px 14px 28px; }
+.glass {
+  background: rgba(249,242,226,.84);
+  background-image: none;
+  border: 1px solid rgba(74,58,40,.14);
+  border-radius: 20px;
+  box-shadow: var(--surface-shadow), inset 0 1px 0 rgba(255,255,255,.62);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+.card { padding: 17px; margin-bottom: 13px; }
+.card.glass::before { display:none; }
+.stories { gap: 12px; padding: 2px 2px 17px; }
+.story-ring { width: 58px; height: 58px; box-shadow: 0 4px 14px rgba(43,30,18,.15), 0 0 10px rgba(70,192,127,.16); }
+.story-label { font-family: inherit; font-size: .68rem; color: var(--ink-soft); }
+.post-head { margin-bottom: 13px; }
+.avatar-sm { width: 40px; height: 40px; border: 2px solid rgba(201,162,74,.72); }
+.post-author { font-size: .92rem; }
+.post-time { font-size: .7rem; }
+.post-content { font-size: .94rem; line-height: 1.5; }
+.route-banner { height: 132px; border-radius: 16px; margin-left: -2px; margin-right: -2px; }
+.stat-row { gap: 7px; }
+.stat { border-radius: 12px; padding: 9px 4px; background: rgba(224,212,186,.56); }
+.action-row { gap: 8px; justify-content: space-between; }
+.action-btn { border-radius: 999px; padding: 7px 10px; font-size: .78rem; }
+.action-btn:hover { background: rgba(70,192,127,.09); color: var(--forest); }
+.verse-card { border-radius: 14px; padding: 14px 15px; background: rgba(249,242,226,.9); }
+nav.tabbar {
+  bottom: 12px;
+  width: calc(100% - 24px);
+  max-width: 536px;
+  padding: 7px 8px calc(7px + env(safe-area-inset-bottom));
+  border: 1px solid rgba(201,162,74,.36);
+  border-top: 1px solid rgba(201,162,74,.36);
+  border-radius: 24px;
+  background: rgba(43,30,18,.92);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 12px 34px rgba(43,30,18,.28), 0 0 0 1px rgba(255,255,255,.05) inset;
+}
+nav.tabbar button { border-radius: 16px; padding: 7px 4px 6px; font-family: inherit; font-size: .62rem; gap: 3px; }
+nav.tabbar button.active { background: rgba(70,192,127,.16); color: var(--emerald-2); }
+nav.tabbar button .icon svg { width: 21px; height: 21px; }
+button.primary { border-radius: 14px; padding: 12px 17px; font-family: inherit; font-size: .88rem; box-shadow: 0 7px 18px rgba(47,107,69,.23); }
+button.ghost { border-radius: 14px; background: rgba(249,242,226,.75); border-color: rgba(74,58,40,.15); font-family: inherit; font-size: .86rem; }
+button.ghost:hover { background: var(--parch-2); transform: translateY(-1px); }
+.follow-btn { font-family: inherit; box-shadow: 0 5px 14px rgba(70,192,127,.18); }
+.section-tabs { gap: 7px; padding: 4px; border-radius: 15px; background: rgba(224,212,186,.45); }
+.section-tabs button { border: 0; border-radius: 11px; font-family: inherit; }
+.section-tabs button.active { box-shadow: 0 4px 12px rgba(47,107,69,.2); }
+.section-tabs-scroll { padding: 4px; margin: -3px -4px 14px; }
+.section-tabs-scroll button { padding: 9px 13px; }
+select, input[type=text], .input, #p-verse, .card.glass input[type=text], .card.glass input[type=number] {
+  border-radius: 13px; border-color: rgba(74,58,40,.16); background: rgba(249,242,226,.88); padding: 11px 13px;
+}
+select:focus, input:focus, textarea:focus { outline: none; border-color: var(--emerald); box-shadow: 0 0 0 3px rgba(70,192,127,.14); }
+h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing: -.025em; }
+.journey-group { font-family: inherit; font-size: .7rem; letter-spacing: .1em; font-weight: 800; color: var(--forest); border-bottom: 0; margin: 22px 3px 9px; }
+.journey-card { border-radius: 20px; }
+.journey-card:hover { transform: translateY(-3px); box-shadow: 0 16px 30px rgba(43,30,18,.13), 0 0 0 1px rgba(70,192,127,.18); }
+.journey-map-wrap { margin: 0 -17px 14px; height: 110px; }
+.journey-world { font-family: inherit; font-weight: 750; letter-spacing: .06em; }
+.journey-name, .journey-title, .journey-wp-title { font-family: inherit; }
+.journey-flavor, .journey-wp-narrative { font-family: inherit; font-size: .88rem; }
+.suggest-item, .foryou-item, .stat-tile { border-radius: 15px; border-color: rgba(74,58,40,.13); }
+.suggest-item:hover { box-shadow: 0 10px 20px rgba(70,192,127,.14); }
+.profile-header { padding: 4px 0 8px; }
+.profile-stats { gap: 24px; }
+.badge-pill { border-radius: 999px; padding: 6px 11px; font-size: .74rem; }
+.workout-screen { padding: 12px 4px 20px; }
+.hr-ring { width: 204px; height: 204px; border: 1px solid rgba(169,129,47,.6); box-shadow: 0 0 0 7px rgba(249,242,226,.76), 0 15px 34px rgba(43,30,18,.16); }
+.start-stop-btn { box-shadow: 0 10px 25px rgba(43,30,18,.2); }
+@media (min-width: 600px) {
+  #app { margin-top: 14px; min-height: calc(100vh - 28px); border-radius: 28px 28px 0 0; overflow: clip; }
+  header.topbar { border-radius: 28px 28px 0 0; }
+  nav.tabbar { bottom: 18px; }
+}
