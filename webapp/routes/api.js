@@ -10,6 +10,7 @@ const { composeForEvent } = require('../lib/composer');
 const { loadBibleData } = require('../lib/bible-load');
 const { hashPassword, verifyPassword } = require('../lib/password');
 const { ensureChallenges, applyWorkoutToChallenges } = require('../lib/challenges');
+const { ensureJourneys, applyWorkoutToJourneys } = require('../lib/journeys');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
 const { searchNearbyChurches } = require('../lib/overpass');
@@ -21,6 +22,8 @@ const { fetchChurchWebsiteEmbeds, isHttpUrl } = require('../lib/church-website')
 loadBibleData();
 // Seed / refresh the themed challenge catalog.
 ensureChallenges();
+// Seed / refresh the Journeys catalog (virtual routes + waypoints).
+ensureJourneys();
 
 // Activities FaithFit can track. Kept server-side so the client and validation
 // stay in sync. `d` = whether distance/pace is meaningful for that activity.
@@ -643,6 +646,7 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   publish('workout.completed', { user_id: req.session.userId, workout_id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr });
   const completedChallenges = applyWorkoutToChallenges(req.session.userId, { distance_km: gps_distance_km || 0, duration_sec: durationSec, type: workout.type });
   notifyChallengeCompletions(req.session.userId, completedChallenges);
+  notifyJourneyProgress(req.session.userId, applyWorkoutToJourneys(req.session.userId, { distance_km: gps_distance_km || 0, duration_sec: durationSec, type: workout.type }));
   const partners = tagWorkoutPartners(req.session.userId, workout.id, partner_user_ids);
 
   res.json({ id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr, distance_km: gps_distance_km || null, duration_sec: durationSec, completed_challenges: completedChallenges.map(c => c.name), partner_tag_errors: partners.errors });
@@ -667,6 +671,7 @@ router.post('/workouts/manual', requireAuth, (req, res) => {
   publish('workout.completed', { user_id: uid, workout_id: id, calories: cal, avg_hr: avg_hr || null });
   const completed = applyWorkoutToChallenges(uid, { distance_km: dist || 0, duration_sec: durSec, type });
   notifyChallengeCompletions(uid, completed);
+  notifyJourneyProgress(uid, applyWorkoutToJourneys(uid, { distance_km: dist || 0, duration_sec: durSec, type }));
   const partners = tagWorkoutPartners(uid, id, partner_user_ids);
   res.status(201).json({ id, type, calories: cal, distance_km: dist, duration_sec: durSec, completed_challenges: completed.map(c => c.name), partner_tag_errors: partners.errors });
 });
@@ -1722,6 +1727,98 @@ router.get('/churches/:osmId/website-videos', requireAuth, async (req, res) => {
     console.error('[churches/website-videos] fetch failed:', err.message);
     res.status(502).json({ error: 'fetch_failed', hint: "Could not reach the church's website. Try again shortly." });
   }
+});
+
+// ---- journeys: Zwift-style virtual routes advanced by real workouts ----
+// One notification per newly-crossed waypoint, plus one on completion.
+function notifyJourneyProgress(userId, results) {
+  for (const r of results || []) {
+    for (const w of r.waypoints) {
+      notify(userId, 'journey', `You reached ${w.title} on ${r.journey.name} — ${Number(w.km_mark).toFixed(1)} km in.`, {
+        journey_key: r.journey.key, waypoint: w.title, km_mark: w.km_mark,
+      });
+    }
+    if (r.completed) {
+      notify(userId, 'journey', `Journey complete: ${r.journey.name}. ${Number(r.journey.total_km)} km, all of it yours.`, {
+        journey_key: r.journey.key, completed: true,
+      });
+    }
+  }
+}
+
+function journeyProgressRow(journeyId, userId) {
+  if (!userId) return null;
+  return db.prepare('SELECT * FROM user_journeys WHERE user_id = ? AND journey_id = ?').get(userId, journeyId) || null;
+}
+
+// Browsable without auth; per-user fields only appear when signed in.
+router.get('/journeys', (req, res) => {
+  const me = req.session.userId || null;
+  const rows = db.prepare(`
+    SELECT j.*, uj.progress_km, uj.started_at, uj.completed_at,
+           (SELECT COUNT(*) FROM user_journeys u WHERE u.journey_id = j.id) AS travellers,
+           (SELECT COUNT(*) FROM journey_waypoints w WHERE w.journey_id = j.id) AS waypoint_count
+    FROM journeys j
+    LEFT JOIN user_journeys uj ON uj.journey_id = j.id AND uj.user_id = @me
+    ORDER BY j.world, j.total_km
+  `).all({ me });
+
+  const nextWp = db.prepare('SELECT title, km_mark FROM journey_waypoints WHERE journey_id = ? AND km_mark > ? ORDER BY km_mark LIMIT 1');
+  res.json(rows.map(j => {
+    const joined = !!j.started_at;
+    const progress = joined ? Number(j.progress_km) || 0 : 0;
+    const out = {
+      ...j,
+      joined,
+      completed: !!j.completed_at,
+      progress_km: joined ? progress : null,
+      percent: joined ? Math.min(100, Math.round((progress / j.total_km) * 100)) : null,
+      next_waypoint: null,
+    };
+    if (joined && !j.completed_at) {
+      const w = nextWp.get(j.id, progress);
+      if (w) out.next_waypoint = { title: w.title, km_mark: w.km_mark, km_remaining: Math.max(0, +(w.km_mark - progress).toFixed(2)) };
+    }
+    if (!me) { delete out.progress_km; delete out.percent; }
+    return out;
+  }));
+});
+
+router.post('/journeys/:key/join', requireAuth, (req, res) => {
+  const j = db.prepare('SELECT id FROM journeys WHERE key = ? OR id = ?').get(req.params.key, req.params.key);
+  if (!j) return res.status(404).json({ error: 'journey_not_found' });
+  db.prepare('INSERT OR IGNORE INTO user_journeys (user_id, journey_id, progress_km, last_waypoint_km) VALUES (?, ?, 0, -1)')
+    .run(req.session.userId, j.id);
+  res.status(201).json({ ok: true, journey_id: j.id });
+});
+
+router.post('/journeys/:key/leave', requireAuth, (req, res) => {
+  const j = db.prepare('SELECT id FROM journeys WHERE key = ? OR id = ?').get(req.params.key, req.params.key);
+  if (!j) return res.status(404).json({ error: 'journey_not_found' });
+  db.prepare('DELETE FROM user_journeys WHERE user_id = ? AND journey_id = ?').run(req.session.userId, j.id);
+  res.json({ ok: true });
+});
+
+router.get('/journeys/:key', requireAuth, (req, res) => {
+  const j = db.prepare('SELECT * FROM journeys WHERE key = ? OR id = ?').get(req.params.key, req.params.key);
+  if (!j) return res.status(404).json({ error: 'journey_not_found' });
+  const uj = journeyProgressRow(j.id, req.session.userId);
+  const joined = !!uj;
+  const progress = joined ? Number(uj.progress_km) || 0 : 0;
+  const waypoints = db.prepare('SELECT * FROM journey_waypoints WHERE journey_id = ? ORDER BY km_mark').all(j.id)
+    .map(w => ({ ...w, unlocked: joined && w.km_mark <= progress }));
+  const next = waypoints.find(w => w.km_mark > progress) || null;
+  res.json({
+    journey: j,
+    joined,
+    completed: !!(uj && uj.completed_at),
+    started_at: uj ? uj.started_at : null,
+    completed_at: uj ? uj.completed_at : null,
+    progress_km: progress,
+    percent: Math.min(100, Math.round((progress / j.total_km) * 100)),
+    waypoints,
+    next_waypoint: next ? { title: next.title, km_mark: next.km_mark, km_remaining: Math.max(0, +(next.km_mark - progress).toFixed(2)) } : null,
+  });
 });
 
 module.exports = router;

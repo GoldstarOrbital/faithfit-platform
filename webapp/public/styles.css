@@ -417,3 +417,63 @@ a:hover { color: var(--gold); }
   main > * { animation: rise .4s ease both; }
   @keyframes rise { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform:none; } }
 }
+
+/* ---- Journeys: virtual routes advanced by real workouts (appended) ---- */
+.journey-group {
+  font-family: 'Cinzel', serif; font-size: 0.82rem; letter-spacing: 0.10em;
+  text-transform: uppercase; color: var(--muted);
+  margin: 20px 2px 8px; padding-bottom: 6px; border-bottom: 1px solid var(--hairline-soft);
+}
+.journey-card { cursor: pointer; padding-top: 0; overflow: hidden; transition: transform .16s, box-shadow .16s; }
+.journey-card:hover { transform: translateY(-2px); box-shadow: 0 0 18px var(--emerald-glow); }
+.journey-card.done { border-color: var(--gold); }
+
+.journey-map-wrap {
+  margin: 0 -16px 12px; height: 96px; background: var(--parch-sink);
+  border-bottom: 1px solid var(--hairline-soft);
+}
+.journey-map-wrap.tall { height: 168px; border-radius: 10px; border: 1px solid var(--hairline-soft); margin: 4px 0 8px; }
+.journey-map { display: block; width: 100%; height: 100%; }
+
+.journey-hd { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.journey-name, .journey-title {
+  font-family: 'Cinzel', serif; font-weight: 700; color: var(--ink);
+  font-size: 1.02rem; line-height: 1.25; margin: 0;
+}
+.journey-title { font-size: 1.22rem; }
+.journey-sub { font-size: 0.78rem; color: var(--muted); margin-top: 3px; }
+.journey-world {
+  flex: none; font-family: 'Cinzel', serif; font-size: 0.62rem; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--forest); background: var(--parch-2);
+  border: 1px solid var(--hairline); border-radius: 999px; padding: 3px 9px; white-space: nowrap;
+}
+.journey-meta { font-size: 0.74rem; color: var(--muted); margin-top: 8px; }
+.journey-legend {
+  font-size: 0.7rem; color: var(--muted); letter-spacing: 0.04em;
+  text-align: center; margin-bottom: 10px;
+}
+.journey-flavor { font-family: 'Spectral', serif; color: var(--ink-soft); line-height: 1.55; margin-top: 8px; font-size: 0.9rem; }
+.journey-ref {
+  font-family: 'Cinzel', serif; font-size: 0.74rem; letter-spacing: 0.05em;
+  color: var(--forest); margin-top: 6px;
+}
+.journey-hero .challenge-track { margin-top: 14px; }
+.journey-progress { font-size: 0.76rem; color: var(--muted); margin-top: 5px; }
+.journey-progress.big { font-family: 'Cinzel', serif; font-size: 0.9rem; color: var(--ink); letter-spacing: 0.03em; }
+.journey-next { font-size: 0.82rem; color: var(--forest-2); margin-top: 4px; margin-bottom: 12px; }
+.journey-hero .follow-btn { width: 100%; }
+
+.journey-wp { border-left: 3px solid var(--hairline); }
+.journey-wp.unlocked { border-left-color: var(--gold); }
+.journey-wp.locked { opacity: 0.5; padding-top: 12px; padding-bottom: 12px; }
+.journey-wp-hd { display: flex; align-items: baseline; gap: 10px; }
+.journey-wp-km {
+  flex: none; font-family: 'Cinzel', serif; font-size: 0.7rem; letter-spacing: 0.06em;
+  color: var(--muted); min-width: 58px;
+}
+.journey-wp-title { font-family: 'Cinzel', serif; font-weight: 700; color: var(--ink); font-size: 0.95rem; }
+.journey-wp-narrative {
+  font-family: 'Spectral', serif; color: var(--ink-soft); line-height: 1.62;
+  margin: 8px 0 10px; font-size: 0.92rem;
+}
+.journey-wp .verse-card { margin-bottom: 0; }
