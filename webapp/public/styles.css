@@ -417,3 +417,91 @@ a:hover { color: var(--gold); }
   main > * { animation: rise .4s ease both; }
   @keyframes rise { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform:none; } }
 }
+
+/* ---- Scripture as conversation (verse threads) ---- */
+.verse-tappable { cursor: pointer; transition: border-color .15s ease, transform .15s ease; }
+.verse-tappable:hover { border-color: var(--emerald-2); transform: translateY(-1px); }
+.verse-convo {
+  margin-top: 8px;
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+  color: var(--emerald-2);
+}
+.verse-thread-row { cursor: pointer; margin-bottom: 8px; }
+.verse-thread-row:hover { border-color: var(--emerald-2); }
+.verse-prompt {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-left: 2px solid var(--gold);
+  background: var(--parch-sink);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  font-family: 'Spectral', Georgia, serif;
+  font-style: italic;
+  color: var(--ink);
+}
+.reflection { display: block; }
+.reflection-reply {
+  margin-left: 18px;
+  padding-left: 10px;
+  border-left: 1px solid var(--hairline-soft);
+}
+.reflection-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+}
+.reflection-actions .action-btn { padding: 2px 6px; font-size: 0.76rem; }
+.reply-box { margin-top: 6px; }
+
+/* ---- "From your church" home-feed videos (click-to-embed) ---- */
+.church-video-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.church-video { cursor: pointer; }
+.church-video-frame {
+  position: relative;
+  padding-top: 56.25%;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--parch-sink);
+}
+.church-video-frame img,
+.church-video-frame iframe,
+.church-video-blank {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  border: 0;
+  object-fit: cover;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+.church-video-play {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  color: var(--parch-0);
+  background: rgba(0, 0, 0, 0.45);
+  border-radius: 50%;
+  width: 34px; height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  pointer-events: none;
+}
+.church-video-frame iframe ~ .church-video-play { display: none; }
+.church-video-title {
+  margin-top: 4px;
+  font-size: 0.74rem;
+  color: var(--ink-soft);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

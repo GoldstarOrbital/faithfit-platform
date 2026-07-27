@@ -149,7 +149,13 @@ async function renderSignIn() {
     const res = await fetch('/api' + endpoint, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
-    if (res.ok) { await loadMe(); return render(); }
+    if (res.ok) {
+      await loadMe();
+      // New accounts go through the church onboarding step first, so a member's
+      // church (and its videos) are set up before they ever reach the feed.
+      if (isRegister) return renderChurchOnboarding();
+      return render();
+    }
     const data = await res.json().catch(() => ({}));
     const messages = {
       invalid_email: 'Please enter a valid email address.',
@@ -186,7 +192,7 @@ function routeSvg(seed) {
 
 async function renderHome(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
-  const [posts, users, suggested, rec, devo] = await Promise.all([api('/feed'), api('/users'), api('/users/suggested').catch(() => []), api('/recommendations').catch(() => null), api('/devotionals/today').catch(() => null)]);
+  const [posts, users, suggested, rec, devo, churchVideos] = await Promise.all([api('/feed'), api('/users'), api('/users/suggested').catch(() => []), api('/recommendations').catch(() => null), api('/devotionals/today').catch(() => null), api('/church/videos').catch(() => null)]);
   main.innerHTML = `
     <div class="stories">
       ${users.map(u => `<div class="story" data-user="${u.id}"><div class="story-ring">${avatarHtml(u, 'story-avatar')}</div><div class="story-label">${u.display_name.split(' ')[0]}</div></div>`).join('')}
@@ -202,12 +208,13 @@ async function renderHome(main) {
     ${rec ? `
     <div class="card glass foryou-card">
       <div class="foryou-head">✦ For you</div>
-      ${rec.verse ? `<div class="verse-card" style="margin-bottom:10px"><div class="verse-ref">${rec.verse.reference}</div><div class="verse-text">${escapeHtml(rec.verse.text)}</div></div>` : ''}
+      ${rec.verse ? `<div class="verse-card verse-tappable" style="margin-bottom:10px" data-verse-ref="${escapeHtml(rec.verse.reference)}"><div class="verse-ref">${rec.verse.reference}</div><div class="verse-text">${escapeHtml(rec.verse.text)}</div><div class="verse-convo" data-convo-for="${escapeHtml(rec.verse.reference)}">💬 Start the conversation</div></div>` : ''}
       <div class="foryou-grid">
         ${rec.podcast ? `<div class="foryou-item"><div class="foryou-label">🎙️ Listen</div><div class="foryou-title">${escapeHtml(rec.podcast.title)}</div><div class="muted" style="font-size:0.74rem">${escapeHtml(rec.podcast.show)}</div>${rec.podcast.audio_url ? `<audio controls preload="none" src="${escapeHtml(rec.podcast.audio_url)}" style="width:100%;margin-top:6px;height:32px"></audio>` : ''}</div>` : ''}
         ${rec.challenge ? `<div class="foryou-item foryou-challenge" data-join-key="${rec.challenge.key}"><div class="foryou-label">🏆 Try a challenge</div><div class="foryou-title">${escapeHtml(rec.challenge.name)}</div><div class="muted" style="font-size:0.74rem">${escapeHtml(rec.challenge.description || '')}</div><button class="follow-btn" style="margin-top:8px" data-join-key="${rec.challenge.key}">Join</button></div>` : ''}
       </div>
     </div>` : ''}
+    ${churchVideosHtml(churchVideos)}
     ${suggested && suggested.length ? `
     <div class="card glass suggest-card">
       <div class="suggest-head">People to follow</div>
@@ -224,6 +231,8 @@ async function renderHome(main) {
     <div id="posts"></div>
   `;
   hydrateAvatars(main);
+  wireChurchVideoThumbs(main);
+  wireVerseCards(main);
   main.querySelectorAll('[data-join-key]').forEach(el => { if (el.tagName === 'BUTTON') el.onclick = async (e) => {
     e.stopPropagation();
     await api(`/challenges/${el.dataset.joinKey}/join`, { method: 'POST' });
@@ -264,7 +273,7 @@ async function renderHome(main) {
           <div class="stat"><div class="v">${p.avg_hr ?? '—'}</div><div class="l">avg hr</div></div>
         </div>` : ''}
       ${p.photo_data ? `<div class="post-photo"><img src="${p.photo_data}" alt="${escapeHtml(p.photo_category || 'photo')}" style="width:100%;border-radius:10px;margin-top:8px;display:block" /><div class="muted" style="font-size:0.72rem;margin-top:4px">${{nature:'🌿 Nature',animal:'🐾 Animal',group:'👥 Group of people'}[p.photo_category] || ''}</div></div>` : ''}
-      ${p.verse_reference ? `<div class="verse-card"><div class="verse-ref">${p.verse_reference}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div></div>` : ''}
+      ${p.verse_reference ? `<div class="verse-card verse-tappable" data-verse-ref="${escapeHtml(p.verse_reference)}"><div class="verse-ref">${p.verse_reference}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div><div class="verse-convo" data-convo-for="${escapeHtml(p.verse_reference)}">💬 Start the conversation</div></div>` : ''}
       <div class="action-row">
         <button class="action-btn ${p.liked_by_me ? 'liked' : ''}" data-like="${p.id}">${p.liked_by_me ? '❤️' : '🤍'} <span class="n">${p.like_count}</span> kudos</button>
         <button class="action-btn" data-comment-toggle="${p.id}">💬 <span class="n">${p.comments.length}</span></button>
@@ -282,6 +291,7 @@ async function renderHome(main) {
   `; }).join('') || '<p class="muted">No posts yet.</p>';
 
   hydrateAvatars(postsEl);
+  wireVerseCards(postsEl);
   postsEl.querySelectorAll('[data-report]').forEach(btn => btn.onclick = async () => {
     const reason = prompt('Why are you reporting this photo? (e.g. shows a single person)');
     if (reason === null) return;
@@ -367,10 +377,11 @@ async function renderUserProfile(userId) {
           <div class="stat"><div class="v">${p.calories ?? '—'}</div><div class="l">kcal</div></div>
           <div class="stat"><div class="v">${p.avg_hr ?? '—'}</div><div class="l">avg hr</div></div>
         </div>` : ''}
-      ${p.verse_reference ? `<div class="verse-card"><div class="verse-ref">${p.verse_reference}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div></div>` : ''}
+      ${p.verse_reference ? `<div class="verse-card verse-tappable" data-verse-ref="${escapeHtml(p.verse_reference)}"><div class="verse-ref">${p.verse_reference}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div><div class="verse-convo" data-convo-for="${escapeHtml(p.verse_reference)}">💬 Start the conversation</div></div>` : ''}
     </div>`).join('');
 
   document.getElementById('profile-back').onclick = () => { state.tab = 'home'; render(); };
+  wireVerseCards(main);
   const fb = document.getElementById('profile-follow');
   if (fb) fb.onclick = async () => {
     const r = await api(`/users/${userId}/follow`, { method: 'POST' });
@@ -477,6 +488,7 @@ async function renderExplore(main) {
       <button data-etab="motivation" class="${state.exploreTab==='motivation'?'active':''}">Motivation</button>
       <button data-etab="podcasts" class="${state.exploreTab==='podcasts'?'active':''}">Podcasts</button>
       <button data-etab="videos" class="${state.exploreTab==='videos'?'active':''}">Videos</button>
+      <button data-etab="scripture" class="${state.exploreTab==='scripture'?'active':''}">Scripture</button>
     </div>
     <div id="explore-body"></div>
   `;
@@ -603,6 +615,8 @@ async function renderExplore(main) {
       `).join('');
   } else if (state.exploreTab === 'videos') {
     await renderVideosTab(body);
+  } else if (state.exploreTab === 'scripture') {
+    await renderScriptureTab(body);
   }
 }
 
@@ -1129,42 +1143,12 @@ function wireChurchFinder(me) {
   const findBtn = document.getElementById('church-find');
   const clearBtn = document.getElementById('church-clear');
 
-  findBtn.onclick = () => {
-    if (!navigator.geolocation) { statusEl.textContent = 'Location isn\'t supported in this browser.'; return; }
-    statusEl.textContent = 'Getting your location…';
-    resultsEl.innerHTML = '';
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        statusEl.textContent = 'Searching nearby churches…';
-        try {
-          const { latitude, longitude } = pos.coords;
-          const results = await api(`/churches/search?lat=${latitude}&lng=${longitude}&radius_km=8`);
-          if (!results.length) { statusEl.textContent = 'No churches found nearby — try a different location.'; return; }
-          statusEl.textContent = `Found ${results.length} nearby.`;
-          resultsEl.innerHTML = results.map(c => `
-            <div class="card glass" style="padding:10px;margin-bottom:6px">
-              <div style="font-weight:600">${escapeHtml(c.name)}</div>
-              ${c.address ? `<div class="muted" style="font-size:0.8rem">${escapeHtml(c.address)}</div>` : ''}
-              <button class="follow-btn" style="margin-top:6px" data-pick='${JSON.stringify(c).replace(/'/g, "&#39;")}'>Select</button>
-            </div>`).join('');
-          resultsEl.querySelectorAll('[data-pick]').forEach(btn => btn.onclick = async () => {
-            const c = JSON.parse(btn.dataset.pick);
-            statusEl.textContent = 'Saving…';
-            const res = await api('/profile', { method: 'PUT', body: {
-              church_osm_id: c.osm_id, church_name: c.name, church_lat: c.lat, church_lng: c.lng, church_address: c.address,
-            } });
-            if (res.error) { statusEl.textContent = res.hint || ('Could not save: ' + res.error); return; }
-            await loadMe();
-            render();
-          });
-        } catch (e) {
-          statusEl.textContent = 'Could not reach the church directory. Try again shortly.';
-        }
-      },
-      () => { statusEl.textContent = 'Location permission denied or unavailable — try again or check your browser settings.'; },
-      { enableHighAccuracy: true, timeout: 10000 }
-    );
-  };
+  // Shared with the signup onboarding step (see runChurchSearch below) so the
+  // free Overpass search + auto video linking behave identically in both places.
+  findBtn.onclick = () => runChurchSearch({
+    statusEl, resultsEl,
+    onPicked: async () => { await loadMe(); render(); },
+  });
 
   if (clearBtn) clearBtn.onclick = async () => {
     await api('/profile', { method: 'PUT', body: { church_osm_id: null } });
@@ -1787,3 +1771,346 @@ else wireNotifBell();
   if (state.me) consumeSignedInRedirectParams();
   render();
 })();
+
+// ============================================================================
+// Scripture as conversation, not broadcast.
+// Every verse the app surfaces is an invitation to talk, not a broadcast: verse
+// cards are tappable into a single canonical thread per verse.
+// ============================================================================
+
+// Turn any rendered .verse-tappable card into a doorway to that verse's
+// conversation, and label it with the live reflection count.
+function wireVerseCards(root) {
+  const scope = root || document;
+  const cards = [...scope.querySelectorAll('.verse-tappable[data-verse-ref]')];
+  if (!cards.length) return;
+  cards.forEach(card => {
+    card.onclick = (e) => {
+      e.stopPropagation();
+      renderVerseThread(card.dataset.verseRef);
+    };
+  });
+  const refs = [...new Set(cards.map(c => c.dataset.verseRef))];
+  api(`/verses/thread-summary?refs=${encodeURIComponent(refs.join('|'))}`).then(summary => {
+    scope.querySelectorAll('[data-convo-for]').forEach(el => {
+      const s = summary && summary[el.dataset.convoFor];
+      if (!s) return;
+      el.textContent = s.reflection_count > 0
+        ? `\u{1F4AC} ${s.reflection_count} reflection${s.reflection_count === 1 ? '' : 's'}`
+        : '\u{1F4AC} Start the conversation';
+    });
+  }).catch(() => {});
+}
+
+// Explore -> Scripture: what people are talking about, plus a real Bible search
+// so any verse in the verified library can become a conversation.
+async function renderScriptureTab(body) {
+  body.innerHTML = `
+    <h2>Scripture together</h2>
+    <p class="muted" style="margin-top:-6px;margin-bottom:12px">Scripture as conversation, not broadcast. Open a verse and talk about it with everyone else reading it.</p>
+    <div class="card glass">
+      <div class="field-label">Find a verse to talk about</div>
+      <div class="comment-input-row">
+        <input type="text" id="scripture-q" placeholder="Search the Bible &mdash; a word, phrase, or reference&hellip;" />
+        <button id="scripture-search">Search</button>
+      </div>
+      <div id="scripture-results" style="margin-top:8px"></div>
+    </div>
+    <h2 style="margin-top:18px">Being discussed</h2>
+    <div id="scripture-discussed"><p class="muted">Loading&hellip;</p></div>
+  `;
+
+  const discussedEl = document.getElementById('scripture-discussed');
+  try {
+    const threads = await api('/verses/discussed');
+    discussedEl.innerHTML = threads.length ? threads.map(t => `
+      <div class="card glass verse-thread-row" data-open-ref="${escapeHtml(t.reference)}">
+        <div class="verse-ref">${escapeHtml(t.reference)}</div>
+        <div class="verse-text">${escapeHtml((t.text || '').slice(0, 160))}${(t.text || '').length > 160 ? '&hellip;' : ''}</div>
+        ${t.prompt ? `<div class="muted" style="font-size:0.78rem;margin-top:6px">&ldquo;${escapeHtml(t.prompt)}&rdquo;</div>` : ''}
+        <div class="verse-convo">\u{1F4AC} ${t.reflection_count} reflection${t.reflection_count === 1 ? '' : 's'} &middot; last activity ${timeAgo(t.last_activity)} ago</div>
+      </div>`).join('')
+      : '<div class="card glass muted" style="text-align:center">No verse conversations yet. Search for a verse above and start the first one.</div>';
+    discussedEl.querySelectorAll('[data-open-ref]').forEach(el => el.onclick = () => renderVerseThread(el.dataset.openRef));
+  } catch {
+    discussedEl.innerHTML = '<p class="muted">Could not load verse conversations.</p>';
+  }
+
+  const resultsEl = document.getElementById('scripture-results');
+  const runSearch = async () => {
+    const q = document.getElementById('scripture-q').value.trim();
+    if (!q) return;
+    resultsEl.innerHTML = '<span class="muted">Searching&hellip;</span>';
+    try {
+      const data = await api(`/bible/search?q=${encodeURIComponent(q)}&limit=10`);
+      if (!data.results || !data.results.length) { resultsEl.innerHTML = '<span class="muted">Nothing found in the verified library for that.</span>'; return; }
+      resultsEl.innerHTML = `
+        <div class="muted" style="font-size:0.76rem;margin-bottom:6px">${data.total} match${data.total === 1 ? '' : 'es'} &mdash; showing ${data.results.length}</div>
+        ${data.results.map(v => {
+          const ref = `${v.book} ${v.chapter}:${v.verse}`;
+          return `<div class="card glass verse-thread-row" data-open-ref="${escapeHtml(ref)}" style="padding:10px">
+            <div class="verse-ref">${escapeHtml(ref)}</div>
+            <div class="verse-text">${escapeHtml(v.text)}</div>
+            <div class="verse-convo">\u{1F4AC} Open the conversation</div>
+          </div>`;
+        }).join('')}`;
+      resultsEl.querySelectorAll('[data-open-ref]').forEach(el => el.onclick = () => renderVerseThread(el.dataset.openRef));
+    } catch {
+      resultsEl.innerHTML = '<span class="muted">Search failed. Try again shortly.</span>';
+    }
+  };
+  document.getElementById('scripture-search').onclick = runSearch;
+  document.getElementById('scripture-q').onkeydown = (e) => { if (e.key === 'Enter') runSearch(); };
+}
+
+// The verse conversation screen: the real verse, the opener's prompt, and the
+// reflection thread (replies indented one level).
+async function renderVerseThread(reference) {
+  const main = document.getElementById('main');
+  document.querySelectorAll('nav button').forEach(b => b.style.display = 'none');
+  const backHtml = `<button class="ghost back-btn" id="verse-back">&larr; Back</button>`;
+  const goBack = () => {
+    // Always restore the bottom nav so nobody is stranded on this screen.
+    document.querySelectorAll('nav button').forEach(b => b.style.display = '');
+    render();
+  };
+  main.innerHTML = `${backHtml}<div class="card glass" style="text-align:center">Loading&hellip;</div>`;
+  document.getElementById('verse-back').onclick = goBack;
+
+  let data;
+  try {
+    data = await api(`/verses/${encodeURIComponent(reference)}/thread`);
+  } catch {
+    main.innerHTML = `${backHtml}<div class="card glass">Could not load this verse.</div>`;
+    document.getElementById('verse-back').onclick = goBack;
+    return;
+  }
+  if (data.error) {
+    main.innerHTML = `${backHtml}<div class="card glass"><p class="muted">${escapeHtml(data.hint || 'That verse is not in our verified library.')}</p></div>`;
+    document.getElementById('verse-back').onclick = goBack;
+    return;
+  }
+
+  const v = data.verse;
+  const paint = (thread, reflections) => {
+    const reflectionHtml = (r, isReply) => `
+      <div class="comment reflection ${isReply ? 'reflection-reply' : ''}" data-reflection="${r.id}">
+        <b>${escapeHtml(r.author || 'Someone')}</b>${escapeHtml(r.content)}
+        <div class="reflection-actions">
+          <button class="action-btn ${r.liked_by_me ? 'liked' : ''}" data-rlike="${r.id}">${r.liked_by_me ? '❤️' : '\u{1F90D}'} <span class="n">${r.like_count}</span></button>
+          ${isReply ? '' : `<button class="action-btn" data-rreply="${r.id}">&#8617; Reply</button>`}
+          <span class="muted" style="font-size:0.72rem">${timeAgo(r.created_at)} ago</span>
+        </div>
+        ${isReply ? '' : `<div class="reply-box" id="reply-box-${r.id}" style="display:none">
+          <div class="comment-input-row">
+            <input type="text" id="reply-input-${r.id}" placeholder="Reply&hellip;" />
+            <button data-rsend="${r.id}">Send</button>
+          </div>
+        </div>`}
+        ${(r.replies || []).map(child => reflectionHtml(child, true)).join('')}
+      </div>`;
+
+    main.innerHTML = `
+      ${backHtml}
+      <div class="card glass">
+        <div class="verse-card">
+          <div class="verse-ref">${escapeHtml(v.book)} ${v.chapter}:${v.verse}</div>
+          <div class="verse-text">${escapeHtml(v.text)}</div>
+        </div>
+        ${thread && thread.prompt ? `<div class="verse-prompt">&ldquo;${escapeHtml(thread.prompt)}&rdquo;<div class="muted" style="font-size:0.74rem;margin-top:4px">opened by ${escapeHtml(thread.opened_by_name || 'Someone')}</div></div>` : ''}
+        ${!thread ? `
+          <p class="muted" style="margin-top:10px">No one has opened a conversation on this verse yet. Ask the first question.</p>
+          <div class="comment-input-row">
+            <input type="text" id="verse-open-prompt" placeholder="What does this verse stir in you?" />
+            <button id="verse-open-btn">Open</button>
+          </div>
+          <div class="muted" id="verse-open-status" style="font-size:0.78rem;margin-top:6px"></div>
+        ` : `
+          <div class="reflections" style="margin-top:12px">
+            ${reflections.length ? reflections.map(r => reflectionHtml(r, false)).join('') : '<p class="muted">No reflections yet &mdash; share the first one.</p>'}
+            <div class="comment-input-row">
+              <input type="text" id="reflection-input" placeholder="Share a reflection&hellip;" />
+              <button id="reflection-send">Post</button>
+            </div>
+          </div>`}
+      </div>`;
+    document.getElementById('verse-back').onclick = goBack;
+
+    if (!thread) {
+      document.getElementById('verse-open-btn').onclick = async () => {
+        const statusEl = document.getElementById('verse-open-status');
+        statusEl.textContent = 'Opening…';
+        const prompt = document.getElementById('verse-open-prompt').value.trim();
+        const res = await api(`/verses/${encodeURIComponent(reference)}/thread`, { method: 'POST', body: { prompt: prompt || null } });
+        if (res.error) { statusEl.textContent = res.hint || res.error; return; }
+        renderVerseThread(reference);
+      };
+      return;
+    }
+
+    main.querySelectorAll('[data-rreply]').forEach(btn => btn.onclick = (e) => {
+      e.stopPropagation();
+      const box = document.getElementById(`reply-box-${btn.dataset.rreply}`);
+      box.style.display = box.style.display === 'none' ? 'block' : 'none';
+    });
+    main.querySelectorAll('[data-rlike]').forEach(btn => btn.onclick = async (e) => {
+      e.stopPropagation();
+      const r = await api(`/verses/reflections/${btn.dataset.rlike}/like`, { method: 'POST' });
+      if (r.error) return;
+      btn.classList.toggle('liked', r.liked);
+      btn.innerHTML = `${r.liked ? '❤️' : '\u{1F90D}'} <span class="n">${r.like_count}</span>`;
+    });
+    main.querySelectorAll('[data-rsend]').forEach(btn => btn.onclick = async () => {
+      const pid = btn.dataset.rsend;
+      const input = document.getElementById(`reply-input-${pid}`);
+      if (!input.value.trim()) return;
+      await api(`/verses/threads/${thread.id}/reflections`, { method: 'POST', body: { content: input.value, parent_id: pid } });
+      renderVerseThread(reference);
+    });
+    const sendBtn = document.getElementById('reflection-send');
+    if (sendBtn) sendBtn.onclick = async () => {
+      const input = document.getElementById('reflection-input');
+      if (!input.value.trim()) return;
+      const res = await api(`/verses/threads/${thread.id}/reflections`, { method: 'POST', body: { content: input.value } });
+      if (res.error) return;
+      renderVerseThread(reference);
+    };
+  };
+
+  paint(data.thread, data.reflections || []);
+}
+
+// ============================================================================
+// Church at signup, with videos already embedded.
+// ============================================================================
+
+// Shared free-Overpass church search + pick, used by BOTH the signup onboarding
+// step and the profile church finder. On pick we save the church to the profile
+// and immediately try to auto-populate its videos (no extra user steps).
+function runChurchSearch({ statusEl, resultsEl, onPicked }) {
+  if (!navigator.geolocation) { statusEl.textContent = "Location isn't supported in this browser."; return; }
+  statusEl.textContent = 'Getting your location…';
+  resultsEl.innerHTML = '';
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      statusEl.textContent = 'Searching nearby churches…';
+      try {
+        const { latitude, longitude } = pos.coords;
+        const results = await api(`/churches/search?lat=${latitude}&lng=${longitude}&radius_km=8`);
+        if (!Array.isArray(results) || !results.length) { statusEl.textContent = 'No churches found nearby — try a different location.'; return; }
+        statusEl.textContent = `Found ${results.length} nearby.`;
+        resultsEl.innerHTML = results.map(c => `
+          <div class="card glass" style="padding:10px;margin-bottom:6px">
+            <div style="font-weight:600">${escapeHtml(c.name)}</div>
+            ${c.address ? `<div class="muted" style="font-size:0.8rem">${escapeHtml(c.address)}</div>` : ''}
+            <button class="follow-btn" style="margin-top:6px" data-pick='${JSON.stringify(c).replace(/'/g, "&#39;")}'>Select</button>
+          </div>`).join('');
+        resultsEl.querySelectorAll('[data-pick]').forEach(btn => btn.onclick = async () => {
+          const c = JSON.parse(btn.dataset.pick);
+          statusEl.textContent = 'Saving…';
+          const res = await api('/profile', { method: 'PUT', body: {
+            church_osm_id: c.osm_id, church_name: c.name, church_lat: c.lat, church_lng: c.lng, church_address: c.address,
+          } });
+          if (res.error) { statusEl.textContent = res.hint || ('Could not save: ' + res.error); return; }
+          statusEl.textContent = "Saved. Looking for your church's videos…";
+          let auto = null;
+          try { auto = await api(`/churches/${encodeURIComponent(c.osm_id)}/auto-link`, { method: 'POST' }); } catch {}
+          statusEl.textContent = (auto && auto.message) || 'Saved.';
+          if (onPicked) await onPicked(c, auto);
+        });
+      } catch {
+        statusEl.textContent = 'Could not reach the church directory. Try again shortly.';
+      }
+    },
+    () => { statusEl.textContent = 'Location permission denied or unavailable — try again or check your browser settings.'; },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
+// Signup step 2: find your church. Always skippable - nobody gets trapped here.
+async function renderChurchOnboarding() {
+  const main = document.getElementById('main');
+  document.querySelectorAll('nav button').forEach(b => b.style.display = 'none');
+  const enterApp = () => {
+    document.querySelectorAll('nav button').forEach(b => b.style.display = '');
+    state.tab = 'home';
+    document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === 'home'));
+    render();
+  };
+
+  main.innerHTML = `
+    <div class="card glass">
+      <h2>Find your church</h2>
+      <p class="muted">We'll look up real churches near you (free, from OpenStreetMap) and pull in their videos automatically &mdash; so your feed has your church in it from day one.</p>
+      <button class="primary" id="onb-find" style="width:100%">Use my location</button>
+      <div class="muted" id="onb-status" style="margin-top:8px"></div>
+      <div id="onb-results" style="margin-top:8px"></div>
+      <div id="onb-done" style="display:none;margin-top:10px"></div>
+      <button class="ghost" id="onb-skip" style="width:100%;margin-top:12px">Skip for now</button>
+      <p class="muted" style="font-size:0.76rem;margin-top:8px;text-align:center">You can add or change your church any time from your profile.</p>
+    </div>`;
+
+  document.getElementById('onb-skip').onclick = enterApp;
+  document.getElementById('onb-find').onclick = () => runChurchSearch({
+    statusEl: document.getElementById('onb-status'),
+    resultsEl: document.getElementById('onb-results'),
+    onPicked: async () => {
+      await loadMe();
+      const doneEl = document.getElementById('onb-done');
+      document.getElementById('onb-results').innerHTML = '';
+      doneEl.style.display = 'block';
+      doneEl.innerHTML = `<button class="primary" id="onb-continue" style="width:100%">Continue to FaithFit</button>`;
+      document.getElementById('onb-continue').onclick = enterApp;
+      document.getElementById('onb-skip').textContent = 'Continue';
+    },
+  });
+}
+
+// "From your church" home-feed section. Click-to-embed thumbnails keep the feed
+// light; when nothing is linked (or YouTube isn't configured) we say so plainly
+// and never show placeholder or invented videos.
+function churchVideosHtml(data) {
+  if (!data || !data.church_name) return '';
+  if (!data.videos || !data.videos.length) {
+    return `
+    <div class="card glass foryou-card">
+      <div class="foryou-head">⛪ From ${escapeHtml(data.church_name)}</div>
+      <p class="muted" style="margin:0">${data.youtube_configured === false
+        ? "No videos yet &mdash; add your church's website on your profile and we'll show the sermon videos it already embeds."
+        : "No videos found for your church yet. You can link its channel from your profile."}</p>
+    </div>`;
+  }
+  return `
+    <div class="card glass foryou-card">
+      <div class="foryou-head">⛪ From ${escapeHtml(data.church_name)}</div>
+      <div class="church-video-grid">
+        ${data.videos.map(v => `
+          <div class="church-video" data-cv-provider="${escapeHtml(v.provider)}" data-cv-id="${escapeHtml(v.video_id)}">
+            <div class="church-video-frame">
+              ${v.thumbnail_url
+                ? `<img src="${escapeHtml(v.thumbnail_url)}" alt="${escapeHtml(v.title || 'Church video')}" />`
+                : `<div class="church-video-blank">&#9654;</div>`}
+              <span class="church-video-play">&#9654;</span>
+            </div>
+            ${v.title ? `<div class="church-video-title">${escapeHtml(v.title)}</div>` : ''}
+          </div>`).join('')}
+      </div>
+      <div class="muted" style="font-size:0.72rem;margin-top:6px">${data.source === 'website' ? "Embedded on your church's own website." : `From your church's channel${data.channel_title ? ` (${escapeHtml(data.channel_title)})` : ''}.`}</div>
+    </div>`;
+}
+
+// Click-to-embed: only swap in the real iframe once a user asks for it.
+function wireChurchVideoThumbs(root) {
+  (root || document).querySelectorAll('.church-video[data-cv-id]').forEach(el => {
+    el.onclick = () => {
+      const id = el.dataset.cvId;
+      const src = el.dataset.cvProvider === 'vimeo'
+        ? `https://player.vimeo.com/video/${encodeURIComponent(id)}`
+        : `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?autoplay=1`;
+      const frame = el.querySelector('.church-video-frame');
+      if (!frame) return;
+      frame.innerHTML = `<iframe src="${src}" title="Church video" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+      el.onclick = null;
+    };
+  });
+}
