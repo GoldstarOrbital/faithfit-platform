@@ -821,6 +821,18 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
 .home-actions { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-bottom:20px; }
 .home-action { display:grid; grid-template-columns:27px 1fr; grid-template-rows:auto auto; column-gap:8px; align-items:center; min-height:72px; text-align:left; padding:11px 12px; border:1px solid rgba(74,58,40,.13); border-radius:17px; color:var(--ink); background:rgba(249,242,226,.7); box-shadow:0 7px 18px rgba(43,30,18,.06); cursor:pointer; font-family:inherit; transition:transform .16s,box-shadow .16s,border-color .16s; }
 .home-action:hover { transform:translateY(-2px); border-color:rgba(70,192,127,.45); box-shadow:0 10px 22px rgba(43,30,18,.11); }
+.mission-card { position:relative; overflow:hidden; border-color:rgba(169,129,47,.32); background:linear-gradient(145deg,rgba(249,242,226,.98),rgba(233,223,197,.83)); }
+.mission-card::after { content:'✦'; position:absolute; right:-10px; top:-22px; color:rgba(169,129,47,.12); font-size:9rem; line-height:1; pointer-events:none; }
+.mission-kicker { position:relative; z-index:1; display:flex; align-items:center; justify-content:space-between; color:var(--forest); font-size:.62rem; font-weight:850; letter-spacing:.11em; }
+.mission-live { padding:4px 7px; border-radius:999px; color:var(--walnut); background:rgba(201,162,74,.18); font-size:.56rem; }
+.mission-card h2 { position:relative; z-index:1; margin:9px 0 10px; font-size:1.18rem; }
+.mission-verse { position:relative; z-index:1; padding:11px 12px; border-left:3px solid var(--gold-2); border-radius:0 12px 12px 0; background:rgba(255,251,238,.64); }
+.mission-verse .verse-text { margin-top:4px; font-size:.9rem; line-height:1.45; }
+.mission-prompt { position:relative; z-index:1; margin:11px 0; color:var(--ink-soft); font-size:.79rem; line-height:1.5; }
+.mission-actions { position:relative; z-index:1; display:flex; gap:8px; flex-wrap:wrap; }
+.mission-actions button, .mission-read { text-decoration:none; }
+.mission-read { display:inline-flex; align-items:center; justify-content:center; }
+.mission-grounding { position:relative; z-index:1; margin-top:10px; color:var(--muted); font-size:.61rem; line-height:1.35; }
 .home-action span { grid-row:1 / span 2; width:27px; height:27px; display:flex; align-items:center; justify-content:center; border-radius:9px; color:var(--forest); background:rgba(70,192,127,.14); font-size:1.15rem; }
 .home-action b { font-size:.78rem; line-height:1.1; }
 .home-action small { color:var(--muted); font-size:.64rem; line-height:1.2; }

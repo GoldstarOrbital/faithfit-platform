@@ -14,6 +14,12 @@ mobile-web and desktop. (A separate native iOS app is built in parallel elsewher
 > folders (`services/`, `migrations/`, `ios/`, `infra/`, `integrations/`, …) are an
 > earlier microservices scaffold that is **not used** by the live app and can be ignored.
 
+## Hackathon build
+
+The competition story is **Scripture in Motion**: a grounded Scripture moment attached
+to real movement, a game-like world, and a community that helps people flourish. The
+demo script and integration checklist live in [`docs/hackathon-readiness.md`](docs/hackathon-readiness.md).
+
 ## What it does
 
 **Fitness**

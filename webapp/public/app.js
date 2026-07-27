@@ -207,6 +207,15 @@ async function renderHome(main) {
       <button class="home-action home-action-primary" data-home-tab="workout"><span>＋</span><b>Log activity</b><small>Keep your streak alive</small></button>
       <button class="home-action" data-home-tab="explore" data-home-explore="journeys"><span>↗</span><b>Explore routes</b><small>Ride Bible &amp; fantasy worlds</small></button>
     </div>
+    ${rec && rec.verse ? `
+    <div class="card glass mission-card">
+      <div class="mission-kicker"><span>✦ SCRIPTURE IN MOTION</span><span class="mission-live">TODAY</span></div>
+      <h2>Move with ${escapeHtml(rec.theme || 'purpose')}</h2>
+      <div class="mission-verse"><div class="verse-ref">${escapeHtml(rec.verse.reference)}</div><div class="verse-text">${escapeHtml(rec.verse.text)}</div></div>
+      <p class="mission-prompt">Take a short movement break, notice your breath, and let this verse shape the next mile—not as a performance test, but as a practice of presence.</p>
+      <div class="mission-actions"><button class="primary" data-home-tab="workout">Begin the mission</button><a class="ghost mission-read" href="https://www.bible.com/search/bible?query=${encodeURIComponent(rec.verse.reference)}" target="_blank" rel="noopener">Read in Bible ↗</a></div>
+      <div class="mission-grounding">FaithFit coaching is generated from your activity context; Scripture text is always shown from the verified library.</div>
+    </div>` : ''}
     <div class="social-section-label"><span>Community</span><span>${users.length ? users.length + ' nearby' : 'Your people'}</span></div>
     <div class="stories">
       ${users.map(u => `<div class="story" data-user="${u.id}"><div class="story-ring">${avatarHtml(u, 'story-avatar')}</div><div class="story-label">${u.display_name.split(' ')[0]}</div></div>`).join('')}
