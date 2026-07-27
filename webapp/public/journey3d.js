@@ -273,12 +273,56 @@
       kmPosts.push(m);
     }
 
-    // The traveller: a simple glowing marker the camera follows.
-    const traveller = new THREE.Mesh(
-      new THREE.SphereGeometry(0.62, 14, 12),
-      new THREE.MeshBasicMaterial({ color: theme.accent })
-    );
-    scene.add(traveller);
+    // The rider: a small third-person avatar keeps the route feeling like a
+    // game instead of a map. It is intentionally stylised and asset-free so
+    // every themed world can own the same readable player silhouette.
+    function cylinderBetween(a, b, radius, material) {
+      const va = new THREE.Vector3(...a), vb = new THREE.Vector3(...b);
+      const mid = va.clone().add(vb).multiplyScalar(0.5);
+      const dir = vb.clone().sub(va);
+      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, dir.length(), 8), material);
+      mesh.position.copy(mid);
+      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+      return mesh;
+    }
+    const rider = new THREE.Group();
+    const bikeMat = new THREE.MeshLambertMaterial({ color: theme.accent, flatShading: true });
+    const darkMat = new THREE.MeshLambertMaterial({ color: 0x22201e, flatShading: true });
+    const jerseyMat = new THREE.MeshLambertMaterial({ color: theme.prop, flatShading: true });
+    const skinMat = new THREE.MeshLambertMaterial({ color: 0xc98f6b, flatShading: true });
+    const wheels = [0.0, -2.0].map((wheelZ) => {
+      const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.58, 0.075, 8, 18), darkMat);
+      wheel.position.set(0, 0.68, wheelZ);
+      rider.add(wheel);
+      return wheel;
+    });
+    rider.add(cylinderBetween([0, 0.68, 0], [0, 1.32, -0.95], 0.07, bikeMat));
+    rider.add(cylinderBetween([0, 1.32, -0.95], [0, 0.68, -2.0], 0.07, bikeMat));
+    rider.add(cylinderBetween([0, 0.68, -2.0], [0, 0.68, 0], 0.07, bikeMat));
+    rider.add(cylinderBetween([0, 1.32, -0.95], [0, 1.42, -1.45], 0.06, bikeMat));
+    rider.add(cylinderBetween([0, 1.42, -1.45], [0, 1.62, -1.78], 0.05, darkMat));
+    const pedals = new THREE.Group();
+    pedals.add(new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.05, 0.06), darkMat));
+    pedals.position.set(0, 0.95, -0.85);
+    rider.add(pedals);
+    const body = new THREE.Group();
+    body.position.set(0, 2.08, -0.72);
+    body.add(new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.9, 8), jerseyMat));
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 8), skinMat);
+    head.position.set(0, 0.7, 0.02);
+    body.add(head);
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55), bikeMat);
+    helmet.position.set(0, 0.82, 0.02);
+    body.add(helmet);
+    rider.add(body);
+    const armL = cylinderBetween([-0.2, 2.2, -0.76], [-0.22, 1.66, -1.48], 0.075, jerseyMat);
+    const armR = cylinderBetween([0.2, 2.2, -0.76], [0.22, 1.66, -1.48], 0.075, jerseyMat);
+    rider.add(armL); rider.add(armR);
+    const legL = cylinderBetween([-0.16, 1.78, -0.58], [-0.22, 1.05, -0.86], 0.09, darkMat);
+    const legR = cylinderBetween([0.16, 1.78, -0.58], [0.22, 1.05, -0.86], 0.09, darkMat);
+    rider.add(legL); rider.add(legR);
+    rider.userData = { wheels, pedals, legL, legR };
+    scene.add(rider);
 
     // --- state / loop ------------------------------------------------------
     // World metres per real km — compressed so a 40 km route is a believable
@@ -319,13 +363,19 @@
       bob += 0.05 + Math.min(speedKmh, 40) * 0.004;
 
 
-      traveller.position.set(offX(z - 6), offY(z - 6) + 1.1 + Math.sin(bob) * 0.12, z - 6);
+      rider.position.set(offX(z - 3), offY(z - 3) + Math.sin(bob) * 0.035, z - 3);
+      rider.rotation.y = Math.atan2(offX(z - 18) - offX(z - 3), -15);
+      const pedalSpin = Math.min(speedKmh, 45) * 0.09;
+      rider.userData.wheels.forEach(w => { w.rotation.x += pedalSpin; });
+      rider.userData.pedals.rotation.x += pedalSpin * 1.2;
+      rider.userData.legL.rotation.z = Math.sin(bob * 2.2) * Math.min(0.22, speedKmh * 0.008);
+      rider.userData.legR.rotation.z = -rider.userData.legL.rotation.z;
 
       // The camera sits above the road and looks at the road ahead, so a bend
       // reads as a bend and a crest hides what is beyond it.
       const aheadZ = z - 30;
-      camera.position.set(0, 3.4, z + 5.5);
-      camera.lookAt(offX(aheadZ), offY(aheadZ) + 2.0, aheadZ);
+      camera.position.set(0, 4.5, z + 9.5);
+      camera.lookAt(offX(aheadZ), offY(aheadZ) + 2.35, aheadZ);
 
       // Live gradient, from the profile the rider is actually on.
       const dz = 6;

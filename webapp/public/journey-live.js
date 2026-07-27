@@ -40,6 +40,7 @@ async function renderJourneyLive(key) {
     '      <div class="live-hud-hr"><span id="live-hr">--</span><small>bpm</small>',
     '        <div class="live-hud-zone" id="live-zone"></div></div>',
     '      <div class="live-hud-right">',
+    '        <div class="live-rider-tag">● Rider · You</div>',
     '        <div><span id="live-dist">' + fmtKm(startKm) + '</span><small> / ' + fmtKm(j.total_km) + ' km</small></div>',
     '        <div class="live-hud-src" id="live-src">Not connected</div>',
     '      </div>',

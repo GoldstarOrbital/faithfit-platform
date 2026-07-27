@@ -639,6 +639,7 @@ a:hover { color: var(--gold); }
 .live-hud-hr{text-align:right;font-weight:800;font-size:1.35rem;line-height:1}
 .live-hud-hr small{font-size:.62rem;font-weight:600;opacity:.75;margin-left:2px}
 .live-hud-zone{font-size:.68rem;font-weight:700;opacity:.85;letter-spacing:.06em;margin-top:2px}
+.live-rider-tag{font-size:.68rem;font-weight:800;letter-spacing:.04em;color:#ffe3a0;margin-bottom:4px}
 
 /* The moment card: what the app thinks is happening, why it thinks so, and the
    verse for it. The 'why' line is always shown so the read stays inspectable. */
