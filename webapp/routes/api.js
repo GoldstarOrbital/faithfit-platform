@@ -1773,7 +1773,7 @@ router.get('/devotionals/today', requireAuth, (req, res) => {
 // ---- Curated video library (real YouTube channels, gated behind YOUTUBE_API_KEY) ----
 router.get('/videos', (req, res) => {
   const category = String(req.query.category || '').trim();
-  const allowed = new Set(['kids', 'fitness', 'motivational']);
+  const allowed = new Set(['kids', 'fitness', 'motivational', 'christian', 'veggietales', 'nickbare']);
   if (!allowed.has(category)) return res.status(400).json({ error: 'invalid_category' });
   const rows = db.prepare(
     'SELECT video_id, title, description, thumbnail_url, channel_title, published_at FROM videos WHERE category = ? ORDER BY published_at DESC LIMIT 20'

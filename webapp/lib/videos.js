@@ -32,6 +32,17 @@ const SOURCES = {
     'biblical philosophy explained',
     'Christian academia lecture short',
   ],
+  christian: [
+    'BibleProject official',
+    'Passion City Church official',
+    'Christian speeches faith sermon',
+  ],
+  veggietales: [
+    'VeggieTales Official',
+  ],
+  nickbare: [
+    'Nick Bare Fitness official',
+  ],
 };
 
 const MAX_VIDEOS_PER_CHANNEL = 6;

@@ -648,37 +648,67 @@ async function renderExplore(main) {
   }
 }
 
-// ---- Curated video library (real YouTube channels, gated behind YOUTUBE_API_KEY) ----
+// ---- Curated video library -------------------------------------------------
+// Fallback entries are official/public YouTube videos, embedded through
+// YouTube's player rather than copied into FaithFit. The API-backed library can
+// add fresh episodes later; these keep the experience useful without a key.
 async function renderVideosTab(body) {
   if (!state.videoCategory) state.videoCategory = 'kids';
   const CATS = [
     { key: 'kids', label: 'Kids' },
     { key: 'fitness', label: 'Fitness' },
-    { key: 'motivational', label: 'Motivational' },
+    { key: 'motivational', label: 'Motivation' },
+    { key: 'christian', label: 'Christian voices' },
+    { key: 'veggietales', label: 'VeggieTales' },
+    { key: 'nickbare', label: 'Nick Bare' },
   ];
+  const CURATED = {
+    kids: [
+      { video_id: 'lefQCGjC02U', title: 'Memory Move It! · Bible Brain Break', channel_title: 'Ready Set Fitness Kids', audience: 'Family-friendly movement' },
+      { video_id: 'xsIRy1IlI_0', title: 'Fruit of the Spirit Brain Break', channel_title: 'Ready Set Fitness Kids', audience: 'Family-friendly movement' },
+    ],
+    fitness: [
+      { video_id: 'KjytadfepNQ', title: 'Full Body Strength, Stretching, Core & Cardio', channel_title: 'Shaped · Faith & Fitness', audience: 'Faith + fitness' },
+      { video_id: 'Hhkd1_3beZk', title: 'Full Body Strength · Christian Workout', channel_title: 'Christian Coach', audience: 'Faith + fitness' },
+      { video_id: '6vAqOIoaKdQ', title: 'Quick Exercises for Physical & Spiritual Strength', channel_title: 'Shaped · Faith & Fitness', audience: 'Faith + fitness' },
+    ],
+    motivational: [
+      { video_id: 'VoyPK-sqoyQ', title: 'Living With a Warrior Mentality', channel_title: 'Passion City Church · Louie Giglio', audience: 'Purpose + perseverance' },
+      { video_id: 'Ezs5GWi6KWk', title: 'The Fullest and Freest Version of You', channel_title: 'Passion City Church · Louie Giglio', audience: 'Purpose + perseverance' },
+    ],
+    christian: [
+      { video_id: 'ak06MSETeo4', title: 'What Is the Bible? · Animated Explainer', channel_title: 'BibleProject', audience: 'Scripture + formation' },
+      { video_id: 'NtKb7CJDUZc', title: 'Jesus Said 2000 Words That Changed History', channel_title: 'BibleProject', audience: 'Scripture + formation' },
+      { video_id: 'L-AaKTgtXeo', title: 'The Crossroads of Faith · Acts 5', channel_title: 'Passion City Church', audience: 'Christian speech' },
+    ],
+    veggietales: [
+      { video_id: 'z-NBRPDWhqU', title: 'VeggieTales Compilation · Truth & Honesty', channel_title: 'VeggieTales Official', audience: 'Kids + family' },
+    ],
+    nickbare: [
+      { video_id: 'kXsc40m4iRU', title: 'If I Had to Start Training All Over Again', channel_title: 'The Nick Bare Podcast', audience: 'Training + discipline' },
+    ],
+  };
   let configured = true;
   try { ({ configured } = await api('/youtube/configured')); } catch { configured = false; }
 
-  body.innerHTML = `<h2>Videos</h2>
-    <p class="muted" style="margin-top:-6px;margin-bottom:12px">Real, curated videos from verified YouTube channels, embedded through YouTube's own player.</p>
-    <div class="section-tabs" style="margin-bottom:12px">
+  body.innerHTML = `<div class="video-hero"><div class="video-kicker">FAITHFIT WATCH</div><h2>Train your body. Feed your soul.</h2><p>Hand-picked movement, kids content, Christian voices, and stories that help the whole family keep going.</p></div>
+    <div class="section-tabs section-tabs-scroll" style="margin-bottom:12px">
       ${CATS.map(c => `<button data-vcat="${c.key}" class="${state.videoCategory === c.key ? 'active' : ''}">${c.label}</button>`).join('')}
     </div>
+    <div class="video-source-note">${configured ? 'Fresh from connected YouTube sources · ' : 'Featured official/public sources · '}tap a card to play inline</div>
     <div id="videos-list"><div class="muted">Loading…</div></div>`;
 
   body.querySelectorAll('[data-vcat]').forEach(b => b.onclick = () => { state.videoCategory = b.dataset.vcat; renderVideosTab(body); });
 
   const listEl = document.getElementById('videos-list');
-  if (!configured) {
-    listEl.innerHTML = `<div class="card glass"><p class="muted">The video library needs a YouTube Data API key configured on the server (YOUTUBE_API_KEY) before real videos can be shown here. No placeholder videos are shown in the meantime.</p></div>`;
-    return;
-  }
-
   let videos = [];
-  try { videos = await api(`/videos?category=${encodeURIComponent(state.videoCategory)}`); } catch { videos = []; }
+  if (configured) {
+    try { videos = await api(`/videos?category=${encodeURIComponent(state.videoCategory)}`); } catch { videos = []; }
+  }
+  if (!videos.length) videos = (CURATED[state.videoCategory] || []).map(v => ({ ...v, thumbnail_url: `https://i.ytimg.com/vi/${v.video_id}/hqdefault.jpg` }));
 
   if (!videos.length) {
-    listEl.innerHTML = `<div class="card glass"><p class="muted">No videos found for this category yet — the library refreshes periodically in the background. Check back shortly.</p></div>`;
+    listEl.innerHTML = `<div class="card glass"><p class="muted">No videos are available in this category yet. Check back shortly.</p></div>`;
     return;
   }
 
@@ -690,8 +720,9 @@ async function renderVideosTab(body) {
         ${v.thumbnail_url ? `<img src="${escapeHtml(v.thumbnail_url)}" alt="" style="width:100%;display:block">` : ''}
         <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:2.4rem;color:#fff;text-shadow:0 1px 6px rgba(0,0,0,0.6)">▶</div>
       </div>
-      <div style="margin-top:8px"><b>${escapeHtml(v.title || '(untitled)')}</b></div>
-      <div class="muted" style="font-size:0.8rem;margin:2px 0 8px">${escapeHtml(v.channel_title || '')}${v.published_at ? ' · ' + fmtDate(v.published_at) : ''}</div>
+      <div style="margin-top:10px"><b>${escapeHtml(v.title || '(untitled)')}</b></div>
+      <div class="muted" style="font-size:0.8rem;margin:3px 0 3px">${escapeHtml(v.channel_title || '')}${v.published_at ? ' · ' + fmtDate(v.published_at) : ''}</div>
+      ${v.audience ? `<div class="video-audience">${escapeHtml(v.audience)}</div>` : ''}
       <a href="https://www.youtube.com/watch?v=${encodeURIComponent(v.video_id)}" target="_blank" rel="noopener" class="muted" style="font-size:0.8rem">Watch on YouTube ↗</a>
     </div>
   `).join('');
