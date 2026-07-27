@@ -18,7 +18,7 @@ const crypto = require('crypto');
 // issuer varies per-tenant (Microsoft) use a prefix check instead of equality.
 const PROVIDERS = {
   google: {
-    label: 'Google',
+    label: 'Gmail',
     kind: 'oidc',
     authorizationEndpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
     tokenEndpoint: 'https://oauth2.googleapis.com/token',
@@ -40,7 +40,7 @@ const PROVIDERS = {
     clientSecret: () => process.env.MICROSOFT_CLIENT_SECRET,
   },
   apple: {
-    label: 'Apple',
+    label: 'iCloud',
     kind: 'oidc',
     authorizationEndpoint: 'https://appleid.apple.com/auth/authorize',
     tokenEndpoint: 'https://appleid.apple.com/auth/token',
