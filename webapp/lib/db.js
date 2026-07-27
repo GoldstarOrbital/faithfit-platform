@@ -483,4 +483,96 @@ CREATE TABLE IF NOT EXISTS church_services (
 const churchCols = db.prepare("PRAGMA table_info(churches)").all().map(c => c.name);
 if (!churchCols.includes('website_url')) db.exec('ALTER TABLE churches ADD COLUMN website_url TEXT');
 
+// --- journeys: Zwift-style virtual routes advanced by real workouts (additive) ---
+// Appended at the end of db.js so it merges cleanly alongside other feature work.
+db.exec(`
+CREATE TABLE IF NOT EXISTS journeys (
+  id TEXT PRIMARY KEY,
+  key TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  world TEXT NOT NULL,
+  subtitle TEXT,
+  description TEXT,
+  scripture_ref TEXT,
+  total_km REAL NOT NULL,
+  terrain TEXT,
+  elevation_m INTEGER,
+  activity_hint TEXT
+);
+CREATE TABLE IF NOT EXISTS journey_waypoints (
+  id TEXT PRIMARY KEY,
+  journey_id TEXT NOT NULL,
+  km_mark REAL NOT NULL,
+  title TEXT NOT NULL,
+  narrative TEXT,
+  scripture_ref TEXT,
+  scripture_text TEXT,
+  UNIQUE(journey_id, km_mark)
+);
+CREATE TABLE IF NOT EXISTS user_journeys (
+  user_id TEXT NOT NULL,
+  journey_id TEXT NOT NULL,
+  progress_km REAL DEFAULT 0,
+  started_at TEXT DEFAULT (datetime('now')),
+  completed_at TEXT,
+  last_waypoint_km REAL DEFAULT -1,
+  PRIMARY KEY (user_id, journey_id)
+);
+`);
+
+// --- migration: heart-rate zones + real effort measurement (additive) ---
+// users: the reference figures needed to compute zones honestly. All nullable â€”
+// a user with none of them gets null zones, never invented ones.
+const userColsHr = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+const addColHr = (name, ddl) => { if (!userColsHr.includes(name)) db.exec(`ALTER TABLE users ADD COLUMN ${ddl}`); };
+addColHr('max_hr', 'max_hr INTEGER');          // user-measured/entered max HR (ground truth)
+addColHr('resting_hr', 'resting_hr INTEGER');
+addColHr('birth_year', 'birth_year INTEGER');  // used for the Tanaka max-HR estimate
+
+// workouts: the computed effort summary for the session.
+const workoutColsHr = db.prepare("PRAGMA table_info(workouts)").all().map(c => c.name);
+if (!workoutColsHr.includes('effort_score')) db.exec('ALTER TABLE workouts ADD COLUMN effort_score REAL');
+if (!workoutColsHr.includes('time_in_zone')) db.exec('ALTER TABLE workouts ADD COLUMN time_in_zone TEXT'); // JSON {zone: seconds}
+if (!workoutColsHr.includes('peak_zone')) db.exec('ALTER TABLE workouts ADD COLUMN peak_zone INTEGER');
+
+// scripture_triggers: which workout a trigger belongs to, so the engine can avoid
+// repeating a verse within a single session.
+const trigCols = db.prepare("PRAGMA table_info(scripture_triggers)").all().map(c => c.name);
+if (!trigCols.includes('workout_id')) db.exec('ALTER TABLE scripture_triggers ADD COLUMN workout_id TEXT');
+if (!trigCols.includes('moment')) db.exec('ALTER TABLE scripture_triggers ADD COLUMN moment TEXT');
+
+// --- Scripture as conversation, not broadcast (additive) ---
+// One canonical thread per verse reference (UNIQUE) so conversation about a
+// verse concentrates in one place instead of fragmenting across posts.
+// verse_reflections.parent_id enables exactly one level of replies (a reply's
+// parent must itself be a top-level reflection).
+db.exec(`
+CREATE TABLE IF NOT EXISTS verse_threads (
+  id TEXT PRIMARY KEY,
+  reference TEXT NOT NULL,
+  book TEXT,
+  chapter INTEGER,
+  verse INTEGER,
+  opened_by TEXT NOT NULL,
+  prompt TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(reference)
+);
+CREATE TABLE IF NOT EXISTS verse_reflections (
+  id TEXT PRIMARY KEY,
+  thread_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  parent_id TEXT,
+  content TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS verse_reflection_likes (
+  reflection_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (reflection_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_verse_reflections_thread ON verse_reflections(thread_id);
+`);
+
 module.exports = db;

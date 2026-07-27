@@ -43,6 +43,21 @@ const TARGETS = [
   { key: 'john',      book: 'John',      book_id: 'JHN', api: 'john',      chapters: 21,  translation: 'web' },
   { key: 'james',     book: 'James',     book_id: 'JAS', api: 'james',     chapters: 5,   translation: 'web' },
   { key: 'romans',    book: 'Romans',    book_id: 'ROM', api: 'romans',    chapters: 16,  translation: 'web' },
+  // --- Books chosen for this app specifically: the endurance/race/strength
+  // passages the scripture engine leans on, and the journey geography (Sinai,
+  // the wilderness, Horeb, Paul's roads) the Journeys feature walks through. ---
+  { key: 'isaiah',      book: 'Isaiah',      book_id: 'ISA', api: 'isaiah',      chapters: 66, translation: 'web' }, // 40:31 run and not be weary
+  { key: 'hebrews',     book: 'Hebrews',     book_id: 'HEB', api: 'hebrews',     chapters: 13, translation: 'web' }, // 12:1 run with endurance
+  { key: '1corinthians',book: '1 Corinthians',book_id:'1CO', api: '1corinthians',chapters: 16, translation: 'web' }, // 9:24-27 run to win
+  { key: 'philippians', book: 'Philippians', book_id: 'PHP', api: 'philippians', chapters: 4,  translation: 'web' }, // 3:14 press on toward the goal
+  { key: '2timothy',    book: '2 Timothy',   book_id: '2TI', api: '2timothy',    chapters: 4,  translation: 'web' }, // 4:7 finished the race
+  { key: 'ephesians',   book: 'Ephesians',   book_id: 'EPH', api: 'ephesians',   chapters: 6,  translation: 'web' }, // 6:10 be strong in the Lord
+  { key: 'exodus',      book: 'Exodus',      book_id: 'EXO', api: 'exodus',      chapters: 40, translation: 'web' }, // Sinai, the Exodus route
+  { key: 'numbers',     book: 'Numbers',     book_id: 'NUM', api: 'numbers',     chapters: 36, translation: 'web' }, // wilderness journey
+  { key: 'deuteronomy', book: 'Deuteronomy', book_id: 'DEU', api: 'deuteronomy', chapters: 34, translation: 'web' },
+  { key: 'joshua',      book: 'Joshua',      book_id: 'JOS', api: 'joshua',      chapters: 24, translation: 'web' }, // 1:9 strong and courageous
+  { key: '1kings',      book: '1 Kings',     book_id: '1KI', api: '1kings',      chapters: 22, translation: 'web' }, // 19:8 Elijah to Horeb
+  { key: 'acts',        book: 'Acts',        book_id: 'ACT', api: 'acts',        chapters: 28, translation: 'web' }, // Paul's journeys
 ];
 
 // --- args ---
