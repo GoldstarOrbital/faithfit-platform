@@ -1815,7 +1815,12 @@ else wireNotifBell();
 // A Zwift-style virtual adventure mode: real kilometres move a marker along a
 // legendary route, and waypoints unlock narrative + scripture.
 
-const JOURNEY_WORLD_LABEL = { fantasy: 'Fantasy', biblical: 'Scripture' };
+const JOURNEY_WORLD_LABEL = {
+  biblical: 'Bible',
+  'middle-earth': 'Middle-earth',
+  narnia: 'Narnia',
+  fantasy: 'Original fantasy',
+};
 
 // Deterministic 32-bit hash of the journey key, so a route's drawn shape is
 // distinct per journey but stable across every render.
@@ -1974,10 +1979,14 @@ async function renderJourneysTab(body) {
   };
 
   const biblical = journeys.filter(j => j.world === 'biblical');
+  const middleEarth = journeys.filter(j => j.world === 'middle-earth');
+  const narnia = journeys.filter(j => j.world === 'narnia');
   const fantasy = journeys.filter(j => j.world === 'fantasy');
   body.innerHTML = '<h2>Journeys</h2>'
     + '<p class="muted" style="margin-top:-6px;margin-bottom:14px">Pick a route. Every kilometre you cover in the real world moves you along it — and waypoints open as you pass them.</p>'
     + (biblical.length ? '<h3 class="journey-group">Walk the scriptures</h3>' + biblical.map(card).join('') : '')
+    + (middleEarth.length ? '<h3 class="journey-group">Middle-earth routes</h3>' + middleEarth.map(card).join('') : '')
+    + (narnia.length ? '<h3 class="journey-group">Narnia routes</h3>' + narnia.map(card).join('') : '')
     + (fantasy.length ? '<h3 class="journey-group">Tales &amp; long roads</h3>' + fantasy.map(card).join('') : '');
   body.querySelectorAll('[data-journey]').forEach(el => el.onclick = () => renderJourneyDetail(el.dataset.journey));
 }

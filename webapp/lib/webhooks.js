@@ -31,6 +31,7 @@ const TOPICS = [
   'badge.awarded',
   'quest.progress',
   'journey.waypoint',
+  'segment.completed',
   'journey.completed',
   'user.followed',
   'verse.triggered',

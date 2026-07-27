@@ -49,6 +49,8 @@
     stone:    { sky: 0xc6d3de, fog: 0xd2dce5, ground: 0xb9b2a6, path: 0xe6e0d4, prop: 0xd8d2c6, peak: 0x8e9aa4, accent: 0x6d7f8e, propKind: 'spire', density: 0.9 },
     coast:    { sky: 0x9fd6e8, fog: 0xbfe4ef, ground: 0x7fae7a, path: 0xd9cba6, prop: 0x4f7f6a, peak: 0x86b8c9, accent: 0xe8d27a, propKind: 'rock',  density: 0.6 },
     winter:   { sky: 0xd8e4ee, fog: 0xdde8f0, ground: 0xeaf1f7, path: 0xa9bccd, prop: 0x2f5142, peak: 0xc3d3e0, accent: 0x4b6f8a, propKind: 'fir',   density: 1.0 },
+    fellowship: { sky: 0x9dbb8e, fog: 0xb1c9a4, ground: 0x66804a, path: 0x9b7b52, prop: 0x3f5b31, peak: 0x58765c, accent: 0xd1aa55, propKind: 'tree', density: 1.1 },
+    lantern:  { sky: 0xc7d9e6, fog: 0xdce8ef, ground: 0xe8f0f4, path: 0xb1c4d1, prop: 0x355345, peak: 0xa8bccb, accent: 0xffd27c, propKind: 'fir', density: 1.15 },
   };
 
   // Journey key -> theme. Falls back on world/terrain for anything unlisted.
@@ -69,6 +71,8 @@
     'the-white-tower-climb': 'stone',
     'the-eastern-sea-road': 'coast',
     'the-hollow-hill': 'wold',
+    'middle-earth-west-road': 'fellowship',
+    'narnia-lantern-wood': 'lantern',
   };
 
   function themeFor(journey) {
@@ -113,22 +117,79 @@
     sun.position.set(-40, 60, 20);
     scene.add(sun);
 
-    // Ground + a path ribbon running away to the horizon.
     const ROAD_LEN = 400;
-    const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(600, ROAD_LEN * 2),
-      new THREE.MeshLambertMaterial({ color: theme.ground })
-    );
-    ground.rotation.x = -Math.PI / 2;
-    scene.add(ground);
 
-    const road = new THREE.Mesh(
-      new THREE.PlaneGeometry(7, ROAD_LEN * 2),
-      new THREE.MeshLambertMaterial({ color: theme.path })
-    );
-    road.rotation.x = -Math.PI / 2;
-    road.position.y = 0.02;
-    scene.add(road);
+    // --- Route shape ---------------------------------------------------------
+    // A straight line is not a route. Each journey gets its own deterministic
+    // curve and elevation profile, derived from the route seed and its real
+    // metadata, so the same road bends and climbs the same way every ride.
+    //
+    // The rider is always at x=0: rather than steering a camera along a spline,
+    // we displace the whole world sideways and vertically by the profile,
+    // measured relative to wherever the rider currently is. Same picture, far
+    // less that can go wrong, and prop recycling keeps working untouched.
+    const bend = [
+      { amp: 26 + rand() * 34, len: 260 + rand() * 220, phase: rand() * 6.283 },
+      { amp: 10 + rand() * 18, len: 90 + rand() * 90,  phase: rand() * 6.283 },
+    ];
+    // Climbs rise steadily; rolling routes undulate in proportion to their real
+    // elevation gain; flat routes stay honest and barely move.
+    const totalKm = Math.max(1, Number(journey.total_km) || 10);
+    const elevM = Math.max(0, Number(journey.elevation_m) || 0);
+    const climbPerUnit = isClimb ? (elevM / (totalKm * 220)) * 0.55 : 0;
+    const rollAmp = Math.min(18, (elevM / totalKm) * 0.24) * (journey.terrain === 'flat' ? 0.25 : 1);
+    const roll = [
+      { amp: rollAmp,       len: 300 + rand() * 200, phase: rand() * 6.283 },
+      { amp: rollAmp * 0.4, len: 110 + rand() * 80,  phase: rand() * 6.283 },
+    ];
+
+    function curveX(z) {
+      let x = 0;
+      for (const b of bend) x += Math.sin(z / b.len + b.phase) * b.amp;
+      return x;
+    }
+    function elevY(z) {
+      // z runs negative as you advance, so -z is distance travelled.
+      let y = -z * climbPerUnit;
+      for (const r of roll) y += Math.sin(z / r.len + r.phase) * r.amp;
+      return y;
+    }
+
+    // Ribbon builder: a strip of quads following the profile, rebuilt each
+    // frame around the rider. Used for both the ground and the road surface.
+    const RIB_SEGS = 90;
+    function makeRibbon(width, color, yLift) {
+      const geo = new THREE.BufferGeometry();
+      const verts = new Float32Array((RIB_SEGS + 1) * 2 * 3);
+      const idx = [];
+      for (let i = 0; i < RIB_SEGS; i++) {
+        const a = i * 2, b = a + 1, c = a + 2, d = a + 3;
+        idx.push(a, c, b, b, c, d);
+      }
+      geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+      geo.setIndex(idx);
+      const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color, flatShading: true }));
+      mesh.frustumCulled = false;
+      scene.add(mesh);
+      return { mesh, verts, width, yLift };
+    }
+    const ground = makeRibbon(620, theme.ground, 0);
+    const road = makeRibbon(7.4, theme.path, 0.05);
+
+    function updateRibbon(rib, camZ) {
+      const baseX = curveX(camZ), baseY = elevY(camZ);
+      const from = camZ + 60, to = camZ - ROAD_LEN * 1.6;
+      for (let i = 0; i <= RIB_SEGS; i++) {
+        const z = from + (to - from) * (i / RIB_SEGS);
+        const x = curveX(z) - baseX;
+        const y = elevY(z) - baseY + rib.yLift;
+        const o = i * 6;
+        rib.verts[o] = x - rib.width / 2; rib.verts[o + 1] = y; rib.verts[o + 2] = z;
+        rib.verts[o + 3] = x + rib.width / 2; rib.verts[o + 4] = y; rib.verts[o + 5] = z;
+      }
+      rib.mesh.geometry.attributes.position.needsUpdate = true;
+      rib.mesh.geometry.computeVertexNormals();
+    }
 
     // Distant peaks — a static ring that sells depth without costing much.
     const peakGeo = new THREE.ConeGeometry(1, 1, 5);
@@ -165,7 +226,10 @@
       // Keep props well clear of the road. Anything closer than about 12 units
       // laterally fills the whole frame as you draw level with it — the camera
       // ends up inside a boulder rather than passing one.
-      p.position.set(side * (12 + s * 1.6 + rand() * 38), s * 0.6, -rand() * ROAD_LEN * 2);
+      const lateral = side * (12 + s * 1.6 + rand() * 38);
+      p.userData.lateral = lateral;
+      p.userData.baseY = s * 0.6;
+      p.position.set(lateral, s * 0.6, -rand() * ROAD_LEN * 2);
       p.rotation.y = rand() * Math.PI;
       scene.add(p);
       props.push(p);
@@ -173,7 +237,7 @@
 
     // A lantern at the roadside for the winter wood — a warm point of light in
     // the snow, the kind of landmark that makes a route feel like somewhere.
-    if (theme === THEMES.winter) {
+    if (theme === THEMES.winter || theme === THEMES.lantern) {
       const post = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 6, 6), new THREE.MeshLambertMaterial({ color: 0x2b2523 }));
       post.position.set(-6.2, 3, -34);
       scene.add(post);
@@ -223,6 +287,7 @@
     const GATE_SETBACK = 34;   // world units a gate sits beyond its km mark
     let distanceKm = 0, speedKmh = 0, raf = null, disposed = false, bob = 0;
     let anchored = false;   // props are seeded around the first real position
+    let grade = 0;          // live gradient %, from the route profile
 
     function layout() {
       const w = canvas.clientWidth || 320;
@@ -243,36 +308,51 @@
         anchored = true;
         for (const p of props) p.position.z += z;
       }
+
+      // The world is drawn relative to the rider, so everything that sits on
+      // the ground is offset by the route profile at its own z.
+      const baseX = curveX(z), baseY = elevY(z);
+      const offX = (zz) => curveX(zz) - baseX;
+      const offY = (zz) => elevY(zz) - baseY;
+      updateRibbon(ground, z);
+      updateRibbon(road, z);
       bob += 0.05 + Math.min(speedKmh, 40) * 0.004;
 
-      // Climb routes tilt the world upward so an ascent reads as an ascent.
-      const rise = isClimb ? distanceKm * 6 : 0;
 
-      traveller.position.set(0, 1.1 + Math.sin(bob) * 0.12, z - 6);
-      camera.position.set(0, 3.4 + rise * 0.02, z + 5.5);
-      camera.lookAt(0, 2.2 + rise * 0.02, z - 26);
+      traveller.position.set(offX(z - 6), offY(z - 6) + 1.1 + Math.sin(bob) * 0.12, z - 6);
 
-      ground.position.z = z;
-      road.position.z = z;
+      // The camera sits above the road and looks at the road ahead, so a bend
+      // reads as a bend and a crest hides what is beyond it.
+      const aheadZ = z - 30;
+      camera.position.set(0, 3.4, z + 5.5);
+      camera.lookAt(offX(aheadZ), offY(aheadZ) + 2.0, aheadZ);
+
+      // Live gradient, from the profile the rider is actually on.
+      const dz = 6;
+      grade = ((elevY(z - dz) - elevY(z)) / dz) * 100;
 
       // Recycle props that fall behind the camera to the far distance, and
       // pull forward any that are absurdly far ahead (e.g. after a big jump).
       for (const p of props) {
         if (p.position.z > z + 12) p.position.z -= ROAD_LEN * 2;
         else if (p.position.z < z - ROAD_LEN * 2) p.position.z += ROAD_LEN * 2;
+        p.position.x = p.userData.lateral + offX(p.position.z);
+        p.position.y = offY(p.position.z) + p.userData.baseY;
       }
 
       // Kilometre posts sit on whole-km marks around the current position.
       const kmNow = Math.floor(distanceKm);
       for (let i = 0; i < kmPosts.length; i++) {
-        kmPosts[i].position.z = -(kmNow + i - 2) * METRES_PER_KM;
+        const pz = -(kmNow + i - 2) * METRES_PER_KM;
+        kmPosts[i].position.set(offX(pz) - 4.6, offY(pz) + 0.75, pz);
       }
 
       // Gates sit at their km mark, set back far enough that the km-0 arch is
       // something you ride through rather than something wrapped around the
       // camera at the start line.
       for (const g of gates) {
-        g.group.position.z = -g.km * METRES_PER_KM - GATE_SETBACK;
+        const gz = -g.km * METRES_PER_KM - GATE_SETBACK;
+        g.group.position.set(offX(gz), offY(gz), gz);
         const passed = distanceKm >= g.km;
         for (const part of g.parts) part.material = passed ? gatePassedMat : gateMat;
       }
@@ -289,6 +369,7 @@
     return {
       setDistance(km) { distanceKm = Math.max(0, Number(km) || 0); },
       setSpeed(kmh) { speedKmh = Math.max(0, Number(kmh) || 0); },
+      getGrade() { return grade; },
       resize: layout,
       dispose() {
         disposed = true;

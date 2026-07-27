@@ -13,6 +13,7 @@ const { hashPassword, verifyPassword } = require('../lib/password');
 const { ensureChallenges, applyWorkoutToChallenges } = require('../lib/challenges');
 const { ensureJourneys, applyWorkoutToJourneys, advanceJourney, lookupScriptureText } = require('../lib/journeys');
 const moments = require('../lib/moments');
+const segments = require('../lib/segments');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
 const { searchNearbyChurches } = require('../lib/overpass');
@@ -2641,6 +2642,75 @@ router.post('/live/moment', requireAuth, (req, res) => {
       ? 'Add your birth year or max heart rate in your profile to get zones and effort scoring.'
       : null,
   });
+});
+
+// --- Segments, leaderboards and ghosts -------------------------------------
+// The stretch between two waypoints is a timed segment. Times are kept, ranked
+// against every rider's own best, and replayed as ghosts so a route has company
+// on it. Ghosts are built only from rides that actually happened.
+
+function journeyByKey(key) {
+  return db.prepare('SELECT * FROM journeys WHERE key = ?').get(key) || null;
+}
+
+router.get('/journeys/:key/segments', (req, res) => {
+  const j = journeyByKey(req.params.key);
+  if (!j) return res.status(404).json({ error: 'not_found' });
+  const segs = segments.segmentsFor(j.id, j.total_km);
+  const me = req.session.userId || null;
+  res.json({
+    segments: segs.map(sg => ({
+      ...sg,
+      leaderboard: segments.leaderboard(j.id, sg.index, 5),
+      your_best_sec: me ? (db.prepare(`SELECT MIN(duration_sec) AS b FROM journey_segment_times
+                                       WHERE user_id = ? AND journey_id = ? AND segment_index = ?`)
+        .get(me, j.id, sg.index).b || null) : null,
+    })),
+  });
+});
+
+router.get('/journeys/:key/ghosts', (req, res) => {
+  const j = journeyByKey(req.params.key);
+  if (!j) return res.status(404).json({ error: 'not_found' });
+  const me = req.session.userId || null;
+  const others = segments.ghostsFor(j.id, { excludeUserId: me || '', limit: 4 });
+  const mine = me ? segments.personalGhost(me, j.id) : null;
+  res.json({
+    ghosts: (mine ? [mine] : []).concat(others),
+    // Said plainly so the client never has to guess why the road is empty.
+    note: (!others.length && !mine)
+      ? 'Nobody has ridden this road yet. Your times will set the first mark on it.'
+      : null,
+  });
+});
+
+// A segment was completed live. The client sends the elapsed time it measured
+// for that stretch; the server decides whether it counts and where it ranks.
+router.post('/journeys/:key/segments/:index/complete', requireAuth, (req, res) => {
+  const j = journeyByKey(req.params.key);
+  if (!j) return res.status(404).json({ error: 'not_found' });
+  const idx = Number(req.params.index);
+  const segs = segments.segmentsFor(j.id, j.total_km);
+  const seg = segs.find(x => x.index === idx);
+  if (!seg) return res.status(404).json({ error: 'no_such_segment' });
+
+  const result = segments.recordSegment(
+    req.session.userId, j.id, seg,
+    Number(req.body && req.body.duration_sec),
+    !!(req.body && req.body.measured));
+  if (!result) return res.status(400).json({ error: 'implausible_time' });
+
+  if (result.personal_best && result.previous_best_sec != null) {
+    notify(req.session.userId, 'segment',
+      `Personal best on ${seg.from} → ${seg.to}: ${Math.round(result.duration_sec)}s, ` +
+      `${Math.round(result.previous_best_sec - result.duration_sec)}s faster than before.`,
+      { journey_key: j.key, segment_index: idx });
+  }
+  publish('segment.completed', {
+    user_id: req.session.userId, journey_key: j.key, segment_index: idx,
+    duration_sec: result.duration_sec, personal_best: result.personal_best, rank: result.rank,
+  });
+  res.json({ ...result, from: seg.from, to: seg.to });
 });
 
 module.exports = router;
