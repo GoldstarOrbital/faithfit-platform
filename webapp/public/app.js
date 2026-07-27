@@ -193,7 +193,21 @@ function routeSvg(seed) {
 async function renderHome(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
   const [posts, users, suggested, rec, devo, churchVideos] = await Promise.all([api('/feed'), api('/users'), api('/users/suggested').catch(() => []), api('/recommendations').catch(() => null), api('/devotionals/today').catch(() => null), api('/church/videos').catch(() => null)]);
+  const firstName = escapeHtml((state.me && state.me.user && state.me.user.display_name || 'friend').split(' ')[0]);
   main.innerHTML = `
+    <section class="home-hero">
+      <div>
+        <div class="home-kicker">YOUR RHYTHM · TODAY</div>
+        <h1>Keep moving, ${firstName}</h1>
+        <p>Small steps. Stronger faith. A community moving with you.</p>
+      </div>
+      <div class="home-hero-mark">✦</div>
+    </section>
+    <div class="home-actions">
+      <button class="home-action home-action-primary" data-home-tab="workout"><span>＋</span><b>Log activity</b><small>Keep your streak alive</small></button>
+      <button class="home-action" data-home-tab="explore" data-home-explore="journeys"><span>↗</span><b>Explore routes</b><small>Ride Bible &amp; fantasy worlds</small></button>
+    </div>
+    <div class="social-section-label"><span>Community</span><span>${users.length ? users.length + ' nearby' : 'Your people'}</span></div>
     <div class="stories">
       ${users.map(u => `<div class="story" data-user="${u.id}"><div class="story-ring">${avatarHtml(u, 'story-avatar')}</div><div class="story-label">${u.display_name.split(' ')[0]}</div></div>`).join('')}
     </div>
@@ -230,6 +244,10 @@ async function renderHome(main) {
     </div>` : ''}
     <div id="posts"></div>
   `;
+  main.querySelectorAll('[data-home-tab]').forEach(btn => btn.onclick = () => {
+    if (btn.dataset.homeExplore) state.exploreTab = btn.dataset.homeExplore;
+    setTab(btn.dataset.homeTab);
+  });
   hydrateAvatars(main);
   wireChurchVideoThumbs(main);
   wireVerseCards(main);
