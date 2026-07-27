@@ -4,6 +4,7 @@ const db = require('../lib/db');
 const { publish, subscribe } = require('../lib/events');
 const { runPipeline } = require('../lib/pipeline');
 const { xpForEvent, levelForXp } = require('../lib/xp');
+const effortLib = require('../lib/effort');
 const { advanceQuestProgress } = require('../lib/quests');
 const { badgeEligibility } = require('../lib/badges');
 const { composeForEvent } = require('../lib/composer');
@@ -585,11 +586,17 @@ router.post('/workouts/start', requireAuth, (req, res) => {
 });
 
 router.post('/workouts/:id/sample', requireAuth, (req, res) => {
-  const { heart_rate, stress_level } = req.body || {};
+  // Heart rate is only ever a REAL reading from a paired monitor. When there is no
+  // monitor the client sends nothing, and we store NULL — we never substitute a
+  // default, and every zone/effort surface downstream degrades to "unknown".
+  const rawHr = (req.body || {}).heart_rate;
+  const rawStress = (req.body || {}).stress_level;
+  const heart_rate = Number.isFinite(Number(rawHr)) && Number(rawHr) > 0 ? Math.round(Number(rawHr)) : null;
+  const stress_level = Number.isFinite(Number(rawStress)) ? Math.round(Number(rawStress)) : null;
   const workout = db.prepare('SELECT * FROM workouts WHERE id = ? AND user_id = ?').get(req.params.id, req.session.userId);
   if (!workout) return res.status(404).json({ error: 'not_found' });
   db.prepare('INSERT INTO biometric_samples (id, user_id, workout_id, time, heart_rate, stress_level) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(randomUUID(), req.session.userId, workout.id, new Date().toISOString(), heart_rate, stress_level ?? 0);
+    .run(randomUUID(), req.session.userId, workout.id, new Date().toISOString(), heart_rate, stress_level);
 
   // Run the real scripture trigger pipeline on this live biometric sample.
   const consents = db.prepare('SELECT scope FROM user_consents WHERE user_id = ? AND revoked_at IS NULL').all(req.session.userId).map(r => r.scope);
@@ -598,6 +605,13 @@ router.post('/workouts/:id/sample', requireAuth, (req, res) => {
     .map(v => ({ ...v, themes: v.themes.split(',') }));
   const history = db.prepare('SELECT verse_id FROM scripture_triggers WHERE user_id = ? ORDER BY timestamp DESC LIMIT 20').all(req.session.userId);
 
+  // Real physiological signals for this instant: current zone (null if we can't know
+  // it), HR direction, how deep into the session we are, and dwell in the current band.
+  const maxInfo = effortLib.maxHrInfo(db.prepare('SELECT max_hr, birth_year FROM users WHERE id = ?').get(req.session.userId));
+  const sessionSamples = db.prepare('SELECT time, heart_rate FROM biometric_samples WHERE workout_id = ? ORDER BY time').all(workout.id);
+  const signals = computeEffortSignals(workout, sessionSamples, maxInfo && maxInfo.value, req.body || {});
+  const sessionVerseIds = db.prepare('SELECT verse_id FROM scripture_triggers WHERE workout_id = ?').all(workout.id).map(r => r.verse_id);
+
   const result = runPipeline({
     rawSnapshot: { heart_rate, workout_type: workout.type, movement: { intensity: 0.8 }, stress_level: stress_level ?? 0 },
     candidateVerses,
@@ -605,14 +619,30 @@ router.post('/workouts/:id/sample', requireAuth, (req, res) => {
     userPreferences: {},
     personalizationEnabled,
     verseTextLookup: (yid) => db.prepare('SELECT text FROM scripture_verses WHERE youversion_id = ?').get(yid),
+    effort: signals,
+    lookupReference: lookupBibleReference,
+    ftsSearch: bibleFtsSearch,
+    sessionVerseIds,
+    recentVerseIds: history.map(h => h.verse_id),
   });
 
-  db.prepare('INSERT INTO scripture_triggers (id, user_id, verse_id, trigger_type, biometric_snapshot) VALUES (?, ?, ?, ?, ?)')
-    .run(randomUUID(), req.session.userId, result.verse.id, result.context, JSON.stringify(result.snapshot));
+  db.prepare('INSERT INTO scripture_triggers (id, user_id, verse_id, trigger_type, biometric_snapshot, workout_id, moment) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(randomUUID(), req.session.userId, result.verse.id, result.context, JSON.stringify({ ...result.snapshot, ...signals }), workout.id, result.moment);
 
   publish('verse.triggered', { user_id: req.session.userId, verse_id: result.verse.id, youversion_id: result.verse.youversion_id, trigger_type: result.context, payload: result.payload });
 
-  res.json({ context: result.context, verse: result.payload, verse_id: result.verse.id });
+  res.json({
+    context: result.context,
+    verse: result.payload,
+    verse_id: result.verse.id,
+    moment: result.moment,
+    moment_label: result.moment_label,
+    caption: result.caption,
+    zone: signals.zone,
+    zone_source: signals.zone == null ? null : (maxInfo ? maxInfo.source : null),
+    trend: signals.trend,
+    elapsed_sec: signals.elapsed_sec,
+  });
 });
 
 router.post('/workouts/:id/stop', requireAuth, (req, res) => {
@@ -640,8 +670,20 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   }
 
   const durationSec = Math.max(0, Math.round((Date.now() - new Date(workout.start_time).getTime()) / 1000));
-  db.prepare("UPDATE workouts SET end_time = datetime('now'), avg_hr = ?, max_hr = ?, calories = ?, distance_km = ?, gps_points = ?, gps_path = ?, duration_sec = ? WHERE id = ?")
-    .run(avgHr, maxHr, calories, gps_distance_km || null, pointCount, pathJson, durationSec, workout.id);
+
+  // --- effort summary: what the body actually did in this session ---
+  const maxInfo = effortLib.maxHrInfo(db.prepare('SELECT max_hr, birth_year FROM users WHERE id = ?').get(req.session.userId));
+  const effort = effortLib.summariseEffort(samples, maxInfo && maxInfo.value, durationSec);
+  const pbs = personalBestsFor(req.session.userId, workout.id);
+  const encouragement = effortLib.describeEffort(effort, pbs);
+  const notable = effortLib.notableEffort(effort, pbs);
+
+  db.prepare("UPDATE workouts SET end_time = datetime('now'), avg_hr = ?, max_hr = ?, calories = ?, distance_km = ?, gps_points = ?, gps_path = ?, duration_sec = ?, effort_score = ?, time_in_zone = ?, peak_zone = ? WHERE id = ?")
+    .run(avgHr, maxHr, calories, gps_distance_km || null, pointCount, pathJson, durationSec,
+         effort.effort_score, effort.time_in_zone ? JSON.stringify(effort.time_in_zone) : null, effort.peak_zone, workout.id);
+
+  // Only notify when a real comparison against real history says this was notable.
+  if (notable) notify(req.session.userId, 'effort', notable.message, { workout_id: workout.id, effort_type: notable.type });
 
   publish('workout.completed', { user_id: req.session.userId, workout_id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr });
   const completedChallenges = applyWorkoutToChallenges(req.session.userId, { distance_km: gps_distance_km || 0, duration_sec: durationSec, type: workout.type });
@@ -649,7 +691,17 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   notifyJourneyProgress(req.session.userId, applyWorkoutToJourneys(req.session.userId, { distance_km: gps_distance_km || 0, duration_sec: durationSec, type: workout.type }));
   const partners = tagWorkoutPartners(req.session.userId, workout.id, partner_user_ids);
 
-  res.json({ id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr, distance_km: gps_distance_km || null, duration_sec: durationSec, completed_challenges: completedChallenges.map(c => c.name), partner_tag_errors: partners.errors });
+  res.json({
+    id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr, distance_km: gps_distance_km || null, duration_sec: durationSec,
+    completed_challenges: completedChallenges.map(c => c.name), partner_tag_errors: partners.errors,
+    effort: {
+      ...effort,
+      max_hr_reference: maxInfo ? maxInfo.value : null,
+      max_hr_source: maxInfo ? maxInfo.source : null,
+      max_hr_formula: maxInfo ? maxInfo.formula || null : null,
+    },
+    encouragement,
+  });
 });
 
 // Manually log a completed workout (Strava-style "add activity" — no live tracking).
@@ -1447,6 +1499,28 @@ router.put('/profile', requireAuth, (req, res) => {
 
   if (show_age !== undefined) updates.show_age = show_age ? 1 : 0;
 
+  // Heart-rate reference figures. Ranges are deliberately tight: a nonsense value
+  // here would poison every zone the app ever shows this user, so we reject rather
+  // than clamp. Passing null clears the field.
+  const HR_FIELDS = {
+    max_hr: { min: 120, max: 230 },
+    resting_hr: { min: 30, max: 120 },
+    birth_year: { min: 1900, max: new Date().getFullYear() - 10 },
+  };
+  for (const [field, range] of Object.entries(HR_FIELDS)) {
+    const val = req.body ? req.body[field] : undefined;
+    if (val === undefined) continue;
+    if (val === null || val === '') { updates[field] = null; continue; }
+    const n = Number(val);
+    if (!Number.isInteger(n) || n < range.min || n > range.max) {
+      return res.status(400).json({ error: `invalid_${field}`, hint: `${field} must be a whole number between ${range.min} and ${range.max}.` });
+    }
+    updates[field] = n;
+  }
+  if (updates.max_hr != null && updates.resting_hr != null && updates.resting_hr >= updates.max_hr) {
+    return res.status(400).json({ error: 'invalid_hr_range', hint: 'Resting heart rate must be lower than max heart rate.' });
+  }
+
   if (req.body && req.body.default_visibility !== undefined) {
     if (!VISIBILITIES.includes(req.body.default_visibility)) return res.status(400).json({ error: 'invalid_visibility' });
     updates.default_visibility = req.body.default_visibility;
@@ -1818,6 +1892,182 @@ router.get('/journeys/:key', requireAuth, (req, res) => {
     percent: Math.min(100, Math.round((progress / j.total_km) * 100)),
     waypoints,
     next_waypoint: next ? { title: next.title, km_mark: next.km_mark, km_remaining: Math.max(0, +(next.km_mark - progress).toFixed(2)) } : null,
+  });
+});
+
+// =========================================================================
+// Effort + physiological-moment support
+// (function declarations, so they're available to the handlers defined above)
+// =========================================================================
+
+// YouVersion-style book codes for the books actually loaded into bible_verses.
+const YV_BOOK_CODES = {
+  Genesis: 'gen', Psalms: 'psa', Proverbs: 'pro', Matthew: 'mat', Mark: 'mrk',
+  Luke: 'luk', John: 'jhn', Romans: 'rom', James: 'jas', Philippians: 'php',
+  // books being ingested concurrently — codes ready so references resolve cleanly on merge
+  Isaiah: 'isa', Hebrews: 'heb', '1 Corinthians': '1co', '2 Timothy': '2ti',
+  Ephesians: 'eph', Exodus: 'exo', Numbers: 'num', Deuteronomy: 'deu',
+  Joshua: 'jos', '1 Kings': '1ki', Acts: 'act',
+};
+
+/**
+ * Resolve a scripture reference against the VERIFIED bible_verses table. Returns null
+ * if the reference isn't in the library — callers skip it rather than serving an
+ * unverified verse. Also mirrors the verse into scripture_verses (same id) so that
+ * posts referencing it keep rendering through the existing LEFT JOIN.
+ */
+function lookupBibleReference(book, chapter, verse) {
+  const row = db.prepare('SELECT id, book, chapter, verse, text, translation FROM bible_verses WHERE book = ? AND chapter = ? AND verse = ?')
+    .get(book, chapter, verse);
+  if (!row) return null;
+  return mirrorVerse(row);
+}
+
+function mirrorVerse(row) {
+  const reference = `${row.book} ${row.chapter}:${row.verse}`;
+  const code = YV_BOOK_CODES[row.book];
+  const youversion_id = code ? `${code}.${row.chapter}.${row.verse}` : row.id;
+  db.prepare('INSERT OR IGNORE INTO scripture_verses (id, reference, text, translation, youversion_id, themes) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(row.id, reference, row.text, row.translation, youversion_id, '');
+  return { id: row.id, reference, text: row.text, translation: row.translation, youversion_id };
+}
+
+/** FTS fallback: real verses matching a moment's keywords, ranked by FTS relevance. */
+function bibleFtsSearch(terms) {
+  const q = String(terms || '').replace(/["*]/g, '').trim().split(/\s+/).filter(Boolean).map(w => `${w}*`).join(' OR ');
+  if (!q) return [];
+  try {
+    const rows = db.prepare(`
+      SELECT bv.id, bv.book, bv.chapter, bv.verse, bv.text, bv.translation
+      FROM bible_verses_fts f JOIN bible_verses bv ON bv.rowid = f.rowid
+      WHERE bible_verses_fts MATCH ? ORDER BY rank LIMIT 12
+    `).all(q);
+    return rows.filter(r => r.text && r.text.length <= 260).map(mirrorVerse);
+  } catch (e) {
+    console.error('[effort] fts fallback failed:', e.message);
+    return [];
+  }
+}
+
+/**
+ * Derive the live physiological signals for the current instant from REAL data:
+ * the workout's start time and the actual sample series. Anything we cannot know
+ * (zone without a max HR, elapsed fraction without a target duration) stays null.
+ */
+function computeEffortSignals(workout, samples, maxHr, body = {}) {
+  const hrs = (samples || [])
+    .filter(s => Number(s.heart_rate) > 0)
+    .map(s => ({ t: Date.parse(s.time), hr: Number(s.heart_rate) }))
+    .filter(s => Number.isFinite(s.t))
+    .sort((a, b) => a.t - b.t);
+
+  const now = Date.now();
+  const started = Date.parse(workout.start_time);
+  const elapsed_sec = Number.isFinite(started) ? Math.max(0, Math.round((now - started) / 1000)) : 0;
+
+  const current = hrs.length ? hrs[hrs.length - 1].hr : null;
+  const zone = effortLib.hrZone(current, maxHr);
+
+  // Direction: mean of the last two readings vs the two before them. +/-3 bpm of
+  // deadband so ordinary beat-to-beat noise doesn't read as a trend.
+  let trend = null;
+  if (hrs.length >= 4) {
+    const avg = arr => arr.reduce((a, s) => a + s.hr, 0) / arr.length;
+    const recent = avg(hrs.slice(-2)), prior = avg(hrs.slice(-4, -2));
+    trend = recent - prior >= 3 ? 'rising' : recent - prior <= -3 ? 'falling' : 'steady';
+  }
+
+  // Dwell: how long we've been continuously in the current effort band. Zones 4 and 5
+  // count as one band, so a threshold effort that ticks up to max doesn't reset "the wall".
+  let dwell_sec = 0;
+  if (zone != null && hrs.length) {
+    const band = z => (z >= 4 ? 'hard' : String(z));
+    const cur = band(zone);
+    let i = hrs.length - 1;
+    while (i > 0 && band(effortLib.hrZone(hrs[i - 1].hr, maxHr)) === cur) i--;
+    dwell_sec = Math.max(0, Math.round((hrs[hrs.length - 1].t - hrs[i].t) / 1000));
+  }
+
+  // The client may know its target session length; if it doesn't, we don't pretend to.
+  const target = Number(body.target_duration_sec);
+  const elapsed_fraction = Number.isFinite(target) && target > 0
+    ? Math.min(1, elapsed_sec / target)
+    : (body.finishing === true ? 1 : null);
+
+  return { zone, trend, elapsed_sec, elapsed_fraction, dwell_sec, hr: current };
+}
+
+/** Completed workouts that actually carry zone data, newest first. */
+function zonedWorkouts(userId, excludeId) {
+  return db.prepare(`SELECT id, end_time, duration_sec, effort_score, time_in_zone, peak_zone
+                     FROM workouts WHERE user_id = ? AND end_time IS NOT NULL AND time_in_zone IS NOT NULL
+                     ORDER BY end_time DESC`)
+    .all(userId)
+    .filter(w => w.id !== excludeId)
+    .map(w => { try { return { ...w, zones: JSON.parse(w.time_in_zone) }; } catch { return null; } })
+    .filter(Boolean);
+}
+
+/**
+ * Real personal bests from the user's real history — the comparisons in
+ * describeEffort()/notableEffort() are only allowed to be as true as this is.
+ */
+function personalBestsFor(userId, excludeWorkoutId) {
+  const all = zonedWorkouts(userId, excludeWorkoutId);
+  if (!all.length) return { priorSessionsWithZones: 0 };
+  const cutoff = Date.now() - 30 * 86400000;
+  const hard = w => (w.zones[4] || 0) + (w.zones[5] || 0);
+  const last30 = all.filter(w => Date.parse(w.end_time) >= cutoff);
+  return {
+    priorSessionsWithZones: all.length,
+    bestZone45Sec: last30.length ? Math.max(...last30.map(hard)) : 0,
+    everZone5: all.some(w => (w.zones[5] || 0) > 0),
+    bestEffortScore: all.some(w => w.effort_score != null) ? Math.max(...all.filter(w => w.effort_score != null).map(w => w.effort_score)) : null,
+  };
+}
+
+/**
+ * Time-in-zone distribution + effort trend for the Stats screen.
+ * Degrades honestly: `zone_data: false` plus an explainer when the user has never
+ * had a reference max HR, instead of any invented zone breakdown.
+ */
+router.get('/stats/effort', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 10));
+  const user = db.prepare('SELECT max_hr, resting_hr, birth_year FROM users WHERE id = ?').get(uid);
+  const maxInfo = effortLib.maxHrInfo(user);
+  const sessions = zonedWorkouts(uid, null).slice(0, limit);
+
+  if (!sessions.length) {
+    return res.json({
+      zone_data: false,
+      max_hr: maxInfo ? maxInfo.value : null,
+      max_hr_source: maxInfo ? maxInfo.source : null,
+      sessions: [], totals: null, effort_trend: [],
+      hint: maxInfo
+        ? 'No heart-rate samples recorded yet — start a workout with your monitor paired to see time in zone.'
+        : 'Zone insights need a heart-rate reading and your max heart rate. Pair a Bluetooth chest strap during a workout, and add your max HR (or birth year) in your profile.',
+    });
+  }
+
+  const totals = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  for (const s of sessions) for (const z of [1, 2, 3, 4, 5]) totals[z] += s.zones[z] || 0;
+
+  res.json({
+    zone_data: true,
+    max_hr: maxInfo ? maxInfo.value : null,
+    max_hr_source: maxInfo ? maxInfo.source : null,
+    max_hr_formula: maxInfo ? maxInfo.formula || null : null,
+    zone_labels: effortLib.ZONE_LABELS,
+    totals,
+    total_sec: Object.values(totals).reduce((a, b) => a + b, 0),
+    sessions: sessions.map(s => ({
+      id: s.id, end_time: s.end_time, duration_sec: s.duration_sec,
+      effort_score: s.effort_score, peak_zone: s.peak_zone, zones: s.zones,
+    })),
+    // Oldest -> newest, so the client can draw the trend left to right.
+    effort_trend: sessions.filter(s => s.effort_score != null)
+      .map(s => ({ end_time: s.end_time, effort_score: s.effort_score })).reverse(),
   });
 });
 

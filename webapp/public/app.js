@@ -450,11 +450,18 @@ async function renderStats(main) {
         <span class="act-count">${b.count}× · ${b.distance_km > 0 ? b.distance_km + 'km' : b.duration_min + 'min'}</span></div>`).join('')}
     </div>` : ''}
 
+    <div class="card glass" id="effort-card">
+      <div class="stats-period-head">Effort · time in zone</div>
+      <div class="muted">Loading…</div>
+    </div>
+
     <div class="card glass">
       <div class="stats-period-head">My challenges</div>
       ${mine.length ? mine.map(c => challengeRow(c)).join('') : '<p class="muted">You haven\'t joined a challenge yet — see Explore › Challenges.</p>'}
     </div>
   `;
+
+  renderEffortSection();
 }
 
 function challengeRow(c) {
@@ -908,6 +915,7 @@ async function renderProfile(main) {
         <label class="switch"><input type="checkbox" id="p-showage" ${me.user.show_age ? 'checked' : ''}><span class="slider"></span></label>
       </div>
       <input id="p-age" type="number" min="13" max="120" placeholder="Age" value="${me.user.age ?? ''}" style="max-width:120px">
+      ${renderHeartRateFields(me.user)}
       <button class="primary" id="p-save" style="width:100%;margin-top:10px">Save Profile</button>
       <div id="p-status" class="muted" style="margin-top:6px"></div>
     </div>
@@ -1028,6 +1036,7 @@ async function renderProfile(main) {
         bio_link_url: document.getElementById('p-bio-link').value.trim() || null,
         age: document.getElementById('p-age').value || null,
         show_age: document.getElementById('p-showage').checked,
+        ...heartRateFieldValues(),
       };
       const res = await api('/profile', { method: 'PUT', body });
       if (res.error) {
@@ -1390,7 +1399,7 @@ async function renderWorkout(main) {
     ${(liveActive || state.activeWorkout) ? `
     <div class="workout-screen">
       <select id="workout-type" ${state.activeWorkout ? 'disabled' : ''}>${opts}</select>
-      <div class="hr-ring"><div class="hr-display" id="hr-display">${state.hr || '--'}</div><div class="hr-label">BPM ${state.bleConnected ? '· 📶 live' : '· simulated'}</div></div>
+      <div class="hr-ring"><div class="hr-display" id="hr-display">${state.bleConnected && state.hr ? state.hr : '--'}</div><div class="hr-label">BPM ${state.bleConnected ? '· 📶 live' : `· <button type="button" class="hr-connect-link" id="hr-connect">connect a monitor</button>`}</div></div>
       <div class="timer-display" id="timer-display">${formatElapsed(state.elapsed)}</div>
       <button class="start-stop-btn ${state.activeWorkout ? 'stop' : 'start'}" id="start-stop">${state.activeWorkout ? 'Stop' : 'Start'}</button>
       <div id="gps-status" class="muted"></div>
@@ -1425,6 +1434,8 @@ async function renderWorkout(main) {
 
   const ss = document.getElementById('start-stop');
   if (ss) ss.onclick = () => state.activeWorkout ? stopWorkout() : startWorkout();
+  const hrConnect = document.getElementById('hr-connect');
+  if (hrConnect) hrConnect.onclick = () => connectBle();
   if (state.activeWorkout && state.gpsPoints.length) initMap(true);
 
   const manualPartners = document.getElementById('m-partner-search') ? wirePartnerPicker('m-partner-search', 'm-partner-list', 'm-partner-chips') : null;
@@ -1533,19 +1544,21 @@ async function startWorkout() {
   const w = await api('/workouts/start', { method: 'POST', body: { type } });
   state.activeWorkout = w.id;
   state.elapsed = 0;
-  if (!state.bleConnected) state.hr = Math.floor(100 + Math.random() * 20);
+  // Heart rate comes ONLY from a paired monitor. With no strap connected we show
+  // nothing and send nothing — the app never invents a physiological value.
+  if (!state.bleConnected) state.hr = 0;
   startGps();
   renderWorkout(document.getElementById('main'));
   state.hrTimer = setInterval(async () => {
     state.elapsed += 1;
-    if (!state.bleConnected) { state.hr = Math.floor(110 + Math.random() * 60); document.getElementById('hr-display').textContent = state.hr; }
     document.getElementById('timer-display').textContent = formatElapsed(state.elapsed);
     if (state.elapsed % 5 === 0) {
-      const result = await api(`/workouts/${state.activeWorkout}/sample`, { method: 'POST', body: { heart_rate: state.hr, stress_level: Math.floor(Math.random() * 4) } });
+      const hr = state.bleConnected && state.hr > 0 ? state.hr : null;
+      const result = await api(`/workouts/${state.activeWorkout}/sample`, { method: 'POST', body: { heart_rate: hr } });
       state.lastVerseId = result.verse_id || null;
       state.lastVerse = result.verse || null;
       const vp = document.getElementById('verse-preview');
-      if (vp) vp.innerHTML = `<div class="verse-card" style="margin-top:12px"><div class="verse-ref">${result.verse.reference}</div><div class="verse-text">${escapeHtml(result.verse.snippet || '')}</div></div>`;
+      if (vp && result.verse) vp.innerHTML = renderMomentVerseCard(result);
     }
   }, 1000);
 }
@@ -1572,6 +1585,7 @@ function renderShareForm(main, ctx) {
     <div class="card glass">
       <h2>Workout complete 🎉</h2>
       <p class="muted">${s.calories ?? '—'} kcal · avg HR ${s.avg_hr ?? '—'}${distMsg}</p>
+      ${renderEffortResult(s)}
       ${ctx.verse ? `<div class="verse-card" style="margin:10px 0"><div class="verse-ref">${ctx.verse.reference}</div><div class="verse-text">${escapeHtml(ctx.verse.snippet || '')}</div></div>` : ''}
       <label class="field-label">Add a caption or reflection</label>
       <textarea class="input" id="share-caption" rows="3" placeholder="How did it go? What did this verse mean today?"></textarea>
@@ -2030,4 +2044,140 @@ async function renderJourneyDetail(key) {
     await api('/journeys/' + encodeURIComponent(j.key) + '/' + (data.joined ? 'leave' : 'join'), { method: 'POST' });
     renderJourneyDetail(j.key);
   };
+}
+
+// =========================================================================
+// Effort & physiological-moment UI
+// Rule for everything below: if we don't have real heart-rate data, we say so.
+// No zone is ever shown that wasn't computed from a real reading.
+// =========================================================================
+
+const ZONE_TONE = {
+  1: 'var(--parch-sink)',
+  2: 'var(--forest)',
+  3: 'var(--emerald-2)',
+  4: 'var(--emerald)',
+  5: 'var(--seal)',
+};
+
+/** Live verse card, captioned with WHY this verse arrived right now. */
+function renderMomentVerseCard(result) {
+  const caption = [result.moment_label, result.caption].filter(Boolean).join(' · ');
+  return `<div class="verse-card" style="margin-top:12px">
+    ${caption ? `<div class="verse-moment">${escapeHtml(caption)}</div>` : ''}
+    <div class="verse-ref">${escapeHtml(result.verse.reference)}</div>
+    <div class="verse-text">${escapeHtml(result.verse.snippet || '')}</div>
+  </div>`;
+}
+
+/** Post-workout effort block — the moment the encouragement matters most. */
+function renderEffortResult(summary) {
+  const e = summary && summary.effort;
+  if (!e) return '';
+  if (!e.zone_data) {
+    const why = e.hr_sample_count > 0
+      ? 'Add your max heart rate (or birth year) in your profile to turn these readings into zones.'
+      : 'Zone insights need a paired heart-rate monitor — pair a Bluetooth chest strap before your next session.';
+    return `<div class="effort-block"><div class="effort-none">No zone data for this session. ${escapeHtml(why)}</div></div>`;
+  }
+  const total = e.total_zoned_sec || 1;
+  const est = e.max_hr_source === 'estimate'
+    ? `<div class="effort-foot">Zones based on an estimated max HR of ${e.max_hr_reference} bpm (${escapeHtml(e.max_hr_formula || 'estimate')}). Enter your measured max HR for exact zones.</div>`
+    : '';
+  return `<div class="effort-block">
+    ${summary.encouragement ? `<div class="effort-line">${escapeHtml(summary.encouragement)}</div>` : ''}
+    <div class="effort-meta">${e.effort_score} effort points · peak zone ${e.peak_zone} · avg ${e.avg_hr} bpm</div>
+    ${zoneBar(e.time_in_zone, total)}
+    ${est}
+  </div>`;
+}
+
+/** Stacked horizontal time-in-zone bar: zone 1 coolest, zone 5 hottest. */
+function zoneBar(zones, total) {
+  if (!zones || !total) return '';
+  const seg = [1, 2, 3, 4, 5]
+    .filter(z => (zones[z] || 0) > 0)
+    .map(z => `<span class="zone-seg" style="width:${((zones[z] / total) * 100).toFixed(2)}%;background:${ZONE_TONE[z]}" title="Zone ${z} · ${Math.round(zones[z] / 60)} min"></span>`)
+    .join('');
+  const key = [1, 2, 3, 4, 5]
+    .filter(z => (zones[z] || 0) > 0)
+    .map(z => `<span class="zone-key"><i style="background:${ZONE_TONE[z]}"></i>Z${z} ${Math.round(zones[z] / 60)}m</span>`)
+    .join('');
+  return `<div class="zone-bar">${seg}</div><div class="zone-legend">${key}</div>`;
+}
+
+/** Effort section on the Stats screen. */
+async function renderEffortSection() {
+  const card = document.getElementById('effort-card');
+  if (!card) return;
+  let data;
+  try { data = await api('/stats/effort?limit=10'); }
+  catch { card.innerHTML = `<div class="stats-period-head">Effort · time in zone</div><div class="muted">Could not load effort data.</div>`; return; }
+
+  if (!data.zone_data) {
+    card.innerHTML = `<div class="stats-period-head">Effort · time in zone</div>
+      <div class="effort-none">${escapeHtml(data.hint || 'Zone insights need a paired heart-rate monitor.')}</div>`;
+    return;
+  }
+
+  const scores = data.effort_trend.map(t => t.effort_score);
+  let trendLine = '';
+  if (scores.length >= 2) {
+    const half = Math.ceil(scores.length / 2);
+    const mean = a => a.reduce((x, y) => x + y, 0) / a.length;
+    const older = mean(scores.slice(0, half)), newer = mean(scores.slice(half));
+    const delta = newer - older;
+    const dir = delta > 1 ? 'climbing' : delta < -1 ? 'easing off' : 'holding steady';
+    trendLine = `<div class="effort-meta">Effort trend: <strong>${dir}</strong> — averaging ${newer.toFixed(0)} points a session, from ${older.toFixed(0)}.</div>`;
+  }
+
+  const est = data.max_hr_source === 'estimate'
+    ? `<div class="effort-foot">Based on an estimated max HR of ${data.max_hr} bpm (${escapeHtml(data.max_hr_formula || 'estimate')}) — not a measurement.</div>` : '';
+
+  card.innerHTML = `<div class="stats-period-head">Effort · time in zone</div>
+    <div class="muted" style="margin-bottom:8px">Last ${data.sessions.length} session${data.sessions.length === 1 ? '' : 's'} with heart-rate data.</div>
+    ${zoneBar(data.totals, data.total_sec)}
+    ${trendLine}
+    <div class="effort-sessions">
+      ${data.sessions.map(s => `<div class="effort-row">
+        <span class="effort-row-d">${new Date(s.end_time).toLocaleDateString()}</span>
+        ${zoneBar(s.zones, Object.values(s.zones).reduce((a, b) => a + b, 0) || 1)}
+        <span class="effort-row-s">${s.effort_score ?? '—'}</span>
+      </div>`).join('')}
+    </div>
+    ${est}`;
+}
+
+/** Profile inputs for the reference figures zones are computed from. */
+function renderHeartRateFields(user) {
+  return `
+    <div class="hr-fields">
+      <div class="muted" style="margin:12px 0 4px">Heart-rate zones — optional. Used to work out how hard each session really was. We never guess these.</div>
+      <label class="field-label">Max heart rate (bpm)</label>
+      <input id="p-maxhr" type="number" min="120" max="230" placeholder="e.g. 188 — from a lab or max-effort test" value="${user.max_hr ?? ''}">
+      <label class="field-label">Resting heart rate (bpm)</label>
+      <input id="p-restinghr" type="number" min="30" max="120" placeholder="e.g. 52" value="${user.resting_hr ?? ''}">
+      <label class="field-label">Birth year</label>
+      <input id="p-birthyear" type="number" min="1900" max="${new Date().getFullYear() - 10}" placeholder="Used only to estimate max HR if you haven't measured it" value="${user.birth_year ?? ''}">
+      <div class="muted" style="margin-top:4px">${user.max_hr
+        ? 'Using your entered max HR.'
+        : user.birth_year
+          ? `Estimating your max HR with the Tanaka formula (208 − 0.7 × age) ≈ ${Math.round(208 - 0.7 * (new Date().getFullYear() - user.birth_year))} bpm. An estimate, not a measurement.`
+          : 'Without either of these we show no zones at all, rather than made-up ones.'}</div>
+    </div>`;
+}
+
+function heartRateFieldValues() {
+  const val = (id) => {
+    const el = document.getElementById(id);
+    if (!el) return undefined;
+    const v = el.value.trim();
+    return v === '' ? null : Number(v);
+  };
+  const out = {};
+  for (const [key, id] of [['max_hr', 'p-maxhr'], ['resting_hr', 'p-restinghr'], ['birth_year', 'p-birthyear']]) {
+    const v = val(id);
+    if (v !== undefined) out[key] = v;
+  }
+  return out;
 }
