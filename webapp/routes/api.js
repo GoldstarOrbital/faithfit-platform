@@ -1363,7 +1363,8 @@ subscribe('workout.completed', (event) => {
     const already = db.prepare('SELECT 1 FROM user_badges WHERE user_id = ? AND badge_id = ?').get(event.user_id, badgeId);
     if (!already) {
       db.prepare('INSERT INTO user_badges (user_id, badge_id) VALUES (?, ?)').run(event.user_id, badgeId);
-      publish('badge.awarded', { user_id: event.user_id, badge_id: badgeId });
+      const badgeRow = db.prepare('SELECT name, icon FROM badges WHERE id = ?').get(badgeId);
+      publish('badge.awarded', { user_id: event.user_id, badge_id: badgeId, badge_name: badgeRow && badgeRow.name, badge_icon: badgeRow && badgeRow.icon });
     }
   });
 

@@ -1721,7 +1721,12 @@ async function renderNotifPanel() {
   let data;
   try { data = await api('/notifications'); } catch { return; }
   const { notifications, unread_count } = data;
-  const fmtPayload = (n) => { try { return JSON.parse(n.payload || '{}').message || n.type; } catch { return n.type; } };
+  const fmtPayload = (n) => {
+    try {
+      const p = JSON.parse(n.payload || '{}');
+      return p.message || [p.title, p.body].filter(Boolean).join(' — ') || n.type;
+    } catch { return n.type; }
+  };
   panel.innerHTML = `
     <div class="notif-panel-head">
       <h3>Notifications</h3>
