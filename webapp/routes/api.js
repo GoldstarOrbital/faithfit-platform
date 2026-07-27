@@ -1316,6 +1316,94 @@ router.get('/stats/activity-breakdown', requireAuth, (req, res) => {
   res.json(rows.map(r => ({ type: r.type, count: r.count, distance_km: +Number(r.distance_km).toFixed(2), duration_min: Math.round(r.duration_sec / 60), calories: r.calories })));
 });
 
+// ---- premium progress: training log, load/freshness and custom goals ------
+function periodBounds(period, now = new Date()) {
+  const end = new Date(now);
+  const start = new Date(now);
+  if (period === 'year') start.setMonth(0, 1);
+  else if (period === 'month') start.setDate(1);
+  else {
+    const day = start.getDay();
+    start.setDate(start.getDate() - ((day + 6) % 7)); // Monday start
+  }
+  start.setHours(0, 0, 0, 0);
+  return { start, end };
+}
+
+function workoutDuration(w) {
+  return Number(w.duration_sec) || (w.start_time && w.end_time
+    ? Math.max(0, (new Date(w.end_time) - new Date(w.start_time)) / 1000) : 0);
+}
+
+function goalValue(rows, metric) {
+  if (metric === 'distance_km') return rows.reduce((n, w) => n + (Number(w.distance_km) || 0), 0);
+  if (metric === 'duration_min') return rows.reduce((n, w) => n + workoutDuration(w) / 60, 0);
+  if (metric === 'calories') return rows.reduce((n, w) => n + (Number(w.calories) || 0), 0);
+  return rows.length;
+}
+
+router.get('/stats/performance', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const rows = db.prepare(`SELECT type, distance_km, duration_sec, start_time, end_time, calories, effort_score
+                           FROM workouts WHERE user_id = ? AND end_time IS NOT NULL
+                           AND end_time >= ? ORDER BY end_time`).all(uid, new Date(Date.now() - 28 * 86400000).toISOString());
+  const byDay = new Map();
+  for (let i = 27; i >= 0; i--) {
+    const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
+    byDay.set(d.toISOString().slice(0, 10), { date: d.toISOString().slice(0, 10), workouts: 0, distance_km: 0, duration_min: 0, calories: 0, load: 0 });
+  }
+  rows.forEach(w => {
+    const day = byDay.get(new Date(w.end_time).toISOString().slice(0, 10));
+    if (!day) return;
+    const mins = workoutDuration(w) / 60;
+    day.workouts++; day.distance_km += Number(w.distance_km) || 0; day.duration_min += mins;
+    day.calories += Number(w.calories) || 0;
+    day.load += Number(w.effort_score) || Math.max(1, mins);
+  });
+  const days = [...byDay.values()].map(d => ({ ...d, distance_km: +d.distance_km.toFixed(2), duration_min: Math.round(d.duration_min), load: Math.round(d.load) }));
+  const load7 = days.slice(-7).reduce((n, d) => n + d.load, 0);
+  const load28 = days.reduce((n, d) => n + d.load, 0);
+  const activeDays = days.filter(d => d.workouts).length;
+  const consistency = Math.round((activeDays / 28) * 100);
+  // A transparent, non-medical training-readiness heuristic: recent load vs
+  // four-week average. It is guidance, not a health or injury prediction.
+  const baseline = load28 / 4;
+  const freshness = baseline ? Math.round(100 - Math.min(100, Math.max(0, (load7 / baseline - 0.6) * 55))) : 100;
+  res.json({ days, load7: Math.round(load7), load28: Math.round(load28), consistency, freshness, active_days: activeDays });
+});
+
+router.get('/goals', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const goals = db.prepare('SELECT * FROM training_goals WHERE user_id = ? AND archived_at IS NULL ORDER BY created_at DESC').all(uid);
+  const all = db.prepare(`SELECT type, distance_km, duration_sec, start_time, end_time, calories
+                          FROM workouts WHERE user_id = ? AND end_time IS NOT NULL`).all(uid);
+  res.json(goals.map(g => {
+    const { start, end } = periodBounds(g.period);
+    const rows = all.filter(w => new Date(w.end_time) >= start && new Date(w.end_time) <= end && (!g.activity_type || w.type === g.activity_type));
+    const progress = goalValue(rows, g.metric);
+    return { ...g, progress: +progress.toFixed(g.metric === 'distance_km' ? 2 : 0), percent: Math.min(100, Math.round((progress / g.target) * 100)), period_start: start.toISOString(), period_end: end.toISOString(), completed: progress >= g.target };
+  }));
+});
+
+router.post('/goals', requireAuth, (req, res) => {
+  const { title, metric, target, period = 'week', activity_type = null } = req.body || {};
+  const metrics = new Set(['distance_km', 'duration_min', 'workouts', 'calories']);
+  if (!String(title || '').trim() || !metrics.has(metric) || !['week', 'month', 'year'].includes(period) || !Number.isFinite(Number(target)) || Number(target) <= 0) {
+    return res.status(400).json({ error: 'invalid_goal' });
+  }
+  const id = randomUUID();
+  db.prepare('INSERT INTO training_goals (id, user_id, title, metric, target, period, activity_type) VALUES (?,?,?,?,?,?,?)')
+    .run(id, req.session.userId, String(title).trim().slice(0, 80), metric, Number(target), period, activity_type ? String(activity_type).slice(0, 40) : null);
+  res.status(201).json({ id });
+});
+
+router.delete('/goals/:id', requireAuth, (req, res) => {
+  const result = db.prepare("UPDATE training_goals SET archived_at = datetime('now') WHERE id = ? AND user_id = ? AND archived_at IS NULL")
+    .run(req.params.id, req.session.userId);
+  if (!result.changes) return res.status(404).json({ error: 'goal_not_found' });
+  res.json({ ok: true });
+});
+
 // ---- tailored recommendations (verse + podcast + challenge) ----
 router.get('/recommendations', (req, res) => {
   const uid = req.session.userId || null;

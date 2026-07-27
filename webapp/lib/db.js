@@ -301,6 +301,22 @@ CREATE TABLE IF NOT EXISTS user_challenges (
 );
 `);
 
+// --- premium progress layer: custom goals + training log ------------------
+db.exec(`
+CREATE TABLE IF NOT EXISTS training_goals (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  metric TEXT NOT NULL,                 -- distance_km | duration_min | workouts | calories
+  target REAL NOT NULL,
+  period TEXT NOT NULL,                 -- week | month | year
+  activity_type TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  archived_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_training_goals_user ON training_goals(user_id, archived_at);
+`);
+
 // --- OAuth / SSO identities (Sign in with Google, Apple, Microsoft, etc.) ---
 // A user can have zero or more linked identities; password_hash may be NULL for
 // identity-only accounts (a user who only ever signed in via a connector).

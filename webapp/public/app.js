@@ -427,13 +427,25 @@ function barChart(data, valueKey, unit) {
   </svg>`;
 }
 
+function goalUnit(metric) {
+  return metric === 'distance_km' ? 'km' : metric === 'duration_min' ? 'min' : metric === 'calories' ? 'kcal' : 'sessions';
+}
+
+function trainingLog(performance) {
+  const max = Math.max(1, ...performance.days.map(d => d.load));
+  return `<div class="training-log" aria-label="28 day training log">${performance.days.map(d => {
+    const level = d.load === 0 ? 0 : Math.min(4, Math.ceil((d.load / max) * 4));
+    return `<span class="training-day level-${level}" title="${d.date}: ${d.workouts} workout${d.workouts === 1 ? '' : 's'}, ${d.load} load"><i></i></span>`;
+  }).join('')}</div>`;
+}
+
 async function renderStats(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
   main.innerHTML = `<div class="card glass" style="text-align:center">Loading your stats…</div>`;
-  let summary, trends, breakdown, challenges;
+  let summary, trends, breakdown, challenges, performance, goals;
   try {
-    [summary, trends, breakdown, challenges] = await Promise.all([
-      api('/stats/summary'), api('/stats/trends?weeks=12'), api('/stats/activity-breakdown'), api('/challenges'),
+    [summary, trends, breakdown, challenges, performance, goals] = await Promise.all([
+      api('/stats/summary'), api('/stats/trends?weeks=12'), api('/stats/activity-breakdown'), api('/challenges'), api('/stats/performance'), api('/goals'),
     ]);
   } catch { main.innerHTML = '<div class="card glass">Could not load stats.</div>'; return; }
 
@@ -460,6 +472,28 @@ async function renderStats(main) {
     <div class="card glass">
       <div class="stats-period-head">Distance · last 12 weeks</div>
       ${barChart(trends, 'distance_km')}
+    </div>
+
+    <div class="card glass premium-progress-card">
+      <div class="premium-card-head"><div><div class="stats-period-head">Progress lab</div><div class="muted">Your last 28 days, translated into momentum.</div></div><span class="premium-badge">PROGRESS</span></div>
+      <div class="load-grid">
+        <div><b>${performance.load7}</b><span>7-day load</span></div>
+        <div><b>${performance.freshness}</b><span>freshness</span></div>
+        <div><b>${performance.consistency}%</b><span>consistency</span></div>
+      </div>
+      ${trainingLog(performance)}
+      <div class="training-log-legend"><span><i class="level-0"></i> Rest</span><span><i class="level-2"></i> Training</span><span><i class="level-4"></i> Heavy</span><span class="muted">28-day log</span></div>
+      <div class="muted" style="font-size:.7rem;margin-top:8px">Load uses recorded effort when available and workout minutes otherwise. Freshness is a transparent training heuristic, not medical advice.</div>
+    </div>
+
+    <div class="card glass goals-card">
+      <div class="premium-card-head"><div><div class="stats-period-head">Custom goals</div><div class="muted">Weekly, monthly, or annual targets.</div></div><button class="ghost" id="goal-new">＋ Goal</button></div>
+      ${goals.length ? goals.map(g => `<div class="goal-row"><div class="goal-row-head"><strong>${escapeHtml(g.title)}</strong><button class="icon-btn" data-goal-delete="${g.id}" aria-label="Delete goal">×</button></div><div class="goal-row-meta"><span>${g.progress} / ${g.target} ${goalUnit(g.metric)}</span><span>${g.period}${g.activity_type ? ' · ' + escapeHtml(g.activity_type) : ''}</span></div><div class="challenge-track"><span style="width:${g.percent}%"></span></div></div>`).join('') : '<p class="muted">Set a target that gives your next month a little shape.</p>'}
+      <form id="goal-form" class="goal-form" hidden>
+        <input class="input" id="goal-title" maxlength="80" placeholder="e.g. Run with patience" required>
+        <div class="goal-form-grid"><select class="input" id="goal-metric"><option value="distance_km">Distance</option><option value="duration_min">Time</option><option value="workouts">Workouts</option><option value="calories">Calories</option></select><input class="input" id="goal-target" type="number" min="1" step="any" placeholder="Target" required><select class="input" id="goal-period"><option value="week">This week</option><option value="month">This month</option><option value="year">This year</option></select></div>
+        <div class="goal-form-actions"><button type="button" class="ghost" id="goal-cancel">Cancel</button><button type="submit" class="primary">Save goal</button></div><div id="goal-error" class="form-error" hidden></div>
+      </form>
     </div>
 
     <div class="card glass">
@@ -490,6 +524,16 @@ async function renderStats(main) {
     </div>
   `;
 
+  const goalForm = main.querySelector('#goal-form');
+  main.querySelector('#goal-new').onclick = () => { goalForm.hidden = false; main.querySelector('#goal-title').focus(); };
+  main.querySelector('#goal-cancel').onclick = () => { goalForm.hidden = true; };
+  goalForm.onsubmit = async (e) => {
+    e.preventDefault();
+    const err = main.querySelector('#goal-error'); err.hidden = true;
+    try { await api('/goals', { method: 'POST', body: { title: main.querySelector('#goal-title').value, metric: main.querySelector('#goal-metric').value, target: Number(main.querySelector('#goal-target').value), period: main.querySelector('#goal-period').value } }); await renderStats(main); }
+    catch { err.textContent = 'Could not save that goal.'; err.hidden = false; }
+  };
+  main.querySelectorAll('[data-goal-delete]').forEach(btn => btn.onclick = async () => { await api('/goals/' + encodeURIComponent(btn.dataset.goalDelete), { method: 'DELETE' }); await renderStats(main); });
   renderEffortSection();
 }
 
@@ -2078,6 +2122,8 @@ async function renderJourneyDetail(key) {
 
   const j = data.journey;
   const prog = data.joined ? (Number(data.progress_km) || 0) : 0;
+  let segmentData = { segments: [] };
+  try { segmentData = await api('/journeys/' + encodeURIComponent(key) + '/segments'); } catch {}
 
   const hero = '<div class="card glass journey-hero ' + (data.completed ? 'done' : '') + '">'
     + '<div class="journey-hd"><div>'
@@ -2132,7 +2178,15 @@ async function renderJourneyDetail(key) {
       + '<span class="journey-wp-title">🔒 Not yet reached</span></div></div>'
   ).join('');
 
-  shell(hero + '<h3 class="journey-group">Waypoints</h3>' + wps);
+  const segmentPanel = segmentData.segments && segmentData.segments.length
+    ? '<div class="card glass segment-panel"><div class="premium-card-head"><div><div class="stats-period-head">Live segments</div><div class="muted">Race your best effort and the road leaderboard.</div></div><span class="premium-badge">RACE DAY</span></div>'
+      + segmentData.segments.map(s => '<div class="segment-row"><div class="segment-row-head"><strong>' + escapeHtml(s.from) + ' → ' + escapeHtml(s.to) + '</strong><span>' + fmtKm(s.to_km - s.from_km) + ' km</span></div>'
+        + '<div class="segment-row-meta">' + (s.your_best_sec ? 'Your best ' + Math.floor(s.your_best_sec / 60) + ':' + String(Math.round(s.your_best_sec % 60)).padStart(2, '0') : 'No personal time yet') + '</div>'
+        + (s.leaderboard && s.leaderboard.length ? '<div class="segment-mini-board">' + s.leaderboard.slice(0, 3).map(r => '<span><b>#' + r.position + '</b> ' + escapeHtml(r.display_name) + ' · ' + Math.floor(r.best_sec / 60) + ':' + String(r.best_sec % 60).padStart(2, '0') + '</span>').join('') + '</div>' : '<div class="muted" style="font-size:.7rem">Be the first rider on this segment.</div>')
+        + '</div>').join('') + '</div>'
+    : '';
+
+  shell(hero + segmentPanel + '<h3 class="journey-group">Waypoints</h3>' + wps);
   main.querySelectorAll('[data-verse-ref]').forEach(el => {
     el.onclick = () => renderVerseThread(el.dataset.verseRef);
   });
