@@ -11,13 +11,14 @@ const { composeForEvent } = require('../lib/composer');
 const { loadBibleData } = require('../lib/bible-load');
 const { hashPassword, verifyPassword } = require('../lib/password');
 const { ensureChallenges, applyWorkoutToChallenges } = require('../lib/challenges');
-const { ensureJourneys, applyWorkoutToJourneys } = require('../lib/journeys');
+const { ensureJourneys, applyWorkoutToJourneys, advanceJourney } = require('../lib/journeys');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
 const { searchNearbyChurches } = require('../lib/overpass');
 const youtube = require('../lib/youtube');
 const sermonSummary = require('../lib/sermon-summary');
 const { fetchChurchWebsiteEmbeds, isHttpUrl } = require('../lib/church-website');
+const webhooks = require('../lib/webhooks');
 
 // Load real, public-domain Bible text (KJV/WEB) into bible_verses once at startup.
 loadBibleData();
@@ -707,7 +708,7 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
 // Manually log a completed workout (Strava-style "add activity" — no live tracking).
 router.post('/workouts/manual', requireAuth, (req, res) => {
   const uid = req.session.userId;
-  let { type = 'Run', duration_min, distance_km, calories, note, date, avg_hr, partner_user_ids } = req.body || {};
+  let { type = 'Run', duration_min, distance_km, calories, note, date, avg_hr, partner_user_ids, skip_journeys } = req.body || {};
   if (!ACTIVITY_SET.has(type)) return res.status(400).json({ error: 'invalid_activity_type' });
   const durSec = Math.max(0, Math.round((Number(duration_min) || 0) * 60));
   if (durSec === 0 && !(Number(distance_km) > 0)) return res.status(400).json({ error: 'need_duration_or_distance' });
@@ -723,7 +724,10 @@ router.post('/workouts/manual', requireAuth, (req, res) => {
   publish('workout.completed', { user_id: uid, workout_id: id, calories: cal, avg_hr: avg_hr || null });
   const completed = applyWorkoutToChallenges(uid, { distance_km: dist || 0, duration_sec: durSec, type });
   notifyChallengeCompletions(uid, completed);
-  notifyJourneyProgress(uid, applyWorkoutToJourneys(uid, { distance_km: dist || 0, duration_sec: durSec, type }));
+  // A live journey session already advanced its route kilometre-by-kilometre as
+  // it was ridden, so re-applying the finished workout here would count the same
+  // distance twice. The client sets skip_journeys for that case.
+  if (!skip_journeys) notifyJourneyProgress(uid, applyWorkoutToJourneys(uid, { distance_km: dist || 0, duration_sec: durSec, type }));
   const partners = tagWorkoutPartners(uid, id, partner_user_ids);
   res.status(201).json({ id, type, calories: cal, distance_km: dist, duration_sec: durSec, completed_challenges: completed.map(c => c.name), partner_tag_errors: partners.errors });
 });
@@ -1812,10 +1816,18 @@ function notifyJourneyProgress(userId, results) {
       notify(userId, 'journey', `You reached ${w.title} on ${r.journey.name} — ${Number(w.km_mark).toFixed(1)} km in.`, {
         journey_key: r.journey.key, waypoint: w.title, km_mark: w.km_mark,
       });
+      publish('journey.waypoint', {
+        user_id: userId, journey_key: r.journey.key, journey_name: r.journey.name,
+        waypoint: w.title, km_mark: w.km_mark, scripture_ref: w.scripture_ref || null,
+      });
     }
     if (r.completed) {
       notify(userId, 'journey', `Journey complete: ${r.journey.name}. ${Number(r.journey.total_km)} km, all of it yours.`, {
         journey_key: r.journey.key, completed: true,
+      });
+      publish('journey.completed', {
+        user_id: userId, journey_key: r.journey.key, journey_name: r.journey.name,
+        total_km: r.journey.total_km,
       });
     }
   }
@@ -2425,6 +2437,78 @@ router.get('/church/videos', requireAuth, async (req, res) => {
     church_name: church.name || me.church_name,
     youtube_configured: youtube.isConfigured(),
   });
+});
+
+
+// ---- live journey session: stream real distance from a smart trainer,
+// treadmill, GPS or a declared pace, persisted as it goes so a refresh or a
+// dropped Bluetooth connection never erases the session. ----
+router.post('/journeys/:key/progress', requireAuth, (req, res) => {
+  const addKm = Number(req.body && req.body.add_km);
+  if (!Number.isFinite(addKm) || addKm <= 0) return res.status(400).json({ error: 'invalid_distance' });
+  // Guard against a runaway client loop sending absurd jumps in one tick.
+  if (addKm > 5) return res.status(400).json({ error: 'implausible_jump', hint: 'Distance increments must be small and continuous.' });
+  const result = advanceJourney(req.session.userId, req.params.key, addKm);
+  if (!result) return res.status(404).json({ error: 'not_joined_or_complete' });
+  notifyJourneyProgress(req.session.userId, [result]);
+  res.json({
+    progress_km: result.progress_km,
+    percent: result.percent,
+    completed: result.completed,
+    crossed: result.waypoints,
+  });
+});
+
+// --- Developer webhooks ----------------------------------------------------
+// Register an HTTPS endpoint and receive your own account's events live. The
+// secret is returned once, at creation and on rotation, and never again.
+
+router.get('/webhooks/events', (req, res) => res.json({ events: webhooks.TOPICS }));
+
+router.get('/webhooks', requireAuth, (req, res) => {
+  res.json({ webhooks: webhooks.list(req.session.userId) });
+});
+
+router.post('/webhooks', requireAuth, (req, res) => {
+  const r = webhooks.create(req.session.userId, req.body || {});
+  if (r.error) return res.status(400).json(r);
+  res.status(201).json(r);
+});
+
+router.patch('/webhooks/:id', requireAuth, (req, res) => {
+  const r = webhooks.update(req.session.userId, req.params.id, req.body || {});
+  if (r.error) return res.status(r.error === 'not_found' ? 404 : 400).json(r);
+  res.json(r);
+});
+
+router.post('/webhooks/:id/rotate', requireAuth, (req, res) => {
+  const r = webhooks.rotate(req.session.userId, req.params.id);
+  if (r.error) return res.status(404).json(r);
+  res.json(r);
+});
+
+router.get('/webhooks/:id/deliveries', requireAuth, (req, res) => {
+  const d = webhooks.deliveries(req.session.userId, req.params.id);
+  if (!d) return res.status(404).json({ error: 'not_found' });
+  res.json({ deliveries: d });
+});
+
+// A test event, so a developer can verify signature handling without waiting
+// for a real workout. It is delivered through the identical signed path.
+router.post('/webhooks/:id/test', requireAuth, (req, res) => {
+  const hook = webhooks.list(req.session.userId).find(h => h.id === req.params.id);
+  if (!hook) return res.status(404).json({ error: 'not_found' });
+  publish('workout.completed', {
+    user_id: req.session.userId, workout_id: null, calories: 0,
+    avg_hr: null, max_hr: null, test: true,
+  });
+  res.json({ ok: true, note: 'A test workout.completed event was dispatched.' });
+});
+
+router.delete('/webhooks/:id', requireAuth, (req, res) => {
+  const r = webhooks.remove(req.session.userId, req.params.id);
+  if (r.error) return res.status(404).json(r);
+  res.json(r);
 });
 
 module.exports = router;

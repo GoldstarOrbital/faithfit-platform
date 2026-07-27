@@ -979,8 +979,19 @@ async function renderProfile(main) {
       <div class="muted" style="margin-bottom:10px">Full transparency — download everything FitFaith stores about your account as a JSON file.</div>
       <a class="ghost" id="data-export" href="/api/me/export" download="fitfaith-my-data.json" style="display:block;text-align:center;text-decoration:none">⬇ Download my data</a>
     </div>
+    <div class="card glass" id="dev-webhooks">
+      <h2>Developer webhooks</h2>
+      <div class="muted" style="margin-bottom:10px">Get your account's events pushed to your own HTTPS endpoint the moment they happen.</div>
+      <div id="wh-list" class="muted">Loading…</div>
+      <div class="wh-new">
+        <input id="wh-url" type="url" placeholder="https://your-service.example/fitfaith" />
+        <button class="primary" id="wh-add">Add endpoint</button>
+      </div>
+      <div class="muted wh-note" id="wh-note">Endpoints must be HTTPS and publicly reachable. Every request is signed — verify <code>X-FitFaith-Signature</code> as HMAC-SHA256 over <code>timestamp + "." + rawBody</code>.</div>
+    </div>
     <button class="ghost" id="signout" style="width:100%">Sign out</button>
   `;
+  renderWebhooks();
   document.getElementById('p-defvis').onchange = async (e) => {
     await api('/profile', { method: 'PUT', body: { default_visibility: e.target.value } });
     await loadMe();
@@ -1367,19 +1378,22 @@ function disconnectBle() {
   render();
 }
 
-let workoutMode = 'live'; // 'live' | 'manual'
+let workoutMode = 'live'; // 'live' | 'manual' | 'journey'
 
 async function renderWorkout(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
   if (!state.activityTypes) { try { state.activityTypes = await api('/activity-types'); } catch { state.activityTypes = [{type:'Run',icon:'🏃'}]; } }
   const opts = state.activityTypes.map(a => `<option value="${a.type}">${a.icon} ${a.type}</option>`).join('');
   const liveActive = workoutMode === 'live';
+  const journeyActive = workoutMode === 'journey' && !state.activeWorkout;
 
   main.innerHTML = `
     ${!state.activeWorkout ? `<div class="section-tabs" style="margin-bottom:14px">
-      <button class="${liveActive?'active':''}" id="mode-live">● Live track</button>
-      <button class="${!liveActive?'active':''}" id="mode-manual">✎ Log manually</button>
+      <button class="${workoutMode==='live'?'active':''}" id="mode-live">● Live track</button>
+      <button class="${workoutMode==='manual'?'active':''}" id="mode-manual">✎ Log manually</button>
+      <button class="${workoutMode==='journey'?'active':''}" id="mode-journey">🗺️ Journey</button>
     </div>` : ''}
+    ${journeyActive ? `<div id="journey-picker" class="card glass"><div class="muted">Loading routes…</div></div>` : ''}
     ${(liveActive || state.activeWorkout) ? `
     <div class="workout-screen">
       <select id="workout-type" ${state.activeWorkout ? 'disabled' : ''}>${opts}</select>
@@ -1413,6 +1427,9 @@ async function renderWorkout(main) {
   `;
 
   const ml = document.getElementById('mode-live'), mm = document.getElementById('mode-manual');
+  const mj = document.getElementById('mode-journey');
+  if (mj) mj.onclick = () => { workoutMode = 'journey'; renderWorkout(main); };
+  if (journeyActive) populateJourneyPicker();
   if (ml) ml.onclick = () => { workoutMode = 'live'; renderWorkout(main); };
   if (mm) mm.onclick = () => { workoutMode = 'manual'; renderWorkout(main); };
 
@@ -1991,7 +2008,12 @@ async function renderJourneyDetail(key) {
     + '<h2 class="journey-title">' + escapeHtml(j.name) + '</h2>'
     + '<div class="journey-sub">' + escapeHtml(j.subtitle || '') + '</div></div>'
     + '<span class="journey-world">' + (JOURNEY_WORLD_LABEL[j.world] || escapeHtml(j.world)) + '</span></div>'
-    + '<div class="journey-map-wrap tall">' + journeyMapSvg(j, data.waypoints, prog) + '</div>'
+    + '<div class="journey-world-wrap" id="journey-world-wrap">'
+    +   '<canvas id="journey-world"></canvas>'
+    +   '<div class="journey-world-hud"><span id="jw-km">' + fmtKm(prog) + '</span>'
+    +     '<small> / ' + fmtKm(j.total_km) + ' km</small></div>'
+    +   '<div class="journey-world-fallback" id="journey-world-fallback" hidden></div>'
+    + '</div>'
     + (j.terrain === 'climb'
       ? '<div class="journey-legend">Elevation profile · ' + (j.elevation_m || 0) + ' m of ascent over ' + fmtKm(j.total_km) + ' km</div>'
       : '<div class="journey-legend">Route map · ' + fmtKm(j.total_km) + ' km · ' + escapeHtml(j.terrain || '') + '</div>')
@@ -2008,8 +2030,12 @@ async function renderJourneyDetail(key) {
       : '<div class="journey-meta">' + fmtKm(j.total_km) + ' km · ' + escapeHtml(j.terrain || '')
         + (j.elevation_m ? ' · ' + j.elevation_m + ' m' : '')
         + ' · best on a ' + escapeHtml(j.activity_hint || 'any') + '</div>')
+    + '<div class="journey-actions">'
+    + (data.joined && !data.completed
+      ? '<button class="primary journey-ride-btn" id="journey-ride">▶ Travel this route</button>' : '')
     + '<button class="follow-btn ' + (data.joined ? 'following' : '') + '" id="journey-join">'
     + (data.joined ? 'Leave journey' : 'Begin this journey') + '</button>'
+    + '</div>'
     + '</div>';
 
   const wps = data.waypoints.map(w => w.unlocked
@@ -2033,6 +2059,32 @@ async function renderJourneyDetail(key) {
     await api('/journeys/' + encodeURIComponent(j.key) + '/' + (data.joined ? 'leave' : 'join'), { method: 'POST' });
     renderJourneyDetail(j.key);
   };
+  const rideBtn = document.getElementById('journey-ride');
+  if (rideBtn) rideBtn.onclick = () => renderJourneyLive(j.key);
+
+  // Render the world where you actually stand on the route. It idles at your
+  // current distance; "Travel this route" is the same world, driven by real speed.
+  (async () => {
+    const canvas = document.getElementById('journey-world');
+    if (!canvas || !window.FitFaithJourney3D) return;
+    let world = null;
+    try { world = await window.FitFaithJourney3D.create(canvas, { journey: j, waypoints: data.waypoints, onError: () => {} }); }
+    catch { world = null; }
+    if (!world) {
+      canvas.hidden = true;
+      const fb = document.getElementById('journey-world-fallback');
+      if (fb) { fb.hidden = false; fb.innerHTML = '<div class="journey-map-wrap tall">' + journeyMapSvg(j, data.waypoints, prog) + '</div>'; }
+      return;
+    }
+    world.setDistance(prog);
+    world.setSpeed(0);
+    // Tear down when the view is replaced, so we never leak a WebGL context.
+    const wrap = document.getElementById('journey-world-wrap');
+    const obs = new MutationObserver(() => {
+      if (!document.body.contains(wrap)) { try { world.dispose(); } catch {} obs.disconnect(); }
+    });
+    obs.observe(document.getElementById('main'), { childList: true, subtree: true });
+  })();
 }
 
 // =========================================================================
@@ -2512,4 +2564,77 @@ function wireChurchVideoThumbs(root) {
       el.onclick = null;
     };
   });
+}
+
+
+// --- Developer webhooks panel ---------------------------------------------
+// Registration, delivery health and a test event, so a developer can wire up
+// and debug an integration without leaving the site.
+async function renderWebhooks() {
+  const box = document.getElementById('wh-list');
+  if (!box) return;
+  const note = (m) => { const n = document.getElementById('wh-note'); if (n) n.textContent = m; };
+
+  let hooks = [];
+  try { hooks = (await api('/webhooks')).webhooks || []; }
+  catch { box.innerHTML = '<div class="muted">Could not load your endpoints.</div>'; return; }
+
+  box.innerHTML = hooks.length ? hooks.map(h => {
+    const health = h.last_delivered_at
+      ? (h.last_error ? 'Last delivery failed: ' + escapeHtml(h.last_error) : 'Delivering normally')
+      : 'No deliveries yet';
+    return '<div class="wh-row' + (h.active ? '' : ' off') + '">'
+      + '<div class="wh-url">' + escapeHtml(h.url) + '</div>'
+      + '<div class="wh-meta">' + (h.active ? 'Active' : 'Disabled') + ' \u00b7 ' + escapeHtml(health)
+      + (h.failure_count ? ' \u00b7 ' + h.failure_count + ' consecutive failures' : '') + '</div>'
+      + '<div class="wh-actions">'
+      +   '<button class="ghost" data-wh-test="' + h.id + '">Send test</button>'
+      +   '<button class="ghost" data-wh-toggle="' + h.id + '" data-active="' + (h.active ? '1' : '0') + '">'
+      +     (h.active ? 'Disable' : 'Enable') + '</button>'
+      +   '<button class="ghost" data-wh-rotate="' + h.id + '">Rotate secret</button>'
+      +   '<button class="ghost danger" data-wh-del="' + h.id + '">Remove</button>'
+      + '</div></div>';
+  }).join('') : '<div class="muted">No endpoints yet.</div>';
+
+  box.querySelectorAll('[data-wh-test]').forEach(b => b.onclick = async () => {
+    try { await api('/webhooks/' + b.dataset.whTest + '/test', { method: 'POST' });
+          note('Test event dispatched. Check your endpoint, then reload for delivery status.'); }
+    catch { note('Could not dispatch a test event.'); }
+  });
+  box.querySelectorAll('[data-wh-toggle]').forEach(b => b.onclick = async () => {
+    await api('/webhooks/' + b.dataset.whToggle, { method: 'PATCH', body: { active: b.dataset.active !== '1' } }).catch(() => {});
+    renderWebhooks();
+  });
+  box.querySelectorAll('[data-wh-rotate]').forEach(b => b.onclick = async () => {
+    try {
+      const r = await api('/webhooks/' + b.dataset.whRotate + '/rotate', { method: 'POST' });
+      // Shown once. There is no endpoint that will ever return it again.
+      note('New signing secret (copy it now, it will not be shown again): ' + r.webhook.secret);
+    } catch { note('Could not rotate the secret.'); }
+  });
+  box.querySelectorAll('[data-wh-del]').forEach(b => b.onclick = async () => {
+    if (!confirm('Remove this endpoint? Deliveries to it stop immediately.')) return;
+    await api('/webhooks/' + b.dataset.whDel, { method: 'DELETE' }).catch(() => {});
+    renderWebhooks();
+  });
+
+  const addBtn = document.getElementById('wh-add');
+  if (addBtn) addBtn.onclick = async () => {
+    const url = (document.getElementById('wh-url').value || '').trim();
+    if (!url) { note('Enter an HTTPS URL to send events to.'); return; }
+    try {
+      const r = await api('/webhooks', { method: 'POST', body: { url } });
+      document.getElementById('wh-url').value = '';
+      note('Endpoint added. Signing secret (copy it now, it will not be shown again): ' + r.webhook.secret);
+      renderWebhooks();
+    } catch (e) {
+      const msg = {
+        https_required: 'Endpoints must use HTTPS.',
+        private_address_not_allowed: 'That address is on a private network and cannot be reached.',
+        invalid_url: 'That does not look like a URL.',
+        too_many_webhooks: 'You already have the maximum of 10 endpoints.',
+      };
+      note(msg[e && e.error] || 'Could not add that endpoint.');
+    }
+  };
 }

@@ -1,0 +1,293 @@
+// FitFaith live workout sensors.
+//
+// Four honest sources of "how fast am I actually going", in preference order:
+//   1. A smart trainer / spin bike / treadmill speaking the Bluetooth SIG
+//      Fitness Machine Service (FTMS) — the open standard real equipment
+//      advertises. No vendor SDK, no API key.
+//   2. A speed/cadence sensor (CSC) or running footpod (RSC).
+//   3. GPS outdoors.
+//   4. A pace the user declares themselves.
+//
+// Rule for this whole file: we never invent a number. If nothing is connected,
+// speed is null and the UI says so. A declared pace is labelled as declared,
+// never presented as measured.
+
+(function (global) {
+  'use strict';
+
+  // --- Bluetooth SIG assigned numbers -------------------------------------
+  const FTMS_SERVICE = 0x1826;          // Fitness Machine Service
+  const INDOOR_BIKE_DATA = 0x2ad2;      // spin bikes / smart trainers
+  const TREADMILL_DATA = 0x2acd;        // treadmills
+  const CSC_SERVICE = 0x1816;           // Cycling Speed and Cadence
+  const CSC_MEASUREMENT = 0x2a5b;
+  const RSC_SERVICE = 0x1814;           // Running Speed and Cadence
+  const RSC_MEASUREMENT = 0x2a53;
+
+  // Wheel circumference for deriving speed from CSC wheel revolutions.
+  // 2.096 m is a 700x23c road wheel — the common default. Configurable.
+  let wheelCircumferenceM = 2.096;
+
+  // --- Frame parsers -------------------------------------------------------
+  // All of these read the flags field FIRST and bounds-check every optional
+  // field before reading it: a short or malformed frame must return null, not
+  // throw, or one bad packet would kill the whole session.
+
+  // FTMS Indoor Bike Data (0x2AD2). Flags are uint16 LE at offset 0.
+  // Field order per spec: Instantaneous Speed, Average Speed, Instantaneous
+  // Cadence, Average Cadence, Total Distance, Resistance, Instantaneous Power…
+  // Bit 0 is "More Data": when it is 0, Instantaneous Speed IS present.
+  function parseIndoorBikeData(dv) {
+    if (!dv || dv.byteLength < 4) return null;
+    const flags = dv.getUint16(0, true);
+    let o = 2;
+    const out = { speedKmh: null, cadenceRpm: null, powerW: null, totalDistanceM: null };
+
+    if (!(flags & 0x0001)) {                       // bit0 clear => inst. speed present
+      if (o + 2 > dv.byteLength) return out;
+      out.speedKmh = dv.getUint16(o, true) / 100;  // uint16, 0.01 km/h
+      o += 2;
+    }
+    if (flags & 0x0002) { if (o + 2 > dv.byteLength) return out; o += 2; }   // average speed
+    if (flags & 0x0004) {                                                     // inst. cadence
+      if (o + 2 > dv.byteLength) return out;
+      out.cadenceRpm = dv.getUint16(o, true) / 2;  // uint16, 0.5 /min
+      o += 2;
+    }
+    if (flags & 0x0008) { if (o + 2 > dv.byteLength) return out; o += 2; }   // average cadence
+    if (flags & 0x0010) {                                                     // total distance
+      if (o + 3 > dv.byteLength) return out;
+      out.totalDistanceM = dv.getUint8(o) | (dv.getUint8(o + 1) << 8) | (dv.getUint8(o + 2) << 16);
+      o += 3;
+    }
+    if (flags & 0x0020) { if (o + 2 > dv.byteLength) return out; o += 2; }   // resistance
+    if (flags & 0x0040) {                                                     // inst. power
+      if (o + 2 > dv.byteLength) return out;
+      out.powerW = dv.getInt16(o, true);
+      o += 2;
+    }
+    return out;
+  }
+
+  // FTMS Treadmill Data (0x2ACD). Same shape: uint16 flags, bit0 "More Data"
+  // clear => Instantaneous Speed present as uint16 in 0.01 km/h.
+  function parseTreadmillData(dv) {
+    if (!dv || dv.byteLength < 4) return null;
+    const flags = dv.getUint16(0, true);
+    let o = 2;
+    const out = { speedKmh: null, inclinePct: null, totalDistanceM: null };
+
+    if (!(flags & 0x0001)) {
+      if (o + 2 > dv.byteLength) return out;
+      out.speedKmh = dv.getUint16(o, true) / 100;
+      o += 2;
+    }
+    if (flags & 0x0002) { if (o + 2 > dv.byteLength) return out; o += 2; }   // average speed
+    if (flags & 0x0004) {                                                     // total distance
+      if (o + 3 > dv.byteLength) return out;
+      out.totalDistanceM = dv.getUint8(o) | (dv.getUint8(o + 1) << 8) | (dv.getUint8(o + 2) << 16);
+      o += 3;
+    }
+    if (flags & 0x0008) {                                                     // inclination
+      if (o + 2 > dv.byteLength) return out;
+      out.inclinePct = dv.getInt16(o, true) / 10;
+      o += 2;
+    }
+    return out;
+  }
+
+  // CSC Measurement (0x2A5B): uint8 flags; bit0 => cumulative wheel revs
+  // (uint32) + last wheel event time (uint16, 1/1024 s). Speed is derived from
+  // the deltas between two notifications, so it needs prior state.
+  function makeCscParser() {
+    let lastRevs = null, lastTime = null;
+    return function parseCsc(dv) {
+      if (!dv || dv.byteLength < 1) return null;
+      const flags = dv.getUint8(0);
+      if (!(flags & 0x01)) return { speedKmh: null };      // no wheel data in this frame
+      if (dv.byteLength < 7) return { speedKmh: null };
+      const revs = dv.getUint32(1, true);
+      const t = dv.getUint16(5, true);                      // 1/1024 s, wraps at 64s
+      if (lastRevs === null) { lastRevs = revs; lastTime = t; return { speedKmh: null }; }
+      let dRev = revs - lastRevs;
+      let dT = t - lastTime;
+      if (dT < 0) dT += 65536;                              // handle 16-bit wrap
+      lastRevs = revs; lastTime = t;
+      if (dT <= 0 || dRev < 0) return { speedKmh: null };
+      const seconds = dT / 1024;
+      const metres = dRev * wheelCircumferenceM;
+      return { speedKmh: seconds > 0 ? (metres / seconds) * 3.6 : null };
+    };
+  }
+
+  // RSC Measurement (0x2A53): uint8 flags, then instantaneous speed uint16 in
+  // 1/256 m/s, then cadence uint8 (steps/min).
+  function parseRscData(dv) {
+    if (!dv || dv.byteLength < 4) return null;
+    const speedMs = dv.getUint16(1, true) / 256;
+    return { speedKmh: speedMs * 3.6, cadenceSpm: dv.getUint8(3) };
+  }
+
+  // --- Live session --------------------------------------------------------
+  // Integrates whatever speed source is active into accumulated distance.
+  function createSession(opts) {
+    const onUpdate = (opts && opts.onUpdate) || function () {};
+    const state = {
+      source: null,          // 'ftms-bike' | 'ftms-treadmill' | 'csc' | 'rsc' | 'gps' | 'manual'
+      sourceLabel: 'Not connected',
+      speedKmh: null,
+      cadence: null,
+      powerW: null,
+      distanceKm: 0,
+      elapsedSec: 0,
+      running: false,
+      device: null,
+      declaredPaceKmh: null, // only set in manual mode; always labelled as declared
+    };
+    let tickTimer = null, lastTickAt = null, gpsWatchId = null, lastGpsPos = null;
+
+    function emit() { onUpdate({ ...state }); }
+
+    // Integrate current speed into distance. Called on a fixed tick so every
+    // source (BLE push, GPS, manual) accumulates the same way.
+    function tick() {
+      const now = Date.now();
+      if (lastTickAt == null) { lastTickAt = now; return; }
+      const dtSec = (now - lastTickAt) / 1000;
+      lastTickAt = now;
+      if (!state.running) return;
+      state.elapsedSec += dtSec;
+      const kmh = state.source === 'manual' ? state.declaredPaceKmh : state.speedKmh;
+      if (kmh != null && kmh > 0) state.distanceKm += (kmh * dtSec) / 3600;
+      emit();
+    }
+
+    async function connectFtms() {
+      if (!navigator.bluetooth) throw new Error('web_bluetooth_unsupported');
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [FTMS_SERVICE] }],
+        optionalServices: [FTMS_SERVICE, CSC_SERVICE, RSC_SERVICE],
+      });
+      const server = await device.gatt.connect();
+      const svc = await server.getPrimaryService(FTMS_SERVICE);
+
+      // A machine advertises whichever data characteristic matches what it is.
+      let ch = null, kind = null;
+      try { ch = await svc.getCharacteristic(INDOOR_BIKE_DATA); kind = 'ftms-bike'; }
+      catch { ch = await svc.getCharacteristic(TREADMILL_DATA); kind = 'ftms-treadmill'; }
+
+      await ch.startNotifications();
+      ch.addEventListener('characteristicvaluechanged', (e) => {
+        const parsed = kind === 'ftms-bike' ? parseIndoorBikeData(e.target.value) : parseTreadmillData(e.target.value);
+        if (!parsed) return;
+        if (parsed.speedKmh != null) state.speedKmh = parsed.speedKmh;
+        if (parsed.cadenceRpm != null) state.cadence = parsed.cadenceRpm;
+        if (parsed.powerW != null) state.powerW = parsed.powerW;
+        emit();
+      });
+      device.addEventListener('gattserverdisconnected', () => {
+        state.speedKmh = null; state.sourceLabel = 'Trainer disconnected'; emit();
+      });
+      state.device = device;
+      state.source = kind;
+      state.sourceLabel = (kind === 'ftms-bike' ? 'Smart bike' : 'Treadmill') + ' · ' + (device.name || 'connected');
+      emit();
+      return kind;
+    }
+
+    async function connectSensor() {
+      if (!navigator.bluetooth) throw new Error('web_bluetooth_unsupported');
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [CSC_SERVICE] }, { services: [RSC_SERVICE] }],
+        optionalServices: [CSC_SERVICE, RSC_SERVICE],
+      });
+      const server = await device.gatt.connect();
+      let svc, ch, kind, parse;
+      try {
+        svc = await server.getPrimaryService(CSC_SERVICE);
+        ch = await svc.getCharacteristic(CSC_MEASUREMENT);
+        kind = 'csc'; parse = makeCscParser();
+      } catch {
+        svc = await server.getPrimaryService(RSC_SERVICE);
+        ch = await svc.getCharacteristic(RSC_MEASUREMENT);
+        kind = 'rsc'; parse = parseRscData;
+      }
+      await ch.startNotifications();
+      ch.addEventListener('characteristicvaluechanged', (e) => {
+        const parsed = parse(e.target.value);
+        if (parsed && parsed.speedKmh != null) { state.speedKmh = parsed.speedKmh; emit(); }
+      });
+      device.addEventListener('gattserverdisconnected', () => {
+        state.speedKmh = null; state.sourceLabel = 'Sensor disconnected'; emit();
+      });
+      state.device = device;
+      state.source = kind;
+      state.sourceLabel = (kind === 'csc' ? 'Speed sensor' : 'Footpod') + ' · ' + (device.name || 'connected');
+      emit();
+      return kind;
+    }
+
+    function useGps() {
+      if (!navigator.geolocation) throw new Error('gps_unsupported');
+      lastGpsPos = null;
+      gpsWatchId = navigator.geolocation.watchPosition((pos) => {
+        // Prefer the device's own speed when it reports one; otherwise derive
+        // it from successive fixes.
+        if (pos.coords.speed != null && !Number.isNaN(pos.coords.speed)) {
+          state.speedKmh = Math.max(0, pos.coords.speed * 3.6);
+        } else if (lastGpsPos) {
+          const R = 6371, toRad = (d) => (d * Math.PI) / 180;
+          const dLat = toRad(pos.coords.latitude - lastGpsPos.latitude);
+          const dLon = toRad(pos.coords.longitude - lastGpsPos.longitude);
+          const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lastGpsPos.latitude)) * Math.cos(toRad(pos.coords.latitude)) * Math.sin(dLon / 2) ** 2;
+          const km = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          const dtH = (pos.timestamp - lastGpsPos.timestamp) / 3600000;
+          if (dtH > 0) state.speedKmh = km / dtH;
+        }
+        lastGpsPos = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, timestamp: pos.timestamp };
+        emit();
+      }, () => { state.sourceLabel = 'GPS unavailable'; emit(); }, { enableHighAccuracy: true, maximumAge: 2000 });
+      state.source = 'gps';
+      state.sourceLabel = 'GPS';
+      emit();
+    }
+
+    // A pace the user tells us. Labelled as declared everywhere it surfaces —
+    // this is an input, not a measurement.
+    function useDeclaredPace(kmh) {
+      state.source = 'manual';
+      state.declaredPaceKmh = Number(kmh) || 0;
+      state.speedKmh = null;
+      state.sourceLabel = 'Declared pace · ' + state.declaredPaceKmh + ' km/h';
+      emit();
+    }
+
+    function start() {
+      state.running = true;
+      lastTickAt = Date.now();
+      if (!tickTimer) tickTimer = setInterval(tick, 1000);
+      emit();
+    }
+    function pause() { state.running = false; emit(); }
+    function stop() {
+      state.running = false;
+      if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+      if (gpsWatchId != null) { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null; }
+      try { if (state.device && state.device.gatt.connected) state.device.gatt.disconnect(); } catch {}
+      emit();
+    }
+
+    return {
+      state,
+      connectFtms, connectSensor, useGps, useDeclaredPace,
+      start, pause, stop,
+      setWheelCircumference: (m) => { if (m > 0) wheelCircumferenceM = m; },
+    };
+  }
+
+  global.FitFaithSensors = {
+    createSession,
+    // exported for testing against synthetic frames
+    _parsers: { parseIndoorBikeData, parseTreadmillData, parseRscData, makeCscParser },
+  };
+})(window);

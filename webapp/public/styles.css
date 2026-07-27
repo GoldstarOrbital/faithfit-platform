@@ -564,3 +564,71 @@ a:hover { color: var(--gold); }
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* ---- Journey live mode: 3D world + session HUD ---- */
+.live-wrap { display:flex; flex-direction:column; gap:12px; }
+.live-canvas-wrap { position:relative; width:100%; height:min(46vh, 320px); border-radius:var(--radius);
+  overflow:hidden; border:1px solid var(--hairline); background: var(--parch-sink); }
+.live-canvas-wrap canvas { width:100%; height:100%; display:block; }
+.live-3d-fallback { position:absolute; inset:0; overflow:auto; background: var(--parch-1); }
+
+.live-hud { position:absolute; top:0; left:0; right:0; display:flex; align-items:flex-start;
+  justify-content:space-between; padding:10px 12px; pointer-events:none;
+  background:linear-gradient(180deg, rgba(20,14,8,0.45), transparent); color:#f6efe0; }
+.live-hud-speed { font-family:'Cinzel',serif; font-size:2rem; font-weight:700; line-height:1;
+  text-shadow:0 1px 6px rgba(0,0,0,0.5); }
+.live-hud-speed small { font-size:0.62rem; margin-left:4px; opacity:0.85; }
+.live-hud-right { text-align:right; font-variant-numeric:tabular-nums; text-shadow:0 1px 6px rgba(0,0,0,0.5); }
+.live-hud-right span { font-weight:700; font-size:1.05rem; }
+.live-hud-right small { opacity:0.85; font-size:0.72rem; }
+.live-hud-src { font-size:0.68rem; opacity:0.9; margin-top:2px; }
+
+/* Waypoint reveal, over the world, when you cross a real km mark. */
+.live-waypoint { position:absolute; left:10px; right:10px; bottom:10px; padding:10px 12px;
+  border-radius:12px; background:rgba(249,242,226,0.96); border:1px solid var(--gold);
+  box-shadow:0 8px 24px rgba(43,30,18,0.35); animation:rise .35s ease both; max-height:60%; overflow:auto; }
+.live-wp-km { font-size:0.68rem; letter-spacing:0.05em; text-transform:uppercase; color:var(--muted); }
+.live-wp-title { font-family:'Cinzel',serif; font-weight:700; color:var(--ink); margin:2px 0 4px; }
+.live-wp-narrative { font-size:0.84rem; line-height:1.45; color:var(--ink-soft); margin-bottom:6px; }
+
+.live-panel { padding:14px 16px; }
+.live-sources { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:8px 0; }
+.live-sources button { font-size:0.78rem; padding:9px 8px; }
+.live-note { font-size:0.76rem; line-height:1.4; }
+.live-controls { display:flex; gap:8px; margin-top:12px; }
+.live-controls button { flex:1; }
+.journey-actions { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+.journey-ride-btn { flex:1; min-width:150px; }
+@media (max-width:380px) { .live-sources { grid-template-columns:1fr; } }
+.jp-row { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%;
+  text-align:left; margin-bottom:8px; padding:11px 13px; }
+.jp-main { display:flex; flex-direction:column; gap:2px; min-width:0; }
+.jp-name { font-weight:700; color:var(--ink); }
+.jp-sub { font-size:0.74rem; color:var(--muted); }
+.jp-pct { font-weight:700; color:var(--forest); font-variant-numeric:tabular-nums; flex:0 0 auto; }
+
+
+/* The journey world. A journey IS the 3D route, so the world is the hero of
+   the detail screen; the flat SVG map only appears when WebGL is unavailable. */
+.journey-world-wrap{position:relative;border-radius:14px;overflow:hidden;margin:10px 0 12px;
+  aspect-ratio:16/9;min-height:200px;background:var(--parch-2);box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
+.journey-world-wrap canvas{display:block;width:100%;height:100%}
+.journey-world-hud{position:absolute;left:10px;bottom:10px;padding:5px 10px;border-radius:999px;
+  background:rgba(20,14,10,.62);color:#fff;font-weight:700;font-size:.95rem;letter-spacing:.02em}
+.journey-world-hud small{font-weight:500;opacity:.8}
+.journey-world-fallback .journey-map-wrap{margin:0}
+
+
+/* Developer webhooks panel */
+.wh-row{padding:10px 0;border-top:1px solid rgba(0,0,0,.08)}
+.wh-row:first-child{border-top:0}
+.wh-row.off{opacity:.55}
+.wh-url{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.85rem;word-break:break-all}
+.wh-meta{font-size:.78rem;opacity:.72;margin-top:2px}
+.wh-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.wh-actions button{font-size:.78rem;padding:5px 9px}
+.wh-actions .danger{color:#a33}
+.wh-new{display:flex;gap:8px;margin-top:12px}
+.wh-new input{flex:1;min-width:0}
+.wh-note{font-size:.78rem;margin-top:8px;line-height:1.45}
+.wh-note code{font-size:.76rem;background:rgba(0,0,0,.07);padding:1px 4px;border-radius:4px}

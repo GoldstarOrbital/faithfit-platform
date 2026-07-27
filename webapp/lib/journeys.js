@@ -233,6 +233,205 @@ const JOURNEYS = [
         narrative: 'Back over the three arches with the light going gold behind you. Sixty kilometres, and the only thing that changed out there was the rider.' },
     ],
   },
+  {
+    key: 'the-winter-wood',
+    name: 'The Winter Wood',
+    world: 'fantasy',
+    subtitle: 'A long white crossing under bare branches · 15 km',
+    description: 'Fifteen kilometres through a forest held under a winter that has outstayed every calendar. Cold, quiet, and beautiful in a way that does not care whether you make it. The thaw, when it comes, comes suddenly.',
+    scripture_ref: 'Isaiah 9:2',
+    total_km: 15,
+    terrain: 'rolling',
+    elevation_m: 260,
+    activity_hint: 'run',
+    waypoints: [
+      { km_mark: 0, title: 'The Iron Gate', scripture_ref: 'Isaiah 9:2',
+        narrative: 'A wrought gate stands open in a wall that guards nothing any more, and beyond it the snow begins — unbroken, blue in the hollows, going back further than the light does.' },
+      { km_mark: 3.5, title: 'The Lantern at the Crossing', scripture_ref: 'John 1:5',
+        narrative: 'Where four paths meet, a lantern burns on an iron post. Nobody lit it and nobody tends it, but the snow for six feet around it has melted to black earth, and you stand in that circle a moment longer than you need to.' },
+      { km_mark: 7, title: 'The Frozen Beck', scripture_ref: 'Psalm 147:16',
+        narrative: 'The stream is glass over moving water; you can hear it running underneath. Halfway. The cold has stopped being uncomfortable and started being simply the weather you live in now.' },
+      { km_mark: 11, title: 'The Thaw Line', scripture_ref: 'Isaiah 1:18',
+        narrative: 'One step the snow is knee-deep and the next it is patchy, sagging, dripping from the branches in a steady rattle. Something enormous has turned, and it turned while you were walking.' },
+      { km_mark: 15, title: 'The First Green', scripture_ref: 'Psalm 74:17',
+        narrative: 'Wet black soil, and pushing through it a green so new it looks lit from inside. You came the whole way through the cold on your own legs, and here is what was waiting on the other side of it.' },
+    ],
+  },
+  // --- More ground to cover. Biblical routes follow real geography; the tales
+  // are written in-genre with original names and places rather than borrowing
+  // anyone's trademarked ones. ---
+  {
+    key: 'the-jordan-crossing',
+    name: 'The Jordan Crossing',
+    world: 'biblical',
+    subtitle: 'Shittim to Gilgal, over a river in flood · 12 km',
+    description: 'Twelve kilometres down the Jordan valley to a river running high with the spring melt, and across it. The distance is not the hard part. Stepping into water that has not yet moved is.',
+    scripture_ref: 'Joshua 1:9',
+    total_km: 12,
+    terrain: 'flat',
+    elevation_m: 120,
+    activity_hint: 'walk',
+    waypoints: [
+      { km_mark: 0, title: 'The Camp at Shittim', scripture_ref: 'Joshua 1:9',
+        narrative: 'Tents on the plain east of the river, struck at dawn. Forty years of walking end somewhere ahead of you today, and everyone knows it, and nobody says it.' },
+      { km_mark: 4, title: 'The Valley Floor', scripture_ref: 'Joshua 3:4',
+        narrative: 'Flat hot ground and the smell of the river before you can see it. You keep a distance from the front of the column, the way you were told, and the road does the rest.' },
+      { km_mark: 7.5, title: 'The River in Flood', scripture_ref: 'Joshua 3:15',
+        narrative: 'The Jordan overflows its banks all through the harvest, and it is doing it now: brown, fast, wider than the maps say. The first feet go in before the water does anything at all.' },
+      { km_mark: 10, title: 'The Twelve Stones', scripture_ref: 'Joshua 4:7',
+        narrative: 'One stone lifted from the riverbed for each tribe, carried up the far bank on a shoulder. They are heavy on purpose. Something you had to carry is the only kind of memory that lasts.' },
+      { km_mark: 12, title: 'Gilgal', scripture_ref: 'Joshua 4:24',
+        narrative: 'Camp pitched on the west bank, the stones set up in a circle. The river is behind you now and it will not be crossed backwards.' },
+    ],
+  },
+  {
+    key: 'elijah-to-horeb',
+    name: 'The Flight to Horeb',
+    world: 'biblical',
+    subtitle: 'Beersheba to the mountain of God · 60 km',
+    description: 'Sixty kilometres south into the Negev and the Sinai wastes, run by a man who set out asking to die and arrived to be fed, slept, and asked a question. A long haul for a long season.',
+    scripture_ref: '1 Kings 19:8',
+    total_km: 60,
+    terrain: 'rolling',
+    elevation_m: 1400,
+    activity_hint: 'run',
+    waypoints: [
+      { km_mark: 0, title: 'Beersheba', scripture_ref: '1 Kings 19:3',
+        narrative: 'You leave your servant at the edge of town and go on alone into the wilderness. Not bravery. You simply cannot be around anyone.' },
+      { km_mark: 8, title: 'The Broom Tree', scripture_ref: '1 Kings 19:4',
+        narrative: 'A day out, one thin tree, and enough shade for a person lying down. This is the low point of the whole route and it comes early, which is usually how it goes.' },
+      { km_mark: 14, title: 'The Cake and the Jar', scripture_ref: '1 Kings 19:6',
+        narrative: 'Bread baked on hot stones and a jar of water, set by your head while you slept. Nobody asked you to be better first. You were fed and told to sleep again.' },
+      { km_mark: 32, title: 'The Long Middle', scripture_ref: '1 Kings 19:8',
+        narrative: 'Halfway, and the strength of that one meal is somehow still in your legs. The desert does not change hour to hour. You stop expecting it to and the kilometres get easier.' },
+      { km_mark: 48, title: 'The Cave', scripture_ref: '1 Kings 19:9',
+        narrative: 'A split in the rock at the foot of the mountain, big enough to lie down in out of the wind. And a question, asked plainly: what are you doing here?' },
+      { km_mark: 60, title: 'The Thin Silence', scripture_ref: '1 Kings 19:12',
+        narrative: 'Wind that breaks rock, then earthquake, then fire, and none of it is the thing. Afterwards a still small voice, and you cover your face, because that is the one you came sixty kilometres to hear.' },
+    ],
+  },
+  {
+    key: 'the-shore-of-galilee',
+    name: 'The Shore Road',
+    world: 'biblical',
+    subtitle: 'Capernaum around the north shore to Magdala · 9 km',
+    description: 'Nine kilometres of lakeside path on the north-west shore of Galilee, past the fishing villages where most of this began. Flat, warm, and busier than the wilderness routes; this one is meant to be walked with someone.',
+    scripture_ref: 'Matthew 4:18',
+    total_km: 9,
+    terrain: 'flat',
+    elevation_m: 60,
+    activity_hint: 'walk',
+    waypoints: [
+      { km_mark: 0, title: 'Capernaum', scripture_ref: 'Matthew 4:13',
+        narrative: 'Black basalt houses right down to the water, nets drying on the stones. A working town, and the base of operations for three years of walking.' },
+      { km_mark: 2.5, title: 'The Casting Nets', scripture_ref: 'Matthew 4:18',
+        narrative: 'Two brothers throwing a circular net into the shallows, the way it is still done here. The call, when it came, came to people already in the middle of a shift.' },
+      { km_mark: 5, title: 'The Hillside', scripture_ref: 'Matthew 5:1',
+        narrative: 'The slope rises gently off the shore into a natural bowl that carries a voice a surprising distance. Sit down here for a minute. That is what everyone else did.' },
+      { km_mark: 7, title: 'The Plain of Gennesaret', scripture_ref: 'Mark 6:53',
+        narrative: 'Fertile flat ground between the hills and the lake, the most productive land on this shore. Boats beached here when the crossing went badly in the night.' },
+      { km_mark: 9, title: 'Magdala', scripture_ref: 'Luke 8:2',
+        narrative: 'A fish-salting town at the end of the shore road, and a name that a woman carried out of it into every gospel. Nine kilometres, walked at conversation pace.' },
+    ],
+  },
+  {
+    key: 'the-greenway-under-eaves',
+    name: 'The Greenway Under Eaves',
+    world: 'fantasy',
+    subtitle: 'An old forest track through a wood that watches · 22 km',
+    description: 'Twenty-two kilometres of green road running under a canopy so old the trees have opinions. Soft ground, long light, and the persistent feeling that the path is longer on the way in than on the way out.',
+    scripture_ref: 'Psalm 96:12',
+    total_km: 22,
+    terrain: 'rolling',
+    elevation_m: 320,
+    activity_hint: 'ride',
+    waypoints: [
+      { km_mark: 0, title: 'The Hedge Gate', scripture_ref: 'Psalm 96:12',
+        narrative: 'A gap in a hedge that has been growing since before the road had a name. Beyond it the track narrows and the noise of the fields stops all at once.' },
+      { km_mark: 6, title: 'The Bonfire Glade', scripture_ref: 'Isaiah 55:12',
+        narrative: 'A clearing burned open long ago and never grown back, ringed by trees leaning in. Grass, sun, and a good place to eat something. The road out of it is not the road you came in on, but it goes the right way.' },
+      { km_mark: 12, title: 'The Withy Ford', scripture_ref: 'Psalm 1:3',
+        narrative: 'Willows down to a brown stream running over gravel, shallow enough to ride. Halfway, and the wood has stopped feeling like it is deciding about you.' },
+      { km_mark: 17, title: 'The Bare Downs', scripture_ref: 'Psalm 23:4',
+        narrative: 'Out of the trees onto green hills with old grass-covered mounds on their crests. Open sky, wind, and a strong preference for not stopping here after dark.' },
+      { km_mark: 22, title: 'The Road Again', scripture_ref: 'Proverbs 4:18',
+        narrative: 'The track drops down to meet a proper road, rutted and honest and going east. Twenty-two kilometres of green under you, and the light ahead getting broader.' },
+    ],
+  },
+  {
+    key: 'the-white-tower-climb',
+    name: 'The White Tower Climb',
+    world: 'fantasy',
+    subtitle: 'Seven walled tiers to the topmost court · 14 km',
+    description: 'Fourteen kilometres of switchbacks up a city built in seven rings against the flank of a mountain, each tier walled, each gate set at a different angle so no charge can run straight through. A pure climb.',
+    scripture_ref: 'Psalm 48:12',
+    total_km: 14,
+    terrain: 'climb',
+    elevation_m: 900,
+    activity_hint: 'ride',
+    waypoints: [
+      { km_mark: 0, title: 'The Great Gate', scripture_ref: 'Psalm 48:12',
+        narrative: 'Iron and stone, and the whole city stacked overhead like a held breath. Walk about it, count her towers: you are going past every one of them.' },
+      { km_mark: 4, title: 'The Third Tier', scripture_ref: 'Psalm 121:1',
+        narrative: 'Above the market levels now, the road turning back on itself every few hundred metres. The gradient here is the honest part of the climb.' },
+      { km_mark: 8, title: 'The Lamplighters Run', scripture_ref: 'Psalm 18:28',
+        narrative: 'A long straight along the fifth wall where the lamps are lit end to end at dusk by people running the length of it. Halfway, and your legs know it.' },
+      { km_mark: 11.5, title: 'The Court of the Fountain', scripture_ref: 'Psalm 42:1',
+        narrative: 'A dead white tree over a dry basin in a courtyard of pale stone. Nothing grows here and everyone keeps it anyway, which is its own kind of hope.' },
+      { km_mark: 14, title: 'The Topmost Wall', scripture_ref: 'Isaiah 40:31',
+        narrative: 'Nine hundred metres of ascent behind you and the whole plain laid out below, rivers going silver toward the sea. You climbed the entire city.' },
+    ],
+  },
+  {
+    key: 'the-eastern-sea-road',
+    name: 'The Eastern Sea Road',
+    world: 'fantasy',
+    subtitle: 'A coast road east until the water turns sweet · 30 km',
+    description: 'Thirty kilometres of cliff road running east above a sea that grows brighter and stiller the further you go, until the light on it stops behaving like light on water. The long one.',
+    scripture_ref: 'Psalm 139:9',
+    total_km: 30,
+    terrain: 'rolling',
+    elevation_m: 480,
+    activity_hint: 'ride',
+    waypoints: [
+      { km_mark: 0, title: 'The Harbour Steps', scripture_ref: 'Psalm 139:9',
+        narrative: 'Wet stone, gulls, and rigging knocking in the wind. If I take the wings of the dawn and dwell in the uttermost parts of the sea: east is that way.' },
+      { km_mark: 8, title: 'The Three Green Isles', scripture_ref: 'Psalm 97:1',
+        narrative: 'Three low islands off the point, close enough to see smoke from. The road climbs above them and keeps going, which is the whole discipline of a long route.' },
+      { km_mark: 15, title: 'The Dark Water', scripture_ref: 'Psalm 107:24',
+        narrative: 'Halfway. The sea below goes suddenly deep and colourless and the wind drops to nothing. They that go down to the sea in ships see his works in the deep, including this stretch, which most people would rather not.' },
+      { km_mark: 22, title: 'The Silver Sea', scripture_ref: 'Psalm 36:9',
+        narrative: 'White lilies on the water from the cliff-foot to the horizon, thick enough to walk on if you were foolish. The air tastes of them and you find you need less food than you did.' },
+      { km_mark: 26.5, title: 'The Standing Wave', scripture_ref: 'Psalm 42:7',
+        narrative: 'A wall of green water that does not break and does not move, holding still at the end of the world with the sun coming through it.' },
+      { km_mark: 30, title: 'The Last Headland', scripture_ref: 'Isaiah 25:8',
+        narrative: 'The road runs out on a headland of short sweet grass. Thirty kilometres east, all of it under your own power, and the only thing left ahead is the light.' },
+    ],
+  },
+  {
+    key: 'the-hollow-hill',
+    name: 'The Hollow Hill',
+    world: 'fantasy',
+    subtitle: 'A ruined orchard, a green mound, a door · 18 km',
+    description: 'Eighteen kilometres through the overgrown grounds of a house that has been gone for centuries, to a grassy mound with a stone door in its side. Ruins, apple trees gone wild, and a thin place at the end of it.',
+    scripture_ref: 'Isaiah 61:4',
+    total_km: 18,
+    terrain: 'rolling',
+    elevation_m: 340,
+    activity_hint: 'run',
+    waypoints: [
+      { km_mark: 0, title: 'The Wild Orchard', scripture_ref: 'Isaiah 61:4',
+        narrative: 'Apple trees in rows nobody has pruned in living memory, fruit small and sharp and free. Somebody planted these on purpose for people who would never meet them.' },
+      { km_mark: 5, title: 'The Broken Hall', scripture_ref: 'Psalm 102:26',
+        narrative: 'Four walls and no roof, grass growing up through a floor that was once polished. They shall perish, but you remain, and the grass, apparently, remains too.' },
+      { km_mark: 9, title: 'The Well in the Courtyard', scripture_ref: 'Isaiah 12:3',
+        narrative: 'A well-head choked with ivy, and cold clean water still standing in it. Halfway. Some things keep working long after everyone stops maintaining them.' },
+      { km_mark: 14, title: 'The Green Mound', scripture_ref: 'Psalm 24:3',
+        narrative: 'A hill too round to be an accident, ringed by old thorn trees. The path spirals up it rather than going straight, and you take the spiral, because that is what it is for.' },
+      { km_mark: 18, title: 'The Stone Door', scripture_ref: 'Psalm 118:19',
+        narrative: 'A doorframe of three great stones set into the side of the mound, with nothing behind it but more hillside, from this angle. Eighteen kilometres to stand in front of an open door.' },
+    ],
+  },
 ];
 
 // Parse a reference like "Luke 24:32" or "Psalm 107:7" into book/chapter/verse.
@@ -352,4 +551,41 @@ function applyWorkoutToJourneys(userId, workout) {
   return results;
 }
 
-module.exports = { JOURNEYS, ASSUMED_KMH, ensureJourneys, applyWorkoutToJourneys, kmFromWorkout };
+// Advance ONE journey by a measured distance, mid-session. Used by the live
+// "ride/run the route" mode, which streams real distance from a smart trainer,
+// treadmill, GPS or a user-declared pace and persists it as it goes — so a
+// dropped connection or page refresh never erases someone's session.
+// Same crossing/completion semantics as applyWorkoutToJourneys, for one route.
+function advanceJourney(userId, journeyKey, addKm) {
+  const add = Number(addKm);
+  if (!Number.isFinite(add) || add <= 0) return null;
+  const j = db.prepare(`
+    SELECT j.*, uj.progress_km, uj.last_waypoint_km, uj.completed_at
+    FROM journeys j JOIN user_journeys uj ON uj.journey_id = j.id AND uj.user_id = ?
+    WHERE j.key = ?
+  `).get(userId, journeyKey);
+  if (!j || j.completed_at) return null;
+
+  // Round on store: a live session adds hundreds of tiny increments, and raw
+  // float accumulation surfaces as 3.5999999999999996 km in the UI.
+  const progress = Math.min(Math.round((Number(j.progress_km) + add) * 1000) / 1000, j.total_km);
+  const lastWp = Number(j.last_waypoint_km);
+  const crossed = db.prepare(
+    'SELECT * FROM journey_waypoints WHERE journey_id = ? AND km_mark > ? AND km_mark <= ? ORDER BY km_mark'
+  ).all(j.id, lastWp, progress);
+  const newLastWp = crossed.length ? crossed[crossed.length - 1].km_mark : lastWp;
+  const completed = progress >= j.total_km;
+  db.prepare('UPDATE user_journeys SET progress_km = ?, last_waypoint_km = ?, completed_at = ? WHERE user_id = ? AND journey_id = ?')
+    .run(progress, newLastWp, completed ? new Date().toISOString() : null, userId, j.id);
+
+  return {
+    journey: j,
+    added_km: add,
+    progress_km: progress,
+    percent: Math.min(100, Math.round((progress / j.total_km) * 100)),
+    waypoints: crossed,
+    completed,
+  };
+}
+
+module.exports = { JOURNEYS, ASSUMED_KMH, ensureJourneys, applyWorkoutToJourneys, kmFromWorkout, advanceJourney };
