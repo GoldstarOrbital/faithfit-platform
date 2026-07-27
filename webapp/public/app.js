@@ -477,13 +477,16 @@ async function renderExplore(main) {
       <button data-etab="motivation" class="${state.exploreTab==='motivation'?'active':''}">Motivation</button>
       <button data-etab="podcasts" class="${state.exploreTab==='podcasts'?'active':''}">Podcasts</button>
       <button data-etab="videos" class="${state.exploreTab==='videos'?'active':''}">Videos</button>
+      <button data-etab="journeys" class="${state.exploreTab==='journeys'?'active':''}">Journeys</button>
     </div>
     <div id="explore-body"></div>
   `;
   main.querySelectorAll('[data-etab]').forEach(b => b.onclick = () => { state.exploreTab = b.dataset.etab; renderExplore(main); });
   const body = document.getElementById('explore-body');
 
-  if (state.exploreTab === 'challenges') {
+  if (state.exploreTab === 'journeys') {
+    await renderJourneysTab(body);
+  } else if (state.exploreTab === 'challenges') {
     const challenges = await api('/challenges');
     body.innerHTML = `<h2>Challenges</h2>
       <p class="muted" style="margin-top:-6px;margin-bottom:12px">Themed journeys through scripture and story. Join one — your workouts move you forward.</p>` +
@@ -1787,3 +1790,244 @@ else wireNotifBell();
   if (state.me) consumeSignedInRedirectParams();
   render();
 })();
+
+// ---------------------------------------------------------------- Journeys ----
+// A Zwift-style virtual adventure mode: real kilometres move a marker along a
+// legendary route, and waypoints unlock narrative + scripture.
+
+const JOURNEY_WORLD_LABEL = { fantasy: 'Fantasy', biblical: 'Scripture' };
+
+// Deterministic 32-bit hash of the journey key, so a route's drawn shape is
+// distinct per journey but stable across every render.
+function journeySeed(key) {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0);
+}
+function journeyRng(seed) {
+  let x = seed || 1;
+  return () => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; };
+}
+
+// Sample a winding path across the canvas. The squiggle is derived from the seed
+// so each route looks like its own place, and is stable across renders.
+function journeyPathPoints(key, w, h) {
+  const rnd = journeyRng(journeySeed(key));
+  const amp = 0.16 + rnd() * 0.20;
+  const freq = 1.6 + rnd() * 2.4;
+  const phase = rnd() * Math.PI * 2;
+  const drift = (rnd() - 0.5) * 0.18;
+  const pad = 18;
+  const pts = [];
+  const N = 140;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const x = pad + t * (w - pad * 2);
+    const wobble = Math.sin(phase + t * Math.PI * freq) * amp + Math.sin(phase * 2 + t * Math.PI * freq * 2.3) * amp * 0.35;
+    const y = h / 2 + wobble * (h / 2 - pad) + drift * (t - 0.5) * h;
+    pts.push([x, Math.max(pad, Math.min(h - pad, y))]);
+  }
+  return pts;
+}
+
+// Elevation profile for terrain === 'climb': a rising curve, so a climb up Sinai
+// actually looks like a climb.
+function journeyClimbPoints(key, w, h) {
+  const seed = journeySeed(key);
+  const rnd = journeyRng(seed);
+  const rough = 0.03 + rnd() * 0.05;
+  const bias = 1.25 + rnd() * 0.7;
+  const pad = 18;
+  const pts = [];
+  const N = 120;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    const base = Math.pow(t, 1 / bias);
+    const noise = Math.sin(t * 17 + (seed % 7)) * rough * (1 - t);
+    const y = (h - pad) - Math.max(0, Math.min(1, base + noise)) * (h - pad * 2);
+    pts.push([pad + t * (w - pad * 2), y]);
+  }
+  return pts;
+}
+
+function polyLength(pts) {
+  let L = 0;
+  for (let i = 1; i < pts.length; i++) L += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+  return L;
+}
+// Point at fraction t (0..1) of the polyline's arc length.
+function pointAtFraction(pts, t) {
+  const target = polyLength(pts) * Math.max(0, Math.min(1, t));
+  let acc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const seg = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    if (acc + seg >= target) {
+      const f = seg === 0 ? 0 : (target - acc) / seg;
+      return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * f, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * f];
+    }
+    acc += seg;
+  }
+  return pts[pts.length - 1];
+}
+// Split the polyline into the travelled prefix and the remaining suffix.
+function splitAtFraction(pts, t) {
+  const p = pointAtFraction(pts, t);
+  const target = polyLength(pts) * Math.max(0, Math.min(1, t));
+  let acc = 0, idx = pts.length - 1;
+  for (let i = 1; i < pts.length; i++) {
+    const seg = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    if (acc + seg >= target) { idx = i; break; }
+    acc += seg;
+  }
+  return { done: pts.slice(0, idx).concat([p]), left: [p].concat(pts.slice(idx)) };
+}
+const toJourneyPath = pts => pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' ');
+
+// The centrepiece: a stylised route map (or elevation profile for climbs) with
+// waypoint dots, the travelled portion in emerald and the rest a faded hairline.
+function journeyMapSvg(journey, waypoints, progressKm) {
+  const W = 320, H = 150;
+  const isClimb = journey.terrain === 'climb';
+  const pts = isClimb ? journeyClimbPoints(journey.key, W, H) : journeyPathPoints(journey.key, W, H);
+  const total = Number(journey.total_km) || 1;
+  const prog = Number(progressKm) || 0;
+  const frac = Math.max(0, Math.min(1, prog / total));
+  const parts = splitAtFraction(pts, frac);
+  const here = pointAtFraction(pts, frac);
+  const gid = 'jgrad-' + journeySeed(journey.key);
+
+  const area = isClimb
+    ? '<path d="' + toJourneyPath(pts) + ' L' + (W - 18).toFixed(1) + ',' + (H - 18).toFixed(1) + ' L18,' + (H - 18).toFixed(1) + ' Z" fill="url(#' + gid + ')" opacity="0.6"/>'
+    : '';
+
+  const dots = (waypoints || []).map(w => {
+    const p = pointAtFraction(pts, Math.max(0, Math.min(1, w.km_mark / total)));
+    const on = w.km_mark <= prog;
+    return '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="' + (on ? 4.6 : 3.4) + '"'
+      + ' fill="' + (on ? 'var(--gold)' : 'var(--parch-1)') + '"'
+      + ' stroke="' + (on ? 'var(--gold-2)' : 'var(--hairline)') + '" stroke-width="1.4">'
+      + '<title>' + escapeHtml(w.title) + ' · ' + w.km_mark + ' km</title></circle>';
+  }).join('');
+
+  return '<svg class="journey-map" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img"'
+    + ' aria-label="Route map for ' + escapeHtml(journey.name) + '">'
+    + '<defs><linearGradient id="' + gid + '" x1="0" y1="1" x2="0" y2="0">'
+    + '<stop offset="0%" stop-color="var(--forest)" stop-opacity="0.06"/>'
+    + '<stop offset="100%" stop-color="var(--emerald)" stop-opacity="0.42"/>'
+    + '</linearGradient></defs>'
+    + (isClimb ? '<line x1="18" y1="' + (H - 18) + '" x2="' + (W - 18) + '" y2="' + (H - 18) + '" stroke="var(--hairline)" stroke-width="1"/>' : '')
+    + area
+    + '<path d="' + toJourneyPath(parts.left) + '" fill="none" stroke="var(--hairline)" stroke-width="3" stroke-linecap="round" stroke-dasharray="2 6" opacity="0.85"/>'
+    + '<path d="' + toJourneyPath(parts.done) + '" fill="none" stroke="var(--emerald-2)" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/>'
+    + dots
+    + '<circle cx="' + here[0].toFixed(1) + '" cy="' + here[1].toFixed(1) + '" r="8" fill="none" stroke="var(--gold)" stroke-width="1.2" opacity="0.6"/>'
+    + '<circle cx="' + here[0].toFixed(1) + '" cy="' + here[1].toFixed(1) + '" r="4.8" fill="var(--emerald-2)" stroke="var(--gold)" stroke-width="1.6"/>'
+    + '</svg>';
+}
+
+const fmtKm = n => (Math.round(Number(n) * 10) / 10).toFixed(1);
+
+async function renderJourneysTab(body) {
+  body.innerHTML = '<div class="card glass" style="text-align:center">Loading journeys…</div>';
+  let journeys;
+  try { journeys = await api('/journeys'); }
+  catch { body.innerHTML = '<div class="card glass">Could not load journeys.</div>'; return; }
+
+  const card = j => {
+    const prog = Number(j.progress_km) || 0;
+    const meta = fmtKm(j.total_km) + ' km · ' + escapeHtml(j.terrain || '')
+      + (j.elevation_m ? ' · ' + j.elevation_m + ' m' : '')
+      + ' · ' + j.waypoint_count + ' waypoints · ' + j.travellers + ' travelling';
+    return '<div class="card glass journey-card ' + (j.completed ? 'done' : '') + '" data-journey="' + escapeHtml(j.key) + '">'
+      + '<div class="journey-map-wrap">' + journeyMapSvg(j, [], prog) + '</div>'
+      + '<div class="journey-hd"><div>'
+      + '<div class="journey-name">' + escapeHtml(j.name) + '</div>'
+      + '<div class="journey-sub">' + escapeHtml(j.subtitle || '') + '</div></div>'
+      + '<span class="journey-world">' + (JOURNEY_WORLD_LABEL[j.world] || escapeHtml(j.world)) + '</span></div>'
+      + '<div class="journey-meta">' + meta + '</div>'
+      + (j.joined
+        ? '<div class="challenge-track"><span style="width:' + j.percent + '%"></span></div>'
+          + '<div class="journey-progress">' + fmtKm(prog) + ' / ' + fmtKm(j.total_km) + ' km · ' + j.percent + '%'
+          + (j.next_waypoint ? ' · next in ' + fmtKm(j.next_waypoint.km_remaining) + ' km' : '') + '</div>'
+        : '<div class="journey-flavor">' + escapeHtml(j.description || '') + '</div>')
+      + '</div>';
+  };
+
+  const biblical = journeys.filter(j => j.world === 'biblical');
+  const fantasy = journeys.filter(j => j.world === 'fantasy');
+  body.innerHTML = '<h2>Journeys</h2>'
+    + '<p class="muted" style="margin-top:-6px;margin-bottom:14px">Pick a route. Every kilometre you cover in the real world moves you along it — and waypoints open as you pass them.</p>'
+    + (biblical.length ? '<h3 class="journey-group">Walk the scriptures</h3>' + biblical.map(card).join('') : '')
+    + (fantasy.length ? '<h3 class="journey-group">Tales &amp; long roads</h3>' + fantasy.map(card).join('') : '');
+  body.querySelectorAll('[data-journey]').forEach(el => el.onclick = () => renderJourneyDetail(el.dataset.journey));
+}
+
+async function renderJourneyDetail(key) {
+  const main = document.getElementById('main');
+  document.querySelectorAll('nav button').forEach(b => b.style.display = 'none');
+  const back = () => {
+    document.querySelectorAll('nav button').forEach(b => b.style.display = '');
+    state.tab = 'explore'; state.exploreTab = 'journeys'; render();
+  };
+  const shell = inner => {
+    main.innerHTML = '<button class="ghost back-btn" id="journey-back">← Back</button>' + inner;
+    document.getElementById('journey-back').onclick = back;
+  };
+  shell('<div class="card glass" style="text-align:center">Loading…</div>');
+
+  let data;
+  try { data = await api('/journeys/' + encodeURIComponent(key)); }
+  catch { shell('<div class="card glass">Could not load this journey.</div>'); return; }
+  if (!data || !data.journey) { shell('<div class="card glass">Could not load this journey.</div>'); return; }
+
+  const j = data.journey;
+  const prog = data.joined ? (Number(data.progress_km) || 0) : 0;
+
+  const hero = '<div class="card glass journey-hero ' + (data.completed ? 'done' : '') + '">'
+    + '<div class="journey-hd"><div>'
+    + '<h2 class="journey-title">' + escapeHtml(j.name) + '</h2>'
+    + '<div class="journey-sub">' + escapeHtml(j.subtitle || '') + '</div></div>'
+    + '<span class="journey-world">' + (JOURNEY_WORLD_LABEL[j.world] || escapeHtml(j.world)) + '</span></div>'
+    + '<div class="journey-map-wrap tall">' + journeyMapSvg(j, data.waypoints, prog) + '</div>'
+    + (j.terrain === 'climb'
+      ? '<div class="journey-legend">Elevation profile · ' + (j.elevation_m || 0) + ' m of ascent over ' + fmtKm(j.total_km) + ' km</div>'
+      : '<div class="journey-legend">Route map · ' + fmtKm(j.total_km) + ' km · ' + escapeHtml(j.terrain || '') + '</div>')
+    + '<div class="journey-flavor">' + escapeHtml(j.description || '') + '</div>'
+    + (j.scripture_ref ? '<div class="journey-ref">' + escapeHtml(j.scripture_ref) + '</div>' : '')
+    + (data.joined
+      ? '<div class="challenge-track"><span style="width:' + data.percent + '%"></span></div>'
+        + '<div class="journey-progress big">' + fmtKm(prog) + ' / ' + fmtKm(j.total_km) + ' km · ' + data.percent + '%</div>'
+        + '<div class="journey-next">' + (data.completed
+          ? '🏁 Journey complete — the whole road behind you.'
+          : data.next_waypoint
+            ? 'Next: ' + escapeHtml(data.next_waypoint.title) + ' in ' + fmtKm(data.next_waypoint.km_remaining) + ' km'
+            : 'Keep going — the last stretch is ahead.') + '</div>'
+      : '<div class="journey-meta">' + fmtKm(j.total_km) + ' km · ' + escapeHtml(j.terrain || '')
+        + (j.elevation_m ? ' · ' + j.elevation_m + ' m' : '')
+        + ' · best on a ' + escapeHtml(j.activity_hint || 'any') + '</div>')
+    + '<button class="follow-btn ' + (data.joined ? 'following' : '') + '" id="journey-join">'
+    + (data.joined ? 'Leave journey' : 'Begin this journey') + '</button>'
+    + '</div>';
+
+  const wps = data.waypoints.map(w => w.unlocked
+    ? '<div class="card glass journey-wp unlocked">'
+      + '<div class="journey-wp-hd"><span class="journey-wp-km">' + fmtKm(w.km_mark) + ' km</span>'
+      + '<span class="journey-wp-title">' + escapeHtml(w.title) + '</span></div>'
+      + (w.narrative ? '<div class="journey-wp-narrative">' + escapeHtml(w.narrative) + '</div>' : '')
+      + (w.scripture_ref
+        ? '<div class="verse-card"><div class="verse-ref">' + escapeHtml(w.scripture_ref) + '</div>'
+          + (w.scripture_text ? '<div class="verse-text">' + escapeHtml(w.scripture_text) + '</div>' : '')
+          + '</div>'
+        : '')
+      + '</div>'
+    : '<div class="card glass journey-wp locked">'
+      + '<div class="journey-wp-hd"><span class="journey-wp-km">' + fmtKm(w.km_mark) + ' km</span>'
+      + '<span class="journey-wp-title">🔒 Not yet reached</span></div></div>'
+  ).join('');
+
+  shell(hero + '<h3 class="journey-group">Waypoints</h3>' + wps);
+  document.getElementById('journey-join').onclick = async () => {
+    await api('/journeys/' + encodeURIComponent(j.key) + '/' + (data.joined ? 'leave' : 'join'), { method: 'POST' });
+    renderJourneyDetail(j.key);
+  };
+}
