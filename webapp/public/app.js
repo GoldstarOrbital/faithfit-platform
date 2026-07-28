@@ -2,6 +2,10 @@ const state = {
   tab: 'home', me: null, exploreTab: null,
   activeWorkout: null, hrTimer: null, elapsed: 0, hr: 0,
   gpsWatchId: null, gpsPoints: [], leafletMap: null, leafletLine: null,
+  // Live workout telemetry. Times and altitudes run parallel to gpsPoints so the
+  // Leaflet polyline keeps its [lat,lng] shape.
+  gpsTimes: [], gpsAlt: [], elevGainM: 0, altRef: null,
+  splits: [], lastSplitKm: 0, lastSplitElapsed: 0, hrSamples: [],
   bleDevice: null, bleServer: null, bleConnected: false,
   breathePhase: 'idle',
 };
@@ -1549,6 +1553,15 @@ async function renderWorkout(main) {
       <select id="workout-type" ${state.activeWorkout ? 'disabled' : ''}>${opts}</select>
       <div class="hr-ring"><div class="hr-display" id="hr-display">${state.bleConnected && state.hr ? state.hr : '--'}</div><div class="hr-label">BPM ${state.bleConnected ? '· 📶 live' : `· <button type="button" class="hr-connect-link" id="hr-connect">connect a monitor</button>`}</div></div>
       <div class="timer-display" id="timer-display">${formatElapsed(state.elapsed)}</div>
+      <div class="live-metrics" id="live-metrics">
+        <div class="lm-cell"><div class="lm-value" id="lm-distance">--</div><div class="lm-label">km</div></div>
+        <div class="lm-cell"><div class="lm-value" id="lm-pace">--</div><div class="lm-label">pace /km</div></div>
+        <div class="lm-cell"><div class="lm-value" id="lm-avgpace">--</div><div class="lm-label">avg /km</div></div>
+        <div class="lm-cell"><div class="lm-value" id="lm-zone">--</div><div class="lm-label">HR zone</div></div>
+        <div class="lm-cell"><div class="lm-value" id="lm-elev">--</div><div class="lm-label">elev m</div></div>
+        <div class="lm-cell"><div class="lm-value" id="lm-cal">--</div><div class="lm-label">kcal est.</div></div>
+      </div>
+      <div class="lm-splits" id="lm-splits"></div>
       <button class="start-stop-btn ${state.activeWorkout ? 'stop' : 'start'}" id="start-stop">${state.activeWorkout ? 'Stop' : 'Start'}</button>
       <div id="gps-status" class="muted"></div>
       <div id="map" style="width:100%;height:180px;border-radius:16px;overflow:hidden;display:none"></div>
@@ -1668,6 +1681,18 @@ function startGps() {
     (pos) => {
       const pt = [pos.coords.latitude, pos.coords.longitude];
       state.gpsPoints.push(pt);
+      state.gpsTimes.push(Date.now());
+      // Altitude is often null indoors or on cheap receivers; only accumulate
+      // climb when the device actually reports it, and ignore jitter under 1m.
+      const alt = (pos.coords.altitude != null && isFinite(pos.coords.altitude)) ? pos.coords.altitude : null;
+      state.gpsAlt.push(alt);
+      if (alt != null) {
+        if (state.altRef == null) state.altRef = alt;
+        // Count ascent once it clears 2m above the running reference, then move
+        // the reference up. Gradual climbs accumulate; receiver noise does not.
+        if (alt - state.altRef > 2) { state.elevGainM += alt - state.altRef; state.altRef = alt; }
+        else if (alt < state.altRef) state.altRef = alt;
+      }
       if (statusEl()) statusEl().textContent = `GPS locked · ${state.gpsPoints.length} points · ±${Math.round(pos.coords.accuracy)}m`;
       if (!state.leafletMap && document.getElementById('map')) initMap(false);
       if (state.leafletMap) { state.leafletLine.addLatLng(pt); state.leafletMap.panTo(pt); }
@@ -1690,11 +1715,125 @@ function gpsDistanceKm() {
   return d;
 }
 
+// --- Live workout figures ---------------------------------------------------
+// What you actually want on screen mid-effort: distance covered, how fast you
+// are going now, how fast you have been overall, and what your heart is doing.
+//
+// Every figure is measured or it is blank. Distance and pace come from GPS
+// fixes; with no GPS lock they read "--" rather than being modelled from time.
+// Heart rate and zones come only from a paired monitor. The one estimate on the
+// screen, calories, is labelled as an estimate.
+
+function paceStr(minPerKm) {
+  if (!isFinite(minPerKm) || minPerKm <= 0 || minPerKm > 60) return '--';
+  const m = Math.floor(minPerKm);
+  const sec = Math.round((minPerKm - m) * 60);
+  return m + ':' + String(sec === 60 ? 0 : sec).padStart(2, '0');
+}
+
+function liveDistanceKm() {
+  let d = 0;
+  for (let i = 1; i < state.gpsPoints.length; i++) d += haversineKm(state.gpsPoints[i - 1], state.gpsPoints[i]);
+  return d;
+}
+
+// Speed over the last ~30 seconds of fixes, which is what "current pace" means
+// on a run. A single fix pair is far too noisy to show anyone.
+function rollingPaceMinPerKm() {
+  const n = state.gpsPoints.length;
+  if (n < 3) return null;
+  const cutoff = Date.now() - 30000;
+  let i = n - 1;
+  while (i > 0 && state.gpsTimes[i] > cutoff) i--;
+  if (n - 1 - i < 2) return null;
+  let km = 0;
+  for (let k = i + 1; k < n; k++) km += haversineKm(state.gpsPoints[k - 1], state.gpsPoints[k]);
+  const mins = (state.gpsTimes[n - 1] - state.gpsTimes[i]) / 60000;
+  if (km < 0.005 || mins <= 0) return null;
+  return mins / km;
+}
+
+// The user's max heart rate, stated or estimated from birth year (Tanaka).
+// Without either there is no reference, so no zone is claimed.
+function clientMaxHr() {
+  const me = state.me || {};
+  const stated = Number(me.max_hr);
+  if (isFinite(stated) && stated >= 120 && stated <= 230) return stated;
+  const by = Number(me.birth_year);
+  if (Number.isInteger(by) && by >= 1900) {
+    const age = new Date().getFullYear() - by;
+    if (age >= 10 && age <= 110) return Math.round(208 - 0.7 * age);
+  }
+  return null;
+}
+
+function hrZoneClient(hr, maxHr) {
+  if (!hr || !maxHr) return null;
+  const pct = hr / maxHr;
+  if (pct < 0.60) return 1;
+  if (pct < 0.70) return 2;
+  if (pct < 0.80) return 3;
+  if (pct < 0.90) return 4;
+  return 5;
+}
+
+function updateLiveMetrics() {
+  const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+  const km = liveDistanceKm();
+  const hasGps = state.gpsPoints.length >= 2;
+
+  set('lm-distance', hasGps ? km.toFixed(2) : '--');
+  set('lm-elev', state.gpsAlt.some(a => a != null) ? Math.round(state.elevGainM) : '--');
+
+  const roll = rollingPaceMinPerKm();
+  set('lm-pace', roll ? paceStr(roll) : '--');
+  const avg = (hasGps && km > 0.02 && state.elapsed > 0) ? (state.elapsed / 60) / km : null;
+  set('lm-avgpace', avg ? paceStr(avg) : '--');
+
+  const hr = state.bleConnected && state.hr > 0 ? state.hr : null;
+  const maxHr = clientMaxHr();
+  const zone = hrZoneClient(hr, maxHr);
+  set('lm-zone', zone ? ('Z' + zone) : '--');
+  const zoneEl = document.getElementById('lm-zone');
+  if (zoneEl) zoneEl.className = 'lm-value' + (zone ? ' zone-' + zone : '');
+
+  // Calories: a rough MET-style figure from duration and pace. Marked as an
+  // estimate on screen because that is exactly what it is.
+  const mins = state.elapsed / 60;
+  const kcal = hasGps && km > 0 ? Math.round(km * 62) : Math.round(mins * 7);
+  set('lm-cal', mins > 0.2 ? String(kcal) : '--');
+
+  // Automatic kilometre splits, the way a run watch beeps them.
+  if (hasGps && km >= state.lastSplitKm + 1) {
+    const sec = state.elapsed - state.lastSplitElapsed;
+    if (sec > 0) {
+      state.lastSplitKm += 1;
+      state.lastSplitElapsed = state.elapsed;
+      state.splits.push({ km: state.lastSplitKm, sec });
+      renderSplits();
+    }
+  }
+}
+
+function renderSplits() {
+  const box = document.getElementById('lm-splits');
+  if (!box) return;
+  if (!state.splits.length) { box.innerHTML = ''; return; }
+  const best = Math.min(...state.splits.map(s => s.sec));
+  box.innerHTML = '<div class="lm-splits-head">Splits</div>'
+    + state.splits.slice().reverse().map(sp =>
+        '<div class="lm-split' + (sp.sec === best ? ' best' : '') + '">'
+        + '<span>km ' + sp.km + '</span>'
+        + '<span>' + paceStr(sp.sec / 60) + ' /km</span></div>').join('');
+}
+
 async function startWorkout() {
   const type = document.getElementById('workout-type').value;
   const w = await api('/workouts/start', { method: 'POST', body: { type } });
   state.activeWorkout = w.id;
   state.elapsed = 0;
+  state.gpsTimes = []; state.gpsAlt = []; state.elevGainM = 0; state.altRef = null;
+  state.splits = []; state.lastSplitKm = 0; state.lastSplitElapsed = 0;
   // Heart rate comes ONLY from a paired monitor. With no strap connected we show
   // nothing and send nothing — the app never invents a physiological value.
   if (!state.bleConnected) state.hr = 0;
@@ -1703,6 +1842,7 @@ async function startWorkout() {
   state.hrTimer = setInterval(async () => {
     state.elapsed += 1;
     document.getElementById('timer-display').textContent = formatElapsed(state.elapsed);
+    updateLiveMetrics();
     if (state.elapsed % 5 === 0) {
       const hr = state.bleConnected && state.hr > 0 ? state.hr : null;
       const result = await api(`/workouts/${state.activeWorkout}/sample`, { method: 'POST', body: { heart_rate: hr } });

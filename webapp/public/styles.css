@@ -907,3 +907,20 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
   .explore-grid{grid-template-columns:repeat(auto-fill,minmax(132px,1fr))}
   .explore-tile{padding:12px}
 }
+
+
+/* Live workout figures. Anything not actually measured reads '--'. */
+.live-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;width:100%;margin:12px 0 4px}
+.lm-cell{background:var(--parch);border:1px solid rgba(0,0,0,.09);border-radius:12px;
+  padding:9px 6px;text-align:center}
+.lm-value{font-size:1.35rem;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums;color:var(--ink)}
+.lm-label{font-size:.66rem;text-transform:uppercase;letter-spacing:.07em;opacity:.62;margin-top:2px}
+.lm-value.zone-1{color:#6c8fb3}.lm-value.zone-2{color:#4e9e6a}.lm-value.zone-3{color:#c9a227}
+.lm-value.zone-4{color:#d2762c}.lm-value.zone-5{color:#c0392b}
+
+.lm-splits{width:100%;margin-top:6px}
+.lm-splits-head{font-size:.68rem;text-transform:uppercase;letter-spacing:.07em;opacity:.6;margin-bottom:4px}
+.lm-split{display:flex;justify-content:space-between;font-size:.84rem;padding:4px 8px;
+  border-radius:8px;font-variant-numeric:tabular-nums}
+.lm-split:nth-child(odd){background:rgba(0,0,0,.035)}
+.lm-split.best{font-weight:700;color:var(--emerald-2,#46c07f)}
