@@ -14,6 +14,7 @@ const { ensureChallenges, applyWorkoutToChallenges } = require('../lib/challenge
 const { ensureJourneys, applyWorkoutToJourneys, advanceJourney, lookupScriptureText } = require('../lib/journeys');
 const moments = require('../lib/moments');
 const segments = require('../lib/segments');
+const overlay = require('../lib/overlay');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
 const { searchNearbyChurches } = require('../lib/overpass');
@@ -2799,6 +2800,38 @@ router.post('/journeys/:key/segments/:index/complete', requireAuth, (req, res) =
     duration_sec: result.duration_sec, personal_best: result.personal_best, rank: result.rank,
   });
   res.json({ ...result, from: seg.from, to: seg.to });
+});
+
+// --- Creator overlay -------------------------------------------------------
+// A browser source for OBS. The streamer holds a capability token; the public
+// read behind it exposes only what an overlay draws.
+
+router.get('/overlay/token', requireAuth, (req, res) => {
+  const t = overlay.tokenFor(req.session.userId);
+  res.json({ token: t ? t.token : null, created_at: t ? t.created_at : null });
+});
+
+router.post('/overlay/token', requireAuth, (req, res) => {
+  // Issuing again rotates, which is also how you revoke a URL you have shared.
+  res.status(201).json({ ...overlay.issueToken(req.session.userId) });
+});
+
+router.delete('/overlay/token', requireAuth, (req, res) => {
+  res.json(overlay.revokeToken(req.session.userId));
+});
+
+// The live session posts here while riding.
+router.post('/overlay/state', requireAuth, (req, res) => {
+  if (!overlay.tokenFor(req.session.userId)) return res.status(409).json({ error: 'overlay_not_enabled' });
+  res.json(overlay.putState(req.session.userId, req.body));
+});
+
+// Public: read by token. No session, no cookies — OBS cannot sign in.
+router.get('/overlay/s/:token', (req, res) => {
+  const data = overlay.readByToken(req.params.token);
+  if (!data) return res.status(404).json({ error: 'unknown_overlay' });
+  res.set('cache-control', 'no-store');
+  res.json(data);
 });
 
 module.exports = router;

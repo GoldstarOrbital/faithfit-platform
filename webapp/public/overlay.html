@@ -1,0 +1,96 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>FitFaith — creator overlay</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Spectral:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet" />
+<style>
+  /* A browser source composites onto the stream, so the page itself must carry
+     no background of its own. Everything visible is a panel. */
+  html, body {
+    margin: 0; padding: 0; background: transparent;
+    font-family: 'Spectral', Georgia, serif; color: #f7f1e6;
+    overflow: hidden; -webkit-font-smoothing: antialiased;
+  }
+  #root { position: fixed; inset: 0; padding: 22px; display: flex;
+          flex-direction: column; justify-content: space-between; }
+  #root[hidden] { display: none; }
+
+  /* Panels are dark and translucent so they read over any footage. Text carries
+     its own shadow rather than relying on the panel alone. */
+  .panel {
+    background: rgba(18, 13, 9, 0.72);
+    border: 1px solid rgba(255, 236, 200, 0.16);
+    border-radius: 16px;
+    box-shadow: 0 10px 34px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(9px);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+  }
+
+  /* --- top row: route + figures --- */
+  .top { display: flex; gap: 14px; align-items: flex-start; }
+  .route { padding: 12px 18px; min-width: 0; }
+  .route-name { font-family: 'Cinzel', serif; font-weight: 700; font-size: 1.15rem;
+                letter-spacing: .01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .route-sub { font-size: .78rem; opacity: .72; margin-top: 2px; }
+  .track { height: 5px; border-radius: 99px; background: rgba(255,255,255,.16); margin-top: 9px; overflow: hidden; }
+  .track span { display: block; height: 100%; background: linear-gradient(90deg, #b8894a, #e8c07a); }
+
+  .figures { display: flex; gap: 0; padding: 10px 4px; margin-left: auto; }
+  .fig { padding: 2px 16px; text-align: center; border-left: 1px solid rgba(255,255,255,.12); }
+  .fig:first-child { border-left: 0; }
+  .fig-v { font-size: 1.5rem; font-weight: 700; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  .fig-l { font-size: .6rem; text-transform: uppercase; letter-spacing: .1em; opacity: .6; margin-top: 3px; }
+  .z1 { color: #8fb4d8 } .z2 { color: #7ad1a0 } .z3 { color: #ecd06a }
+  .z4 { color: #f0a15c } .z5 { color: #ef7b6a }
+
+  /* --- the verse --- */
+  .verse { padding: 16px 20px; max-width: 640px; align-self: flex-start;
+           animation: rise .55s cubic-bezier(.2,.8,.3,1) both; }
+  .verse.out { animation: fade .5s ease forwards; }
+  .moment { display: flex; align-items: center; gap: 8px; font-size: .68rem;
+            text-transform: uppercase; letter-spacing: .12em; opacity: .75; margin-bottom: 7px; }
+  .moment .dot { width: 6px; height: 6px; border-radius: 99px; background: #e8c07a; }
+  .measured { border: 1px solid rgba(255,255,255,.28); border-radius: 99px;
+              padding: 1px 7px; font-size: .58rem; letter-spacing: .08em; }
+  .ref { font-family: 'Cinzel', serif; font-weight: 700; font-size: .95rem; color: #e8c07a; margin-bottom: 4px; }
+  .text { font-size: 1.16rem; line-height: 1.5; font-style: italic; }
+
+  .mark { display: flex; align-items: center; gap: 7px; font-size: .68rem;
+          letter-spacing: .13em; text-transform: uppercase; opacity: .55; margin-top: 12px; }
+  .mark svg { width: 13px; height: 13px }
+
+  @keyframes rise { from { opacity: 0; transform: translateY(16px) } to { opacity: 1; transform: none } }
+  @keyframes fade { to { opacity: 0; transform: translateY(-8px) } }
+</style>
+</head>
+<body>
+<div id="root" hidden>
+  <div class="top">
+    <div class="panel route">
+      <div class="route-name" id="route">—</div>
+      <div class="route-sub" id="sub"></div>
+      <div class="track"><span id="bar" style="width:0%"></span></div>
+    </div>
+    <div class="panel figures" id="figures"></div>
+  </div>
+
+  <div class="panel verse" id="verse" hidden>
+    <div class="moment"><span class="dot"></span><span id="moment-label"></span>
+      <span class="measured" id="moment-src" hidden></span></div>
+    <div class="ref" id="ref"></div>
+    <div class="text" id="text"></div>
+    <div class="mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2l7 3v6c0 5-3.5 8-7 11-3.5-3-7-6-7-11V5l7-3z"/><path d="M12 7v7M9 10h6"/>
+      </svg>
+      <span id="mark-name">FitFaith</span>
+    </div>
+  </div>
+</div>
+<script src="/overlay.js"></script>
+</body>
+</html>

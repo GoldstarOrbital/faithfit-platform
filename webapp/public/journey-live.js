@@ -79,6 +79,7 @@ function teardownJourneyLive() {
   try { if (journeyLive.world) journeyLive.world.dispose(); } catch {}
   if (journeyLive.pushTimer) clearInterval(journeyLive.pushTimer);
   if (journeyLive.momentTimer) clearInterval(journeyLive.momentTimer);
+  if (journeyLive.overlayTimer) clearInterval(journeyLive.overlayTimer);
   journeyLive = null;
 }
 
@@ -236,7 +237,7 @@ async function renderJourneyLive(key) {
     },
   });
 
-  journeyLive = { session, world, pushTimer: null, momentTimer: null, lastPushedKm: 0, key: j.key };
+  journeyLive = { session, world, pushTimer: null, momentTimer: null, overlayTimer: null, lastPushedKm: 0, key: j.key };
 
   async function submitSegment(seg, durationSec, measured) {
     if (!(durationSec > 0)) return;
@@ -294,6 +295,7 @@ async function renderJourneyLive(key) {
       const r = await api('/journeys/' + encodeURIComponent(j.key) + '/progress', { method: 'POST', body: { add_km: +delta.toFixed(4) } });
       if (r && r.crossed && r.crossed.length) r.crossed.forEach(showWaypoint);
       if (r && r.completed) note('Journey complete — the whole road behind you.');
+      if (r && r.next_waypoint) overlayNext = r.next_waypoint.title || null;
     } catch { /* keep the session alive; the next tick retries */ }
   }
 
@@ -304,6 +306,38 @@ async function renderJourneyLive(key) {
   const seenRefs = [];
   let lastMoment = null;
   let lastVerseAt = 0;
+
+  // Creator overlay: while a token exists, mirror what is on screen to the
+  // server so an OBS browser source can draw it. Off by default, and a failed
+  // push never disturbs the ride.
+  let overlayOn = false;
+  let overlayCurrent = null;   // { label, measured, reference, text }
+  try { overlayOn = !!(await api('/overlay/token')).token; } catch { overlayOn = false; }
+
+  async function pushOverlay(s) {
+    if (!overlayOn || !journeyLive) return;
+    const total = startKm + s.distanceKm;
+    try {
+      await api('/overlay/state', { method: 'POST', body: {
+        journey_name: j.name,
+        journey_world: j.world,
+        distance_km: +total.toFixed(3),
+        total_km: j.total_km,
+        percent: Math.min(100, (total / j.total_km) * 100),
+        speed_kmh: (s.source === 'manual') ? s.declaredPaceKmh : s.speedKmh,
+        elapsed_sec: Math.round(s.elapsedSec),
+        hr: s.hr, hr_measured: !!s.hrMeasured,
+        zone: overlayZone,
+        moment_label: overlayCurrent ? overlayCurrent.label : null,
+        moment_measured: overlayCurrent ? overlayCurrent.measured : false,
+        verse_reference: overlayCurrent ? overlayCurrent.reference : null,
+        verse_text: overlayCurrent ? overlayCurrent.text : null,
+        next_waypoint: overlayNext,
+        riding: !!s.running,
+      } });
+    } catch { /* the overlay is decoration; never let it break a session */ }
+  }
+  let overlayZone = null, overlayNext = null;
   let zoneHintShown = false;
 
   async function checkMoment() {
@@ -333,6 +367,7 @@ async function renderJourneyLive(key) {
 
     const zoneEl = el('live-zone');
     if (zoneEl) zoneEl.textContent = (r.measured && r.zone) ? ('Z' + r.zone) : '';
+    overlayZone = (r.measured && r.zone) ? r.zone : null;
     // Tell them once why a connected strap is not producing zones.
     if (r.zone_hint && !zoneHintShown) { zoneHintShown = true; note(r.zone_hint); }
 
@@ -342,6 +377,11 @@ async function renderJourneyLive(key) {
     if (!r.verse) return;
     lastVerseAt = Date.now();
     seenRefs.push(r.verse.reference);
+    overlayCurrent = { label: r.label, measured: !!r.measured,
+                       reference: r.verse.reference, text: r.verse.text };
+    // Clear it from the overlay when it clears from the screen, so a stream is
+    // not left holding a verse from ten minutes ago.
+    setTimeout(() => { overlayCurrent = null; }, CARD_MS['live-moment'] || 15000);
     showMoment(r);
   }
 
@@ -412,6 +452,9 @@ async function renderJourneyLive(key) {
     session.start();
     if (!journeyLive.pushTimer) journeyLive.pushTimer = setInterval(pushProgress, 5000);
     if (!journeyLive.momentTimer) journeyLive.momentTimer = setInterval(checkMoment, 45000);
+    if (overlayOn && !journeyLive.overlayTimer) {
+      journeyLive.overlayTimer = setInterval(() => pushOverlay(session.state), 3000);
+    }
     checkMoment();
     el('live-start').textContent = 'Running…';
     el('live-start').disabled = true;

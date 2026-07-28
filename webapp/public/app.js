@@ -1133,6 +1133,11 @@ async function renderProfile(main) {
       <div class="muted" style="margin-bottom:10px">Full transparency — download everything FitFaith stores about your account as a JSON file.</div>
       <a class="ghost" id="data-export" href="/api/me/export" download="fitfaith-my-data.json" style="display:block;text-align:center;text-decoration:none">⬇ Download my data</a>
     </div>
+    <div class="card glass" id="creator-overlay">
+      <h2>Creator overlay</h2>
+      <div class="muted" style="margin-bottom:10px">Add this as a browser source in OBS or Streamlabs. While you ride a journey, your route, pace, heart-rate zone and the scripture you are given appear over your stream.</div>
+      <div id="ov-body" class="muted">Loading…</div>
+    </div>
     <div class="card glass" id="dev-webhooks">
       <h2>Developer webhooks</h2>
       <div class="muted" style="margin-bottom:10px">Get your account's events pushed to your own HTTPS endpoint the moment they happen.</div>
@@ -1146,6 +1151,7 @@ async function renderProfile(main) {
     <button class="ghost" id="signout" style="width:100%">Sign out</button>
   `;
   renderWebhooks();
+  renderOverlayCard();
   document.getElementById('p-defvis').onchange = async (e) => {
     await api('/profile', { method: 'PUT', body: { default_visibility: e.target.value } });
     await loadMe();
@@ -2974,5 +2980,51 @@ async function renderWebhooks() {
       };
       note(msg[e && e.error] || 'Could not add that endpoint.');
     }
+  };
+}
+
+
+// --- Creator overlay panel --------------------------------------------------
+// The URL carries a capability token, so it is treated like a secret: shown on
+// request, and rotatable the moment a streamer suspects it has leaked.
+async function renderOverlayCard() {
+  const box = document.getElementById('ov-body');
+  if (!box) return;
+  let token = null;
+  try { token = (await api('/overlay/token')).token; } catch { box.textContent = 'Could not load.'; return; }
+
+  if (!token) {
+    box.innerHTML = '<button class="primary" id="ov-enable">Enable overlay</button>';
+    document.getElementById('ov-enable').onclick = async () => {
+      await api('/overlay/token', { method: 'POST' }).catch(() => {});
+      renderOverlayCard();
+    };
+    return;
+  }
+
+  const url = location.origin + '/overlay.html?t=' + encodeURIComponent(token);
+  box.innerHTML = '<div class="ov-url" id="ov-url">' + escapeHtml(url) + '</div>'
+    + '<div class="ov-actions">'
+    +   '<button class="ghost" id="ov-copy">Copy URL</button>'
+    +   '<button class="ghost" id="ov-open">Preview</button>'
+    +   '<button class="ghost" id="ov-rotate">Rotate</button>'
+    +   '<button class="ghost danger" id="ov-off">Turn off</button>'
+    + '</div>'
+    + '<div class="muted ov-hint">Anyone with this URL can watch your live session, so treat it like a password. Rotating it breaks any copy you have already shared. Recommended source size: 1920×1080, transparent background.</div>';
+
+  document.getElementById('ov-copy').onclick = async () => {
+    try { await navigator.clipboard.writeText(url); document.getElementById('ov-copy').textContent = 'Copied'; }
+    catch { /* clipboard blocked: the URL is on screen to select by hand */ }
+  };
+  document.getElementById('ov-open').onclick = () => window.open(url, '_blank', 'noopener');
+  document.getElementById('ov-rotate').onclick = async () => {
+    if (!confirm('Rotate the overlay URL? Any source already using the old one stops working.')) return;
+    await api('/overlay/token', { method: 'POST' }).catch(() => {});
+    renderOverlayCard();
+  };
+  document.getElementById('ov-off').onclick = async () => {
+    if (!confirm('Turn the overlay off and delete its URL?')) return;
+    await api('/overlay/token', { method: 'DELETE' }).catch(() => {});
+    renderOverlayCard();
   };
 }

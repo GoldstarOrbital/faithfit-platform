@@ -924,3 +924,12 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
   border-radius:8px;font-variant-numeric:tabular-nums}
 .lm-split:nth-child(odd){background:rgba(0,0,0,.035)}
 .lm-split.best{font-weight:700;color:var(--emerald-2,#46c07f)}
+
+
+/* Creator overlay panel */
+.ov-url{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.74rem;word-break:break-all;
+  background:rgba(0,0,0,.06);border-radius:8px;padding:8px 10px}
+.ov-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.ov-actions button{font-size:.78rem;padding:5px 9px}
+.ov-actions .danger{color:#a33}
+.ov-hint{font-size:.75rem;margin-top:8px;line-height:1.45}

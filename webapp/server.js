@@ -8,11 +8,13 @@ const youtube = require('./lib/youtube');
 const { startVideoLibraryRefresh } = require('./lib/videos');
 const developerWebhooks = require('./lib/webhooks');
 const segments = require('./lib/segments');
+const overlay = require('./lib/overlay');
 
 seed();
 // Create the webhook tables and attach the dispatcher to the domain event bus.
 developerWebhooks.start();
 segments.init();
+overlay.init();
 // Ingest real podcast episodes from public RSS feeds (background, non-blocking).
 startPodcastRefresh();
 // Church devotionals from YouTube — true no-op (not even a timer) unless
