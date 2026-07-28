@@ -232,11 +232,43 @@ async function renderSignIn() {
   };
 }
 
-function routeSvg(seed) {
-  const pts = [];
-  let x = 10, y = 55 + (seed % 20);
-  for (let i = 0; i < 8; i++) { x += 20 + (i % 3) * 5; y += Math.sin(i + seed) * 18; pts.push(`${x},${Math.max(10, Math.min(100, y))}`); }
-  return `<svg viewBox="0 0 200 110" preserveAspectRatio="none"><polyline points="${pts.join(' ')}" fill="none" stroke="#c8b273" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.95"/></svg>`;
+// The route actually recorded, drawn to fit the banner.
+//
+// This replaces a generated squiggle that was derived from the post's index —
+// it looked like a route and was read as one, but no part of it came from
+// anywhere the author had been. Nothing is drawn now unless there are real
+// coordinates to draw.
+function realRouteSvg(points) {
+  if (!Array.isArray(points) || points.length < 2) return '';
+  const lats = points.map(p => p[0]), lngs = points.map(p => p[1]);
+  const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs), maxLng = Math.max(...lngs);
+
+  // Longitude degrees shrink with latitude; without this correction an
+  // east-west route is drawn wider than it was ridden.
+  const midLat = (minLat + maxLat) / 2;
+  const spanY = Math.max(1e-6, maxLat - minLat);
+  const spanX = Math.max(1e-6, (maxLng - minLng) * Math.cos(midLat * Math.PI / 180));
+
+  const W = 200, H = 110, PAD = 12;
+  const scale = Math.min((W - PAD * 2) / spanX, (H - PAD * 2) / spanY);
+  const offX = (W - spanX * scale) / 2, offY = (H - spanY * scale) / 2;
+
+  const xy = points.map(([lat, lng]) => {
+    const x = offX + ((lng - minLng) * Math.cos(midLat * Math.PI / 180)) * scale;
+    const y = offY + (maxLat - lat) * scale;      // north at the top
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  });
+  const first = xy[0].split(','), last = xy[xy.length - 1].split(',');
+
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet">'
+    + '<polyline points="' + xy.join(' ') + '" fill="none" stroke="rgba(51,37,26,.22)" '
+    +   'stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>'
+    + '<polyline points="' + xy.join(' ') + '" fill="none" stroke="var(--meadow, #6f8f43)" '
+    +   'stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>'
+    + '<circle cx="' + first[0] + '" cy="' + first[1] + '" r="3.4" fill="var(--meadow, #6f8f43)" stroke="#fdf8ea" stroke-width="1.6"/>'
+    + '<circle cx="' + last[0] + '" cy="' + last[1] + '" r="3.4" fill="var(--hearth, #d99a3f)" stroke="#fdf8ea" stroke-width="1.6"/>'
+    + '</svg>';
 }
 
 async function renderHome(main) {
@@ -341,7 +373,7 @@ async function renderHome(main) {
       </div>
       <div class="post-content">${escapeHtml(p.content || '')}</div>
       ${p.workout_type ? `
-        <div class="route-banner">${routeSvg(i)}<span class="badge-overlay">${p.workout_type}</span></div>
+        ${p.route ? `<div class="route-banner">${realRouteSvg(p.route)}<span class="badge-overlay">${p.workout_type}</span></div>` : ''}
         <div class="stat-row">
           <div class="stat"><div class="v">${p.distance_km ?? '—'}</div><div class="l">km</div></div>
           <div class="stat"><div class="v">${p.pace_min_per_km ?? '—'}</div><div class="l">min/km</div></div>
@@ -447,7 +479,7 @@ async function renderUserProfile(userId) {
       <div class="post-time" style="margin-bottom:8px">${timeAgo(p.created_at)} ago</div>
       ${p.content ? `<div class="post-content">${escapeHtml(p.content)}</div>` : ''}
       ${p.photo_data ? `<img src="${p.photo_data}" alt="${escapeHtml(p.photo_category || 'photo')}" style="width:100%;border-radius:10px;margin-top:8px;display:block" />` : ''}
-      ${p.workout_type ? `<div class="route-banner">${routeSvg(i)}<span class="badge-overlay">${p.workout_type}</span></div>
+      ${p.workout_type ? `${p.route ? `<div class="route-banner">${realRouteSvg(p.route)}<span class="badge-overlay">${p.workout_type}</span></div>` : ''}
         <div class="stat-row">
           <div class="stat"><div class="v">${p.distance_km ?? '—'}</div><div class="l">km</div></div>
           <div class="stat"><div class="v">${p.calories ?? '—'}</div><div class="l">kcal</div></div>
@@ -1908,6 +1940,21 @@ function renderShareForm(main, ctx) {
       <select class="input" id="share-vis">
         ${['public','followers','private'].map(v => `<option value="${v}" ${v===defVis?'selected':''}>${visLabel[v]}</option>`).join('')}
       </select>
+      ${(state.gpsPoints && state.gpsPoints.length > 1) ? `
+      <div class="share-route" id="share-route-wrap">
+        <label class="share-route-toggle">
+          <input type="checkbox" id="share-route" />
+          <span>Show the route I took</span>
+        </label>
+        <div class="share-route-preview" id="share-route-preview"></div>
+        <label class="field-label" style="margin-top:8px">Hide the start and end</label>
+        <select class="input" id="share-route-privacy">
+          <option value="0">Show the whole route</option>
+          <option value="200" selected>Hide the first and last 200 m</option>
+          <option value="500">Hide the first and last 500 m</option>
+        </select>
+        <div class="muted share-route-note">A route usually starts and ends where you live. Hiding the ends keeps the shape of your run without pointing at your door.</div>
+      </div>` : ''}
       <label class="field-label">Photo — optional</label>
       <div class="muted" style="margin-bottom:6px">Nature, animals, or groups of people only — no solo photos (use your profile picture for that).</div>
       <input type="file" id="share-photo-file" accept="image/*" style="display:none">
@@ -1944,6 +1991,22 @@ function renderShareForm(main, ctx) {
     } catch { document.getElementById('share-result').textContent = 'Could not process that image.'; }
   };
 
+  // Show the author exactly what others would see, trim included.
+  const routeToggle = document.getElementById('share-route');
+  if (routeToggle) {
+    const previewEl = document.getElementById('share-route-preview');
+    const privacyEl = document.getElementById('share-route-privacy');
+    const drawPreview = () => {
+      if (!routeToggle.checked) { previewEl.innerHTML = ''; return; }
+      const trimmed = trimRouteClient(state.gpsPoints, Number(privacyEl.value) || 0);
+      previewEl.innerHTML = trimmed
+        ? '<div class="route-banner">' + realRouteSvg(trimmed) + '</div>'
+        : '<div class="muted" style="font-size:.78rem">That trim would leave nothing of this route to show. Choose a smaller one, or leave the route off.</div>';
+    };
+    routeToggle.onchange = drawPreview;
+    privacyEl.onchange = drawPreview;
+  }
+
   main.querySelector('#share-skip').onclick = () => { state.lastVerseId = null; state.lastVerse = null; setTab('home'); };
   main.querySelector('#share-post').onclick = async () => {
     const content = main.querySelector('#share-caption').value.trim();
@@ -1956,7 +2019,14 @@ function renderShareForm(main, ctx) {
       if (!checked) { resultEl.textContent = 'Pick a category for your photo (nature, animal, or group).'; return; }
       photoCategory = checked.value;
     }
-    const res = await api('/posts', { method: 'POST', body: { content, workout_id: ctx.workoutId, verse_id: ctx.verseId, visibility, photo_data: sharePhotoDataUrl, photo_category: photoCategory } });
+    const routeEl = document.getElementById('share-route');
+    const showRoute = !!(routeEl && routeEl.checked);
+    const routePrivacy = showRoute ? Number((document.getElementById('share-route-privacy') || {}).value || 0) : 0;
+
+    const res = await api('/posts', { method: 'POST', body: {
+      content, workout_id: ctx.workoutId, verse_id: ctx.verseId, visibility,
+      photo_data: sharePhotoDataUrl, photo_category: photoCategory,
+      show_route: showRoute, route_privacy_m: routePrivacy } });
     if (res.error) { resultEl.textContent = res.hint || res.error; return; }
     if (partnerIds.length && ctx.workoutId) {
       await api(`/workouts/${ctx.workoutId}/tag-partners`, { method: 'POST', body: { partner_user_ids: partnerIds } }).catch(() => {});
@@ -3469,4 +3539,19 @@ async function renderThread(threadId) {
       if (newest !== lastId) paint(fresh.messages);
     } catch { /* keep the thread open; the next tick retries */ }
   }, 5000);
+}
+
+
+// Mirrors the server's route trim so the preview shows exactly what will be
+// published rather than the full trace.
+function trimRouteClient(points, metres) {
+  if (!Array.isArray(points) || points.length < 2) return null;
+  const m = Math.max(0, Number(metres) || 0);
+  if (!m) return points;
+  const cum = [0];
+  for (let i = 1; i < points.length; i++) cum.push(cum[i - 1] + haversineKm(points[i - 1], points[i]) * 1000);
+  const total = cum[cum.length - 1];
+  if (total <= m * 2.5) return null;
+  const kept = points.filter((_, i) => cum[i] >= m && cum[i] <= total - m);
+  return kept.length >= 2 ? kept : null;
 }

@@ -489,6 +489,7 @@ router.get('/feed', (req, res) => {
     SELECT p.id, p.content, p.created_at, p.user_id author_id, u.display_name author,
            CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS author_has_avatar,
            p.visibility, p.workout_id, p.photo_data, p.photo_category,
+           p.show_route, p.route_privacy_m, w.gps_path,
            w.type workout_type, w.calories, w.avg_hr, w.start_time, w.end_time, w.distance_km,
            v.reference verse_reference, v.text verse_text, v.youversion_id
     FROM posts p
@@ -503,6 +504,13 @@ router.get('/feed', (req, res) => {
   `).all({ me: meId });
 
   const withSocial = posts.map(p => {
+    // Replace the raw trace with only what the author chose to publish, so the
+    // full path never leaves the server on a post that did not opt in.
+    const route = publishedRoute(p);
+    delete p.gps_path;
+    delete p.route_privacy_m;
+    p.route = route;
+    p.has_route = !!route;
     const likeCount = db.prepare('SELECT COUNT(*) c FROM post_likes WHERE post_id = ?').get(p.id).c;
     const likedByMe = meId ? !!db.prepare('SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?').get(p.id, meId) : false;
     const comments = db.prepare(`
@@ -891,8 +899,46 @@ router.get('/activity-types', (req, res) => res.json(ACTIVITY_TYPES));
 
 // Share a workout / reflection. Visibility defaults to the user's setting.
 const PHOTO_CATEGORIES = ['nature', 'animal', 'group'];
+// --- Published routes -------------------------------------------------------
+// A GPS trace is the most identifying thing a fitness app holds: it normally
+// begins and ends at the author's front door. So it is published only when the
+// author asked for it, and optionally with the ends trimmed.
+
+function haversineMetres(a, b) {
+  const R = 6371000, toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(b[0] - a[0]), dLng = toRad(b[1] - a[1]);
+  const s1 = Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(a[0])) * Math.cos(toRad(b[0])) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(s1)));
+}
+
+/** Drop the first and last `metres` of a trace. Returns null if nothing is left. */
+function trimRoute(points, metres) {
+  if (!Array.isArray(points) || points.length < 2) return null;
+  const m = Math.max(0, Number(metres) || 0);
+  if (!m) return points;
+
+  const cum = [0];
+  for (let i = 1; i < points.length; i++) cum.push(cum[i - 1] + haversineMetres(points[i - 1], points[i]));
+  const total = cum[cum.length - 1];
+  // Trimming both ends off a short route would leave nothing worth drawing.
+  if (total <= m * 2.5) return null;
+  const kept = points.filter((_, i) => cum[i] >= m && cum[i] <= total - m);
+  return kept.length >= 2 ? kept : null;
+}
+
+/** The route to publish for a post, or null. Never invents one. */
+function publishedRoute(post) {
+  if (!post || !post.show_route || !post.gps_path) return null;
+  let pts;
+  try { pts = JSON.parse(post.gps_path); } catch { return null; }
+  if (!Array.isArray(pts) || pts.length < 2) return null;
+  return trimRoute(pts, post.route_privacy_m);
+}
+
 router.post('/posts', requireAuth, (req, res) => {
-  const { content, workout_id, verse_id, visibility, photo_data, photo_category } = req.body || {};
+  const { content, workout_id, verse_id, visibility, photo_data, photo_category,
+          show_route, route_privacy_m } = req.body || {};
   const uid = req.session.userId;
 
   // A workout can only be posted by its owner.
@@ -922,8 +968,16 @@ router.post('/posts', requireAuth, (req, res) => {
   const vis = VISIBILITIES.includes(visibility) ? visibility : userDefault;
 
   const id = randomUUID();
-  db.prepare('INSERT INTO posts (id, user_id, content, workout_id, verse_id, visibility, photo_data, photo_category) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, uid, (content || '').toString().slice(0, 1000), workout_id || null, verse_id || null, vis, photoData, photoCategory);
+  // The route is published only for the author's own workout, only when asked
+  // for, and with a privacy trim capped to something sane.
+  const wantsRoute = !!show_route && !!workout_id ? 1 : 0;
+  const privacyM = Math.max(0, Math.min(1000, Math.round(Number(route_privacy_m) || 0)));
+
+  db.prepare(`INSERT INTO posts (id, user_id, content, workout_id, verse_id, visibility,
+              photo_data, photo_category, show_route, route_privacy_m)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, uid, (content || '').toString().slice(0, 1000), workout_id || null, verse_id || null, vis,
+         photoData, photoCategory, wantsRoute, privacyM);
   res.status(201).json({ id, visibility: vis, share_url: vis === 'public' ? `/w/${id}` : null });
 });
 

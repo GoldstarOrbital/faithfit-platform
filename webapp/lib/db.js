@@ -247,7 +247,16 @@ if (!postCols.includes('visibility')) db.exec("ALTER TABLE posts ADD COLUMN visi
 
 const workoutCols = db.prepare("PRAGMA table_info(workouts)").all().map(c => c.name);
 // gps_path: JSON array of [lat,lng] for the real route, used by the public share page.
-if (!workoutCols.includes('gps_path')) db.exec("ALTER TABLE workouts ADD COLUMN gps_path TEXT");
+if (!workoutCols.includes('gps_path')) db.exec("ALTER TABLE workouts ADD COLUMN gps_path TEXT");
+
+// Whether a post shows the route that was actually ridden. Off unless the author
+// turns it on: a GPS trace usually starts and ends at someone's home, so it is
+// never published as a side effect of sharing a workout.
+const postRouteCols = db.prepare('PRAGMA table_info(posts)').all().map(c => c.name);
+if (!postRouteCols.includes('show_route')) db.exec('ALTER TABLE posts ADD COLUMN show_route INTEGER NOT NULL DEFAULT 0');
+// Trims the first and last stretch of the published trace, which is the usual
+// mitigation for exactly that problem.
+if (!postRouteCols.includes('route_privacy_m')) db.exec('ALTER TABLE posts ADD COLUMN route_privacy_m INTEGER NOT NULL DEFAULT 0');
 
 // --- migration: real podcast RSS ingestion (additive) ---
 const podcastCols = db.prepare("PRAGMA table_info(podcasts)").all().map(c => c.name);

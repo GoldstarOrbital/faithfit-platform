@@ -1376,3 +1376,13 @@ header.topbar .xp-ring::before, nav.tabbar .xp-ring::before { background: var(--
 .dm-compose .input { flex:1; min-width:0; }
 .dm-compose .primary { padding:11px 20px; }
 .dm-blocked-note { text-align:center; padding:14px; font-size:.85rem; }
+
+
+/* Publishing a route is opt-in, and the control says why. */
+.share-route { margin-top: 12px; padding: 12px; border: 1px solid var(--line);
+  border-radius: var(--radius-sm); background: var(--parch-2); }
+.share-route-toggle { display: flex; align-items: center; gap: 9px; font-weight: 600; font-size: .9rem; cursor: pointer; }
+.share-route-toggle input { width: 17px; height: 17px; accent-color: var(--meadow); }
+.share-route-preview:not(:empty) { margin-top: 10px; }
+.share-route-preview .route-banner { height: 130px; border-radius: var(--radius-sm); background: var(--parch-1); }
+.share-route-note { font-size: .76rem; margin-top: 8px; line-height: 1.45; }
