@@ -31,26 +31,43 @@
     return threeLoading;
   }
 
+  let webglSupported = null;
   function webglAvailable() {
+    if (webglSupported !== null) return webglSupported;   // probe once, ever
     try {
       const c = document.createElement('canvas');
-      return !!(global.WebGLRenderingContext && (c.getContext('webgl') || c.getContext('experimental-webgl')));
-    } catch { return false; }
+      const gl = global.WebGLRenderingContext && (c.getContext('webgl') || c.getContext('experimental-webgl'));
+      // Hand the probe's context straight back. Browsers cap live contexts at
+      // roughly sixteen, and a leaked one per journey opened is a budget that
+      // runs out during ordinary browsing.
+      if (gl) {
+        const lose = gl.getExtension('WEBGL_lose_context');
+        if (lose) lose.loseContext();
+      }
+      webglSupported = !!gl;
+    } catch { webglSupported = false; }
+    return webglSupported;
   }
 
   // --- Themes ---------------------------------------------------------------
   // Chosen per journey. Colours are the app's own earthy palette pushed into 3D.
   const THEMES = {
-    desert:   { sky: 0xe0c08d, fog: 0xe0c08d, ground: 0xd2b075, path: 0xa8814a, prop: 0x8f6b45, peak: 0xb08a5f, accent: 0x8a5a2a, propKind: 'rock',  density: 0.5 },
-    pastoral: { sky: 0xbcd0e2, fog: 0xc8d6e0, ground: 0x8fa963, path: 0xb8a173, prop: 0x5c7346, peak: 0x7d9160, accent: 0x46c07f, propKind: 'tree',  density: 0.8 },
-    highland: { sky: 0x9fb6c6, fog: 0xa8bcc9, ground: 0x6f8368, path: 0x9c8a6a, prop: 0x33513f, peak: 0x5f7382, accent: 0x6fe6a5, propKind: 'pine',  density: 1.0 },
-    ashen:    { sky: 0x7a4a3a, fog: 0x6b4034, ground: 0x413a38, path: 0x554a45, prop: 0x2b2523, peak: 0x3a2f2c, accent: 0x8e3b2e, propKind: 'spire', density: 0.7 },
-    wold:     { sky: 0xa9c48f, fog: 0xb6cf9d, ground: 0x5f7d3f, path: 0x8a7048, prop: 0x2f4a26, peak: 0x51703c, accent: 0xd8b24a, propKind: 'tree',  density: 1.3 },
-    stone:    { sky: 0xc6d3de, fog: 0xd2dce5, ground: 0xb9b2a6, path: 0xe6e0d4, prop: 0xd8d2c6, peak: 0x8e9aa4, accent: 0x6d7f8e, propKind: 'spire', density: 0.9 },
-    coast:    { sky: 0x9fd6e8, fog: 0xbfe4ef, ground: 0x7fae7a, path: 0xd9cba6, prop: 0x4f7f6a, peak: 0x86b8c9, accent: 0xe8d27a, propKind: 'rock',  density: 0.6 },
-    winter:   { sky: 0xd8e4ee, fog: 0xdde8f0, ground: 0xeaf1f7, path: 0xa9bccd, prop: 0x2f5142, peak: 0xc3d3e0, accent: 0x4b6f8a, propKind: 'fir',   density: 1.0 },
-    fellowship: { sky: 0x9dbb8e, fog: 0xb1c9a4, ground: 0x66804a, path: 0x9b7b52, prop: 0x3f5b31, peak: 0x58765c, accent: 0xd1aa55, propKind: 'tree', density: 1.1 },
-    lantern:  { sky: 0xc7d9e6, fog: 0xdce8ef, ground: 0xe8f0f4, path: 0xb1c4d1, prop: 0x355345, peak: 0xa8bccb, accent: 0xffd27c, propKind: 'fir', density: 1.15 },
+    desert:   { sky: 0xe0c08d, skyTop: 0x4f86c6, fog: 0xe6cfa6, haze: 0.0055, sunColor: 0xffe6b0, sunPower: 1.35, weather: 'dust',
+                ground: 0xd2b075, path: 0xa8814a, prop: 0x8f6b45, peak: 0xb08a5f, accent: 0x8a5a2a, propKind: 'rock',  density: 0.5 },
+    pastoral: { sky: 0xbcd0e2, skyTop: 0x5b8fd0, fog: 0xd2e0ea, haze: 0.0050, sunColor: 0xfff4d6, sunPower: 1.15, weather: 'pollen',
+                ground: 0x8fa963, path: 0xb8a173, prop: 0x5c7346, peak: 0x7d9160, accent: 0x46c07f, propKind: 'tree',  density: 0.8 },
+    highland: { sky: 0x9fb6c6, skyTop: 0x46708f, fog: 0xb3c6d2, haze: 0.0068, sunColor: 0xffeccb, sunPower: 1.0,  weather: 'none',
+                ground: 0x6f8368, path: 0x9c8a6a, prop: 0x33513f, peak: 0x5f7382, accent: 0x6fe6a5, propKind: 'pine',  density: 1.0 },
+    ashen:    { sky: 0x7a4a3a, skyTop: 0x2a1a18, fog: 0x6b4034, haze: 0.0105, sunColor: 0xff9060, sunPower: 0.85, weather: 'ember',
+                ground: 0x413a38, path: 0x554a45, prop: 0x2b2523, peak: 0x3a2f2c, accent: 0x8e3b2e, propKind: 'spire', density: 0.7 },
+    wold:     { sky: 0xa9c48f, skyTop: 0x4d84b0, fog: 0xc3d8ae, haze: 0.0060, sunColor: 0xfff0c8, sunPower: 1.2,  weather: 'pollen',
+                ground: 0x5f7d3f, path: 0x8a7048, prop: 0x2f4a26, peak: 0x51703c, accent: 0xd8b24a, propKind: 'tree',  density: 1.3 },
+    stone:    { sky: 0xc6d3de, skyTop: 0x5d86a8, fog: 0xd8e2ea, haze: 0.0048, sunColor: 0xfff2dc, sunPower: 1.25, weather: 'none',
+                ground: 0xb9b2a6, path: 0xe6e0d4, prop: 0xd8d2c6, peak: 0x8e9aa4, accent: 0x6d7f8e, propKind: 'spire', density: 0.9 },
+    coast:    { sky: 0x9fd6e8, skyTop: 0x2f7fb8, fog: 0xc9e8f2, haze: 0.0044, sunColor: 0xfff6e0, sunPower: 1.3,  weather: 'none',
+                ground: 0x7fae7a, path: 0xd9cba6, prop: 0x4f7f6a, peak: 0x86b8c9, accent: 0xe8d27a, propKind: 'rock',  density: 0.6 },
+    winter:   { sky: 0xd8e4ee, skyTop: 0x6f9bc4, fog: 0xdfeaf2, haze: 0.0072, sunColor: 0xfff0e2, sunPower: 0.95, weather: 'snow',
+                ground: 0xeaf1f7, path: 0xa9bccd, prop: 0x2f5142, peak: 0xc3d3e0, accent: 0x4b6f8a, propKind: 'fir',   density: 1.0 },
   };
 
   // Journey key -> theme. Falls back on world/terrain for anything unlisted.
@@ -106,16 +123,68 @@
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
     renderer.setPixelRatio(Math.min(global.devicePixelRatio || 1, 2));
 
+    renderer.outputColorSpace = THREE.SRGBColorSpace || renderer.outputColorSpace;
+
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(theme.sky);
-    scene.fog = new THREE.Fog(theme.fog, 30, 190);
 
-    const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 400);
+    // A flat background colour is the single thing that made these worlds read
+    // as diagrams. A graded dome — deep overhead, pale at the horizon — plus
+    // haze in the horizon colour gives the scene air and distance.
+    const skyTop = new THREE.Color(theme.skyTop != null ? theme.skyTop : theme.sky).multiplyScalar(0.82);
+    const skyHaze = new THREE.Color(theme.fog);
+    scene.fog = new THREE.FogExp2(skyHaze.getHex(), theme.haze != null ? theme.haze : 0.0062);
+    scene.background = skyHaze.clone();
 
-    scene.add(new THREE.HemisphereLight(theme.sky, theme.ground, 1.05));
-    const sun = new THREE.DirectionalLight(0xffffff, 0.65);
-    sun.position.set(-40, 60, 20);
+    const skyGeo = new THREE.SphereGeometry(1, 24, 16);
+    {
+      // Vertex colours rather than a shader: no GLSL to keep working across
+      // three.js versions, and it costs one small mesh.
+      const pos = skyGeo.attributes.position;
+      const col = new Float32Array(pos.count * 3);
+      const c = new THREE.Color();
+      for (let i = 0; i < pos.count; i++) {
+        // -1 at the nadir, +1 overhead; ease so the gradient sits near the horizon.
+        const t = Math.max(0, Math.min(1, (pos.getY(i) + 0.15) / 0.9));
+        c.copy(skyHaze).lerp(skyTop, Math.pow(t, 0.65));
+        col[i * 3] = c.r; col[i * 3 + 1] = c.g; col[i * 3 + 2] = c.b;
+      }
+      skyGeo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    }
+    const skyDome = new THREE.Mesh(skyGeo, new THREE.MeshBasicMaterial({
+      vertexColors: true, side: THREE.BackSide, fog: false, depthWrite: false,
+    }));
+    skyDome.scale.setScalar(900);
+    skyDome.renderOrder = -1;
+    scene.add(skyDome);
+
+    const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 1400);
+
+    // Sky-to-ground bounce, plus a warm low sun and a cool fill opposite it, so
+    // surfaces turned away from the sun keep colour instead of going to mud.
+    scene.add(new THREE.HemisphereLight(skyTop.getHex(), theme.ground, 0.85));
+    const sun = new THREE.DirectionalLight(theme.sunColor != null ? theme.sunColor : 0xfff2d8,
+                                           theme.sunPower != null ? theme.sunPower : 1.15);
+    sun.position.set(-60, 70, 30);
     scene.add(sun);
+    const fill = new THREE.DirectionalLight(skyTop.getHex(), 0.28);
+    fill.position.set(50, 25, -40);
+    scene.add(fill);
+
+    // Contact shadows. A real shadow map is far more than this scene needs; a
+    // dark disc under anything standing on the ground is what actually stops
+    // objects looking like they float.
+    const shadowMat = new THREE.MeshBasicMaterial({
+      color: 0x000000, transparent: true, opacity: 0.18, depthWrite: false, fog: true,
+    });
+    const shadowGeo = new THREE.CircleGeometry(1, 12);
+    function addShadow(parent, radius) {
+      const sh = new THREE.Mesh(shadowGeo, shadowMat);
+      sh.rotation.x = -Math.PI / 2;
+      sh.position.y = 0.03;
+      sh.scale.setScalar(radius);
+      parent.add(sh);
+      return sh;
+    }
 
     const ROAD_LEN = 400;
 
@@ -157,35 +226,68 @@
 
     // Ribbon builder: a strip of quads following the profile, rebuilt each
     // frame around the rider. Used for both the ground and the road surface.
-    const RIB_SEGS = 90;
-    function makeRibbon(width, color, yLift) {
+    const RIB_SEGS = 110;
+    // `cols` is the number of points across the ribbon. The road only needs its
+    // two edges; the ground needs a cross-section so it can carry relief.
+    function makeRibbon(width, color, yLift, isTerrain) {
+      const cols = isTerrain ? 13 : 2;
       const geo = new THREE.BufferGeometry();
-      const verts = new Float32Array((RIB_SEGS + 1) * 2 * 3);
+      const verts = new Float32Array((RIB_SEGS + 1) * cols * 3);
       const idx = [];
       for (let i = 0; i < RIB_SEGS; i++) {
-        const a = i * 2, b = a + 1, c = a + 2, d = a + 3;
-        idx.push(a, c, b, b, c, d);
+        for (let c = 0; c < cols - 1; c++) {
+          const a = i * cols + c, b = a + 1, cc = a + cols, d = cc + 1;
+          // Wind these counter-clockwise seen from above. z decreases as i
+          // grows, so the naive order yields downward normals and every ribbon
+          // -- ground, verge, road, centre line -- gets back-face culled and
+          // the whole landscape turns into the underside of the sky dome.
+          idx.push(a, b, cc, b, d, cc);
+        }
       }
       geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
       geo.setIndex(idx);
       const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color, flatShading: true }));
       mesh.frustumCulled = false;
       scene.add(mesh);
-      return { mesh, verts, width, yLift };
+      return { mesh, verts, width, yLift, cols, isTerrain: !!isTerrain };
     }
-    const ground = makeRibbon(620, theme.ground, 0);
-    const road = makeRibbon(7.4, theme.path, 0.05);
+    // Terrain relief: the verge rises away from the road rather than being a
+    // flat plate, which is what made the ground read as paper.
+    const relief = [
+      { amp: 5 + rand() * 7, len: 120 + rand() * 90, phase: rand() * 6.283 },
+      { amp: 2 + rand() * 3, len: 41 + rand() * 30,  phase: rand() * 6.283 },
+    ];
+    function reliefAt(z, lateralFrac) {
+      let h = 0;
+      for (const r of relief) h += Math.sin(z / r.len + r.phase) * r.amp;
+      // Flat by the roadside, rising with distance from it, so the road itself
+      // stays rideable and the hills happen out in the landscape.
+      return h * Math.pow(Math.min(1, Math.abs(lateralFrac) * 2.4), 2);
+    }
+
+    const ground = makeRibbon(620, theme.ground, 0, true);
+    const verge = makeRibbon(13, theme.path, 0.03);      // gravel shoulder
+    const road = makeRibbon(7.4, theme.path, 0.06);
+    const centreLine = makeRibbon(0.36, theme.accent, 0.09);
+    verge.mesh.material.color = new THREE.Color(theme.ground).lerp(new THREE.Color(theme.path), 0.55);
+    road.mesh.material.color = new THREE.Color(theme.path);
+    centreLine.mesh.material.color = new THREE.Color(theme.path).lerp(new THREE.Color(0xffffff), 0.45);
 
     function updateRibbon(rib, camZ) {
       const baseX = curveX(camZ), baseY = elevY(camZ);
       const from = camZ + 60, to = camZ - ROAD_LEN * 1.6;
+      const cols = rib.cols;
       for (let i = 0; i <= RIB_SEGS; i++) {
         const z = from + (to - from) * (i / RIB_SEGS);
         const x = curveX(z) - baseX;
         const y = elevY(z) - baseY + rib.yLift;
-        const o = i * 6;
-        rib.verts[o] = x - rib.width / 2; rib.verts[o + 1] = y; rib.verts[o + 2] = z;
-        rib.verts[o + 3] = x + rib.width / 2; rib.verts[o + 4] = y; rib.verts[o + 5] = z;
+        for (let c = 0; c < cols; c++) {
+          const f = cols === 1 ? 0 : (c / (cols - 1)) - 0.5;    // -0.5 .. +0.5
+          const o = (i * cols + c) * 3;
+          rib.verts[o] = x + f * rib.width;
+          rib.verts[o + 1] = y + (rib.isTerrain ? reliefAt(z, f) : 0);
+          rib.verts[o + 2] = z;
+        }
       }
       rib.mesh.geometry.attributes.position.needsUpdate = true;
       rib.mesh.geometry.computeVertexNormals();
@@ -204,33 +306,151 @@
     }
 
     // Roadside props, recycled as the camera passes them (infinite road).
-    function makeProp() {
-      const mat = new THREE.MeshLambertMaterial({ color: theme.prop, flatShading: true });
-      let geo;
-      switch (theme.propKind) {
-        case 'tree':  geo = new THREE.SphereGeometry(1, 7, 5); break;
-        case 'pine':
-        case 'fir':   geo = new THREE.ConeGeometry(1, 2.6, 6); break;
-        case 'spire': geo = new THREE.ConeGeometry(1, 3.4, 4); break;
-        default:      geo = new THREE.DodecahedronGeometry(1, 0); break; // rock
-      }
-      return new THREE.Mesh(geo, mat);
+    // --- Scenery -------------------------------------------------------------
+    // One flat-coloured cone per tree is what made these worlds look like
+    // placeholders. Props are built from a few parts, and every instance gets
+    // its own shade so a hillside reads as many trees rather than one repeated.
+    const TRUNK = new THREE.MeshLambertMaterial({ color: 0x4a3527, flatShading: true });
+
+    // Geometry is shared across instances; only materials vary.
+    const GEO = {
+      cone: new THREE.ConeGeometry(1, 1, 7),
+      sphere: new THREE.SphereGeometry(1, 7, 6),
+      trunk: new THREE.CylinderGeometry(0.1, 0.15, 1, 5),
+      rock: new THREE.DodecahedronGeometry(1, 0),
+      blade: new THREE.ConeGeometry(1, 1, 3),
+    };
+
+    // Jitter a theme colour so no two props are identical.
+    function shade(hex, spread) {
+      const c = new THREE.Color(hex);
+      const hsl = {};
+      c.getHSL(hsl);
+      c.setHSL(
+        (hsl.h + (rand() - 0.5) * 0.045 + 1) % 1,
+        Math.max(0, Math.min(1, hsl.s + (rand() - 0.5) * 0.22)),
+        Math.max(0.04, Math.min(0.95, hsl.l + (rand() - 0.5) * (spread == null ? 0.20 : spread)))
+      );
+      return new THREE.MeshLambertMaterial({ color: c, flatShading: true });
     }
-    const PROP_COUNT = Math.round(90 * theme.density);
+
+    // A conifer: stacked skirts on a bare trunk, narrowing toward the top.
+    function makeConifer() {
+      const g = new THREE.Group();
+      const mat = shade(theme.prop);
+      const tiers = 3 + Math.floor(rand() * 2);
+      const trunk = new THREE.Mesh(GEO.trunk, TRUNK);
+      trunk.scale.set(1, 1.5, 1);
+      trunk.position.y = 0.75;
+      g.add(trunk);
+      for (let i = 0; i < tiers; i++) {
+        const t = i / tiers;
+        const skirt = new THREE.Mesh(GEO.cone, mat);
+        skirt.scale.set(1 - t * 0.55, 1.25 - t * 0.35, 1 - t * 0.55);
+        skirt.position.y = 1.0 + i * 0.72;
+        skirt.rotation.y = rand() * Math.PI;
+        g.add(skirt);
+      }
+      return g;
+    }
+
+    // A broadleaf: a leaning trunk under two or three offset canopy masses.
+    function makeBroadleaf() {
+      const g = new THREE.Group();
+      const mat = shade(theme.prop);
+      const trunk = new THREE.Mesh(GEO.trunk, TRUNK);
+      trunk.scale.set(1.3, 2.0, 1.3);
+      trunk.position.y = 1.0;
+      g.add(trunk);
+      const blobs = 2 + Math.floor(rand() * 2);
+      for (let i = 0; i < blobs; i++) {
+        const b = new THREE.Mesh(GEO.sphere, mat);
+        const r = 0.75 + rand() * 0.5;
+        b.scale.set(r, r * (0.8 + rand() * 0.3), r);
+        b.position.set((rand() - 0.5) * 0.9, 2.0 + rand() * 0.7, (rand() - 0.5) * 0.9);
+        g.add(b);
+      }
+      return g;
+    }
+
+    // A rock cluster: one mass with smaller ones tucked against it.
+    function makeRocks() {
+      const g = new THREE.Group();
+      const mat = shade(theme.prop, 0.26);
+      for (let i = 0; i < 1 + Math.floor(rand() * 3); i++) {
+        const r = new THREE.Mesh(GEO.rock, mat);
+        const sc = i === 0 ? 1 : 0.35 + rand() * 0.4;
+        r.scale.set(sc, sc * (0.6 + rand() * 0.4), sc);
+        r.position.set((rand() - 0.5) * 1.6, sc * 0.35, (rand() - 0.5) * 1.6);
+        r.rotation.set(rand() * 3, rand() * 3, rand() * 3);
+        g.add(r);
+      }
+      return g;
+    }
+
+    // A ruined spire / standing stone for the ashen roads.
+    function makeSpire() {
+      const g = new THREE.Group();
+      const mat = shade(theme.prop, 0.18);
+      const n = 1 + Math.floor(rand() * 2);
+      for (let i = 0; i < n; i++) {
+        const sh = new THREE.Mesh(GEO.cone, mat);
+        sh.scale.set(0.5 + rand() * 0.4, 2.6 + rand() * 1.8, 0.5 + rand() * 0.4);
+        sh.position.set((rand() - 0.5) * 1.4, sh.scale.y * 0.5, (rand() - 0.5) * 1.4);
+        sh.rotation.z = (rand() - 0.5) * 0.22;   // leaning, not planted
+        g.add(sh);
+      }
+      return g;
+    }
+
+    // Low scrub that fills the middle distance cheaply.
+    function makeScrub() {
+      const g = new THREE.Group();
+      const mat = shade(theme.prop, 0.24);
+      for (let i = 0; i < 3 + Math.floor(rand() * 3); i++) {
+        const b = new THREE.Mesh(GEO.blade, mat);
+        const h = 0.5 + rand() * 0.8;
+        b.scale.set(0.28 + rand() * 0.2, h, 0.28 + rand() * 0.2);
+        b.position.set((rand() - 0.5) * 1.5, h * 0.5, (rand() - 0.5) * 1.5);
+        g.add(b);
+      }
+      return g;
+    }
+
+    function makeProp() {
+      // Mostly the theme's signature prop, with scrub mixed in for variety.
+      if (rand() < 0.28) return makeScrub();
+      switch (theme.propKind) {
+        case 'tree':  return makeBroadleaf();
+        case 'pine':
+        case 'fir':   return makeConifer();
+        case 'spire': return makeSpire();
+        default:      return makeRocks();
+      }
+    }
+    // Density is what sells a landscape, and these props are cheap enough to
+    // afford far more of them than the old single-cone scenery needed.
+    const PROP_COUNT = Math.round(190 * theme.density);
     const props = [];
     for (let i = 0; i < PROP_COUNT; i++) {
       const p = makeProp();
       const side = rand() < 0.5 ? -1 : 1;
-      const s = 0.8 + rand() * 2.6;
-      p.scale.set(s, s * (theme.propKind === 'rock' ? 0.8 : 1.5), s);
+      // The prop models carry their own proportions now, so this is size
+      // variation only — a stand of trees, not one tree at seventeen scales.
+      const s = 0.75 + rand() * 0.9;
+      p.scale.set(s, s * (0.85 + rand() * 0.4), s);
       // Keep props well clear of the road. Anything closer than about 12 units
       // laterally fills the whole frame as you draw level with it — the camera
-      // ends up inside a boulder rather than passing one.
-      const lateral = side * (12 + s * 1.6 + rand() * 38);
+      // ends up inside a boulder rather than passing one. Scrub is small enough
+      // to sit closer, which is what fills the verge.
+      const small = p.children.length > 2 && p.scale.y < 1.1;
+      const minLateral = small ? 7 : 12;
+      const lateral = side * (minLateral + s * 1.6 + rand() * 46);
       p.userData.lateral = lateral;
-      p.userData.baseY = s * 0.6;
-      p.position.set(lateral, s * 0.6, -rand() * ROAD_LEN * 2);
+      p.userData.baseY = 0;         // props stand on the ground, not above it
+      p.position.set(lateral, 0, -rand() * ROAD_LEN * 2);
       p.rotation.y = rand() * Math.PI;
+      addShadow(p, 1.1 + rand() * 0.5);
       scene.add(p);
       props.push(p);
     }
@@ -322,7 +542,40 @@
     const legR = cylinderBetween([0.16, 1.78, -0.58], [0.22, 1.05, -0.86], 0.09, darkMat);
     rider.add(legL); rider.add(legR);
     rider.userData = { wheels, pedals, legL, legR };
+    addShadow(rider, 1.15);
     scene.add(rider);
+
+    // --- Weather -------------------------------------------------------------
+    // Snow in the winter wood, embers over the ashen plain, dust in the desert,
+    // drifting pollen on the green roads. A drifting particle field is the
+    // cheapest thing that makes a static world feel like weather is happening.
+    const WEATHER = {
+      snow:   { count: 700, size: 0.5,  color: 0xffffff, opacity: 0.9,  fall: 5,  drift: 2.2 },
+      ember:  { count: 320, size: 0.42, color: 0xff7a3c, opacity: 0.95, fall: -3, drift: 3.0 },
+      dust:   { count: 420, size: 0.34, color: 0xdcc79a, opacity: 0.5,  fall: 1,  drift: 6.0 },
+      pollen: { count: 300, size: 0.26, color: 0xfff2b0, opacity: 0.6,  fall: 0.7, drift: 2.0 },
+    };
+    const weatherCfg = WEATHER[theme.weather] || null;
+    const WEATHER_BOX = { x: 90, y: 46, z: 220 };   // volume carried with the rider
+    let weatherPoints = null, weatherPos = null;
+    if (weatherCfg) {
+      weatherPos = new Float32Array(weatherCfg.count * 3);
+      for (let i = 0; i < weatherCfg.count; i++) {
+        weatherPos[i * 3] = (rand() - 0.5) * WEATHER_BOX.x;
+        weatherPos[i * 3 + 1] = rand() * WEATHER_BOX.y;
+        weatherPos[i * 3 + 2] = (rand() - 0.5) * WEATHER_BOX.z;
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.BufferAttribute(weatherPos, 3));
+      weatherPoints = new THREE.Points(g, new THREE.PointsMaterial({
+        color: weatherCfg.color, size: weatherCfg.size,
+        transparent: true, opacity: weatherCfg.opacity,
+        depthWrite: false, sizeAttenuation: true,
+        fog: true,
+      }));
+      weatherPoints.frustumCulled = false;
+      scene.add(weatherPoints);
+    }
 
     // --- Ghost riders --------------------------------------------------------
     // Every ghost is somebody's real recorded ride on this road, replayed at the
@@ -405,8 +658,11 @@
       const baseX = curveX(z), baseY = elevY(z);
       const offX = (zz) => curveX(zz) - baseX;
       const offY = (zz) => elevY(zz) - baseY;
+      skyDome.position.set(0, 0, z);
       updateRibbon(ground, z);
+      updateRibbon(verge, z);
       updateRibbon(road, z);
+      updateRibbon(centreLine, z);
       bob += 0.05 + Math.min(speedKmh, 40) * 0.004;
 
 
@@ -435,6 +691,23 @@
         else if (p.position.z < z - ROAD_LEN * 2) p.position.z += ROAD_LEN * 2;
         p.position.x = p.userData.lateral + offX(p.position.z);
         p.position.y = offY(p.position.z) + p.userData.baseY;
+      }
+
+      // Weather drifts with the rider, wrapping inside its own volume so a
+      // fixed number of particles covers an endless road.
+      if (weatherPoints && weatherCfg) {
+        const dt = 0.016;
+        for (let i = 0; i < weatherCfg.count; i++) {
+          const o = i * 3;
+          weatherPos[o] += Math.sin((weatherPos[o + 1] + bob) * 0.35) * weatherCfg.drift * dt;
+          weatherPos[o + 1] -= weatherCfg.fall * dt;
+          if (weatherPos[o + 1] < 0) weatherPos[o + 1] += WEATHER_BOX.y;
+          if (weatherPos[o + 1] > WEATHER_BOX.y) weatherPos[o + 1] -= WEATHER_BOX.y;
+          if (weatherPos[o] > WEATHER_BOX.x / 2) weatherPos[o] -= WEATHER_BOX.x;
+          if (weatherPos[o] < -WEATHER_BOX.x / 2) weatherPos[o] += WEATHER_BOX.x;
+        }
+        weatherPoints.geometry.attributes.position.needsUpdate = true;
+        weatherPoints.position.set(0, 0, z - WEATHER_BOX.z * 0.25);
       }
 
       // Ghosts ride their own recorded pace alongside you.
@@ -511,6 +784,11 @@
       dispose() {
         disposed = true;
         clearGhosts();
+        if (weatherPoints) {
+          scene.remove(weatherPoints);
+          weatherPoints.geometry.dispose();
+          weatherPoints.material.dispose();
+        }
         if (raf) cancelAnimationFrame(raf);
         if (ro) ro.disconnect();
         scene.traverse((o) => {
@@ -518,6 +796,11 @@
           if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m.dispose());
         });
         renderer.dispose();
+        // dispose() frees GPU resources but keeps the context alive; this is
+        // what actually returns it to the browser's pool.
+        if (typeof renderer.forceContextLoss === 'function') {
+          try { renderer.forceContextLoss(); } catch {}
+        }
       },
     };
   }
