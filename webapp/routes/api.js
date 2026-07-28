@@ -3,7 +3,7 @@ const { randomUUID } = require('crypto');
 const db = require('../lib/db');
 const { publish, subscribe } = require('../lib/events');
 const { runPipeline } = require('../lib/pipeline');
-const { xpForEvent, levelForXp } = require('../lib/xp');
+const { xpForEvent, levelForXp, levelProgress } = require('../lib/xp');
 const effortLib = require('../lib/effort');
 const { advanceQuestProgress } = require('../lib/quests');
 const { badgeEligibility } = require('../lib/badges');
@@ -17,6 +17,7 @@ const segments = require('../lib/segments');
 const overlay = require('../lib/overlay');
 const usernames = require('../lib/usernames');
 const breathwork = require('../lib/breathwork');
+const dms = require('../lib/dms');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
 const { searchNearbyChurches } = require('../lib/overpass');
@@ -2935,6 +2936,71 @@ router.get('/search', (req, res) => {
 // table, so a pattern can never carry scripture we cannot trace.
 router.get('/breathing/patterns', (req, res) => {
   res.json({ patterns: breathwork.list(lookupScriptureText) });
+});
+
+// Levels for a batch of users, so the ring around every avatar on a screen can
+// be filled in with one request rather than one per face.
+//
+// Deliberately not under /users/: the earlier /users/:id route matches first in
+// Express, so /users/xp would be read as a user whose id is "xp".
+router.get('/xp/levels', (req, res) => {
+  const ids = String(req.query.ids || '').split(',').map(x => x.trim()).filter(Boolean).slice(0, 100);
+  if (!ids.length) return res.json({ levels: {} });
+  const marks = ids.map(() => '?').join(',');
+  const rows = db.prepare(`SELECT user_id, xp FROM user_xp WHERE user_id IN (${marks})`).all(...ids);
+  const levels = {};
+  for (const id of ids) {
+    const row = rows.find(r => r.user_id === id);
+    levels[id] = levelProgress(row ? row.xp : 0);
+  }
+  res.json({ levels });
+});
+
+// --- Direct messages --------------------------------------------------------
+// Every route here authorises on membership of the thread. A thread the caller
+// is not in returns 404 rather than 403, so ids cannot be probed for existence.
+
+router.get('/dms', requireAuth, (req, res) => {
+  res.json({ threads: dms.inbox(req.session.userId), unread: dms.totalUnread(req.session.userId) });
+});
+
+router.get('/dms/unread', requireAuth, (req, res) => {
+  res.json({ unread: dms.totalUnread(req.session.userId) });
+});
+
+// Open (or reopen) the conversation with someone. Idempotent: one pair, one thread.
+router.post('/dms/with/:userId', requireAuth, (req, res) => {
+  const r = dms.openThread(req.session.userId, req.params.userId);
+  if (r.error) {
+    const code = r.error === 'no_such_user' ? 404 : r.error === 'blocked' ? 403 : 400;
+    return res.status(code).json(r);
+  }
+  res.json({ thread_id: r.thread.id, user: { id: r.other.id, display_name: r.other.display_name } });
+});
+
+router.get('/dms/:threadId', requireAuth, (req, res) => {
+  const data = dms.messages(req.session.userId, req.params.threadId);
+  if (!data) return res.status(404).json({ error: 'not_found' });
+  res.json(data);
+});
+
+router.post('/dms/:threadId', requireAuth, (req, res) => {
+  const r = dms.send(req.session.userId, req.params.threadId, req.body && req.body.body);
+  if (r.error) {
+    const code = r.error === 'not_found' ? 404 : r.error === 'blocked' ? 403 : 400;
+    return res.status(code).json(r);
+  }
+  notify(r.recipient_id, 'dm', `${displayName(req.session.userId)} sent you a message.`,
+    { thread_id: req.params.threadId });
+  res.status(201).json({ message: r.message });
+});
+
+router.post('/dms/block/:userId', requireAuth, (req, res) => {
+  res.json(dms.block(req.session.userId, req.params.userId));
+});
+
+router.delete('/dms/block/:userId', requireAuth, (req, res) => {
+  res.json(dms.unblock(req.session.userId, req.params.userId));
 });
 
 module.exports = router;

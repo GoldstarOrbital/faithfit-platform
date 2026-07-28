@@ -1277,3 +1277,102 @@ input[type=search], input[type=url], select, textarea {
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
+
+
+/* ---------------------------------------------------------------------------
+   XP ring.
+   A progress arc around every avatar: how far through the current level you
+   are, drawn with a conic gradient so it costs one element and no SVG. The
+   tier colour changes at thresholds, so a long-standing account reads as
+   different at a glance rather than just being further round the same circle.
+   Rings start empty and are filled by a batch lookup — a level is never guessed.
+   --------------------------------------------------------------------------- */
+.xp-ring {
+  --xp-pct: 0%;
+  --ring: var(--meadow);
+  --track: rgba(51,37,26,.12);
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  padding: 3px;
+  border-radius: 50%;
+  background: conic-gradient(var(--ring) 0 var(--xp-pct), var(--track) var(--xp-pct) 100%);
+  transition: background .5s ease;
+}
+/* The gap that turns a filled disc into a ring. */
+.xp-ring::before {
+  content: ''; position: absolute; inset: 2px;
+  border-radius: 50%; background: var(--parch-1);
+}
+.xp-ring > * { position: relative; z-index: 1; }
+
+.xp-ring[data-tier="new"]    { --ring: var(--silver-0); }
+.xp-ring[data-tier="meadow"] { --ring: var(--meadow); }
+.xp-ring[data-tier="brass"]  { --ring: var(--brass); }
+.xp-ring[data-tier="gold"]   { --ring: var(--gold-2); }
+.xp-ring[data-tier="legend"] {
+  /* Past level 25 the ring is no longer one colour. */
+  background: conic-gradient(from -90deg,
+    var(--gold-2) 0 var(--xp-pct), var(--track) var(--xp-pct) 100%);
+  box-shadow: 0 0 0 1px rgba(217,171,85,.5), 0 0 14px rgba(217,171,85,.45);
+}
+
+/* The level number, sitting where a notch would be on a badge. */
+.xp-level {
+  position: absolute; z-index: 2; right: -2px; bottom: -2px;
+  min-width: 17px; height: 17px; padding: 0 4px;
+  display: grid; place-items: center;
+  border-radius: 999px;
+  background: var(--meadow); color: #fdf8ea;
+  font-family: var(--ui, sans-serif); font-size: .62rem; font-weight: 700;
+  font-variant-numeric: tabular-nums; line-height: 1;
+  border: 2px solid var(--parch-1);
+}
+.xp-ring[data-tier="new"]    .xp-level { background: var(--silver-0); color: #33251a; }
+.xp-ring[data-tier="brass"]  .xp-level { background: var(--brass); }
+.xp-ring[data-tier="gold"]   .xp-level { background: var(--gold-2); color: #33251a; }
+.xp-ring[data-tier="legend"] .xp-level { background: linear-gradient(140deg, var(--gold-2), var(--hearth)); color: #33251a; }
+
+/* Small faces in feeds do not need a number, only the arc. */
+.xp-ring:has(.avatar-sm) .xp-level { min-width: 14px; height: 14px; font-size: .55rem; border-width: 1.5px; }
+.xp-ring:has(.story-avatar) .xp-level { display: none; }
+
+/* On the dark top bar and tab bar the gap must match that surface, not the page. */
+header.topbar .xp-ring::before, nav.tabbar .xp-ring::before { background: var(--walnut-1); }
+
+
+/* Direct messages */
+.dm-row { display:flex; align-items:center; gap:11px; width:100%; text-align:left; padding:10px 12px;
+  border-radius:var(--radius-sm); background:var(--parch-1); border:1px solid var(--line);
+  margin-bottom:6px; cursor:pointer; font:inherit; color:var(--ink); }
+.dm-row:hover { background:#fff; }
+.dm-row.unread .dm-row-name { font-weight:700; }
+.dm-row.unread .dm-row-last { color:var(--ink); font-weight:500; }
+.dm-row-main { min-width:0; flex:1; display:flex; flex-direction:column; }
+.dm-row-top { display:flex; justify-content:space-between; gap:8px; align-items:baseline; }
+.dm-row-name { font-weight:600; font-size:.92rem; }
+.dm-row-time { font-size:.72rem; opacity:.55; white-space:nowrap; }
+.dm-row-last { font-size:.82rem; opacity:.68; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dm-unread { min-width:20px; height:20px; padding:0 6px; border-radius:999px; background:var(--meadow);
+  color:#fdf8ea; font-size:.68rem; font-weight:700; display:grid; place-items:center; }
+
+.dm-head { display:flex; align-items:center; gap:10px; padding:4px 0 10px; border-bottom:1px solid var(--line); }
+.dm-head-name { font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dm-head .back-btn { margin:0; padding:8px 12px; }
+.dm-block { font-size:.75rem !important; padding:6px 10px !important; }
+
+.dm-scroll { height:calc(100vh - 290px); min-height:220px; overflow-y:auto; padding:12px 2px; display:flex;
+  flex-direction:column; gap:8px; }
+.dm-msg { max-width:78%; align-self:flex-start; }
+.dm-msg.mine { align-self:flex-end; }
+.dm-bubble { padding:9px 13px; border-radius:16px 16px 16px 4px; background:var(--parch-1);
+  border:1px solid var(--line); font-size:.92rem; line-height:1.45; word-wrap:break-word; }
+.dm-msg.mine .dm-bubble { background:var(--meadow); border-color:var(--meadow); color:#fdf8ea;
+  border-radius:16px 16px 4px 16px; }
+.dm-meta { font-size:.66rem; opacity:.5; margin-top:3px; padding:0 4px; }
+.dm-msg.mine .dm-meta { text-align:right; }
+
+.dm-compose { display:flex; gap:8px; padding-top:10px; border-top:1px solid var(--line); }
+.dm-compose .input { flex:1; min-width:0; }
+.dm-compose .primary { padding:11px 20px; }
+.dm-blocked-note { text-align:center; padding:14px; font-size:.85rem; }

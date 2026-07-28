@@ -52,14 +52,59 @@ function avatarHtml(user, cls) {
   const id = user && (user.id || user.user_id || user.author_id);
   const name = (user && (user.display_name || user.author)) || '';
   const hasAvatar = !!(user && (user.has_avatar || user.author_has_avatar));
-  if (id && hasAvatar) {
-    return `<div class="${cls} avatar-photo" data-avatar-user="${id}">${initials(name)}</div>`;
+  const face = (id && hasAvatar)
+    ? `<div class="${cls} avatar-photo" data-avatar-user="${id}">${initials(name)}</div>`
+    : `<div class="${cls}">${initials(name)}</div>`;
+  if (!id) return face;
+  // The ring is drawn on the wrapper; the level chip is added once the batch
+  // lookup returns. Until then it is an inert circle, never a guessed level.
+  return `<span class="xp-ring" data-xp-user="${id}">${face}</span>`;
+}
+
+// How much of the ring is lit, and what tier it is drawn in. Tiers are what
+// makes a long-standing account look different at a glance rather than merely
+// being further round the same circle.
+function xpTier(level) {
+  if (level >= 25) return 'legend';
+  if (level >= 15) return 'gold';
+  if (level >= 8) return 'brass';
+  if (level >= 3) return 'meadow';
+  return 'new';
+}
+
+// Fill in the rings for every avatar under `root`, in one request.
+const _xpCache = new Map();
+async function hydrateXpRings(root) {
+  const nodes = [...(root || document).querySelectorAll('[data-xp-user]')];
+  if (!nodes.length) return;
+  const ids = [...new Set(nodes.map(n => n.dataset.xpUser))];
+  const missing = ids.filter(id => !_xpCache.has(id));
+  if (missing.length) {
+    try {
+      const r = await api('/xp/levels?ids=' + encodeURIComponent(missing.join(',')));
+      for (const id of missing) _xpCache.set(id, (r.levels && r.levels[id]) || null);
+    } catch { missing.forEach(id => _xpCache.set(id, null)); }
   }
-  return `<div class="${cls}">${initials(name)}</div>`;
+  for (const node of nodes) {
+    const lv = _xpCache.get(node.dataset.xpUser);
+    if (!lv) continue;
+    node.style.setProperty('--xp-pct', lv.percent + '%');
+    node.dataset.tier = xpTier(lv.level);
+    node.title = 'Level ' + lv.level + ' · ' + lv.xp + ' XP · ' + lv.to_next + ' to next';
+    if (!node.querySelector('.xp-level')) {
+      const chip = document.createElement('span');
+      chip.className = 'xp-level';
+      chip.textContent = lv.level;
+      node.appendChild(chip);
+    } else {
+      node.querySelector('.xp-level').textContent = lv.level;
+    }
+  }
 }
 // After inserting HTML built with avatarHtml(), call this once per container to
 // lazily fetch and paint the real photos (keeps list/feed responses avatar-free).
 function hydrateAvatars(root) {
+  hydrateXpRings(root);
   (root || document).querySelectorAll('[data-avatar-user]').forEach(async (el) => {
     const uid = el.dataset.avatarUser;
     if (!uid) return;
@@ -371,7 +416,7 @@ async function renderUserProfile(userId) {
   try { data = await api(`/users/${userId}`); } catch { main.innerHTML = '<div class="card glass">Could not load profile.</div>'; return; }
   const u = data.user;
   const followBtn = data.is_me ? '' :
-    `<button class="follow-btn ${data.is_following ? 'following' : ''}" id="profile-follow">${data.is_following ? 'Following' : 'Follow'}</button>`;
+    `<button class="follow-btn ${data.is_following ? 'following' : ''}" id="profile-follow">${data.is_following ? 'Following' : 'Follow'}</button><button class="ghost profile-message" id="profile-message">Message</button>`;
 
   main.innerHTML = `
     <button class="ghost back-btn" id="profile-back">← Back</button>
@@ -413,6 +458,8 @@ async function renderUserProfile(userId) {
 
   document.getElementById('profile-back').onclick = () => { state.tab = 'home'; render(); };
   wireVerseCards(main);
+  const mb = document.getElementById('profile-message');
+  if (mb) mb.onclick = () => openDmWith(userId);
   const fb = document.getElementById('profile-follow');
   if (fb) fb.onclick = async () => {
     const r = await api(`/users/${userId}/follow`, { method: 'POST' });
@@ -1930,6 +1977,10 @@ function renderShareForm(main, ctx) {
 function formatElapsed(s) { const m = Math.floor(s / 60), sec = s % 60; return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`; }
 function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 
+const dmBtn = document.getElementById('dm-btn');
+if (dmBtn) dmBtn.onclick = () => { if (state.me) renderInbox(); };
+setInterval(() => { if (state.me) refreshDmBadge(); }, 30000);
+
 const searchBtn = document.getElementById('search-btn');
 if (searchBtn) searchBtn.onclick = () => { if (state.me) openSearch(); };
 
@@ -1974,6 +2025,10 @@ async function refreshNotifBadge() {
     const badge = document.getElementById('notif-badge');
     const wrap = document.getElementById('notif-wrap');
     if (wrap) wrap.style.display = '';
+    // The messages button lives beside the bell and is revealed on the same
+    // signal — that a signed-in session exists — rather than waiting for its
+    // own poll to come round.
+    refreshDmBadge();
     if (badge) {
       if (unread_count > 0) { badge.textContent = unread_count > 99 ? '99+' : String(unread_count); badge.style.display = ''; }
       else badge.style.display = 'none';
@@ -3263,4 +3318,155 @@ function startBreathe(body, pattern) {
     };
     frame();
   };
+}
+
+
+// --- Direct messages ---------------------------------------------------------
+// An inbox and a conversation. Polling rather than sockets: this is a single
+// Express process on a free tier, and a five-second poll on an open thread is
+// honest about what it is rather than pretending to be realtime.
+
+let dmPoll = null;
+
+function stopDmPoll() { if (dmPoll) { clearInterval(dmPoll); dmPoll = null; } }
+
+function dmTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso.replace(' ', 'T') + (iso.endsWith('Z') ? '' : 'Z'));
+  if (isNaN(d)) return '';
+  const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+  if (mins < 1) return 'now';
+  if (mins < 60) return mins + 'm';
+  if (mins < 1440) return Math.floor(mins / 60) + 'h';
+  return Math.floor(mins / 1440) + 'd';
+}
+
+async function refreshDmBadge() {
+  const btn = document.getElementById('dm-btn');
+  const badge = document.getElementById('dm-badge');
+  if (!btn || !state.me) return;
+  btn.style.display = '';
+  try {
+    const r = await api('/dms/unread');
+    if (r.unread > 0) { badge.style.display = ''; badge.textContent = r.unread > 99 ? '99+' : r.unread; }
+    else badge.style.display = 'none';
+  } catch { /* the badge is not worth an error */ }
+}
+
+async function renderInbox() {
+  stopDmPoll();
+  const main = document.getElementById('main');
+  document.querySelectorAll('nav button').forEach(b => b.style.display = 'none');
+  main.innerHTML = '<div class="search-head"><button class="ghost back-btn" id="dm-back">← Back</button></div>'
+    + '<h2 style="margin-top:0">Messages</h2><div id="dm-list" class="muted">Loading…</div>';
+  document.getElementById('dm-back').onclick = () => {
+    document.querySelectorAll('nav button').forEach(b => b.style.display = '');
+    render();
+  };
+
+  let data;
+  try { data = await api('/dms'); }
+  catch { document.getElementById('dm-list').textContent = 'Could not load your messages.'; return; }
+
+  const box = document.getElementById('dm-list');
+  if (!data.threads.length) {
+    box.innerHTML = '<div class="muted search-hint">No conversations yet. Open someone\u2019s profile and tap Message to start one.</div>';
+    return;
+  }
+  box.innerHTML = data.threads.map(t => '<button class="dm-row' + (t.unread ? ' unread' : '') + '" data-thread="'
+      + escapeHtml(t.thread_id) + '">'
+    + avatarHtml(t.user, 'avatar-sm')
+    + '<span class="dm-row-main">'
+    +   '<span class="dm-row-top"><span class="dm-row-name">' + escapeHtml(t.user.display_name) + '</span>'
+    +   '<span class="dm-row-time">' + dmTime(t.last_message_at) + '</span></span>'
+    +   '<span class="dm-row-last">' + (t.last_from_me ? 'You: ' : '') + escapeHtml(t.last_body || '') + '</span>'
+    + '</span>'
+    + (t.unread ? '<span class="dm-unread">' + t.unread + '</span>' : '')
+    + '</button>').join('');
+  hydrateAvatars(box);
+  box.querySelectorAll('[data-thread]').forEach(b => b.onclick = () => renderThread(b.dataset.thread));
+}
+
+async function openDmWith(userId) {
+  try {
+    const r = await api('/dms/with/' + encodeURIComponent(userId), { method: 'POST' });
+    renderThread(r.thread_id);
+  } catch (e) {
+    alert(e && e.error === 'blocked' ? 'You cannot message this person.' : 'Could not open that conversation.');
+  }
+}
+
+async function renderThread(threadId) {
+  stopDmPoll();
+  const main = document.getElementById('main');
+  document.querySelectorAll('nav button').forEach(b => b.style.display = 'none');
+
+  let data;
+  try { data = await api('/dms/' + encodeURIComponent(threadId)); }
+  catch { main.innerHTML = '<div class="card glass">This conversation is not available.</div>'; return; }
+
+  main.innerHTML = '<div class="dm-head">'
+    +   '<button class="ghost back-btn" id="dm-back">←</button>'
+    +   avatarHtml(data.user, 'avatar-sm')
+    +   '<span class="dm-head-name">' + escapeHtml(data.user.display_name) + '</span>'
+    +   '<button class="ghost dm-block" id="dm-block">' + (data.blocked ? 'Unblock' : 'Block') + '</button>'
+    + '</div>'
+    + '<div class="dm-scroll" id="dm-scroll"></div>'
+    + (data.blocked
+        ? '<div class="muted dm-blocked-note">Messages are turned off between you and this person.</div>'
+        : '<form class="dm-compose" id="dm-form">'
+          + '<input class="input" id="dm-input" placeholder="Write a message…" maxlength="2000" autocomplete="off" />'
+          + '<button class="primary" id="dm-send" type="submit">Send</button></form>');
+
+  document.getElementById('dm-back').onclick = () => renderInbox();
+  hydrateAvatars(main);
+
+  const scroll = document.getElementById('dm-scroll');
+  let lastId = null;
+
+  const paint = (msgs) => {
+    scroll.innerHTML = msgs.map(m => '<div class="dm-msg' + (m.from_me ? ' mine' : '') + '">'
+      + '<div class="dm-bubble">' + escapeHtml(m.body) + '</div>'
+      + '<div class="dm-meta">' + dmTime(m.created_at) + (m.from_me && m.read ? ' · read' : '') + '</div></div>').join('');
+    if (msgs.length) lastId = msgs[msgs.length - 1].id;
+    scroll.scrollTop = scroll.scrollHeight;
+  };
+  paint(data.messages);
+
+  const blockBtn = document.getElementById('dm-block');
+  blockBtn.onclick = async () => {
+    const blocking = blockBtn.textContent === 'Block';
+    if (blocking && !confirm('Block ' + data.user.display_name + '? Neither of you will be able to message the other.')) return;
+    await api('/dms/block/' + encodeURIComponent(data.user.id), { method: blocking ? 'POST' : 'DELETE' }).catch(() => {});
+    renderThread(threadId);
+  };
+
+  const form = document.getElementById('dm-form');
+  if (form) {
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const input = document.getElementById('dm-input');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      try {
+        await api('/dms/' + encodeURIComponent(threadId), { method: 'POST', body: { body: text } });
+        const fresh = await api('/dms/' + encodeURIComponent(threadId));
+        paint(fresh.messages);
+      } catch (err) {
+        input.value = text;      // put it back rather than losing what they typed
+        alert(err && err.error === 'blocked' ? 'Messages are turned off between you.' : 'Could not send that.');
+      }
+    };
+  }
+
+  // Poll for the other side's replies while the thread is open.
+  dmPoll = setInterval(async () => {
+    if (!document.getElementById('dm-scroll')) { stopDmPoll(); return; }
+    try {
+      const fresh = await api('/dms/' + encodeURIComponent(threadId));
+      const newest = fresh.messages.length ? fresh.messages[fresh.messages.length - 1].id : null;
+      if (newest !== lastId) paint(fresh.messages);
+    } catch { /* keep the thread open; the next tick retries */ }
+  }, 5000);
 }
