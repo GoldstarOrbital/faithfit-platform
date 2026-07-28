@@ -324,6 +324,52 @@
     rider.userData = { wheels, pedals, legL, legR };
     scene.add(rider);
 
+    // --- Ghost riders --------------------------------------------------------
+    // Every ghost is somebody's real recorded ride on this road, replayed at the
+    // pace they actually held. They are translucent copies of the rider model,
+    // placed at the distance that rider had covered by the current elapsed time.
+    // No recorded rides means no ghosts: the road is never populated with
+    // invented company.
+    let ghosts = [];
+
+    function makeGhostMesh(isSelf) {
+      const g = rider.clone(true);
+      g.traverse((o) => {
+        if (!o.isMesh) return;
+        o.material = o.material.clone();
+        o.material.transparent = true;
+        o.material.opacity = isSelf ? 0.42 : 0.3;
+        o.material.depthWrite = false;
+        if (isSelf) o.material.color = new THREE.Color(theme.accent);
+      });
+      g.visible = false;
+      scene.add(g);
+      return g;
+    }
+
+    function clearGhosts() {
+      for (const gh of ghosts) {
+        scene.remove(gh.mesh);
+        gh.mesh.traverse((o) => { if (o.isMesh && o.material) o.material.dispose(); });
+      }
+      ghosts = [];
+    }
+
+    // Where had this rider got to, in km, after `sec` of their own ride?
+    function ghostKmAt(data, sec) {
+      let t = sec;
+      let km = data.segments.length ? Number(data.segments[0].from_km) : 0;
+      for (const seg of data.segments) {
+        const span = Number(seg.to_km) - Number(seg.from_km);
+        const dur = Number(seg.duration_sec);
+        if (!(span > 0) || !(dur > 0)) continue;
+        if (t <= dur) return Number(seg.from_km) + span * (t / dur);
+        t -= dur;
+        km = Number(seg.to_km);
+      }
+      return km;   // their ride ended here
+    }
+
     // --- state / loop ------------------------------------------------------
     // World metres per real km — compressed so a 40 km route is a believable
     // ride rather than an empty void, while keeping gates proportionally placed.
@@ -332,6 +378,7 @@
     let distanceKm = 0, speedKmh = 0, raf = null, disposed = false, bob = 0;
     let anchored = false;   // props are seeded around the first real position
     let grade = 0;          // live gradient %, from the route profile
+    let elapsedSec = 0;     // session elapsed, which is what places the ghosts
 
     function layout() {
       const w = canvas.clientWidth || 320;
@@ -390,6 +437,18 @@
         p.position.y = offY(p.position.z) + p.userData.baseY;
       }
 
+      // Ghosts ride their own recorded pace alongside you.
+      for (const gh of ghosts) {
+        const gz = -ghostKmAt(gh.data, elapsedSec) * METRES_PER_KM;
+        // Drawing a ghost two kilometres up the road is pure cost.
+        const near = gz < z + 60 && gz > z - ROAD_LEN;
+        gh.mesh.visible = near;
+        if (near) {
+          gh.mesh.position.set(offX(gz) + gh.lane, offY(gz), gz);
+          gh.mesh.rotation.y = Math.atan2(offX(gz - 15) - offX(gz), -15);
+        }
+      }
+
       // Kilometre posts sit on whole-km marks around the current position.
       const kmNow = Math.floor(distanceKm);
       for (let i = 0; i < kmPosts.length; i++) {
@@ -419,10 +478,39 @@
     return {
       setDistance(km) { distanceKm = Math.max(0, Number(km) || 0); },
       setSpeed(kmh) { speedKmh = Math.max(0, Number(kmh) || 0); },
+      setElapsed(sec) { elapsedSec = Math.max(0, Number(sec) || 0); },
       getGrade() { return grade; },
+
+      /**
+       * Put real recorded rides on the road. Each entry needs segment times.
+       * Returns how many ghosts were actually placed — an empty list draws none.
+       */
+      setGhosts(list) {
+        clearGhosts();
+        (list || []).forEach((data, i) => {
+          if (!data || !Array.isArray(data.segments) || !data.segments.length) return;
+          ghosts.push({
+            data,
+            mesh: makeGhostMesh(!!data.is_self),
+            // Fan them across the road so overlapping riders stay readable.
+            lane: ((i % 4) - 1.5) * 1.6,
+          });
+        });
+        return ghosts.length;
+      },
+
+      /** How far ahead (+) or behind (-) each ghost is right now, in km. */
+      ghostDeltas(myKm) {
+        return ghosts.map(gh => ({
+          display_name: gh.data.display_name,
+          is_self: !!gh.data.is_self,
+          delta_km: ghostKmAt(gh.data, elapsedSec) - Number(myKm || 0),
+        }));
+      },
       resize: layout,
       dispose() {
         disposed = true;
+        clearGhosts();
         if (raf) cancelAnimationFrame(raf);
         if (ro) ro.disconnect();
         scene.traverse((o) => {

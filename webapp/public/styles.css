@@ -853,3 +853,25 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
 #videos-list .video-thumb-wrap iframe { border:0; border-radius:15px; }
 #videos-list b { font-size:.92rem; line-height:1.25; }
 .video-audience { display:inline-flex; padding:4px 8px; border-radius:999px; color:var(--forest); background:rgba(70,192,127,.11); font-size:.65rem; font-weight:750; }
+
+
+/* Live HUD additions: gradient, live gaps to the real riders on this road,
+   and the split panel shown when a timed segment closes. */
+.live-hud-grade{font-size:.72rem;font-weight:800;opacity:.9;margin-top:2px;letter-spacing:.04em}
+
+.live-gaps{position:absolute;right:10px;top:70px;display:flex;flex-direction:column;gap:3px;
+  background:rgba(20,14,10,.55);border-radius:10px;padding:6px 8px;backdrop-filter:blur(4px)}
+.live-gap-row{display:flex;gap:10px;justify-content:space-between;font-size:.72rem;color:#f6efe4}
+.live-gap-row.self{font-weight:700}
+.live-gap-name{max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.live-gap-delta{font-variant-numeric:tabular-nums}
+.live-gap-delta.ahead{color:#ff9f8a}   /* they are up the road on you */
+.live-gap-delta.behind{color:#8fe3b0}  /* you are up the road on them */
+
+.live-split{position:absolute;left:10px;right:10px;top:10px;padding:10px 14px;border-radius:14px;
+  background:rgba(20,14,10,.85);color:#f6efe4;text-align:center;backdrop-filter:blur(6px);
+  animation:momentIn .4s ease}
+.live-split-hd{font-size:.78rem;opacity:.8}
+.live-split-time{font-size:1.7rem;font-weight:800;line-height:1.1;margin:2px 0;
+  font-variant-numeric:tabular-nums}
+.live-split-note{font-size:.74rem;opacity:.85}

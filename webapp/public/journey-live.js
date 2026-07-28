@@ -43,11 +43,14 @@ async function renderJourneyLive(key) {
     '        <div class="live-rider-tag">● Rider · You</div>',
     '        <div><span id="live-dist">' + fmtKm(startKm) + '</span><small> / ' + fmtKm(j.total_km) + ' km</small></div>',
     '        <div class="live-hud-src" id="live-src">Not connected</div>',
+    '        <div class="live-hud-grade" id="live-grade"></div>',
     '      </div>',
     '    </div>',
     '    <div class="live-3d-fallback" id="live-fallback" hidden></div>',
     '    <div class="live-waypoint" id="live-waypoint" hidden></div>',
     '    <div class="live-moment" id="live-moment" hidden></div>',
+    '    <div class="live-gaps" id="live-gaps" hidden></div>',
+    '    <div class="live-split" id="live-split" hidden></div>',
     '  </div>',
     '  <div class="card glass live-panel">',
     '    <div class="challenge-track"><span id="live-bar" style="width:' + (data.percent || 0) + '%"></span></div>',
@@ -94,6 +97,22 @@ async function renderJourneyLive(key) {
   // Every real heart-rate reading of the session, for the effort summary on save.
   const hrSamples = [];
 
+  // Real recorded rides on this road, replayed alongside you. An empty list is
+  // shown as exactly that rather than filled in with invented riders.
+  let ghostInfo = { ghosts: [], note: null };
+  try { ghostInfo = await api('/journeys/' + encodeURIComponent(key) + '/ghosts'); } catch {}
+  if (world && ghostInfo && ghostInfo.ghosts && ghostInfo.ghosts.length) {
+    world.setGhosts(ghostInfo.ghosts);
+  }
+
+  // Segment boundaries, so a stretch between waypoints can be timed.
+  let segs = [];
+  try { segs = (await api('/journeys/' + encodeURIComponent(key) + '/segments')).segments || []; } catch {}
+  // The segment the rider is on when the session starts, and when it began.
+  let curSeg = segs.find(sg => startKm >= sg.from_km && startKm < sg.to_km) || null;
+  let segStartedAt = null;      // elapsed seconds when the current segment began
+  let segStartedKm = startKm;
+
   const session = window.FitFaithSensors.createSession({
     onUpdate(s) {
       if (s.hrMeasured && s.hr) hrSamples.push({ hr: s.hr, at: Math.round(s.elapsedSec) });
@@ -104,12 +123,83 @@ async function renderJourneyLive(key) {
       el('live-src').textContent = s.sourceLabel;
       // Blank unless a monitor is actually streaming. Never an estimate.
       el('live-hr').textContent = (s.hrMeasured && s.hr) ? String(s.hr) : '--';
-      if (world) { world.setDistance(total); world.setSpeed(shownSpeed || 0); }
+      if (world) {
+        world.setDistance(total);
+        world.setSpeed(shownSpeed || 0);
+        world.setElapsed(s.elapsedSec);
+
+        const g = world.getGrade();
+        const gradeEl = el('live-grade');
+        if (gradeEl) gradeEl.textContent = Math.abs(g) < 0.6 ? '' : (g > 0 ? '▲ ' : '▼ ') + Math.abs(g).toFixed(1) + '%';
+
+        // Where you stand against everyone actually on this road.
+        const gaps = world.ghostDeltas(total).filter(x => Math.abs(x.delta_km) < 3);
+        const gapsEl = el('live-gaps');
+        if (gapsEl) {
+          if (!gaps.length) { gapsEl.hidden = true; }
+          else {
+            gapsEl.hidden = false;
+            gapsEl.innerHTML = gaps
+              .sort((a, b) => Math.abs(a.delta_km) - Math.abs(b.delta_km))
+              .slice(0, 4)
+              .map(x => '<div class="live-gap-row' + (x.is_self ? ' self' : '') + '">'
+                + '<span class="live-gap-name">' + escapeHtml(x.display_name) + '</span>'
+                + '<span class="live-gap-delta ' + (x.delta_km >= 0 ? 'ahead' : 'behind') + '">'
+                + (x.delta_km >= 0 ? '+' : '') + (x.delta_km * 1000).toFixed(0) + ' m</span></div>')
+              .join('');
+          }
+        }
+      }
+
+      // Segment timing: crossing a waypoint closes one stretch and opens the next.
+      if (segs.length) {
+        if (!curSeg) {
+          curSeg = segs.find(sg => total >= sg.from_km && total < sg.to_km) || null;
+          if (curSeg) { segStartedAt = s.elapsedSec; segStartedKm = total; }
+        } else if (total >= curSeg.to_km) {
+          const done = curSeg;
+          const startedAt = segStartedAt;
+          // Only submit a segment we actually rode end to end this session; if
+          // we joined it part-way the time would flatter us.
+          if (startedAt != null && segStartedKm <= done.from_km + 0.05) {
+            submitSegment(done, s.elapsedSec - startedAt, s.source && s.source !== 'manual');
+          }
+          curSeg = segs.find(sg => total >= sg.from_km && total < sg.to_km) || null;
+          segStartedAt = s.elapsedSec;
+          segStartedKm = total;
+        }
+      }
       el('live-bar').style.width = Math.min(100, Math.round((total / j.total_km) * 100)) + '%';
     },
   });
 
   journeyLive = { session, world, pushTimer: null, momentTimer: null, lastPushedKm: 0, key: j.key };
+
+  async function submitSegment(seg, durationSec, measured) {
+    if (!(durationSec > 0)) return;
+    let r;
+    try {
+      r = await api('/journeys/' + encodeURIComponent(j.key) + '/segments/' + seg.index + '/complete',
+        { method: 'POST', body: { duration_sec: +durationSec.toFixed(1), measured: !!measured } });
+    } catch { return; }
+    if (!r) return;
+    const box = el('live-split');
+    if (!box) return;
+    const mmss = (sec) => Math.floor(sec / 60) + ':' + String(Math.round(sec % 60)).padStart(2, '0');
+    box.hidden = false;
+    box.innerHTML = '<div class="live-split-hd">' + escapeHtml(r.from) + ' → ' + escapeHtml(r.to) + '</div>'
+      + '<div class="live-split-time">' + mmss(r.duration_sec) + '</div>'
+      + '<div class="live-split-note">'
+      +   (r.personal_best
+            ? (r.previous_best_sec != null
+                ? '🏅 Personal best — ' + Math.round(r.previous_best_sec - r.duration_sec) + 's faster'
+                : '🏁 First time on this stretch')
+            : 'Your best here: ' + mmss(r.previous_best_sec))
+      +   ' · ' + (r.rank === 1 ? 'fastest on this road' : 'ranked ' + r.rank + ' on this road')
+      +   (r.measured ? '' : ' · declared pace')
+      + '</div>';
+    setTimeout(() => { box.hidden = true; }, 12000);
+  }
 
   function showWaypoint(w) {
     const box = el('live-waypoint');
@@ -216,6 +306,12 @@ async function renderJourneyLive(key) {
       else renderJourneyDetail(j.key);
     };
     setTimeout(() => { if (el('live-moment') === box) box.hidden = true; }, 30000);
+  }
+
+  if (ghostInfo && ghostInfo.note) note(ghostInfo.note);
+  else if (ghostInfo && ghostInfo.ghosts && ghostInfo.ghosts.length) {
+    note(ghostInfo.ghosts.length + ' recorded ride' + (ghostInfo.ghosts.length === 1 ? '' : 's')
+      + ' on this road will ride it with you.');
   }
 
   const btUnsupported = 'This browser has no Web Bluetooth — try Chrome or Edge.';
