@@ -3,7 +3,7 @@
    hearth-gold accents. Illuminated-manuscript display type (Cinzel) over a
    readable serif body (Spectral). Textures are inline SVG data-URIs — no
    external image assets, so nothing depends on a CDN. */
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Spectral:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Spectral:ital,wght@0,400;0,500;0,600;1,400&family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
   /* Late afternoon in a farming country: sunlit oat and cream rather than the
@@ -1121,3 +1121,159 @@ button.ghost { border-radius: var(--radius-sm); }
 /* The hearth-gold accents the old theme spent on emerald. */
 .card { border-radius: var(--radius); }
 .breathe-card { border-radius: var(--radius); }
+
+
+/* ---------------------------------------------------------------------------
+   Modern pass.
+   Same Shire light — warm oat, meadow green, hearth amber — executed the way a
+   current app is built: a clean sans for interface text, generous space, one
+   hairline instead of a heavy shadow, and restraint about ornament. Serif is
+   kept for the two places it earns its keep: the brand, and scripture.
+   Rules here match the base sheet's specificity (`button.primary`, `header.topbar`)
+   because plain class selectors lose to it.
+   --------------------------------------------------------------------------- */
+
+:root {
+  --ui: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --display: 'Cinzel', Georgia, serif;
+  --reading: 'Spectral', Georgia, serif;
+  --line: rgba(51,37,26,.10);      /* the one hairline used everywhere */
+  --line-strong: rgba(51,37,26,.16);
+  --lift: 0 1px 2px rgba(51,37,26,.05), 0 6px 20px rgba(51,37,26,.07);
+  --lift-hover: 0 2px 4px rgba(51,37,26,.06), 0 12px 30px rgba(51,37,26,.10);
+  --space: 16px;
+}
+
+body {
+  font-family: var(--ui);
+  font-size: 15.5px;
+  line-height: 1.55;
+  letter-spacing: -0.006em;         /* modern sans wants a touch of negative tracking */
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The page grain was doing too much work. Keep a hint of warmth, drop the fuzz. */
+body { background-blend-mode: normal; }
+body::before { content: none; }
+
+h1, h2, h3 { font-family: var(--display); letter-spacing: .01em; line-height: 1.25; }
+h2 { font-size: 1.22rem; margin: 0 0 10px; }
+h3 { font-size: 1rem; }
+.muted { color: var(--muted); }
+
+/* Scripture keeps the serif — it should read like a book, not like chrome. */
+.verse-text, .verse-card .verse-text, .journey-wp-narrative, .breathe-sub { font-family: var(--reading); }
+
+/* --- surfaces --------------------------------------------------------------
+   One hairline and a soft lift, rather than layered borders and hard shadow. */
+.card, .card.glass {
+  background: var(--parch-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--lift);
+  padding: var(--space);
+  backdrop-filter: none;
+}
+.card + .card { margin-top: 12px; }
+
+/* --- top bar ---------------------------------------------------------------
+   Search sits to the left of the bell; they were stacking because this was
+   never a flex row. */
+#topbar-right { display: flex; align-items: center; gap: 8px; }
+
+header.topbar {
+  background: var(--walnut-1);
+  border-bottom: 1px solid rgba(0,0,0,.25);
+  box-shadow: none;
+  padding: 10px 16px;
+}
+header.topbar::after { display: none; }
+header.topbar .brand { font-family: var(--display); letter-spacing: .04em; }
+
+.topbar-icon-btn, .notif-bell {
+  width: 36px; height: 36px; padding: 0; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.10);
+  border: 1px solid rgba(255,255,255,.14);
+  color: var(--parch-2);
+  transition: background .16s ease, transform .16s ease;
+}
+.topbar-icon-btn:hover, .notif-bell:hover { background: rgba(255,255,255,.18); }
+.topbar-icon-btn:active, .notif-bell:active { transform: scale(.94); }
+.topbar-icon-btn svg, .notif-bell svg { width: 18px; height: 18px; }
+
+/* --- tab bar --------------------------------------------------------------- */
+nav.tabbar {
+  background: var(--walnut-1);
+  border-top: 1px solid rgba(0,0,0,.25);
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+}
+nav.tabbar button {
+  font-family: var(--ui); font-size: .68rem; font-weight: 500;
+  letter-spacing: .01em; color: rgba(253,248,234,.62);
+  border-radius: 14px; padding: 6px 4px; transition: color .16s ease, background .16s ease;
+}
+nav.tabbar button .icon svg { width: 21px; height: 21px; }
+nav.tabbar button.active { color: #fdf8ea; background: rgba(255,255,255,.10); }
+
+/* --- controls -------------------------------------------------------------- */
+button, .btn, input, select, textarea, .input { font-family: var(--ui); }
+
+button.primary {
+  font-family: var(--ui); font-weight: 600; font-size: .92rem;
+  letter-spacing: 0; padding: 12px 22px;
+  background: var(--meadow); border: 0; color: #fdf8ea;
+  box-shadow: 0 1px 2px rgba(72,99,47,.22), 0 6px 16px rgba(72,99,47,.20);
+  transition: background .16s ease, box-shadow .16s ease, transform .12s ease;
+}
+button.primary:hover { background: var(--meadow-2); box-shadow: 0 2px 4px rgba(72,99,47,.24), 0 10px 24px rgba(72,99,47,.24); }
+button.primary:active { transform: translateY(1px); }
+
+button.ghost {
+  font-family: var(--ui); font-weight: 500; font-size: .86rem;
+  background: var(--parch-2); border: 1px solid var(--line-strong);
+  color: var(--ink-soft); border-radius: var(--radius-sm); padding: 9px 14px;
+  transition: background .16s ease, border-color .16s ease;
+}
+button.ghost:hover { background: #fff; border-color: var(--meadow-2); color: var(--ink); }
+
+.input, input[type=text], input[type=email], input[type=password], input[type=number],
+input[type=search], input[type=url], select, textarea {
+  background: var(--parch-2); border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm); padding: 11px 13px; color: var(--ink); font-size: .95rem;
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+.input:focus, input:focus, select:focus, textarea:focus {
+  outline: none; border-color: var(--meadow-2);
+  box-shadow: 0 0 0 3px rgba(123,168,79,.20);
+}
+
+/* Section chips: a modern segmented control rather than ornate pills. */
+.section-tabs { gap: 6px; }
+.section-tabs button {
+  font-family: var(--ui); font-size: .82rem; font-weight: 500;
+  padding: 7px 14px; border-radius: var(--radius-round);
+  background: transparent; border: 1px solid var(--line-strong); color: var(--ink-soft);
+}
+.section-tabs button.active {
+  background: var(--meadow); border-color: var(--meadow); color: #fdf8ea; font-weight: 600;
+}
+
+/* --- feed ------------------------------------------------------------------ */
+.post-card { border-radius: var(--radius); border: 1px solid var(--line); box-shadow: var(--lift); }
+.explore-tile { border: 1px solid var(--line); box-shadow: var(--lift); }
+.explore-tile:hover { box-shadow: var(--lift-hover); }
+.explore-tile-name, .search-row-title, .breathe-card-name { font-family: var(--ui); font-weight: 600; }
+.breathe-card { border: 1px solid var(--line); box-shadow: var(--lift); }
+.breathe-card:hover { box-shadow: var(--lift-hover); }
+.search-row { border: 1px solid var(--line); }
+
+/* Numbers should read as data: tabular, tight, unfussy. */
+.lm-value, .fig-v, .stat-value, .breathe-count, .seg-time {
+  font-family: var(--ui); font-variant-numeric: tabular-nums; letter-spacing: -0.02em;
+}
+
+/* Respect a reduced-motion preference across everything added here. */
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
