@@ -16,6 +16,7 @@ const moments = require('../lib/moments');
 const segments = require('../lib/segments');
 const overlay = require('../lib/overlay');
 const usernames = require('../lib/usernames');
+const breathwork = require('../lib/breathwork');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
 const { searchNearbyChurches } = require('../lib/overpass');
@@ -2928,6 +2929,12 @@ router.get('/search', (req, res) => {
   })));
 
   res.json({ q: raw, groups, total: groups.reduce((a, g) => a + g.items.length, 0) });
+});
+
+// The guided breathing catalogue. Verse text is resolved from the verified
+// table, so a pattern can never carry scripture we cannot trace.
+router.get('/breathing/patterns', (req, res) => {
+  res.json({ patterns: breathwork.list(lookupScriptureText) });
 });
 
 module.exports = router;

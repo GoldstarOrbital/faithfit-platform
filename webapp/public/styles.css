@@ -6,15 +6,23 @@
 @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&family=Spectral:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&display=swap');
 
 :root {
-  /* parchment */
-  --parch-0: #e7dcc4;   /* page */
-  --parch-1: #f3ead6;   /* card */
-  --parch-2: #f9f2e2;   /* raised */
-  --parch-sink: #e0d4ba;/* recessed wells */
-  /* ink / walnut text */
-  --ink: #2d2013;
-  --ink-soft: #5b4a34;
-  --muted: #8a7455;
+  /* Late afternoon in a farming country: sunlit oat and cream rather than the
+     grey-brown of aged vellum. Everything here is warm; nothing is neutral. */
+  --parch-0: #e9e0c6;   /* page — sun on a barley field */
+  --parch-1: #f6efdc;   /* card — cream, freshly churned */
+  --parch-2: #fdf8ea;   /* raised — the lit face of a thing */
+  --parch-sink: #ddd2b4;/* recessed wells — shadow in the grass */
+  /* Ink is warm brown, never black. Nothing in a hobbit-hole is printed. */
+  --ink: #33251a;
+  --ink-soft: #61503c;
+  --muted: #8d7a5f;
+  /* meadow + hearth: the two lights this whole theme is lit by */
+  --meadow: #6f8f43;
+  --meadow-2: #87a854;
+  --meadow-deep: #48632f;
+  --hearth: #d99a3f;
+  --hearth-soft: #f0c477;
+  --brass: #b08d46;
   /* wood */
   --walnut-0: #3a2a1a;
   --walnut-1: #2b1e12;
@@ -25,19 +33,23 @@
   --silver-2: #eef0f2;
   --hairline: rgba(74,58,40,0.22);   /* engraved line on parchment */
   --hairline-soft: rgba(74,58,40,0.12);
-  /* accents */
-  --forest: #2f6b45;
-  --forest-2: #3f8a58;
-  --emerald: #46c07f;        /* luminous green — the futuristic highlight */
-  --emerald-2: #6fe6a5;
-  --emerald-glow: rgba(70,192,127,0.45);
-  --gold: #a9812f;
-  --gold-2: #c9a24a;
-  --seal: #8e3b2e;      /* wax-seal red (likes, alerts) */
-  --accent: var(--forest);   /* legacy alias used by a few inline styles */
+  /* accents — kept under their old names so nothing downstream breaks, but
+     retuned from forest/emerald to pasture and hedgerow. */
+  --forest: #4f7239;
+  --forest-2: #6f8f43;
+  --emerald: #7ba84f;        /* the green of a tended field, not a screen */
+  --emerald-2: #9bc46a;
+  --emerald-glow: rgba(123,168,79,0.40);
+  --gold: #b08d46;
+  --gold-2: #d9ab55;
+  --seal: #a2472f;      /* sealing wax, still */
+  --accent: var(--meadow);
   --accent2: var(--seal);
-  --accent3: var(--gold);
-  --radius: 14px;
+  --accent3: var(--hearth);
+  /* Round doors. The single most Shire thing available to a stylesheet. */
+  --radius: 20px;
+  --radius-sm: 14px;
+  --radius-round: 999px;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -49,9 +61,14 @@ body {
   background-color: var(--parch-0);
   /* parchment fibre grain + warm hearth glow */
   background-image:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.28 0 0 0 0 0.21 0 0 0 0 0.12 0 0 0 0.06 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23p)'/%3E%3C/svg%3E"),
-    radial-gradient(1200px 600px at 18% -10%, rgba(201,162,74,0.16), transparent 60%),
-    radial-gradient(900px 700px at 50% 120%, rgba(61,90,69,0.12), transparent 60%);
+    /* linen weave, finer and warmer than the old parchment fibre */
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='p'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.30 0 0 0 0 0.24 0 0 0 0 0.14 0 0 0 0.05 0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23p)'/%3E%3C/svg%3E"),
+    /* two green hills rising along the bottom of every screen */
+    radial-gradient(120% 42% at 12% 108%, rgba(111,143,67,0.30), transparent 62%),
+    radial-gradient(110% 38% at 88% 112%, rgba(72,99,47,0.26), transparent 60%),
+    /* a low sun off to one side, and hearth-light spilling from the other */
+    radial-gradient(900px 520px at 84% -12%, rgba(240,196,119,0.34), transparent 66%),
+    radial-gradient(700px 420px at 8% -6%, rgba(217,154,63,0.16), transparent 62%);
   background-attachment: fixed;
   min-height: 100vh;
   font-size: 16px;
@@ -963,3 +980,144 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
 .search-row-title{font-weight:650;font-size:.92rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .search-row-sub{font-size:.76rem;opacity:.66;overflow:hidden;text-overflow:ellipsis;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal}
+
+
+/* ---------------------------------------------------------------------------
+   The Shire pass.
+   Round doors, hedgerows and hearth-light. The rule followed throughout: warm
+   over cool, round over square, and soft shadow over hard edges — a place that
+   is tended rather than designed.
+   --------------------------------------------------------------------------- */
+
+/* Cards read as things sitting in sunlight, not panels floating in space. */
+.card {
+  border-radius: var(--radius);
+  box-shadow: 0 2px 3px rgba(74,58,40,.07), 0 10px 26px rgba(74,58,40,.10);
+}
+
+/* Round doors: primary actions and the tab bar go fully round. */
+button, .btn, .primary, .ghost, .follow-btn, input, select, textarea, .input {
+  border-radius: var(--radius-sm);
+}
+.primary, .start-stop-btn, .follow-btn { border-radius: var(--radius-round); }
+
+.primary {
+  background: linear-gradient(180deg, var(--meadow-2), var(--meadow));
+  border: 1px solid var(--meadow-deep);
+  color: #fdf8ea;
+  box-shadow: 0 2px 0 var(--meadow-deep), 0 6px 14px rgba(72,99,47,.28);
+}
+.primary:hover { filter: brightness(1.05); }
+.primary:active { transform: translateY(1px); box-shadow: 0 1px 0 var(--meadow-deep); }
+
+/* The top bar as a beam of dark oak over a lit room. */
+header.topbar {
+  border-bottom: 1px solid rgba(45,32,20,.35);
+  box-shadow: 0 3px 14px rgba(51,37,26,.22);
+}
+
+/* The tab bar sits like a row of round doors along the bottom. */
+nav.tabbar { border-top: 1px solid var(--hairline); }
+nav.tabbar button { border-radius: var(--radius-round); }
+nav.tabbar button.active { background: rgba(123,168,79,.18); }
+
+/* Section chips and pills, rounded off. */
+.section-tabs button, .chip, .badge, .premium-badge, .journey-world { border-radius: var(--radius-round); }
+
+/* Verse cards: a page from something kept on a shelf, not a UI panel. */
+.verse-card {
+  border-radius: var(--radius-sm);
+  border-left: 3px solid var(--hearth);
+  background: linear-gradient(180deg, var(--parch-2), var(--parch-1));
+}
+
+/* Explore tiles pick up the hearth glow on hover. */
+.explore-tile { border-radius: var(--radius); }
+.explore-tile:hover { border-color: var(--meadow-2); box-shadow: 0 8px 20px rgba(72,99,47,.16); }
+.explore-tile-icon { background: rgba(123,168,79,.14); color: var(--meadow-deep); }
+
+/* --- Guided breathing ------------------------------------------------------ */
+.breathe-list { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.breathe-card {
+  text-align: left; font: inherit; color: var(--ink); cursor: pointer; padding: 14px;
+  background: var(--parch-1); border: 1px solid var(--hairline-soft);
+  border-radius: var(--radius); transition: transform .14s ease, box-shadow .14s ease;
+}
+.breathe-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(72,99,47,.16); }
+.breathe-card-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.breathe-card-name { font-family: 'Cinzel', serif; font-weight: 700; font-size: .98rem; }
+.breathe-card-rate { font-size: .7rem; opacity: .6; white-space: nowrap; }
+.breathe-card-tag { font-size: .8rem; opacity: .75; margin-top: 2px; }
+/* A little diagram of the pattern: bar widths are the phase lengths. */
+.breathe-card-shape { display: flex; gap: 3px; margin-top: 10px; height: 18px; }
+.bp { display: flex; align-items: center; justify-content: center; border-radius: 6px;
+      font-size: .6rem; color: #fdf8ea; }
+.bp-in { background: var(--meadow); }
+.bp-hold { background: var(--brass); }
+.bp-out { background: var(--meadow-deep); }
+
+.breathe-stage { text-align: center; }
+.breathe-title { font-family: 'Cinzel', serif; margin: 8px 0 2px; }
+.breathe-sub { font-size: .84rem; max-width: 44ch; margin: 0 auto 6px; line-height: 1.5; }
+.breathe-orb-wrap { display: flex; align-items: center; justify-content: center;
+                    height: 300px; margin: 4px 0; }
+.breathe-orb {
+  width: 210px; height: 210px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 34% 30%, var(--hearth-soft), var(--meadow-2) 62%, var(--meadow-deep));
+  box-shadow: 0 0 0 10px rgba(123,168,79,.13), 0 0 60px rgba(217,154,63,.34),
+              inset 0 -12px 30px rgba(72,99,47,.4);
+  color: #fdf8ea; will-change: transform;
+}
+.breathe-orb.hold { box-shadow: 0 0 0 14px rgba(176,141,70,.18), 0 0 70px rgba(217,154,63,.42),
+                                inset 0 -12px 30px rgba(72,99,47,.4); }
+.breathe-orb-inner { text-align: center; }
+.breathe-phase { font-family: 'Cinzel', serif; font-size: 1.12rem; font-weight: 700;
+                 text-shadow: 0 1px 3px rgba(45,32,20,.4); }
+.breathe-count { font-size: 2.1rem; font-weight: 700; line-height: 1.1;
+                 font-variant-numeric: tabular-nums; text-shadow: 0 1px 4px rgba(45,32,20,.45); }
+.breathe-meta { display: flex; justify-content: center; gap: 22px; font-size: .82rem;
+                opacity: .7; font-variant-numeric: tabular-nums; }
+.breathe-controls { margin: 14px 0 6px; }
+.breathe-controls .primary { min-width: 180px; }
+.breathe-verse { text-align: left; margin-top: 14px; }
+
+@media (max-width: 420px) {
+  .breathe-orb-wrap { height: 250px; }
+  .breathe-orb { width: 175px; height: 175px; }
+}
+
+
+/* ---------------------------------------------------------------------------
+   Shire: specificity corrections.
+   The base sheet styles buttons as `button.primary` and re-declares --radius in
+   a later :root, both of which outrank the plain `.primary` and earlier :root
+   used above. These rules match that specificity so the theme actually lands
+   rather than only appearing to.
+   --------------------------------------------------------------------------- */
+:root {
+  --radius: 20px;          /* round doors, restated after the later override */
+  --radius-sm: 14px;
+  --radius-round: 999px;
+}
+
+button.primary {
+  background: linear-gradient(180deg, var(--meadow-2), var(--meadow));
+  border: 1px solid var(--meadow-deep);
+  color: #fdf8ea;
+  border-radius: var(--radius-round);
+  font-family: 'Cinzel', serif;
+  box-shadow: 0 2px 0 var(--meadow-deep), 0 7px 18px rgba(72,99,47,.26);
+}
+button.primary:hover {
+  filter: brightness(1.05);
+  box-shadow: 0 2px 0 var(--meadow-deep), 0 9px 22px rgba(72,99,47,.32);
+}
+button.primary:active { transform: translateY(1px); box-shadow: 0 1px 0 var(--meadow-deep); }
+
+button.follow-btn, button.start-stop-btn { border-radius: var(--radius-round); }
+button.ghost { border-radius: var(--radius-sm); }
+
+/* The hearth-gold accents the old theme spent on emerald. */
+.card { border-radius: var(--radius); }
+.breathe-card { border-radius: var(--radius); }

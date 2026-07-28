@@ -682,36 +682,7 @@ async function renderExplore(main) {
     `;
     body.querySelectorAll('[data-group]').forEach(el => el.onclick = () => renderGroupDetail(el.dataset.group));
   } else if (state.exploreTab === 'breathe') {
-    body.innerHTML = `
-      <div class="card glass" style="text-align:center">
-        <h2>Box Breathing</h2>
-        <p class="muted">Inhale 4s · Hold 4s · Exhale 4s · Hold 4s</p>
-        <div class="breathe-circle" id="breathe-circle">Start</div>
-        <button class="primary" id="breathe-toggle" style="margin-top:16px">Begin session</button>
-      </div>
-    `;
-    let breatheInterval = null, phaseIdx = 0, seconds = 0;
-    const phases = [
-      { label: 'Inhale', cls: 'in' }, { label: 'Hold', cls: 'in' },
-      { label: 'Exhale', cls: 'out' }, { label: 'Hold', cls: 'out' },
-    ];
-    document.getElementById('breathe-toggle').onclick = async (e) => {
-      const circle = document.getElementById('breathe-circle');
-      if (breatheInterval) {
-        clearInterval(breatheInterval); breatheInterval = null;
-        e.target.textContent = 'Begin session'; circle.textContent = 'Start'; circle.className = 'breathe-circle';
-        await api('/breathing/complete', { method: 'POST', body: { pattern: 'box', duration_sec: seconds } });
-        return;
-      }
-      e.target.textContent = 'End session'; seconds = 0; phaseIdx = 0;
-      const tick = () => {
-        const p = phases[phaseIdx % 4];
-        circle.textContent = p.label; circle.className = 'breathe-circle ' + p.cls;
-        phaseIdx++; seconds += 4;
-      };
-      tick();
-      breatheInterval = setInterval(tick, 4000);
-    };
+    await renderBreathe(body);
   } else if (state.exploreTab === 'motivation') {
     const q = await api('/motivation');
     body.innerHTML = `
@@ -3122,4 +3093,174 @@ function openSearchResult(type, id) {
     case 'podcasts':   state.tab = 'explore'; state.exploreTab = 'podcasts'; return render();
     default:           return render();
   }
+}
+
+
+// --- Guided breathing --------------------------------------------------------
+// A paced session rather than a label that swaps every few seconds: the circle
+// moves for the whole length of each phase, so there is something to breathe
+// *with*. Timing is driven off the clock rather than an interval count, because
+// setInterval drifts and a breathing guide that drifts is worse than none.
+
+
+// Where the orb starts and ends for each phase.
+//
+// A phase cannot decide its own size in isolation: a hold has to stay exactly
+// where the previous phase left the orb, and consecutive inhales -- the double
+// breath's "sip more air" -- have to carry on from the first rather than
+// snapping back to the bottom. So consecutive phases of the same kind share one
+// span, divided between them in proportion to their length.
+const breatheLevelCache = new WeakMap();
+function breatheLevels(pattern) {
+  const cached = breatheLevelCache.get(pattern);
+  if (cached) return cached;
+
+  const SMALL = 0.62, BIG = 1;
+  const ph = pattern.phases;
+  const out = new Array(ph.length);
+  let level = SMALL;
+  let i = 0;
+  while (i < ph.length) {
+    if (ph[i].kind === 'hold') { out[i] = { from: level, to: level }; i++; continue; }
+    let j = i, total = 0;
+    while (j < ph.length && ph[j].kind === ph[i].kind) { total += ph[j].sec; j++; }
+    const target = ph[i].kind === 'in' ? BIG : SMALL;
+    const span = target - level;
+    let acc = 0;
+    for (let k = i; k < j; k++) {
+      const from = level + span * (acc / total);
+      acc += ph[k].sec;
+      out[k] = { from, to: level + span * (acc / total) };
+    }
+    level = target;
+    i = j;
+  }
+  breatheLevelCache.set(pattern, out);
+  return out;
+}
+
+// Where the breath is at time t, as pure arithmetic. Kept out of the render
+// loop so the pacing can be verified without a visible tab: requestAnimationFrame
+// is throttled when the page is hidden, which makes the animation impossible to
+// measure from the outside but says nothing about whether the maths is right.
+function breatheFrameAt(pattern, t) {
+  const cycle = pattern.cycle_sec;
+  const into = t % cycle;
+  let acc = 0, phase = pattern.phases[0], progress = 0;
+  for (const ph of pattern.phases) {
+    if (into < acc + ph.sec) { phase = ph; progress = (into - acc) / ph.sec; break; }
+    acc += ph.sec;
+  }
+  // Cosine easing so the turn at the top and bottom of each breath is soft.
+  const ease = (x) => 0.5 - Math.cos(Math.PI * Math.min(1, Math.max(0, x))) / 2;
+  const idx = pattern.phases.indexOf(phase);
+  const level = breatheLevels(pattern)[idx];
+  const scale = level.from + (level.to - level.from) * ease(progress);
+  return {
+    kind: phase.kind, label: phase.label, scale, progress,
+    remain: Math.ceil(phase.sec - (into - acc)),
+    breaths: Math.floor(t / cycle),
+  };
+}
+
+let breatheSession = null;
+
+function stopBreathe(save) {
+  if (!breatheSession) return;
+  cancelAnimationFrame(breatheSession.raf);
+  const elapsed = Math.round((Date.now() - breatheSession.startedAt) / 1000);
+  const key = breatheSession.pattern.key;
+  breatheSession = null;
+  if (save && elapsed >= 20) {
+    api('/breathing/complete', { method: 'POST', body: { pattern: key, duration_sec: elapsed } }).catch(() => {});
+  }
+  return elapsed;
+}
+
+async function renderBreathe(body) {
+  stopBreathe(false);
+  let patterns = [];
+  try { patterns = (await api('/breathing/patterns')).patterns || []; }
+  catch { body.innerHTML = '<div class="card glass">Could not load the breathing patterns.</div>'; return; }
+
+  body.innerHTML = '<h2 style="margin-top:0">Breathe</h2>'
+    + '<p class="muted" style="margin-top:-6px;margin-bottom:14px">Seven guided patterns. Pick one for where you are — before effort, after it, or at the end of the day.</p>'
+    + '<div class="breathe-list">'
+    + patterns.map(p => '<button class="breathe-card" data-bkey="' + escapeHtml(p.key) + '">'
+        + '<div class="breathe-card-top"><span class="breathe-card-name">' + escapeHtml(p.name) + '</span>'
+        + '<span class="breathe-card-rate">' + p.breaths_per_min + '/min</span></div>'
+        + '<div class="breathe-card-tag">' + escapeHtml(p.tagline) + '</div>'
+        + '<div class="breathe-card-shape">' + p.phases.map(ph =>
+            '<span class="bp bp-' + ph.kind + '" style="flex:' + ph.sec + '">' + ph.sec + '</span>').join('')
+          + '</div></button>').join('')
+    + '</div>';
+
+  body.querySelectorAll('[data-bkey]').forEach(b => {
+    b.onclick = () => startBreathe(body, patterns.find(p => p.key === b.dataset.bkey));
+  });
+}
+
+function startBreathe(body, pattern) {
+  if (!pattern) return;
+  const cycle = pattern.cycle_sec;
+
+  body.innerHTML = '<div class="breathe-stage">'
+    + '<button class="ghost back-btn" id="br-back">← All patterns</button>'
+    + '<h2 class="breathe-title">' + escapeHtml(pattern.name) + '</h2>'
+    + '<div class="muted breathe-sub">' + escapeHtml(pattern.about) + '</div>'
+    + '<div class="breathe-orb-wrap">'
+    +   '<div class="breathe-orb" id="br-orb"><div class="breathe-orb-inner">'
+    +     '<div class="breathe-phase" id="br-phase">Ready</div>'
+    +     '<div class="breathe-count" id="br-count"></div>'
+    +   '</div></div>'
+    + '</div>'
+    + '<div class="breathe-meta"><span id="br-cycles">0 breaths</span><span id="br-time">0:00</span></div>'
+    + '<div class="breathe-controls">'
+    +   '<button class="primary" id="br-toggle">Begin</button>'
+    + '</div>'
+    + (pattern.scripture_ref ? '<div class="verse-card verse-tappable breathe-verse" data-verse-ref="'
+        + escapeHtml(pattern.scripture_ref) + '"><div class="verse-ref">' + escapeHtml(pattern.scripture_ref) + '</div>'
+        + (pattern.scripture_text ? '<div class="verse-text">' + escapeHtml(pattern.scripture_text) + '</div>' : '')
+        + '<div class="verse-convo">\ud83d\udcac Talk about this</div></div>' : '')
+    + '</div>';
+
+  document.getElementById('br-back').onclick = () => { stopBreathe(true); renderBreathe(body); };
+  const verse = body.querySelector('[data-verse-ref]');
+  if (verse) verse.onclick = () => { stopBreathe(true); renderVerseThread(verse.dataset.verseRef); };
+
+  const orb = document.getElementById('br-orb');
+  const phaseEl = document.getElementById('br-phase');
+  const countEl = document.getElementById('br-count');
+  const toggle = document.getElementById('br-toggle');
+
+  toggle.onclick = () => {
+    if (breatheSession) {
+      const secs = stopBreathe(true);
+      toggle.textContent = 'Begin';
+      phaseEl.textContent = 'Well done';
+      countEl.textContent = secs >= 20 ? 'saved' : '';
+      orb.style.transform = 'scale(1)';
+      return;
+    }
+    breatheSession = { pattern, startedAt: Date.now(), raf: 0 };
+    toggle.textContent = 'Finish';
+
+    const frame = () => {
+      if (!breatheSession) return;
+      breatheSession.raf = requestAnimationFrame(frame);
+      const t = (Date.now() - breatheSession.startedAt) / 1000;
+      const f = breatheFrameAt(pattern, t);
+
+      orb.style.transform = 'scale(' + f.scale.toFixed(3) + ')';
+      orb.className = 'breathe-orb ' + f.kind;
+      phaseEl.textContent = f.label;
+      countEl.textContent = f.remain > 0 ? String(f.remain) : '';
+
+      const breaths = f.breaths;
+      document.getElementById('br-cycles').textContent = breaths + (breaths === 1 ? ' breath' : ' breaths');
+      const m = Math.floor(t / 60), sec = Math.floor(t % 60);
+      document.getElementById('br-time').textContent = m + ':' + String(sec).padStart(2, '0');
+    };
+    frame();
+  };
 }
