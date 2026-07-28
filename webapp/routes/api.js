@@ -15,6 +15,7 @@ const { ensureJourneys, applyWorkoutToJourneys, advanceJourney, lookupScriptureT
 const moments = require('../lib/moments');
 const segments = require('../lib/segments');
 const overlay = require('../lib/overlay');
+const usernames = require('../lib/usernames');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
 const { searchNearbyChurches } = require('../lib/overpass');
@@ -134,9 +135,13 @@ router.post('/auth/register', (req, res) => {
   const existing = db.prepare('SELECT 1 FROM users WHERE email = ?').get(mail);
   if (existing) return res.status(409).json({ error: 'email_taken' });
 
+  // Names are unique, so people can be found and mentioned unambiguously.
+  const nameCheck = usernames.check(name, null);
+  if (nameCheck.error) return res.status(409).json(nameCheck);
+
   const id = randomUUID();
   db.prepare('INSERT INTO users (id, email, display_name, password_hash) VALUES (?, ?, ?, ?)')
-    .run(id, mail, name, hashPassword(pw));
+    .run(id, mail, nameCheck.name, hashPassword(pw));
   db.prepare('INSERT OR IGNORE INTO user_xp (user_id, xp, level) VALUES (?, 0, 1)').run(id);
 
   req.session.userId = id;
@@ -272,7 +277,10 @@ async function handleOauthCallback(req, res) {
       // New account — no password (identity-only sign-in).
       userId = randomUUID();
       const uniqueEmail = email || `${provider}-${claims.sub}@login.faithfit`;
-      db.prepare('INSERT INTO users (id, email, display_name) VALUES (?, ?, ?)').run(userId, uniqueEmail, String(name).slice(0, 60));
+      // A name clash must never be why somebody's Google sign-in fails, so this
+      // path takes the nearest free variant instead of refusing.
+      const chosen = usernames.suggest(String(name || 'Friend'), null);
+      db.prepare('INSERT INTO users (id, email, display_name) VALUES (?, ?, ?)').run(userId, uniqueEmail, chosen);
       db.prepare('INSERT OR IGNORE INTO user_xp (user_id, xp, level) VALUES (?, 0, 1)').run(userId);
       db.prepare('INSERT INTO user_identities (id, user_id, provider, provider_user_id, email) VALUES (?,?,?,?,?)')
         .run(randomUUID(), userId, provider, claims.sub, email);
@@ -1635,9 +1643,9 @@ router.put('/profile', requireAuth, (req, res) => {
   }
 
   if (display_name !== undefined) {
-    const name = String(display_name).trim().slice(0, 60);
-    if (!name) return res.status(400).json({ error: 'invalid_display_name' });
-    updates.display_name = name;
+    const nameCheck = usernames.check(display_name, req.session.userId);
+    if (nameCheck.error) return res.status(409).json(nameCheck);
+    updates.display_name = nameCheck.name;
   }
 
   // Bio must match a verse actually present in our verified bible_verses table —
@@ -2832,6 +2840,94 @@ router.get('/overlay/s/:token', (req, res) => {
   if (!data) return res.status(404).json({ error: 'unknown_overlay' });
   res.set('cache-control', 'no-store');
   res.json(data);
+});
+
+// --- Name availability -----------------------------------------------------
+router.get('/username-available', (req, res) => {
+  const me = req.session.userId || null;
+  const r = usernames.check(req.query.name || '', me);
+  res.json({
+    available: !r.error,
+    error: r.error || null,
+    message: r.message || null,
+    suggestion: r.error === 'name_taken' ? usernames.suggest(req.query.name || '', me) : null,
+  });
+});
+
+// --- Search across the whole app -------------------------------------------
+// One query, grouped results: people, routes, challenges, groups, videos,
+// podcasts and scripture. Scripture goes through the same verified table as
+// everything else, so a search can never surface a verse we cannot trace.
+router.get('/search', (req, res) => {
+  const raw = String(req.query.q || '').trim();
+  if (raw.length < 2) return res.json({ q: raw, groups: [], total: 0 });
+  const like = '%' + raw.replace(/[%_]/g, m => '\\' + m) + '%';
+  const limit = Math.min(Number(req.query.limit) || 6, 20);
+  const groups = [];
+  const add = (type, label, items) => { if (items.length) groups.push({ type, label, items }); };
+
+  add('people', 'People', db.prepare(
+    `SELECT id, display_name, church, job,
+            CASE WHEN avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar
+     FROM users WHERE display_name LIKE ? ESCAPE '\\'
+     ORDER BY length(display_name) LIMIT ?`).all(like, limit)
+    .map(u => ({ id: u.id, title: u.display_name,
+                 subtitle: [u.job, u.church].filter(Boolean).join(' · ') || null,
+                 has_avatar: !!u.has_avatar })));
+
+  add('journeys', 'Journeys', db.prepare(
+    `SELECT key, name, subtitle, total_km FROM journeys
+     WHERE name LIKE ? ESCAPE '\\' OR subtitle LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\'
+     ORDER BY length(name) LIMIT ?`).all(like, like, like, limit)
+    .map(j => ({ id: j.key, title: j.name, subtitle: j.subtitle })));
+
+  add('challenges', 'Challenges', db.prepare(
+    `SELECT key, name, description FROM challenges
+     WHERE name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\'
+     ORDER BY length(name) LIMIT ?`).all(like, like, limit)
+    .map(c => ({ id: c.key, title: c.name, subtitle: c.description })));
+
+  add('groups', 'Groups', db.prepare(
+    `SELECT id, name, description FROM groups
+     WHERE name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\'
+     ORDER BY length(name) LIMIT ?`).all(like, like, limit)
+    .map(g => ({ id: g.id, title: g.name, subtitle: g.description })));
+
+  try {
+    add('videos', 'Videos', db.prepare(
+      `SELECT id, title, category FROM videos
+       WHERE title LIKE ? ESCAPE '\\' ORDER BY length(title) LIMIT ?`).all(like, limit)
+      .map(v => ({ id: v.id, title: v.title, subtitle: v.category })));
+  } catch { /* video library table may not be populated */ }
+
+  try {
+    add('podcasts', 'Podcasts', db.prepare(
+      `SELECT e.id, e.title, p.title AS show_title FROM podcast_episodes e
+       JOIN podcasts p ON p.id = e.podcast_id
+       WHERE e.title LIKE ? ESCAPE '\\' ORDER BY length(e.title) LIMIT ?`).all(like, limit)
+      .map(e => ({ id: e.id, title: e.title, subtitle: e.show_title })));
+  } catch { /* podcasts are optional */ }
+
+  // Scripture: exact reference first, then full text.
+  const verses = [];
+  const refRow = db.prepare(
+    `SELECT book, chapter, verse, text FROM bible_verses
+     WHERE lower(book || ' ' || chapter || ':' || verse) = lower(?) LIMIT 1`).get(raw);
+  if (refRow) verses.push(refRow);
+  if (verses.length < limit) {
+    for (const v of db.prepare(
+      `SELECT book, chapter, verse, text FROM bible_verses
+       WHERE text LIKE ? ESCAPE '\\' LIMIT ?`).all(like, limit - verses.length)) {
+      if (!verses.some(x => x.book === v.book && x.chapter === v.chapter && x.verse === v.verse)) verses.push(v);
+    }
+  }
+  add('scripture', 'Scripture', verses.map(v => ({
+    id: `${v.book} ${v.chapter}:${v.verse}`,
+    title: `${v.book} ${v.chapter}:${v.verse}`,
+    subtitle: v.text,
+  })));
+
+  res.json({ q: raw, groups, total: groups.reduce((a, g) => a + g.items.length, 0) });
 });
 
 module.exports = router;

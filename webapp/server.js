@@ -9,12 +9,15 @@ const { startVideoLibraryRefresh } = require('./lib/videos');
 const developerWebhooks = require('./lib/webhooks');
 const segments = require('./lib/segments');
 const overlay = require('./lib/overlay');
+const usernames = require('./lib/usernames');
 
 seed();
 // Create the webhook tables and attach the dispatcher to the domain event bus.
 developerWebhooks.start();
 segments.init();
 overlay.init();
+// Names are unique from here on; existing duplicates are reported, not renamed.
+usernames.ensureUniqueIndex();
 // Ingest real podcast episodes from public RSS feeds (background, non-blocking).
 startPodcastRefresh();
 // Church devotionals from YouTube — true no-op (not even a timer) unless

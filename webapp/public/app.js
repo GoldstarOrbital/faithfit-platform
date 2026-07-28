@@ -1959,6 +1959,9 @@ function renderShareForm(main, ctx) {
 function formatElapsed(s) { const m = Math.floor(s / 60), sec = s % 60; return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`; }
 function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 
+const searchBtn = document.getElementById('search-btn');
+if (searchBtn) searchBtn.onclick = () => { if (state.me) openSearch(); };
+
 document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
   // Pressing Explore in the tab bar returns to the index of sections, so the
   // full catalogue is one tap from anywhere. Deep links from Home set
@@ -3027,4 +3030,96 @@ async function renderOverlayCard() {
     await api('/overlay/token', { method: 'DELETE' }).catch(() => {});
     renderOverlayCard();
   };
+}
+
+
+// --- Search -----------------------------------------------------------------
+// One field across the whole app: people, routes, challenges, groups, videos,
+// podcasts and scripture. Results are grouped so it is obvious what a hit is,
+// and every row goes somewhere rather than being a dead label.
+
+let searchTimer = null;
+
+const SEARCH_ICONS = {
+  people:     '<circle cx="12" cy="8" r="4"/><path d="M4.5 20c0-4.2 3.8-6.2 7.5-6.2s7.5 2 7.5 6.2"/>',
+  journeys:   '<path d="M4 19c3-1 4-5 8-5s5-4 8-5"/><circle cx="5" cy="19" r="1.6"/><circle cx="19" cy="9" r="1.6"/>',
+  challenges: '<path d="M7 4h10v4a5 5 0 01-10 0V4z"/><path d="M10 15h4v3h-4z"/><path d="M8 21h8"/>',
+  groups:     '<circle cx="9" cy="8" r="3"/><path d="M3 19c0-3.2 2.8-5 6-5s6 1.8 6 5"/>',
+  videos:     '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M10 9.5l5 2.5-5 2.5z"/>',
+  podcasts:   '<rect x="9" y="3" width="6" height="10" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3"/>',
+  scripture:  '<path d="M4 5.5A2.5 2.5 0 016.5 3H19v15H6.5A2.5 2.5 0 004 20.5z"/><path d="M12 7v6M9.5 9.5h5"/>',
+};
+
+function openSearch() {
+  const main = document.getElementById('main');
+  document.querySelectorAll('nav button').forEach(b => b.style.display = 'none');
+  main.innerHTML = `
+    <div class="search-head">
+      <button class="ghost back-btn" id="search-back">← Back</button>
+    </div>
+    <div class="search-field">
+      <svg class="search-field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>
+      <input class="input" id="search-input" type="search" autocomplete="off"
+             placeholder="Search people, routes, verses…" />
+    </div>
+    <div id="search-results"><div class="muted search-hint">Search across everything: a person, a route, a challenge, a group, a video, or a verse — try a name, or a phrase like “run with endurance”.</div></div>
+  `;
+  document.getElementById('search-back').onclick = () => {
+    document.querySelectorAll('nav button').forEach(b => b.style.display = '');
+    render();
+  };
+  const input = document.getElementById('search-input');
+  input.oninput = () => {
+    clearTimeout(searchTimer);
+    // Wait for a pause in typing rather than querying on every keystroke.
+    searchTimer = setTimeout(() => runSearch(input.value), 220);
+  };
+  input.focus();
+}
+
+async function runSearch(q) {
+  const box = document.getElementById('search-results');
+  if (!box) return;
+  const term = String(q || '').trim();
+  if (term.length < 2) {
+    box.innerHTML = '<div class="muted search-hint">Keep typing — two characters or more.</div>';
+    return;
+  }
+  let data;
+  try { data = await api('/search?q=' + encodeURIComponent(term)); }
+  catch { box.innerHTML = '<div class="muted search-hint">Could not search just now.</div>'; return; }
+
+  if (!data.total) {
+    box.innerHTML = '<div class="muted search-hint">Nothing matched “' + escapeHtml(term) + '”.</div>';
+    return;
+  }
+
+  box.innerHTML = data.groups.map(g => '<div class="search-group">'
+    + '<div class="search-group-head">' + escapeHtml(g.label) + '</div>'
+    + g.items.map(it => '<button class="search-row" data-type="' + g.type + '" data-id="' + escapeHtml(String(it.id)) + '">'
+        + '<span class="search-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">'
+        + (SEARCH_ICONS[g.type] || '') + '</svg></span>'
+        + '<span class="search-row-main"><span class="search-row-title">' + escapeHtml(it.title || '') + '</span>'
+        + (it.subtitle ? '<span class="search-row-sub">' + escapeHtml(it.subtitle) + '</span>' : '')
+        + '</span></button>').join('')
+    + '</div>').join('');
+
+  box.querySelectorAll('.search-row').forEach(row => {
+    row.onclick = () => openSearchResult(row.dataset.type, row.dataset.id);
+  });
+}
+
+function openSearchResult(type, id) {
+  document.querySelectorAll('nav button').forEach(b => b.style.display = '');
+  const main = document.getElementById('main');
+  switch (type) {
+    case 'people':     return renderUserProfile(id);
+    case 'journeys':   return renderJourneyDetail(id);
+    case 'scripture':  return renderVerseThread(id);
+    case 'challenges': state.tab = 'explore'; state.exploreTab = 'challenges'; return render();
+    case 'groups':     state.tab = 'explore'; state.exploreTab = 'groups'; return render();
+    case 'videos':     state.tab = 'explore'; state.exploreTab = 'videos'; return render();
+    case 'podcasts':   state.tab = 'explore'; state.exploreTab = 'podcasts'; return render();
+    default:           return render();
+  }
 }
