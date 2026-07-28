@@ -1,5 +1,5 @@
 const state = {
-  tab: 'home', me: null, exploreTab: 'groups',
+  tab: 'home', me: null, exploreTab: null,
   activeWorkout: null, hrTimer: null, elapsed: 0, hr: 0,
   gpsWatchId: null, gpsPoints: [], leafletMap: null, leafletLine: null,
   bleDevice: null, bleServer: null, bleConnected: false,
@@ -555,22 +555,70 @@ function challengeRow(c) {
   </div>`;
 }
 
+
+// Everything Explore contains, in one place. The Explore tab opens on this
+// index so the whole catalogue is visible at a glance; you pick a section and
+// go into it, rather than landing in one and scrolling a strip to find the rest.
+const EXPLORE_SECTIONS = [
+  { key: 'journeys',    name: 'Journeys',    blurb: 'Ride or run a 3D route through scripture and story.',
+    icon: '<path d="M4 19c3-1 4-5 8-5s5-4 8-5"/><circle cx="5" cy="19" r="1.6"/><circle cx="19" cy="9" r="1.6"/>' },
+  { key: 'challenges',  name: 'Challenges',  blurb: 'Themed distance and effort goals to join.',
+    icon: '<path d="M7 4h10v4a5 5 0 01-10 0V4z"/><path d="M7 6H4v1a3 3 0 003 3M17 6h3v1a3 3 0 01-3 3"/><path d="M10 15h4v3h-4z"/><path d="M8 21h8"/>' },
+  { key: 'videos',      name: 'Videos',      blurb: 'Kids, fitness, and short teaching films.',
+    icon: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M10 9.5l5 2.5-5 2.5z"/>' },
+  { key: 'podcasts',    name: 'Podcasts',    blurb: 'Full episodes from public faith and fitness feeds.',
+    icon: '<rect x="9" y="3" width="6" height="10" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3M9 21h6"/>' },
+  { key: 'scripture',   name: 'Scripture',   blurb: 'Search the Bible and join the conversation on a verse.',
+    icon: '<path d="M4 5.5A2.5 2.5 0 016.5 3H19v15H6.5A2.5 2.5 0 004 20.5z"/><path d="M12 7v6M9.5 9.5h5"/>' },
+  { key: 'groups',      name: 'Groups',      blurb: 'Your churches and clubs, their chat and meetups.',
+    icon: '<circle cx="9" cy="8" r="3"/><path d="M3 19c0-3.2 2.8-5 6-5s6 1.8 6 5"/><path d="M16 6.2a3 3 0 010 5.6M17 14.2c2.4.5 4 2.2 4 4.8"/>' },
+  { key: 'leaderboard', name: 'Leaderboard', blurb: 'Where you stand this week.',
+    icon: '<rect x="4" y="12" width="4" height="8"/><rect x="10" y="7" width="4" height="13"/><rect x="16" y="10" width="4" height="10"/>' },
+  { key: 'breathe',     name: 'Breathe',     blurb: 'A guided breathing pause with scripture.',
+    icon: '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7.5" opacity="0.55"/><circle cx="12" cy="12" r="10.5" opacity="0.28"/>' },
+  { key: 'motivation',  name: 'Motivation',  blurb: 'Short encouragement for the middle of a hard week.',
+    icon: '<path d="M13 2L5 13h6l-1 9 8-11h-6z"/>' },
+];
+
+function exploreIcon(paths) {
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" '
+    + 'stroke-linecap="round" stroke-linejoin="round">' + paths + '</svg>';
+}
+
+function renderExploreIndex(main) {
+  document.querySelectorAll('nav button').forEach(b => b.style.display = '');
+  main.innerHTML = '<div class="explore-hero"><h2>Explore</h2>'
+    + '<p class="muted">Everything FitFaith has beyond your own training. Pick a section.</p></div>'
+    + '<div class="explore-grid">'
+    + EXPLORE_SECTIONS.map(sec => '<button class="explore-tile" data-esec="' + sec.key + '">'
+        + '<span class="explore-tile-icon">' + exploreIcon(sec.icon) + '</span>'
+        + '<span class="explore-tile-name">' + escapeHtml(sec.name) + '</span>'
+        + '<span class="explore-tile-blurb">' + escapeHtml(sec.blurb) + '</span>'
+      + '</button>').join('')
+    + '</div>';
+  main.querySelectorAll('[data-esec]').forEach(b => {
+    b.onclick = () => { state.exploreTab = b.dataset.esec; renderExplore(main); };
+  });
+}
+
 async function renderExplore(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
+
+  // No section chosen: show the index of everything available.
+  if (!state.exploreTab) return renderExploreIndex(main);
+
+  const current = EXPLORE_SECTIONS.find(x => x.key === state.exploreTab);
   main.innerHTML = `
+    <div class="explore-crumb">
+      <button class="ghost back-btn" id="explore-back">← Explore</button>
+      <span class="explore-crumb-name">${escapeHtml(current ? current.name : state.exploreTab)}</span>
+    </div>
     <div class="section-tabs section-tabs-scroll">
-      <button data-etab="challenges" class="${state.exploreTab==='challenges'?'active':''}">Challenges</button>
-      <button data-etab="leaderboard" class="${state.exploreTab==='leaderboard'?'active':''}">Leaderboard</button>
-      <button data-etab="groups" class="${state.exploreTab==='groups'?'active':''}">Groups</button>
-      <button data-etab="breathe" class="${state.exploreTab==='breathe'?'active':''}">Breathe</button>
-      <button data-etab="motivation" class="${state.exploreTab==='motivation'?'active':''}">Motivation</button>
-      <button data-etab="podcasts" class="${state.exploreTab==='podcasts'?'active':''}">Podcasts</button>
-      <button data-etab="videos" class="${state.exploreTab==='videos'?'active':''}">Videos</button>
-      <button data-etab="journeys" class="${state.exploreTab==='journeys'?'active':''}">Journeys</button>
-      <button data-etab="scripture" class="${state.exploreTab==='scripture'?'active':''}">Scripture</button>
+      ${EXPLORE_SECTIONS.map(sec => `<button data-etab="${sec.key}" class="${state.exploreTab===sec.key?'active':''}">${escapeHtml(sec.name)}</button>`).join('')}
     </div>
     <div id="explore-body"></div>
   `;
+  document.getElementById('explore-back').onclick = () => { state.exploreTab = null; renderExplore(main); };
   main.querySelectorAll('[data-etab]').forEach(b => b.onclick = () => { state.exploreTab = b.dataset.etab; renderExplore(main); });
   const body = document.getElementById('explore-body');
 
@@ -1765,7 +1813,13 @@ function renderShareForm(main, ctx) {
 function formatElapsed(s) { const m = Math.floor(s / 60), sec = s % 60; return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`; }
 function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 
-document.querySelectorAll('nav button').forEach(b => b.onclick = () => setTab(b.dataset.tab));
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
+  // Pressing Explore in the tab bar returns to the index of sections, so the
+  // full catalogue is one tap from anywhere. Deep links from Home set
+  // state.exploreTab first and call setTab directly, so they are unaffected.
+  if (b.dataset.tab === 'explore') state.exploreTab = null;
+  setTab(b.dataset.tab);
+});
 
 function showToast(message, isError) {
   if (!message) return;
