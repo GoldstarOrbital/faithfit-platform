@@ -11,7 +11,69 @@
 
 let journeyLive = null; // { session, world, pushTimer, lastPushedKm, key }
 
+// Transient cards over the world -- the gate verse, the moment verse, a segment
+// split -- must always take themselves away again. Anything left on screen sits
+// on top of the route you are riding.
+//
+// Every card is shown through here so that:
+//   * it always has a dismissal scheduled, well inside 30 seconds;
+//   * showing it again cancels the previous timer instead of leaving a stale one
+//     that would hide the new card early;
+//   * tapping the card clears it immediately, except on the verse itself, which
+//     opens its discussion.
+const CARD_MS = { 'live-waypoint': 12000, 'live-moment': 15000, 'live-split': 10000 };
+const cardTimers = {};
+const cardDeadlines = {};
+
+function showCard(id) {
+  const box = document.getElementById(id);
+  if (!box) return null;
+  if (cardTimers[id]) { clearTimeout(cardTimers[id]); cardTimers[id] = null; }
+  box.hidden = false;
+  box.onclick = (ev) => {
+    if (ev.target.closest && ev.target.closest('[data-verse-ref]')) return;  // verse opens its thread
+    hideCard(id);
+  };
+  const ms = CARD_MS[id] || 15000;
+  // A deadline as well as a timer: background tabs throttle setTimeout heavily,
+  // so a card scheduled for 15s can fire far later. The deadline lets us clear
+  // anything overdue the moment the page is looked at again.
+  cardDeadlines[id] = Date.now() + ms;
+  cardTimers[id] = setTimeout(() => hideCard(id), ms);
+  return box;
+}
+
+function hideCard(id) {
+  if (cardTimers[id]) { clearTimeout(cardTimers[id]); cardTimers[id] = null; }
+  cardDeadlines[id] = 0;
+  const box = document.getElementById(id);
+  if (box) box.hidden = true;
+}
+
+function clearCardTimers() {
+  for (const id of Object.keys(cardTimers)) {
+    if (cardTimers[id]) clearTimeout(cardTimers[id]);
+    cardTimers[id] = null;
+    cardDeadlines[id] = 0;
+  }
+}
+
+// Clear anything past its deadline. Called on the session tick and whenever the
+// page is looked at again, so a card can never outlive its welcome just because
+// a background tab throttled its timer.
+function sweepOverdueCards() {
+  const now = Date.now();
+  for (const id of Object.keys(cardDeadlines)) {
+    if (cardDeadlines[id] && now >= cardDeadlines[id]) hideCard(id);
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) sweepOverdueCards();
+});
+
 function teardownJourneyLive() {
+  clearCardTimers();
   if (!journeyLive) return;
   try { journeyLive.session.stop(); } catch {}
   try { if (journeyLive.world) journeyLive.world.dispose(); } catch {}
@@ -121,6 +183,7 @@ async function renderJourneyLive(key) {
       el('live-speed').textContent = (shownSpeed != null) ? Number(shownSpeed).toFixed(1) : '--';
       el('live-dist').textContent = fmtKm(total);
       el('live-src').textContent = s.sourceLabel;
+      sweepOverdueCards();
       // Blank unless a monitor is actually streaming. Never an estimate.
       el('live-hr').textContent = (s.hrMeasured && s.hr) ? String(s.hr) : '--';
       if (world) {
@@ -183,10 +246,9 @@ async function renderJourneyLive(key) {
         { method: 'POST', body: { duration_sec: +durationSec.toFixed(1), measured: !!measured } });
     } catch { return; }
     if (!r) return;
-    const box = el('live-split');
-    if (!box) return;
     const mmss = (sec) => Math.floor(sec / 60) + ':' + String(Math.round(sec % 60)).padStart(2, '0');
-    box.hidden = false;
+    const box = showCard('live-split');
+    if (!box) return;
     box.innerHTML = '<div class="live-split-hd">' + escapeHtml(r.from) + ' → ' + escapeHtml(r.to) + '</div>'
       + '<div class="live-split-time">' + mmss(r.duration_sec) + '</div>'
       + '<div class="live-split-note">'
@@ -198,13 +260,12 @@ async function renderJourneyLive(key) {
       +   ' · ' + (r.rank === 1 ? 'fastest on this road' : 'ranked ' + r.rank + ' on this road')
       +   (r.measured ? '' : ' · declared pace')
       + '</div>';
-    setTimeout(() => { box.hidden = true; }, 12000);
+
   }
 
   function showWaypoint(w) {
-    const box = el('live-waypoint');
+    const box = showCard('live-waypoint');
     if (!box) return;
-    box.hidden = false;
     box.innerHTML = '<div class="live-wp-km">' + fmtKm(w.km_mark) + ' km</div>'
       + '<div class="live-wp-title">' + escapeHtml(w.title) + '</div>'
       + (w.narrative ? '<div class="live-wp-narrative">' + escapeHtml(w.narrative) + '</div>' : '')
@@ -219,7 +280,6 @@ async function renderJourneyLive(key) {
       teardownJourneyLive();
       if (typeof renderVerseThread === 'function') renderVerseThread(vb.dataset.verseRef);
     };
-    setTimeout(() => { box.hidden = true; }, 14000);
   }
 
   // Persist in small increments: live waypoint unlocks, and nothing lost if the
@@ -286,9 +346,8 @@ async function renderJourneyLive(key) {
   }
 
   function showMoment(r) {
-    const box = el('live-moment');
+    const box = showCard('live-moment');
     if (!box) return;
-    box.hidden = false;
     box.innerHTML = '<div class="live-moment-hd">' + escapeHtml(r.label)
       + '<span class="live-moment-src">' + (r.measured ? 'measured' : 'from pace &amp; route') + '</span></div>'
       + '<div class="live-moment-why">' + escapeHtml(r.reason) + '</div>'
@@ -305,7 +364,7 @@ async function renderJourneyLive(key) {
       if (typeof renderVerseThread === 'function') renderVerseThread(btn.dataset.verseRef);
       else renderJourneyDetail(j.key);
     };
-    setTimeout(() => { if (el('live-moment') === box) box.hidden = true; }, 30000);
+
   }
 
   if (ghostInfo && ghostInfo.note) note(ghostInfo.note);
