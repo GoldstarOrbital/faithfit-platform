@@ -166,6 +166,14 @@
       hrDevice: null,
       recentHr: [],
       recentSpeeds: [],
+      // GPS readiness. A first fix is often hundreds of metres out and carries
+      // no speed at all; starting a route on it would credit distance the rider
+      // never covered, as the receiver walks the position in to the true one.
+      gpsReady: false,
+      gpsAccuracyM: null,
+      gpsFixCount: 0,
+      gpsHasSpeed: false,
+      gpsStatus: null,
     };
     let tickTimer = null, lastTickAt = null, gpsWatchId = null, lastGpsPos = null;
 
@@ -256,9 +264,35 @@
       return kind;
     }
 
+    // What counts as good enough to start on.
+    const GPS_ACCURACY_M = 25;   // a typical phone settles here within a minute outdoors
+    const GPS_MIN_FIXES = 3;     // one good-looking fix can still be a fluke
+
+    function gpsAssess() {
+      const acc = state.gpsAccuracyM;
+      if (acc == null) { state.gpsStatus = 'Waiting for a GPS fix…'; state.gpsReady = false; return; }
+      if (acc > GPS_ACCURACY_M) {
+        state.gpsStatus = 'Getting an accurate fix… currently ±' + Math.round(acc) + ' m';
+        state.gpsReady = false; return;
+      }
+      if (state.gpsFixCount < GPS_MIN_FIXES) {
+        state.gpsStatus = 'Confirming the fix… (' + state.gpsFixCount + '/' + GPS_MIN_FIXES + ')';
+        state.gpsReady = false; return;
+      }
+      if (!state.gpsHasSpeed) {
+        state.gpsStatus = 'Waiting for a speed reading — take a few steps.';
+        state.gpsReady = false; return;
+      }
+      state.gpsStatus = 'GPS ready · ±' + Math.round(acc) + ' m';
+      state.gpsReady = true;
+    }
+
     function useGps() {
       if (!navigator.geolocation) throw new Error('gps_unsupported');
       lastGpsPos = null;
+      state.gpsReady = false; state.gpsAccuracyM = null;
+      state.gpsFixCount = 0; state.gpsHasSpeed = false;
+      state.gpsStatus = 'Waiting for a GPS fix…';
       gpsWatchId = navigator.geolocation.watchPosition((pos) => {
         // Prefer the device's own speed when it reports one; otherwise derive
         // it from successive fixes.
@@ -273,9 +307,26 @@
           const dtH = (pos.timestamp - lastGpsPos.timestamp) / 3600000;
           if (dtH > 0) state.speedKmh = km / dtH;
         }
+        // Readiness is judged on the fix itself, not on how long we have waited.
+        state.gpsAccuracyM = (pos.coords.accuracy != null && isFinite(pos.coords.accuracy))
+          ? pos.coords.accuracy : null;
+        if (state.gpsAccuracyM != null && state.gpsAccuracyM <= GPS_ACCURACY_M) state.gpsFixCount++;
+        else state.gpsFixCount = 0;          // a bad fix resets the run of good ones
+        if (state.speedKmh != null && isFinite(state.speedKmh)) state.gpsHasSpeed = true;
+        gpsAssess();
+
         lastGpsPos = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, timestamp: pos.timestamp };
         emit();
-      }, () => { state.sourceLabel = 'GPS unavailable'; emit(); }, { enableHighAccuracy: true, maximumAge: 2000 });
+      }, (err) => {
+        state.sourceLabel = 'GPS unavailable';
+        state.gpsReady = false;
+        state.gpsStatus = (err && err.code === 1)
+          ? 'Location permission was declined, so GPS cannot be used.'
+          : 'GPS is not available here.';
+        emit();
+      // maximumAge 0: never start on a cached fix from somewhere the rider no
+      // longer is.
+      }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
       state.source = 'gps';
       state.sourceLabel = 'GPS';
       emit();

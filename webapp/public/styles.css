@@ -1430,3 +1430,14 @@ header.topbar .xp-ring::before, nav.tabbar .xp-ring::before { background: var(--
   min-width: 23px; height: 23px; font-size: .74rem;
   right: 0; bottom: 0; border-width: 2.5px;
 }
+
+
+/* Held at the start line until GPS is actually usable. */
+.live-gps-gate { display:flex; align-items:center; gap:9px; margin-top:10px; padding:10px 12px;
+  border-radius: var(--radius-sm); background: rgba(217,154,63,.12);
+  border:1px solid rgba(217,154,63,.35); font-size:.84rem; color: var(--ink-soft); }
+.gps-spinner { width:14px; height:14px; flex:none; border-radius:50%;
+  border:2px solid rgba(217,154,63,.35); border-top-color: var(--hearth);
+  animation: gpsSpin .9s linear infinite; }
+@keyframes gpsSpin { to { transform: rotate(360deg); } }
+button.primary:disabled { opacity:.55; cursor:not-allowed; filter:saturate(.6); }

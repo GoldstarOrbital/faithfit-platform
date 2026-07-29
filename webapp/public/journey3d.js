@@ -161,12 +161,16 @@
 
     // Sky-to-ground bounce, plus a warm low sun and a cool fill opposite it, so
     // surfaces turned away from the sun keep colour instead of going to mud.
-    scene.add(new THREE.HemisphereLight(skyTop.getHex(), theme.ground, 0.85));
+    // Total light is kept near one. It was well over two, which multiplied every
+    // surface past its own colour: ground authored as a muted sage rendered as a
+    // bright mint, and the same washing-out happened to every theme. A palette
+    // that only works unlit is not a palette.
+    scene.add(new THREE.HemisphereLight(skyTop.getHex(), theme.ground, 0.62));
     const sun = new THREE.DirectionalLight(theme.sunColor != null ? theme.sunColor : 0xfff2d8,
-                                           theme.sunPower != null ? theme.sunPower : 1.15);
+                                           (theme.sunPower != null ? theme.sunPower : 1.15) * 0.90);
     sun.position.set(-60, 70, 30);
     scene.add(sun);
-    const fill = new THREE.DirectionalLight(skyTop.getHex(), 0.28);
+    const fill = new THREE.DirectionalLight(skyTop.getHex(), 0.20);
     fill.position.set(50, 25, -40);
     scene.add(fill);
 
@@ -293,17 +297,101 @@
       rib.mesh.geometry.computeVertexNormals();
     }
 
-    // Distant peaks — a static ring that sells depth without costing much.
-    const peakGeo = new THREE.ConeGeometry(1, 1, 5);
-    const peakMat = new THREE.MeshLambertMaterial({ color: theme.peak, flatShading: true });
-    for (let i = 0; i < 26; i++) {
-      const m = new THREE.Mesh(peakGeo, peakMat);
-      const side = rand() < 0.5 ? -1 : 1;
-      const h = 22 + rand() * 46;
-      m.scale.set(16 + rand() * 26, h, 16 + rand() * 26);
-      m.position.set(side * (70 + rand() * 130), h / 2 - 2, -ROAD_LEN + rand() * ROAD_LEN * 2);
-      scene.add(m);
+    // --- The sun ------------------------------------------------------------
+    // A visible source for the light that is already falling on everything. It
+    // rides on the sky dome and takes no fog, so it stays a disc rather than
+    // dissolving into the haze at distance.
+    const sunGroup = new THREE.Group();
+    {
+      const disc = new THREE.Mesh(
+        new THREE.CircleGeometry(26, 32),
+        new THREE.MeshBasicMaterial({ color: theme.sunColor != null ? theme.sunColor : 0xfff2d8, fog: false })
+      );
+      const glow = new THREE.Mesh(
+        new THREE.CircleGeometry(78, 32),
+        new THREE.MeshBasicMaterial({
+          color: theme.sunColor != null ? theme.sunColor : 0xfff2d8,
+          transparent: true, opacity: 0.16, fog: false, depthWrite: false,
+        })
+      );
+      glow.position.z = -1;
+      sunGroup.add(glow); sunGroup.add(disc);
+      // Placed where the directional light comes from, so highlights agree with it.
+      sunGroup.position.set(-420, 210, -620);
+      sunGroup.renderOrder = -0.5;
+      scene.add(sunGroup);
     }
+
+    // --- Ridgelines -----------------------------------------------------------
+    // Three bands of hills at increasing distance, each hazier and slower to
+    // pass than the one in front. A scattering of separate cones never reads as
+    // a landscape; overlapping silhouettes with aerial perspective do, and this
+    // is what actually gives these worlds a horizon.
+    function makeRidge(distance, height, hazeMix, seedPhase) {
+      const SEGS = 72, width = distance * 3.2;
+      const verts = new Float32Array((SEGS + 1) * 2 * 3);
+      const idx = [];
+      for (let i = 0; i <= SEGS; i++) {
+        const t = i / SEGS;
+        const x = -width / 2 + width * t;
+        // Layered sines of different frequencies: broad massifs with smaller
+        // summits on them, rather than one repeating wave.
+        const n = Math.sin(t * 5.3 + seedPhase) * 0.5
+                + Math.sin(t * 13.7 + seedPhase * 2.1) * 0.28
+                + Math.sin(t * 29.1 + seedPhase * 0.7) * 0.13;
+        const h = height * (0.42 + 0.58 * Math.abs(n));
+        const o = i * 6;
+        verts[o] = x; verts[o + 1] = h; verts[o + 2] = 0;
+        verts[o + 3] = x; verts[o + 4] = -height * 0.9; verts[o + 5] = 0;
+        if (i < SEGS) {
+          const a = i * 2;
+          idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
+      geo.setIndex(idx);
+      geo.computeVertexNormals();
+      // Aerial perspective: the further back, the more it washes into the haze.
+      const col = new THREE.Color(theme.peak).lerp(new THREE.Color(theme.fog), hazeMix);
+      const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: col, fog: false }));
+      mesh.frustumCulled = false;
+      scene.add(mesh);
+      return { mesh, distance };
+    }
+    const ridges = [
+      makeRidge(520, 78, 0.34, rand() * 6.283),
+      makeRidge(760, 128, 0.58, rand() * 6.283),
+      makeRidge(1040, 186, 0.76, rand() * 6.283),
+    ];
+
+    // --- Clouds ---------------------------------------------------------------
+    // Puffed clusters rather than sprites, so they belong to the same low-poly
+    // world as everything else.
+    const cloudMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 0.5, fog: false, depthWrite: false,
+    });
+    const clouds = [];
+    for (let i = 0; i < 9; i++) {
+      const g = new THREE.Group();
+      const puffs = 3 + Math.floor(rand() * 3);
+      for (let k = 0; k < puffs; k++) {
+        const m = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), cloudMat);
+        const r = 26 + rand() * 30;
+        m.scale.set(r, r * (0.5 + rand() * 0.2), r * 0.7);
+        m.position.set((k - puffs / 2) * (r * 0.85), (rand() - 0.5) * r * 0.3, 0);
+        g.add(m);
+      }
+      g.position.set((rand() - 0.5) * 1600, 210 + rand() * 150, -300 - rand() * 900);
+      g.userData.drift = 1.6 + rand() * 2.4;
+      scene.add(g);
+      clouds.push(g);
+    }
+
+    // A sea beside these roads was tried and removed: at any distance where it
+    // did not collide with the terrain it projected to a sliver on the horizon,
+    // behind the nearest ridgeline. It needs a scene laid out for it, not a
+    // plane bolted onto one that is not.
 
     // Roadside props, recycled as the camera passes them (infinite road).
     // --- Scenery -------------------------------------------------------------
@@ -577,6 +665,7 @@
       scene.add(weatherPoints);
     }
 
+
     // --- Ghost riders --------------------------------------------------------
     // Every ghost is somebody's real recorded ride on this road, replayed at the
     // pace they actually held. They are translucent copies of the rider model,
@@ -659,6 +748,21 @@
       const offX = (zz) => curveX(zz) - baseX;
       const offY = (zz) => elevY(zz) - baseY;
       skyDome.position.set(0, 0, z);
+      sunGroup.position.z = z - 620;
+
+      // Ridgelines sit at a fixed distance ahead and slide sideways far more
+      // slowly than the roadside does, which is what parallax actually is.
+      for (const r of ridges) {
+        r.mesh.position.set(-baseX * (60 / r.distance), -baseY * 0.35 + 12, z - r.distance);
+      }
+
+      // Clouds drift, and wrap rather than being left behind.
+      for (const c of clouds) {
+        c.position.x += c.userData.drift * 0.02;
+        if (c.position.x > 900) c.position.x = -900;
+        c.position.z = z - 300 - ((z * 0.02) % 600);
+      }
+
       updateRibbon(ground, z);
       updateRibbon(verge, z);
       updateRibbon(road, z);
@@ -676,6 +780,14 @@
 
       // The camera sits above the road and looks at the road ahead, so a bend
       // reads as a bend and a crest hides what is beyond it.
+      // Field of view opens slightly with speed. It is a small change and it is
+      // most of why fast feels fast.
+      const wantFov = 62 + Math.min(speedKmh, 45) * 0.16;
+      if (Math.abs(camera.fov - wantFov) > 0.05) {
+        camera.fov += (wantFov - camera.fov) * 0.06;
+        camera.updateProjectionMatrix();
+      }
+
       const aheadZ = z - 30;
       camera.position.set(0, 4.5, z + 9.5);
       camera.lookAt(offX(aheadZ), offY(aheadZ) + 2.35, aheadZ);

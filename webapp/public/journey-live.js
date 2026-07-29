@@ -128,6 +128,7 @@ async function renderJourneyLive(key) {
     '      <button class="ghost" id="src-manual">Set a pace</button>',
     '      <button class="ghost" id="src-hr">Heart rate monitor</button>',
     '    </div>',
+    '    <div class="live-gps-gate" id="live-gps-gate" hidden></div>',
     '    <div class="muted live-note" id="live-note">Pair equipment for measured speed. A pace you set yourself is recorded as declared, not measured.</div>',
     '    <div class="live-controls">',
     '      <button class="primary" id="live-start">Start</button>',
@@ -185,6 +186,7 @@ async function renderJourneyLive(key) {
       el('live-dist').textContent = fmtKm(total);
       el('live-src').textContent = s.sourceLabel;
       sweepOverdueCards();
+      refreshStartGate(s);
       // Blank unless a monitor is actually streaming. Never an estimate.
       el('live-hr').textContent = (s.hrMeasured && s.hr) ? String(s.hr) : '--';
       if (world) {
@@ -435,7 +437,11 @@ async function renderJourneyLive(key) {
     catch (e) { note(e && e.message === 'web_bluetooth_unsupported' ? btUnsupported : 'No sensor paired.'); }
   };
   el('src-gps').onclick = () => {
-    try { session.useGps(); note('Using GPS. Best outdoors with a clear sky.'); }
+    try {
+      session.useGps();
+      note('Using GPS. Hold on until the fix is accurate — best outdoors with a clear sky.');
+      refreshStartGate(session.state);
+    }
     catch { note('GPS is unavailable in this browser.'); }
   };
   el('src-manual').onclick = () => {
@@ -447,8 +453,31 @@ async function renderJourneyLive(key) {
     note('Using a pace you set. This is recorded as declared, not measured.');
   };
 
+  // On GPS, hold the start until the receiver is actually giving a usable fix
+  // and a speed. A first fix can be hundreds of metres out and carries no speed,
+  // and starting on it would credit distance the rider never covered while the
+  // receiver walks its position in to the true one.
+  function refreshStartGate(s) {
+    const btn = el('live-start');
+    if (!btn || s.running) return;
+    const gating = s.source === 'gps' && !s.gpsReady;
+    btn.disabled = gating;
+    btn.textContent = gating ? 'Waiting for GPS…' : 'Start';
+    const gate = el('live-gps-gate');
+    if (gate) {
+      gate.hidden = s.source !== 'gps' || s.gpsReady;
+      if (!gate.hidden) {
+        gate.innerHTML = '<span class="gps-spinner"></span><span>' + escapeHtml(s.gpsStatus || 'Waiting for GPS…') + '</span>';
+      }
+    }
+  }
+
   el('live-start').onclick = () => {
     if (!session.state.source) { note('Pick how you are moving first.'); return; }
+    if (session.state.source === 'gps' && !session.state.gpsReady) {
+      note(session.state.gpsStatus || 'Waiting for an accurate GPS fix.');
+      return;
+    }
     session.start();
     if (!journeyLive.pushTimer) journeyLive.pushTimer = setInterval(pushProgress, 5000);
     if (!journeyLive.momentTimer) journeyLive.momentTimer = setInterval(checkMoment, 45000);
