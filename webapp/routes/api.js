@@ -2770,6 +2770,10 @@ router.post('/live/moment', requireAuth, (req, res) => {
     recent_hr: b.hr_measured ? b.recent_hr : null,
     max_hr: maxHr,
     terrain: b.terrain,
+    // The client says why it asked. A fade or an approaching climb is something
+    // it can see and the classifier cannot.
+    trigger: b.trigger,
+    grade_ahead: b.grade_ahead,
   });
 
   // Resolve a verse we have not already shown this session. A reference that

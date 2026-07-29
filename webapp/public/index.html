@@ -50,6 +50,9 @@
        context (position:sticky + z-index), so a panel nested inside it inherited
        invisible light-on-light text and could not paint above the tab bar. -->
   <div id="notif-panel" class="card glass notif-panel" style="display:none"></div>
+  <!-- GPS acquisition bar. Red while the fix is unusable, green when it is
+       ready, then it takes itself away. -->
+  <div id="gps-bar" class="gps-bar" hidden><span id="gps-bar-text"></span></div>
   <main id="main"></main>
   <nav class="tabbar">
     <button data-tab="home"><span class="icon" aria-hidden="true">

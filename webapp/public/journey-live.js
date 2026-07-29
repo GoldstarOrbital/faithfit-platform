@@ -11,6 +11,46 @@
 
 let journeyLive = null; // { session, world, pushTimer, lastPushedKm, key }
 
+// --- GPS acquisition bar -----------------------------------------------------
+// The pattern every run app uses, because it works: a band across the top that
+// is red while the fix is not good enough, turns green the moment it is, and
+// then gets out of the way on its own. It says what is missing rather than just
+// showing a colour.
+
+let gpsBarHideTimer = null;
+let gpsBarState = null;      // 'acquiring' | 'ready' — so we only react to changes
+
+function showGpsBar(ready, text) {
+  const bar = document.getElementById('gps-bar');
+  const label = document.getElementById('gps-bar-text');
+  if (!bar || !label) return;
+
+  const next = ready ? 'ready' : 'acquiring';
+  label.textContent = text || (ready ? 'GPS ready' : 'Acquiring GPS…');
+  bar.hidden = false;
+  bar.classList.toggle('ready', ready);
+  // Force the transition to run when it first appears.
+  requestAnimationFrame(() => bar.classList.add('shown'));
+
+  if (next !== gpsBarState) {
+    gpsBarState = next;
+    if (gpsBarHideTimer) { clearTimeout(gpsBarHideTimer); gpsBarHideTimer = null; }
+    if (ready) {
+      // Green, then away after five seconds.
+      gpsBarHideTimer = setTimeout(hideGpsBar, 5000);
+    }
+  }
+}
+
+function hideGpsBar() {
+  const bar = document.getElementById('gps-bar');
+  if (gpsBarHideTimer) { clearTimeout(gpsBarHideTimer); gpsBarHideTimer = null; }
+  gpsBarState = null;
+  if (!bar) return;
+  bar.classList.remove('shown');
+  setTimeout(() => { bar.hidden = true; bar.classList.remove('ready'); }, 320);
+}
+
 // Transient cards over the world -- the gate verse, the moment verse, a segment
 // split -- must always take themselves away again. Anything left on screen sits
 // on top of the route you are riding.
@@ -74,6 +114,7 @@ document.addEventListener('visibilitychange', () => {
 
 function teardownJourneyLive() {
   clearCardTimers();
+  hideGpsBar();
   if (!journeyLive) return;
   try { journeyLive.session.stop(); } catch {}
   try { if (journeyLive.world) journeyLive.world.dispose(); } catch {}
@@ -309,6 +350,69 @@ async function renderJourneyLive(key) {
   let lastMoment = null;
   let lastVerseAt = 0;
 
+  // Scripture arrives because something happened, not because time passed.
+  //
+  // A verse on a timer is a notification; a verse when the road tilts up, or
+  // when you have been fading for half a minute, is company. So the session
+  // watches for those moments and only then asks the server what to say.
+  //
+  // Guard rails, because the failure mode of any trigger is chatter:
+  //   * nothing at all within the first two minutes -- settle in first;
+  //   * at least six minutes between verses, whatever fires;
+  //   * each kind of trigger has to reset before it can fire again.
+  const VERSE_MIN_GAP_MS = 6 * 60 * 1000;
+  const VERSE_SETTLE_MS = 2 * 60 * 1000;
+
+  let sessionStartedAt = 0;
+  let slowSince = null;          // when the current fade began
+  let armedSlow = true;          // re-arms once the rider picks the pace back up
+  let armedClimb = true;         // re-arms once the climb is behind them
+  let lastTriggerKind = null;
+
+  /**
+   * Decide whether this moment deserves a verse, and why. Returns a trigger
+   * name, or null for "say nothing".
+   */
+  function verseTrigger(st) {
+    if (!st.running) return null;
+    const now = Date.now();
+    const elapsed = now - sessionStartedAt;
+    if (elapsed < VERSE_SETTLE_MS) return null;
+    if (now - lastVerseAt < VERSE_MIN_GAP_MS) return null;
+
+    const speeds = (st.recentSpeeds || []).filter(v => Number.isFinite(v) && v > 0);
+    const cur = Number.isFinite(st.speedKmh) ? st.speedKmh : null;
+
+    // A climb worth warning about, close enough to matter.
+    if (armedClimb && world && typeof world.nextClimbKm === 'function') {
+      const km = world.nextClimbKm(3.5, 0.9);
+      if (km != null && km < 0.35) {
+        armedClimb = false;
+        return 'climb_ahead';
+      }
+    }
+    if (!armedClimb && world && typeof world.gradeAhead === 'function' && world.gradeAhead(150) < 1) {
+      armedClimb = true;                       // the hill is behind them
+    }
+
+    // A real fade: well off your own average for a sustained stretch, while
+    // actually moving. A momentary dip at a junction is not a crisis.
+    if (speeds.length >= 20 && cur != null) {
+      const avg = speeds.reduce((a, b) => a + b, 0) / speeds.length;
+      if (avg > 3 && cur < avg * 0.78) {
+        if (slowSince == null) slowSince = now;
+        if (armedSlow && now - slowSince > 25000) {
+          armedSlow = false;
+          return 'slowing';
+        }
+      } else {
+        slowSince = null;
+        if (cur >= avg * 0.95) armedSlow = true;   // back on it; may fire again later
+      }
+    }
+    return null;
+  }
+
   // Creator overlay: while a token exists, mirror what is on screen to the
   // server so an OBS browser source can draw it. Off by default, and a failed
   // push never disturbs the ride.
@@ -342,11 +446,12 @@ async function renderJourneyLive(key) {
   let overlayZone = null, overlayNext = null;
   let zoneHintShown = false;
 
-  async function checkMoment() {
+  async function checkMoment(forcedTrigger) {
     if (!journeyLive || !session.state.running) return;
     const s = session.state;
-    // A verse every 45s would be noise, not company.
-    if (Date.now() - lastVerseAt < 240000) return;
+    const trigger = forcedTrigger || verseTrigger(s);
+    if (!trigger) return;
+    lastTriggerKind = trigger;
     let r;
     try {
       r = await api('/live/moment', {
@@ -361,6 +466,10 @@ async function renderJourneyLive(key) {
           hr_measured: !!s.hrMeasured,
           recent_hr: s.recentHr || [],
           terrain: j.terrain,
+          // Why we are asking, so the server can meet the actual moment rather
+          // than re-deriving it from numbers that have already moved on.
+          trigger,
+          grade_ahead: (world && typeof world.gradeAhead === 'function') ? world.gradeAhead(200) : null,
           seen_refs: seenRefs,
         },
       });
@@ -373,8 +482,6 @@ async function renderJourneyLive(key) {
     // Tell them once why a connected strap is not producing zones.
     if (r.zone_hint && !zoneHintShown) { zoneHintShown = true; note(r.zone_hint); }
 
-    // Only speak when the moment actually turns, or on the first read.
-    if (r.moment === lastMoment) return;
     lastMoment = r.moment;
     if (!r.verse) return;
     lastVerseAt = Date.now();
@@ -470,6 +577,7 @@ async function renderJourneyLive(key) {
         gate.innerHTML = '<span class="gps-spinner"></span><span>' + escapeHtml(s.gpsStatus || 'Waiting for GPS…') + '</span>';
       }
     }
+    if (s.source === 'gps') showGpsBar(!!s.gpsReady, s.gpsStatus);
   }
 
   el('live-start').onclick = () => {
@@ -480,11 +588,13 @@ async function renderJourneyLive(key) {
     }
     session.start();
     if (!journeyLive.pushTimer) journeyLive.pushTimer = setInterval(pushProgress, 5000);
-    if (!journeyLive.momentTimer) journeyLive.momentTimer = setInterval(checkMoment, 45000);
+    sessionStartedAt = Date.now();
+    // Evaluated on a short tick, but that tick only asks the server when a
+    // trigger has actually fired — the cadence is the rider's, not a clock's.
+    if (!journeyLive.momentTimer) journeyLive.momentTimer = setInterval(() => checkMoment(), 5000);
     if (overlayOn && !journeyLive.overlayTimer) {
       journeyLive.overlayTimer = setInterval(() => pushOverlay(session.state), 3000);
     }
-    checkMoment();
     el('live-start').textContent = 'Running…';
     el('live-start').disabled = true;
   };

@@ -101,6 +101,19 @@ function classify(t) {
     return out('finishing', 'Inside the last 10% of the route.');
   }
 
+  // The session watches the road and the rider directly, so when it says a
+  // climb is coming or the pace has been fading, that beats anything re-derived
+  // here from numbers that have already moved on.
+  if (t.trigger === 'climb_ahead') {
+    const g = Number(t.grade_ahead);
+    return out('climbing', Number.isFinite(g) && g >= 1
+      ? 'A climb ahead, around ' + g.toFixed(1) + '%.'
+      : 'A climb is coming up.');
+  }
+  if (t.trigger === 'slowing') {
+    return out('wall', 'Your pace has been off your average for a while.');
+  }
+
   // Cooling down — effort has clearly dropped off after real work was done.
   // Requires history; a momentary dip is not a cool-down.
   if (el > 600) {

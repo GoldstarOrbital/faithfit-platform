@@ -121,7 +121,10 @@
     const isClimb = journey.terrain === 'climb';
 
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-    renderer.setPixelRatio(Math.min(global.devicePixelRatio || 1, 2));
+    // A retina phone reports 3; rendering every pixel of that costs nine times
+    // a 1x buffer for a scene of flat-shaded blocks that gains almost nothing
+    // from it. 1.5 keeps edges clean at a fraction of the fill cost.
+    renderer.setPixelRatio(Math.min(global.devicePixelRatio || 1, 1.5));
 
     renderer.outputColorSpace = THREE.SRGBColorSpace || renderer.outputColorSpace;
 
@@ -184,7 +187,10 @@
     function addShadow(parent, radius) {
       const sh = new THREE.Mesh(shadowGeo, shadowMat);
       sh.rotation.x = -Math.PI / 2;
-      sh.position.y = 0.03;
+      // Offset away from the sun rather than sitting dead centre. A shadow
+      // directly under an object reads as a sticker; one thrown to the side
+      // reads as light coming from somewhere.
+      sh.position.set(radius * 0.42, 0.03, radius * 0.18);
       sh.scale.setScalar(radius);
       parent.add(sh);
       return sh;
@@ -294,7 +300,16 @@
         }
       }
       rib.mesh.geometry.attributes.position.needsUpdate = true;
-      rib.mesh.geometry.computeVertexNormals();
+      // Only the terrain has a shape worth re-deriving normals for, and even it
+      // changes slowly. The road, verge and centre line are flat strips: their
+      // normals point up and always will, so recomputing them sixty times a
+      // second was pure cost.
+      if (rib.isTerrain) {
+        if ((rib.normalTick = (rib.normalTick || 0) + 1) % 4 === 0) rib.mesh.geometry.computeVertexNormals();
+      } else if (!rib.normalsDone) {
+        rib.mesh.geometry.computeVertexNormals();
+        rib.normalsDone = true;
+      }
     }
 
     // --- The sun ------------------------------------------------------------
@@ -536,6 +551,7 @@
       const lateral = side * (minLateral + s * 1.6 + rand() * 46);
       p.userData.lateral = lateral;
       p.userData.baseY = 0;         // props stand on the ground, not above it
+      p.userData.scale = p.scale.clone();
       p.position.set(lateral, 0, -rand() * ROAD_LEN * 2);
       p.rotation.y = rand() * Math.PI;
       addShadow(p, 1.1 + rand() * 0.5);
@@ -720,6 +736,25 @@
     let distanceKm = 0, speedKmh = 0, raf = null, disposed = false, bob = 0;
     let anchored = false;   // props are seeded around the first real position
     let grade = 0;          // live gradient %, from the route profile
+    // Scenery fades in over the last stretch of visible road.
+    const FADE_START = ROAD_LEN * 1.05, FADE_END = ROAD_LEN * 1.55;
+    // Adaptive quality: the scene is tuned for a laptop, and a mid-range phone
+    // rendering the same thing will not hold a frame rate. Rather than guess the
+    // device, watch the frames and shed scenery until it keeps up.
+    let hiddenProps = 0;
+    let frameAcc = 0, frameCount = 0, lastFrameAt = 0;
+    function adaptiveQuality(now) {
+      if (lastFrameAt) { frameAcc += now - lastFrameAt; frameCount++; }
+      lastFrameAt = now;
+      if (frameCount < 45) return;
+      const avg = frameAcc / frameCount;
+      frameAcc = 0; frameCount = 0;
+      if (avg > 26 && hiddenProps < props.length * 0.7) {
+        hiddenProps = Math.min(props.length, hiddenProps + Math.ceil(props.length * 0.15));
+      } else if (avg < 15 && hiddenProps > 0) {
+        hiddenProps = Math.max(0, hiddenProps - Math.ceil(props.length * 0.1));
+      }
+    }
     let elapsedSec = 0;     // session elapsed, which is what places the ghosts
 
     function layout() {
@@ -730,9 +765,10 @@
       camera.updateProjectionMatrix();
     }
 
-    function frame() {
+    function frame(now) {
       if (disposed) return;
       raf = requestAnimationFrame(frame);
+      adaptiveQuality(now || performance.now());
 
       const z = -distanceKm * METRES_PER_KM;      // travelled position along the road
 
@@ -798,11 +834,25 @@
 
       // Recycle props that fall behind the camera to the far distance, and
       // pull forward any that are absurdly far ahead (e.g. after a big jump).
-      for (const p of props) {
+      // Props recycle to the far distance. Scaling them in over the last stretch
+      // of fog stops them appearing out of nothing, which is the single most
+      // obvious tell that a world is a treadmill of recycled objects.
+      const visibleProps = props.length - hiddenProps;
+      for (let pi = 0; pi < props.length; pi++) {
+        const p = props[pi];
+        if (pi >= visibleProps) { p.visible = false; continue; }
         if (p.position.z > z + 12) p.position.z -= ROAD_LEN * 2;
         else if (p.position.z < z - ROAD_LEN * 2) p.position.z += ROAD_LEN * 2;
         p.position.x = p.userData.lateral + offX(p.position.z);
         p.position.y = offY(p.position.z) + p.userData.baseY;
+
+        const dist = z - p.position.z;                 // how far ahead it is
+        const fade = dist > FADE_START
+          ? Math.max(0, 1 - (dist - FADE_START) / (FADE_END - FADE_START))
+          : 1;
+        p.visible = fade > 0.02;
+        const s0 = p.userData.scale;
+        p.scale.set(s0.x * fade, s0.y * fade, s0.z * fade);
       }
 
       // Weather drifts with the rider, wrapping inside its own volume so a
@@ -865,6 +915,29 @@
       setSpeed(kmh) { speedKmh = Math.max(0, Number(kmh) || 0); },
       setElapsed(sec) { elapsedSec = Math.max(0, Number(sec) || 0); },
       getGrade() { return grade; },
+
+      /**
+       * The average gradient over the next `metres` of road, as a percentage.
+       * Lets the session see a climb coming rather than only noticing one once
+       * the rider is already on it.
+       */
+      gradeAhead(metres) {
+        const m = Math.max(20, Number(metres) || 200);
+        const z = -distanceKm * METRES_PER_KM;
+        return ((elevY(z - m) - elevY(z)) / m) * 100;
+      },
+
+      /** Distance in km to the start of the next sustained climb, or null. */
+      nextClimbKm(minGrade, searchKm) {
+        const step = 25;                       // world units between probes
+        const limit = (searchKm || 1.2) * METRES_PER_KM;
+        const z0 = -distanceKm * METRES_PER_KM;
+        for (let d = step; d < limit; d += step) {
+          const g = ((elevY(z0 - d - 120) - elevY(z0 - d)) / 120) * 100;
+          if (g >= (minGrade || 3)) return d / METRES_PER_KM;
+        }
+        return null;
+      },
 
       /**
        * Put real recorded rides on the road. Each entry needs segment times.
