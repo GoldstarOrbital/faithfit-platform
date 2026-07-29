@@ -1386,3 +1386,47 @@ header.topbar .xp-ring::before, nav.tabbar .xp-ring::before { background: var(--
 .share-route-preview:not(:empty) { margin-top: 10px; }
 .share-route-preview .route-banner { height: 130px; border-radius: var(--radius-sm); background: var(--parch-1); }
 .share-route-note { font-size: .76rem; margin-top: 8px; line-height: 1.45; }
+
+
+/* ---------------------------------------------------------------------------
+   Community strip: one ring, and it means something.
+
+   Two problems came in with the XP ring:
+
+   1. `.story-avatar` is the only avatar that takes its size from its parent
+      (width/height 100%). The XP ring wrapper was inserted between it and the
+      60px `.story-ring`, so that 100% resolved against a box with no size of
+      its own and the face collapsed.
+
+   2. `.story-ring` was already a decorative conic gradient. Now that a ring
+      around an avatar carries information -- level progress -- a second purely
+      ornamental ring around it is noise competing with the real one.
+
+   So the strip keeps its container for sizing and shadow, drops the ornament,
+   and lets the XP ring be the ring.
+   --------------------------------------------------------------------------- */
+.story-ring {
+  background: none;
+  box-shadow: none;
+  padding: 0;
+}
+.story-ring .xp-ring {
+  width: 100%;
+  height: 100%;
+  padding: 3px;
+  box-shadow: 0 2px 6px rgba(43,30,18,.18);
+}
+/* The gap that makes it a ring has to match the padding above, or the arc is
+   drawn under the face instead of around it. */
+.story-ring .xp-ring::before { inset: 3px; }
+.story-ring .xp-ring > .story-avatar { width: 100%; height: 100%; }
+
+
+/* Your own avatar is the one place the badge is really read, so the ring and
+   its level are scaled up to match. */
+.xp-ring-lg { padding: 4px; }
+.xp-ring-lg::before { inset: 3px; }
+.xp-ring-lg .xp-level {
+  min-width: 23px; height: 23px; font-size: .74rem;
+  right: 0; bottom: 0; border-width: 2.5px;
+}

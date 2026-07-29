@@ -1087,7 +1087,7 @@ async function renderProfile(main) {
   main.innerHTML = `
     <div class="card glass">
       <div class="profile-header">
-        <div class="avatar" id="p-avatar" style="${me.user.avatar_data ? `background-image:url(${me.user.avatar_data});background-size:cover;background-position:center` : ''}">${me.user.avatar_data ? '' : initials(me.user.display_name)}</div>
+        <span class="xp-ring xp-ring-lg" data-xp-user="${me.user.id}"><div class="avatar" id="p-avatar" style="${me.user.avatar_data ? `background-image:url(${me.user.avatar_data});background-size:cover;background-position:center` : ''}">${me.user.avatar_data ? '' : initials(me.user.display_name)}</div></span>
         <div>
           <div style="font-weight:700;font-size:1.05rem">${me.user.display_name}</div>
           <div class="muted">Level ${me.xp?.level ?? 1} · ${me.xp?.xp ?? 0} XP</div>
@@ -1200,6 +1200,9 @@ async function renderProfile(main) {
     </div>
     <button class="ghost" id="signout" style="width:100%">Sign out</button>
   `;
+  // The profile screen builds its avatar inline rather than through
+  // avatarHtml, so its ring needs filling explicitly.
+  hydrateXpRings(main);
   renderWebhooks();
   renderOverlayCard();
   document.getElementById('p-defvis').onchange = async (e) => {
