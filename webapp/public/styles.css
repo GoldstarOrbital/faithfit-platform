@@ -1516,3 +1516,16 @@ button.primary:disabled { opacity:.55; cursor:not-allowed; filter:saturate(.6); 
   border-radius:999px; padding:4px 10px; }
 .wd-actions { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:16px; }
 .wd-actions .danger { color:#a33; }
+
+
+/* Reading a verse in another translation. */
+.yv-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:10px;
+  padding-top:9px; border-top:1px solid var(--line); }
+.yv-label { font-size:.66rem; text-transform:uppercase; letter-spacing:.08em; opacity:.6; }
+.yv-select { flex:1; min-width:150px; font-size:.8rem; padding:6px 8px;
+  border-radius:10px; border:1px solid var(--line-strong); background:var(--parch-2); color:var(--ink); }
+.yv-select:disabled { opacity:.55; }
+.yv-open { font-size:.76rem; font-weight:600; color:var(--meadow-deep); text-decoration:none;
+  white-space:nowrap; }
+.yv-open:hover { text-decoration:underline; }
+.yv-note { font-size:.72rem; margin-top:5px; min-height:1em; }

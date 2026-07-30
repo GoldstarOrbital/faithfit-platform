@@ -11,6 +11,7 @@ const segments = require('./lib/segments');
 const overlay = require('./lib/overlay');
 const usernames = require('./lib/usernames');
 const dms = require('./lib/dms');
+const youversion = require('./lib/youversion');
 
 seed();
 // Create the webhook tables and attach the dispatcher to the domain event bus.
@@ -20,6 +21,8 @@ overlay.init();
 // Names are unique from here on; existing duplicates are reported, not renamed.
 usernames.ensureUniqueIndex();
 dms.init();
+// YouVersion Platform: lifts scripture beyond the 22 locally ingested books.
+youversion.start();
 // Ingest real podcast episodes from public RSS feeds (background, non-blocking).
 startPodcastRefresh();
 // Church devotionals from YouTube — true no-op (not even a timer) unless

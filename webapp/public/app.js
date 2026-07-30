@@ -2796,6 +2796,7 @@ async function renderVerseThread(reference) {
   }
 
   const v = data.verse;
+  const verseRef = v.book + ' ' + v.chapter + ':' + v.verse;
   const paint = (thread, reflections) => {
     const reflectionHtml = (r, isReply) => `
       <div class="comment reflection ${isReply ? 'reflection-reply' : ''}" data-reflection="${r.id}">
@@ -2819,7 +2820,13 @@ async function renderVerseThread(reference) {
       <div class="card glass">
         <div class="verse-card">
           <div class="verse-ref">${escapeHtml(v.book)} ${v.chapter}:${v.verse}</div>
-          <div class="verse-text">${escapeHtml(v.text)}</div>
+          <div class="verse-text" id="yv-text">${escapeHtml(v.text)}</div>
+          <div class="yv-bar">
+            <label class="yv-label" for="yv-translation">Translation</label>
+            <select id="yv-translation" class="yv-select"><option value="">WEB (verified locally)</option></select>
+            <a class="yv-open" id="yv-open" target="_blank" rel="noopener noreferrer" hidden>Open in YouVersion &#8599;</a>
+          </div>
+          <div class="muted yv-note" id="yv-note"></div>
         </div>
         ${thread && thread.prompt ? `<div class="verse-prompt">&ldquo;${escapeHtml(thread.prompt)}&rdquo;<div class="muted" style="font-size:0.74rem;margin-top:4px">opened by ${escapeHtml(thread.opened_by_name || 'Someone')}</div></div>` : ''}
         ${!thread ? `
@@ -2882,6 +2889,9 @@ async function renderVerseThread(reference) {
   };
 
   paint(data.thread, data.reflections || []);
+  // The translation switcher belongs to this screen, and verseRef is only in
+  // scope here — it was wired to the wrong call site first time.
+  wireTranslationSwitcher(verseRef);
 }
 
 // ============================================================================
@@ -3765,5 +3775,69 @@ async function renderWorkoutDetail(id) {
     state.tab = 'stats';
     document.querySelectorAll('nav button').forEach(b => b.style.display = '');
     render();
+  };
+}
+
+
+// --- Reading a verse in other translations -----------------------------------
+// The local library is 22 books of verified public-domain text and stays the
+// default, because it is checked and needs no network. The YouVersion Platform
+// adds the rest of the canon and ten more English translations, from the people
+// who publish them.
+//
+// Nothing here ever writes text of its own: a translation that will not resolve
+// says so and the reading stays as it was.
+async function wireTranslationSwitcher(reference) {
+  const sel = document.getElementById('yv-translation');
+  const textEl = document.getElementById('yv-text');
+  const openEl = document.getElementById('yv-open');
+  const noteEl = document.getElementById('yv-note');
+  if (!sel || !textEl) return;
+
+  const original = textEl.textContent;
+  let info = null;
+  try { info = await api('/bible/versions'); } catch { return; }
+
+  // Always offer the link out, even with no key: it needs no API call.
+  try {
+    const probe = await api('/bible/passage?ref=' + encodeURIComponent(reference));
+    if (probe && probe.youversion_url && openEl) {
+      openEl.href = probe.youversion_url;
+      openEl.hidden = false;
+    }
+  } catch { /* the link is a nicety, not a requirement */ }
+
+  if (!info || !info.configured || !info.versions.length) {
+    // No platform key: one option, and no pretence that there are more.
+    sel.disabled = true;
+    return;
+  }
+
+  for (const v of info.versions) {
+    const opt = document.createElement('option');
+    opt.value = String(v.id);
+    opt.textContent = (v.abbreviation || ('#' + v.id)) + ' — ' + (v.title || '');
+    sel.appendChild(opt);
+  }
+
+  sel.onchange = async () => {
+    if (!sel.value) {                       // back to the verified local text
+      textEl.textContent = original;
+      noteEl.textContent = '';
+      if (openEl) openEl.href = 'https://www.bible.com/bible/' + info.default_version_id + '/';
+      return;
+    }
+    noteEl.textContent = 'Loading…';
+    try {
+      const r = await api('/bible/passage?ref=' + encodeURIComponent(reference) + '&version=' + sel.value);
+      textEl.textContent = r.text;
+      noteEl.textContent = (r.translation || 'Translation') + ' · via YouVersion';
+      if (openEl && r.youversion_url) { openEl.href = r.youversion_url; openEl.hidden = false; }
+    } catch {
+      // Put the reading back rather than leaving a gap or a guess.
+      textEl.textContent = original;
+      sel.value = '';
+      noteEl.textContent = 'That translation is not available for this verse.';
+    }
   };
 }

@@ -16,6 +16,7 @@ const moments = require('../lib/moments');
 const segments = require('../lib/segments');
 const overlay = require('../lib/overlay');
 const usernames = require('../lib/usernames');
+const youversion = require('../lib/youversion');
 const breathwork = require('../lib/breathwork');
 const dms = require('../lib/dms');
 const oauth = require('../lib/oauth');
@@ -3160,6 +3161,58 @@ router.delete('/workouts/:id', requireAuth, (req, res) => {
   db.prepare('UPDATE posts SET workout_id = NULL WHERE workout_id = ?').run(w.id);
   db.prepare('DELETE FROM workouts WHERE id = ?').run(w.id);
   res.json({ ok: true });
+});
+
+// --- Scripture beyond the local library -------------------------------------
+// The ingested library is 22 books. The YouVersion Platform covers the canon in
+// eleven English translations, so a reference outside those books resolves to
+// real text instead of being shown bare. Both paths return real text or nothing.
+
+router.get('/bible/versions', (req, res) => {
+  res.json({
+    configured: youversion.isConfigured(),
+    default_version_id: youversion.DEFAULT_VERSION,
+    versions: youversion.versions(),
+  });
+});
+
+/**
+ * Resolve one reference. Local library first — it is verified, already here, and
+ * needs no network. YouVersion fills the gaps and provides other translations.
+ */
+router.get('/bible/passage', async (req, res) => {
+  const ref = String(req.query.ref || '').trim();
+  if (!ref) return res.status(400).json({ error: 'missing_reference' });
+  const wanted = req.query.version ? Number(req.query.version) : null;
+
+  // Only prefer local when no specific translation was asked for.
+  if (!wanted) {
+    const local = lookupScriptureText(ref);
+    if (local) {
+      return res.json({
+        reference: ref, text: local, source: 'local',
+        translation: 'WEB',
+        youversion_url: youversion.deepLink(ref, youversion.DEFAULT_VERSION),
+      });
+    }
+  }
+
+  const p = await youversion.passage(ref, wanted);
+  if (!p) {
+    // Say so plainly. A reference with no text behind it is shown as a
+    // reference, exactly as before this API existed.
+    return res.status(404).json({
+      error: 'no_text_available', reference: ref,
+      configured: youversion.isConfigured(),
+    });
+  }
+  const v = youversion.versions().find(x => x.id === p.version_id);
+  res.json({
+    reference: p.reference, text: p.text, source: 'youversion',
+    version_id: p.version_id,
+    translation: v ? v.abbreviation : null,
+    youversion_url: youversion.deepLink(ref, p.version_id),
+  });
 });
 
 module.exports = router;

@@ -490,12 +490,67 @@ const BOOK_ALIASES = { Psalm: 'Psalms' };
 // that case we store only the reference and never guess at the wording.
 function lookupScriptureText(ref) {
   const parsed = parseRef(ref);
-  if (!parsed) return null;
+  // parseRef only understands a single verse. A range or a whole chapter has to
+  // reach the cache anyway, or text we successfully fetched can never be read
+  // back — which is exactly what happened the first time.
+  if (!parsed) return cachedPassage(ref);
   const book = BOOK_ALIASES[parsed.book] || parsed.book;
   const row = db.prepare(
     'SELECT text FROM bible_verses WHERE book = ? AND chapter = ? AND verse = ? ORDER BY translation LIMIT 1'
   ).get(book, parsed.chapter, parsed.verse);
-  return row ? row.text : null;
+  if (row) return row.text;
+
+  // Beyond the 22 ingested books, fall back to text already fetched from the
+  // YouVersion Platform and cached. This stays a synchronous read — the fetching
+  // happens once at boot — so nothing that calls this has to become async.
+  return cachedPassage(ref);
+}
+
+// Cached platform text for any reference shape: verse, verse range, chapter, or
+// run of chapters.
+function cachedPassage(ref) {
+  try {
+    const usfm = usfmForRef(ref);
+    if (!usfm) return null;
+    const row = db.prepare(
+      'SELECT content FROM yv_passages WHERE usfm = ? AND version_id = 206 LIMIT 1'
+    ).get(usfm);
+    return row ? row.content : null;
+  } catch { return null; }   // table absent on a first run: local-only, as before
+}
+
+// Reference parts to the USFM id the platform caches passages under. Kept here
+// rather than imported so this module has no dependency on the API client.
+const USFM_BOOKS = {
+  Genesis: 'GEN', Exodus: 'EXO', Leviticus: 'LEV', Numbers: 'NUM', Deuteronomy: 'DEU',
+  Joshua: 'JOS', Judges: 'JDG', Ruth: 'RUT', '1 Samuel': '1SA', '2 Samuel': '2SA',
+  '1 Kings': '1KI', '2 Kings': '2KI', '1 Chronicles': '1CH', '2 Chronicles': '2CH',
+  Ezra: 'EZR', Nehemiah: 'NEH', Esther: 'EST', Job: 'JOB', Psalms: 'PSA', Psalm: 'PSA',
+  Proverbs: 'PRO', Ecclesiastes: 'ECC', Isaiah: 'ISA', Jeremiah: 'JER',
+  Lamentations: 'LAM', Ezekiel: 'EZK', Daniel: 'DAN', Hosea: 'HOS', Joel: 'JOL',
+  Amos: 'AMO', Obadiah: 'OBA', Jonah: 'JON', Micah: 'MIC', Nahum: 'NAM',
+  Habakkuk: 'HAB', Zephaniah: 'ZEP', Haggai: 'HAG', Zechariah: 'ZEC', Malachi: 'MAL',
+  Matthew: 'MAT', Mark: 'MRK', Luke: 'LUK', John: 'JHN', Acts: 'ACT', Romans: 'ROM',
+  '1 Corinthians': '1CO', '2 Corinthians': '2CO', Galatians: 'GAL', Ephesians: 'EPH',
+  Philippians: 'PHP', Colossians: 'COL', '1 Thessalonians': '1TH', '2 Thessalonians': '2TH',
+  '1 Timothy': '1TI', '2 Timothy': '2TI', Titus: 'TIT', Philemon: 'PHM', Hebrews: 'HEB',
+  James: 'JAS', '1 Peter': '1PE', '2 Peter': '2PE', '1 John': '1JN', '2 John': '2JN',
+  '3 John': '3JN', Jude: 'JUD', Revelation: 'REV',
+};
+function usfmForRef(ref) {
+  const raw = String(ref || '').trim();
+  const code = (name) => USFM_BOOKS[name] || USFM_BOOKS[BOOK_ALIASES[name] || ''] || null;
+  let m = /^((?:[123]\s*)?[A-Za-z][A-Za-z\s]*?)\s+(\d+)\s*:\s*(\d+)(?:\s*-\s*(\d+))?$/.exec(raw);
+  if (m) {
+    const b = code(m[1].trim());
+    return b ? b + '.' + m[2] + '.' + m[3] + (m[4] ? '-' + m[4] : '') : null;
+  }
+  m = /^((?:[123]\s*)?[A-Za-z][A-Za-z\s]*?)\s+(\d+)(?:\s*-\s*(\d+))?$/.exec(raw);
+  if (m) {
+    const b = code(m[1].trim());
+    return b ? b + '.' + m[2] + (m[3] ? '-' + m[3] : '') : null;
+  }
+  return null;
 }
 
 // Idempotent upsert of the journey catalog + its waypoints.
