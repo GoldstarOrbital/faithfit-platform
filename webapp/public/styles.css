@@ -1469,3 +1469,50 @@ button.primary:disabled { opacity:.55; cursor:not-allowed; filter:saturate(.6); 
   .gps-bar { transition: none; }
   .gps-bar::before { animation: none; }
 }
+
+
+/* Your own training log */
+.wlog-row { display:flex; align-items:center; gap:10px; width:100%; text-align:left; font:inherit;
+  color:var(--ink); cursor:pointer; padding:11px 13px; margin-bottom:6px;
+  background:var(--parch-1); border:1px solid var(--line); border-radius:var(--radius-sm);
+  transition:transform .12s ease, border-color .12s ease; }
+.wlog-row:hover { transform:translateX(2px); border-color:var(--meadow-2); }
+.wlog-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.wlog-top { display:flex; justify-content:space-between; gap:10px; align-items:baseline; }
+.wlog-type { font-weight:650; font-size:.94rem; }
+.wlog-when { font-size:.74rem; opacity:.6; white-space:nowrap; }
+.wlog-stats { font-size:.8rem; opacity:.72; font-variant-numeric:tabular-nums; }
+.wlog-flags { display:flex; align-items:center; gap:5px; flex:none; }
+.wlog-flag { font-size:.8rem; opacity:.5; }
+.wlog-zone { font-size:.66rem; font-weight:700; padding:2px 6px; border-radius:999px;
+  background:rgba(0,0,0,.06); }
+.wlog-zone.z1{color:#6c8fb3}.wlog-zone.z2{color:#4e9e6a}.wlog-zone.z3{color:#c9a227}
+.wlog-zone.z4{color:#d2762c}.wlog-zone.z5{color:#c0392b}
+
+/* One workout in detail */
+.wd-head { display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-bottom:6px; }
+.wd-note { font-size:.9rem; opacity:.8; margin-bottom:10px; }
+.wd-stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:10px 0 14px; }
+.wd-stat { text-align:center; padding:9px 4px; background:var(--parch-2);
+  border:1px solid var(--line); border-radius:12px; }
+.wd-stat-v { font-size:1.2rem; font-weight:800; font-variant-numeric:tabular-nums; }
+.wd-stat-l { font-size:.64rem; text-transform:uppercase; letter-spacing:.07em; opacity:.6; margin-top:2px; }
+.wd-route { height:150px; border-radius:var(--radius-sm); background:var(--parch-2); }
+.wd-sub { font-size:.9rem; margin:14px 0 6px; }
+.wd-none { font-size:.82rem; padding:8px 0; }
+.hr-trace { width:100%; height:64px; display:block; }
+.hr-trace-scale { display:flex; justify-content:space-between; font-size:.66rem; opacity:.55;
+  font-variant-numeric:tabular-nums; }
+.zone-bars { margin-top:10px; display:flex; flex-direction:column; gap:4px; }
+.zone-bar-row { display:flex; align-items:center; gap:8px; font-size:.76rem; }
+.zone-bar-label { width:1.6em; opacity:.6; font-weight:600; }
+.zone-bar-track { flex:1; height:8px; border-radius:999px; background:rgba(0,0,0,.07); overflow:hidden; }
+.zone-bar-fill { display:block; height:100%; border-radius:999px; }
+.zone-bar-fill.z1{background:#6c8fb3}.zone-bar-fill.z2{background:#4e9e6a}.zone-bar-fill.z3{background:#c9a227}
+.zone-bar-fill.z4{background:#d2762c}.zone-bar-fill.z5{background:#c0392b}
+.zone-bar-val { width:2.6em; text-align:right; opacity:.65; font-variant-numeric:tabular-nums; }
+.wd-partners { display:flex; flex-wrap:wrap; gap:6px; }
+.wd-partner { font-size:.82rem; background:var(--parch-2); border:1px solid var(--line);
+  border-radius:999px; padding:4px 10px; }
+.wd-actions { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:16px; }
+.wd-actions .danger { color:#a33; }

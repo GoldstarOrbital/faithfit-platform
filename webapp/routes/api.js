@@ -3061,4 +3061,105 @@ router.delete('/dms/block/:userId', requireAuth, (req, res) => {
   res.json(dms.unblock(req.session.userId, req.params.userId));
 });
 
+// --- Your own training log --------------------------------------------------
+// Every workout route until now was a POST: you could record a session and never
+// see it again unless you happened to post it to the feed. These are the read
+// side. Both are scoped to the caller — a workout is private to whoever did it,
+// and an id belonging to somebody else is a 404 rather than a 403 so ids cannot
+// be probed.
+
+router.get('/workouts', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const limit = Math.min(Number(req.query.limit) || 30, 100);
+  const before = req.query.before || null;   // ISO cursor for older pages
+
+  const rows = db.prepare(`
+    SELECT w.id, w.type, w.start_time, w.end_time, w.duration_sec, w.distance_km,
+           w.calories, w.avg_hr, w.max_hr, w.effort_score, w.peak_zone, w.note, w.source,
+           CASE WHEN w.gps_path IS NOT NULL THEN 1 ELSE 0 END AS has_route,
+           (SELECT p.id FROM posts p WHERE p.workout_id = w.id AND p.user_id = w.user_id LIMIT 1) AS post_id
+    FROM workouts w
+    WHERE w.user_id = @uid
+      AND (@before IS NULL OR w.start_time < @before)
+      AND w.end_time IS NOT NULL
+    ORDER BY w.start_time DESC
+    LIMIT @limit
+  `).all({ uid, before, limit });
+
+  const workouts = rows.map(w => ({
+    ...w,
+    has_route: !!w.has_route,
+    shared: !!w.post_id,
+    // Pace only where there is distance and time to derive it from.
+    pace_min_per_km: (w.distance_km > 0.05 && w.duration_sec > 0)
+      ? Math.round(((w.duration_sec / 60) / w.distance_km) * 100) / 100
+      : null,
+  }));
+
+  res.json({
+    workouts,
+    // A cursor rather than a page number, so a new workout mid-scroll cannot
+    // shift the window and duplicate a row.
+    next_before: workouts.length === limit ? workouts[workouts.length - 1].start_time : null,
+  });
+});
+
+router.get('/workouts/:id', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const w = db.prepare('SELECT * FROM workouts WHERE id = ? AND user_id = ?').get(req.params.id, uid);
+  if (!w) return res.status(404).json({ error: 'not_found' });
+
+  // Heart-rate samples, for the trace. Absent when nothing was ever measured —
+  // never filled in from pace.
+  const samples = db.prepare(
+    'SELECT time, heart_rate FROM biometric_samples WHERE workout_id = ? AND heart_rate IS NOT NULL ORDER BY time'
+  ).all(w.id);
+
+  let route = null;
+  if (w.gps_path) { try { route = JSON.parse(w.gps_path); } catch { route = null; } }
+
+  let timeInZone = null;
+  if (w.time_in_zone) { try { timeInZone = JSON.parse(w.time_in_zone); } catch { timeInZone = null; } }
+
+  const me = db.prepare('SELECT max_hr, resting_hr, birth_year FROM users WHERE id = ?').get(uid);
+  const maxHrInfo = effortLib.maxHrInfo(me || {});
+
+  const post = db.prepare('SELECT id, visibility, show_route FROM posts WHERE workout_id = ? AND user_id = ?')
+    .get(w.id, uid) || null;
+
+  res.json({
+    workout: {
+      id: w.id, type: w.type, start_time: w.start_time, end_time: w.end_time,
+      duration_sec: w.duration_sec, distance_km: w.distance_km, calories: w.calories,
+      avg_hr: w.avg_hr, max_hr: w.max_hr, effort_score: w.effort_score,
+      peak_zone: w.peak_zone, note: w.note, source: w.source,
+      pace_min_per_km: (w.distance_km > 0.05 && w.duration_sec > 0)
+        ? Math.round(((w.duration_sec / 60) / w.distance_km) * 100) / 100
+        : null,
+    },
+    // Your own workout, so you see your own full trace — the privacy trim
+    // applies to what gets published, not to what you can see of your own ride.
+    route,
+    time_in_zone: timeInZone,
+    hr_samples: samples.map(x => ({ t: x.time, hr: x.heart_rate })),
+    max_hr_reference: maxHrInfo ? { value: maxHrInfo.value, source: maxHrInfo.source } : null,
+    partners: db.prepare(`SELECT u.id, u.display_name, wp.status
+                          FROM workout_partners wp JOIN users u ON u.id = wp.partner_user_id
+                          WHERE wp.workout_id = ?`).all(w.id),
+    post,
+  });
+});
+
+// Remove a workout of your own. Scoped, and it takes its samples with it.
+router.delete('/workouts/:id', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const w = db.prepare('SELECT id FROM workouts WHERE id = ? AND user_id = ?').get(req.params.id, uid);
+  if (!w) return res.status(404).json({ error: 'not_found' });
+  db.prepare('DELETE FROM biometric_samples WHERE workout_id = ?').run(w.id);
+  db.prepare('DELETE FROM workout_partners WHERE workout_id = ?').run(w.id);
+  db.prepare('UPDATE posts SET workout_id = NULL WHERE workout_id = ?').run(w.id);
+  db.prepare('DELETE FROM workouts WHERE id = ?').run(w.id);
+  res.json({ ok: true });
+});
+
 module.exports = router;

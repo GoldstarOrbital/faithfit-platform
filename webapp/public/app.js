@@ -626,6 +626,13 @@ async function renderStats(main) {
     catch { err.textContent = 'Could not save that goal.'; err.hidden = false; }
   };
   main.querySelectorAll('[data-goal-delete]').forEach(btn => btn.onclick = async () => { await api('/goals/' + encodeURIComponent(btn.dataset.goalDelete), { method: 'DELETE' }); await renderStats(main); });
+
+  // Your own training log. Everything you have recorded, whether or not you
+  // ever posted it.
+  const logMount = document.createElement('div');
+  logMount.id = 'workout-log';
+  main.appendChild(logMount);
+  renderWorkoutLog(logMount);
   renderEffortSection();
 }
 
@@ -3557,4 +3564,206 @@ function trimRouteClient(points, metres) {
   if (total <= m * 2.5) return null;
   const kept = points.filter((_, i) => cum[i] >= m && cum[i] <= total - m);
   return kept.length >= 2 ? kept : null;
+}
+
+
+// --- Your own workouts -------------------------------------------------------
+// A workout used to be write-only: you could record one and never see it again
+// unless you posted it. This is the log, and the detail behind each entry.
+
+function fmtDuration(sec) {
+  const s = Math.max(0, Math.round(Number(sec) || 0));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+  if (h) return h + 'h ' + String(m).padStart(2, '0') + 'm';
+  if (m) return m + 'm ' + String(ss).padStart(2, '0') + 's';
+  return ss + 's';
+}
+
+function fmtPace(minPerKm) {
+  if (!Number.isFinite(minPerKm) || minPerKm <= 0) return null;
+  const m = Math.floor(minPerKm);
+  const s = Math.round((minPerKm - m) * 60);
+  return m + ':' + String(s === 60 ? 0 : s).padStart(2, '0');
+}
+
+function fmtWhen(iso) {
+  if (!iso) return '';
+  const d = new Date(iso.replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(iso) ? '' : 'Z'));
+  if (isNaN(d)) return '';
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (days === 0) return 'Today · ' + time;
+  if (days === 1) return 'Yesterday · ' + time;
+  if (days < 7) return d.toLocaleDateString([], { weekday: 'long' }) + ' · ' + time;
+  return d.toLocaleDateString([], { day: 'numeric', month: 'short', year: days > 300 ? 'numeric' : undefined });
+}
+
+let workoutLogCursor = null;
+
+async function renderWorkoutLog(mount, append) {
+  if (!mount) return;
+  if (!append) {
+    mount.innerHTML = '<h2 style="margin:18px 0 4px">Your workouts</h2>'
+      + '<div class="muted" style="margin-bottom:10px;font-size:.85rem">Everything you have recorded, posted or not.</div>'
+      + '<div id="wlog-list" class="muted">Loading…</div>';
+    workoutLogCursor = null;
+  }
+  const list = document.getElementById('wlog-list');
+  if (!list) return;
+
+  let data;
+  try { data = await api('/workouts' + (workoutLogCursor ? '?before=' + encodeURIComponent(workoutLogCursor) : '')); }
+  catch { list.innerHTML = '<div class="muted">Could not load your workouts.</div>'; return; }
+
+  if (!append && !data.workouts.length) {
+    list.innerHTML = '<div class="muted search-hint">No workouts yet. Track one from the Train tab, or log one you did off-app.</div>';
+    return;
+  }
+
+  const rows = data.workouts.map(w => {
+    const bits = [];
+    if (w.distance_km > 0) bits.push(fmtKm(w.distance_km) + ' km');
+    bits.push(fmtDuration(w.duration_sec));
+    const pace = fmtPace(w.pace_min_per_km);
+    if (pace) bits.push(pace + ' /km');
+    if (w.avg_hr) bits.push(w.avg_hr + ' bpm');
+    return '<button class="wlog-row" data-workout="' + escapeHtml(w.id) + '">'
+      + '<span class="wlog-main">'
+      +   '<span class="wlog-top"><span class="wlog-type">' + escapeHtml(w.type || 'Workout') + '</span>'
+      +   '<span class="wlog-when">' + escapeHtml(fmtWhen(w.start_time)) + '</span></span>'
+      +   '<span class="wlog-stats">' + bits.join(' · ') + '</span>'
+      + '</span>'
+      + '<span class="wlog-flags">'
+      +   (w.peak_zone ? '<span class="wlog-zone z' + w.peak_zone + '">Z' + w.peak_zone + '</span>' : '')
+      +   (w.has_route ? '<span class="wlog-flag" title="Has a recorded route">◠</span>' : '')
+      +   (w.shared ? '<span class="wlog-flag" title="Shared to your feed">✓</span>' : '')
+      + '</span></button>';
+  }).join('');
+
+  if (append) {
+    const more = document.getElementById('wlog-more');
+    if (more) more.remove();
+    list.insertAdjacentHTML('beforeend', rows);
+  } else {
+    list.innerHTML = rows;
+  }
+
+  workoutLogCursor = data.next_before;
+  if (workoutLogCursor) {
+    list.insertAdjacentHTML('beforeend',
+      '<button class="ghost" id="wlog-more" style="width:100%;margin-top:8px">Show older</button>');
+    document.getElementById('wlog-more').onclick = () => renderWorkoutLog(mount, true);
+  }
+
+  list.querySelectorAll('[data-workout]').forEach(b => {
+    b.onclick = () => renderWorkoutDetail(b.dataset.workout);
+  });
+}
+
+// A small heart-rate trace. Drawn only from samples that exist.
+function hrTraceSvg(samples, maxRef) {
+  if (!Array.isArray(samples) || samples.length < 3) return '';
+  const hrs = samples.map(s => s.hr).filter(Number.isFinite);
+  if (hrs.length < 3) return '';
+  const lo = Math.min(...hrs), hi = Math.max(...hrs);
+  const span = Math.max(8, hi - lo);
+  const W = 300, H = 64;
+  const pts = hrs.map((hr, i) => {
+    const x = (i / (hrs.length - 1)) * W;
+    const y = H - ((hr - lo) / span) * (H - 6) - 3;
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  });
+  return '<svg class="hr-trace" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">'
+    + '<polyline points="' + pts.join(' ') + '" fill="none" stroke="var(--seal,#a2472f)" '
+    +   'stroke-width="1.8" stroke-linejoin="round"/></svg>'
+    + '<div class="hr-trace-scale"><span>' + lo + '</span><span>'
+    + (maxRef ? 'max ref ' + maxRef : '') + '</span><span>' + hi + '</span></div>';
+}
+
+function zoneBars(tiz) {
+  if (!tiz) return '';
+  const total = Object.values(tiz).reduce((a, b) => a + (Number(b) || 0), 0);
+  if (!total) return '';
+  return '<div class="zone-bars">' + [1, 2, 3, 4, 5].map(z => {
+    const sec = Number(tiz[z]) || 0;
+    const pct = Math.round((sec / total) * 100);
+    return '<div class="zone-bar-row"><span class="zone-bar-label">Z' + z + '</span>'
+      + '<span class="zone-bar-track"><span class="zone-bar-fill z' + z + '" style="width:' + pct + '%"></span></span>'
+      + '<span class="zone-bar-val">' + (sec ? Math.round(sec / 60) + 'm' : '—') + '</span></div>';
+  }).join('') + '</div>';
+}
+
+async function renderWorkoutDetail(id) {
+  const main = document.getElementById('main');
+  document.querySelectorAll('nav button').forEach(b => b.style.display = 'none');
+  main.innerHTML = '<div class="card glass" style="text-align:center">Loading…</div>';
+
+  let d;
+  try { d = await api('/workouts/' + encodeURIComponent(id)); }
+  catch {
+    main.innerHTML = '<button class="ghost back-btn" id="wd-back">← Back</button>'
+      + '<div class="card glass">That workout is not available.</div>';
+    document.getElementById('wd-back').onclick = () => { state.tab = 'stats'; document.querySelectorAll('nav button').forEach(b => b.style.display = ''); render(); };
+    return;
+  }
+  const w = d.workout;
+  const pace = fmtPace(w.pace_min_per_km);
+
+  const stat = (v, l) => '<div class="wd-stat"><div class="wd-stat-v">' + v + '</div><div class="wd-stat-l">' + l + '</div></div>';
+
+  main.innerHTML = '<button class="ghost back-btn" id="wd-back">← Back</button>'
+    + '<div class="card glass">'
+    +   '<div class="wd-head"><h2 style="margin:0">' + escapeHtml(w.type || 'Workout') + '</h2>'
+    +   '<span class="muted">' + escapeHtml(fmtWhen(w.start_time)) + '</span></div>'
+    +   (w.note ? '<div class="wd-note">' + escapeHtml(w.note) + '</div>' : '')
+    +   '<div class="wd-stats">'
+    +     stat(w.distance_km > 0 ? fmtKm(w.distance_km) : '—', 'km')
+    +     stat(fmtDuration(w.duration_sec), 'time')
+    +     stat(pace || '—', 'pace /km')
+    +     stat(w.avg_hr || '—', 'avg bpm')
+    +     stat(w.max_hr || '—', 'max bpm')
+    +     stat(w.effort_score != null ? w.effort_score : '—', 'effort')
+    +   '</div>'
+    +   (d.route ? '<div class="route-banner wd-route">' + realRouteSvg(d.route) + '</div>'
+                 : '<div class="muted wd-none">No route was recorded for this one.</div>')
+    +   (d.hr_samples.length
+          ? '<h3 class="wd-sub">Heart rate</h3>'
+            + hrTraceSvg(d.hr_samples, d.max_hr_reference ? d.max_hr_reference.value : null)
+            + zoneBars(d.time_in_zone)
+          : '<div class="muted wd-none">No heart-rate data — nothing was connected for this session.</div>')
+    +   (d.partners.length
+          ? '<h3 class="wd-sub">With</h3><div class="wd-partners">'
+            + d.partners.map(p => '<span class="wd-partner">' + escapeHtml(p.display_name)
+              + (p.status === 'pending' ? ' <span class="muted">(pending)</span>' : '') + '</span>').join('')
+            + '</div>'
+          : '')
+    +   '<div class="wd-actions">'
+    +     (d.post
+            ? '<span class="muted" style="font-size:.82rem">Shared to your feed · ' + escapeHtml(d.post.visibility) + '</span>'
+            : '<button class="primary" id="wd-share">Share this</button>')
+    +     '<button class="ghost danger" id="wd-delete">Delete</button>'
+    +   '</div>'
+    + '</div>';
+
+  document.getElementById('wd-back').onclick = () => {
+    state.tab = 'stats';
+    document.querySelectorAll('nav button').forEach(b => b.style.display = '');
+    render();
+  };
+  const shareBtn = document.getElementById('wd-share');
+  if (shareBtn) shareBtn.onclick = () => {
+    // The share screen builds its own summary from the workout it is given.
+    document.querySelectorAll('nav button').forEach(b => b.style.display = 'none');
+    renderShareForm(main, { workoutId: w.id, summary: {
+      type: w.type, distance_km: w.distance_km, duration_sec: w.duration_sec,
+      calories: w.calories, avg_hr: w.avg_hr,
+    }, distanceKm: w.distance_km });
+  };
+  document.getElementById('wd-delete').onclick = async () => {
+    if (!confirm('Delete this workout? Its heart-rate data and route go with it. This cannot be undone.')) return;
+    await api('/workouts/' + encodeURIComponent(w.id), { method: 'DELETE' }).catch(() => {});
+    state.tab = 'stats';
+    document.querySelectorAll('nav button').forEach(b => b.style.display = '');
+    render();
+  };
 }
