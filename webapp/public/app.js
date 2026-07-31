@@ -2,6 +2,7 @@ const state = {
   tab: 'home', me: null, exploreTab: null,
   activeWorkout: null, hrTimer: null, elapsed: 0, hr: 0,
   gpsWatchId: null, gpsPoints: [], leafletMap: null, leafletLine: null,
+  gpsReady: false, gpsAccuracyM: null, gpsGoodFixes: 0, gpsStatus: null,
   // Live workout telemetry. Times and altitudes run parallel to gpsPoints so the
   // Leaflet polyline keeps its [lat,lng] shape.
   gpsTimes: [], gpsAlt: [], elevGainM: 0, altRef: null,
@@ -1793,8 +1794,9 @@ async function renderWorkout(main) {
         <div class="lm-cell"><div class="lm-value" id="lm-cal">--</div><div class="lm-label">kcal est.</div></div>
       </div>
       <div class="lm-splits" id="lm-splits"></div>
-      <button class="start-stop-btn ${state.activeWorkout ? 'stop' : 'start'}" id="start-stop">${state.activeWorkout ? 'Stop' : 'Start'}</button>
-      <div id="gps-status" class="muted"></div>
+      ${!state.activeWorkout ? '<div class="gps-gate card glass" id="gps-gate"><div class="muted" id="gps-status">Waiting for an accurate GPS lock before you go.</div></div>' : '<div id="gps-status" class="muted"></div>'}
+      <button class="start-stop-btn ${state.activeWorkout ? 'stop' : 'start'}" id="start-stop" ${!state.activeWorkout && !state.gpsReady ? 'disabled' : ''}>${state.activeWorkout ? 'Stop' : (state.gpsReady ? 'Go' : 'Locating...')}</button>
+      ${!state.activeWorkout ? '<div class="card glass" id="gloo-coach-card"><div class="muted">Your faith-aligned starting cue will appear here.</div><button class="ghost" id="gloo-coach" type="button">Get a starting cue</button></div>' : ''}
       <div id="map" style="width:100%;height:180px;border-radius:16px;overflow:hidden;display:none"></div>
       <div id="verse-preview" style="width:100%"></div>
     </div>` : `
@@ -1829,9 +1831,12 @@ async function renderWorkout(main) {
 
   const ss = document.getElementById('start-stop');
   if (ss) ss.onclick = () => state.activeWorkout ? stopWorkout() : startWorkout();
+  const coachButton = document.getElementById('gloo-coach');
+  if (coachButton) coachButton.onclick = requestWorkoutCoach;
   const hrConnect = document.getElementById('hr-connect');
   if (hrConnect) hrConnect.onclick = () => connectBle();
   if (state.activeWorkout && state.gpsPoints.length) initMap(true);
+  if (liveActive && !state.activeWorkout) startGps();
 
   const manualPartners = document.getElementById('m-partner-search') ? wirePartnerPicker('m-partner-search', 'm-partner-list', 'm-partner-chips') : null;
 
@@ -1906,10 +1911,22 @@ function initMap(alreadyTracking) {
 // ---- Real GPS tracking via Geolocation API ----
 function startGps() {
   const statusEl = () => document.getElementById('gps-status');
-  if (!navigator.geolocation) { if (statusEl()) statusEl().textContent = 'GPS not supported in this browser.'; return; }
+  if (state.gpsWatchId != null) return;
+  if (!navigator.geolocation) { state.gpsStatus = 'GPS is not supported in this browser.'; if (statusEl()) statusEl().textContent = state.gpsStatus; updateGpsGate(); return; }
+  state.gpsReady = false; state.gpsAccuracyM = null; state.gpsGoodFixes = 0;
+  state.gpsStatus = 'Requesting a high-accuracy GPS fix...';
   state.gpsPoints = [];
   state.gpsWatchId = navigator.geolocation.watchPosition(
     (pos) => {
+      const accuracy = Number(pos.coords.accuracy);
+      state.gpsAccuracyM = Number.isFinite(accuracy) ? accuracy : null;
+      if (state.gpsAccuracyM != null && state.gpsAccuracyM <= 25) state.gpsGoodFixes += 1;
+      else state.gpsGoodFixes = 0;
+      state.gpsReady = state.gpsGoodFixes >= 3;
+      state.gpsStatus = state.gpsReady ? 'GPS ready - +/-' + Math.round(state.gpsAccuracyM) + ' m'
+        : state.gpsAccuracyM == null ? 'Waiting for an accurate GPS fix...'
+        : state.gpsAccuracyM > 25 ? 'Getting an accurate fix... currently +/-' + Math.round(state.gpsAccuracyM) + ' m'
+        : 'Confirming your location... (' + state.gpsGoodFixes + '/3 good fixes)';
       const pt = [pos.coords.latitude, pos.coords.longitude];
       state.gpsPoints.push(pt);
       state.gpsTimes.push(Date.now());
@@ -1925,6 +1942,8 @@ function startGps() {
         else if (alt < state.altRef) state.altRef = alt;
       }
       if (statusEl()) statusEl().textContent = `GPS locked · ${state.gpsPoints.length} points · ±${Math.round(pos.coords.accuracy)}m`;
+      if (statusEl()) statusEl().textContent = state.gpsStatus;
+      updateGpsGate();
       if (!state.leafletMap && document.getElementById('map')) initMap(false);
       if (state.leafletMap) { state.leafletLine.addLatLng(pt); state.leafletMap.panTo(pt); }
     },
@@ -1932,7 +1951,13 @@ function startGps() {
     { enableHighAccuracy: true, maximumAge: 2000, timeout: 8000 }
   );
 }
-function stopGps() { if (state.gpsWatchId != null) navigator.geolocation.clearWatch(state.gpsWatchId); state.gpsWatchId = null; }
+function updateGpsGate() {
+  const button = document.getElementById('start-stop');
+  if (button && !state.activeWorkout) { button.disabled = !state.gpsReady; button.textContent = state.gpsReady ? 'Go' : 'Locating...'; }
+  const status = document.getElementById('gps-status');
+  if (status && state.gpsStatus) status.textContent = state.gpsStatus;
+}
+function stopGps() { if (state.gpsWatchId != null) navigator.geolocation.clearWatch(state.gpsWatchId); state.gpsWatchId = null; state.gpsReady = false; state.gpsGoodFixes = 0; }
 
 function haversineKm(a, b) {
   const R = 6371, toRad = d => d * Math.PI / 180;
@@ -2058,7 +2083,27 @@ function renderSplits() {
         + '<span>' + paceStr(sp.sec / 60) + ' /km</span></div>').join('');
 }
 
+async function requestWorkoutCoach() {
+  const button = document.getElementById('gloo-coach');
+  const card = document.getElementById('gloo-coach-card');
+  const type = document.getElementById('workout-type');
+  if (!button || !card || !type) return;
+  button.disabled = true; button.textContent = 'Thinking...';
+  try {
+    const cue = await api('/workouts/coach', { method: 'POST', body: { type: type.value }, throwOnError: true });
+    card.innerHTML = `<div class="muted" style="font-size:.72rem;text-transform:uppercase;letter-spacing:.08em">Gloo starting cue</div><h3 style="margin:5px 0">${escapeHtml(cue.focus)}</h3><p style="margin:0 0 6px">${escapeHtml(cue.cue)}</p><div class="muted" style="font-size:.82rem">Finish line: ${escapeHtml(cue.finish_line)}</div><button class="ghost" id="gloo-coach" type="button" style="margin-top:8px">Refresh cue</button>`;
+    document.getElementById('gloo-coach').onclick = requestWorkoutCoach;
+  } catch {
+    button.disabled = false; button.textContent = 'Try again';
+  }
+}
+
 async function startWorkout() {
+  if (!state.gpsReady) {
+    state.gpsStatus = 'Wait for GPS ready before you go.';
+    updateGpsGate();
+    return;
+  }
   const type = document.getElementById('workout-type').value;
   const w = await api('/workouts/start', { method: 'POST', body: { type } });
   state.activeWorkout = w.id;
@@ -2121,6 +2166,8 @@ function renderShareForm(main, ctx) {
       ${ctx.verse ? `<div class="verse-card" style="margin:10px 0"><div class="verse-ref">${ctx.verse.reference}</div><div class="verse-text">${escapeHtml(ctx.verse.snippet || '')}</div></div>` : ''}
       <label class="field-label">Add a caption or reflection</label>
       <textarea class="input" id="share-caption" rows="3" placeholder="How did it go? What did this verse mean today?"></textarea>
+      <button class="ghost" id="gloo-reflect" type="button" style="margin-top:6px">Reflect with Gloo</button>
+      <div id="gloo-reflection" class="muted" style="margin-top:8px"></div>
       <label class="field-label">Who can see this?</label>
       <select class="input" id="share-vis">
         ${['public','followers','private'].map(v => `<option value="${v}" ${v===defVis?'selected':''}>${visLabel[v]}</option>`).join('')}
@@ -2164,6 +2211,17 @@ function renderShareForm(main, ctx) {
     </div>`;
 
   const sharePartners = wirePartnerPicker('share-partner-search', 'share-partner-list', 'share-partner-chips');
+
+  document.getElementById('gloo-reflect').onclick = async () => {
+    const button = document.getElementById('gloo-reflect');
+    const output = document.getElementById('gloo-reflection');
+    button.disabled = true; button.textContent = 'Reflecting...';
+    try {
+      const r = await api(`/workouts/${ctx.workoutId}/reflection`, { method: 'POST', body: { reflection: document.getElementById('share-caption').value }, throwOnError: true });
+      output.innerHTML = `<b>${escapeHtml(r.summary)}</b><br><span>Next step: ${escapeHtml(r.next_step)}</span>`;
+    } catch { output.textContent = 'Gloo reflection is unavailable right now.'; }
+    button.disabled = false; button.textContent = 'Reflect with Gloo';
+  };
 
   let sharePhotoDataUrl = null;
   document.getElementById('share-photo-pick').onclick = () => document.getElementById('share-photo-file').click();

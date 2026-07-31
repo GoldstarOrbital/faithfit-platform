@@ -682,6 +682,32 @@ router.post('/workouts/start', requireAuth, (req, res) => {
   res.json({ id, type, start_time: workout.start_time, start_verse: startResult.payload, start_moment: 'starting_out', start_moment_label: 'Starting out' });
 });
 
+// Gloo's coaching layer uses the member's real training history to create a
+// short intention before the workout. It never invents metrics, diagnoses, or
+// writes scripture; scripture remains in the verified verse pipeline above.
+router.post('/workouts/coach', requireAuth, async (req, res) => {
+  if (!gloo.isConfigured()) return res.status(503).json({ error: 'gloo_not_configured' });
+  const type = String((req.body || {}).type || 'Run').slice(0, 40);
+  const uid = req.session.userId;
+  const user = db.prepare('SELECT display_name, tradition FROM users WHERE id = ?').get(uid) || {};
+  const recent = db.prepare(`SELECT type, duration_sec, distance_km, effort_score
+    FROM workouts WHERE user_id = ? AND end_time IS NOT NULL ORDER BY end_time DESC LIMIT 8`).all(uid);
+  const facts = recent.map(w => `${w.type}: ${Math.round((w.duration_sec || 0) / 60)} min` +
+    (w.distance_km ? `, ${Number(w.distance_km).toFixed(1)} km` : '') +
+    (w.effort_score != null ? `, effort ${Math.round(w.effort_score)}/100` : '')).join('; ') || 'No completed workouts yet';
+  const out = await gloo.chatJson({
+    kind: 'workout_coach', userId: uid, tradition: gloo.normaliseTradition(user.tradition), cacheDays: 1, maxTokens: 400,
+    messages: [{ role: 'user', content:
+      `Create a concise faith-aligned training cue for a Christian fitness app. ` +
+      `Activity: ${type}. Recent completed workouts: ${facts}. ` +
+      `Return only JSON: {"focus":"one short focus","cue":"one encouraging sentence","finish_line":"one practical finish instruction"}. ` +
+      `Use no scripture quotations, no medical advice, no claims about emotions or fitness level, and do not invent data.` }],
+  });
+  const j = out && out.json;
+  if (!j) return res.status(502).json({ error: 'gloo_unavailable' });
+  res.json({ focus: String(j.focus || '').slice(0, 120), cue: String(j.cue || '').slice(0, 220), finish_line: String(j.finish_line || '').slice(0, 180), chosen_by: 'gloo' });
+});
+
 router.post('/workouts/:id/sample', requireAuth, async (req, res) => {
   // Heart rate is only ever a REAL reading from a paired monitor. When there is no
   // monitor the client sends nothing, and we store NULL — we never substitute a
@@ -827,6 +853,29 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
 // Personal bests for effort encouragement, computed over the caller's own
 // history excluding the workout just saved, so "your longest this month" is a
 // real comparison rather than a comparison with itself.
+// Turn the completed workout into a useful, member-written reflection prompt.
+router.post('/workouts/:id/reflection', requireAuth, async (req, res) => {
+  if (!gloo.isConfigured()) return res.status(503).json({ error: 'gloo_not_configured' });
+  const workout = db.prepare('SELECT type, duration_sec, distance_km, effort_score FROM workouts WHERE id = ? AND user_id = ? AND end_time IS NOT NULL')
+    .get(req.params.id, req.session.userId);
+  if (!workout) return res.status(404).json({ error: 'not_found' });
+  const words = String((req.body || {}).reflection || '').trim().slice(0, 500);
+  const user = db.prepare('SELECT tradition FROM users WHERE id = ?').get(req.session.userId) || {};
+  const facts = `${workout.type}, ${Math.round((workout.duration_sec || 0) / 60)} minutes` +
+    (workout.distance_km ? `, ${Number(workout.distance_km).toFixed(1)} km` : '') +
+    (workout.effort_score != null ? `, effort ${Math.round(workout.effort_score)}/100` : '');
+  const out = await gloo.chatJson({
+    kind: 'workout_reflection', userId: req.session.userId, tradition: gloo.normaliseTradition(user.tradition), cache: false, maxTokens: 350,
+    messages: [{ role: 'user', content:
+      `Help a member reflect on a completed workout. Facts: ${facts}. Their own note: "${words || 'No note yet'}". ` +
+      `Return only JSON: {"summary":"one warm sentence","next_step":"one practical next step"}. ` +
+      `Do not add measurements, medical advice, scripture quotations, or guessed feelings.` }],
+  });
+  const j = out && out.json;
+  if (!j) return res.status(502).json({ error: 'gloo_unavailable' });
+  res.json({ summary: String(j.summary || '').slice(0, 240), next_step: String(j.next_step || '').slice(0, 180), chosen_by: 'gloo' });
+});
+
 function personalBests(uid, excludeWorkoutId) {
   const agg = db.prepare(`SELECT MAX(effort_score) AS bestEffortScore,
                                  COUNT(*) AS priorSessionsWithZones
