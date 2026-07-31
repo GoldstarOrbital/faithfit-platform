@@ -148,6 +148,52 @@ CREATE TABLE IF NOT EXISTS group_members (
 );
 `);
 
+// --- group identity, associations, ownership, and invites (additive) ---
+const groupCols = db.prepare("PRAGMA table_info(groups)").all().map(c => c.name);
+const addGroupCol = (name, ddl) => { if (!groupCols.includes(name)) db.exec(`ALTER TABLE groups ADD COLUMN ${ddl}`); };
+addGroupCol('username', 'username TEXT');
+addGroupCol('creator_id', 'creator_id TEXT');
+addGroupCol('church_osm_id', 'church_osm_id TEXT');
+addGroupCol('church_name', 'church_name TEXT');
+addGroupCol('location_name', 'location_name TEXT');
+addGroupCol('lat', 'lat REAL');
+addGroupCol('lng', 'lng REAL');
+addGroupCol('sport', 'sport TEXT');
+addGroupCol('gloo_synced_at', 'gloo_synced_at TEXT');
+addGroupCol('created_at', 'created_at TEXT');
+db.exec("UPDATE groups SET created_at = datetime('now') WHERE created_at IS NULL");
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_username ON groups(username) WHERE username IS NOT NULL');
+
+const memberCols = db.prepare("PRAGMA table_info(group_members)").all().map(c => c.name);
+if (!memberCols.includes('role')) db.exec("ALTER TABLE group_members ADD COLUMN role TEXT NOT NULL DEFAULT 'member'");
+db.exec(`
+  CREATE TABLE IF NOT EXISTS group_invites (
+    id TEXT PRIMARY KEY,
+    group_id TEXT NOT NULL,
+    token TEXT NOT NULL UNIQUE,
+    created_by TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    expires_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_group_invites_group ON group_invites(group_id);
+`);
+// Give legacy groups stable usernames and preserve their first member as admin.
+const legacyGroups = db.prepare("SELECT id, name FROM groups WHERE username IS NULL OR username = ''").all();
+for (const g of legacyGroups) {
+  const base = String(g.name || 'group').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 28) || 'group';
+  let username = base, n = 2;
+  while (db.prepare('SELECT 1 FROM groups WHERE username = ?').get(username)) username = `${base}-${n++}`;
+  db.prepare('UPDATE groups SET username = ? WHERE id = ?').run(username, g.id);
+}
+const legacyAdmins = db.prepare('SELECT id FROM groups WHERE creator_id IS NULL').all();
+for (const g of legacyAdmins) {
+  const first = db.prepare('SELECT user_id FROM group_members WHERE group_id = ? ORDER BY rowid LIMIT 1').get(g.id);
+  if (first) {
+    db.prepare('UPDATE groups SET creator_id = ? WHERE id = ?').run(first.user_id, g.id);
+    db.prepare("UPDATE group_members SET role = 'admin' WHERE group_id = ? AND user_id = ?").run(g.id, first.user_id);
+  }
+}
+
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS post_likes (

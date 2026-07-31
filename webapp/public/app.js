@@ -770,11 +770,30 @@ async function renderExplore(main) {
   } else if (state.exploreTab === 'groups') {
     const { groups, quests } = await api('/explore');
     body.innerHTML = `
-      <h2>Groups</h2>
-      ${groups.map(g => `<div class="card glass" data-group="${g.id}" style="cursor:pointer"><strong>${escapeHtml(g.name)}</strong><div class="muted">${escapeHtml(g.description || '')}</div></div>`).join('')}
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><h2 style="margin-bottom:0">Groups</h2><button class="primary" id="new-group-btn">+ Create group</button></div>
+      <div class="card glass" id="new-group-form" style="display:none;margin-top:12px">
+        <h3 style="margin-top:0">Start your community</h3>
+        <input class="input" id="ng-name" maxlength="80" placeholder="Group name" />
+        <input class="input" id="ng-username" maxlength="30" placeholder="Group username (e.g. sunrise-runners)" />
+        <input class="input" id="ng-sport" maxlength="50" placeholder="Sport or activity (run, cycling, yoga…)" />
+        <input class="input" id="ng-church" maxlength="120" placeholder="Church or ministry (optional)" />
+        <input class="input" id="ng-location" maxlength="120" placeholder="Location (city, park, gym…)" />
+        <textarea class="input" id="ng-description" maxlength="500" rows="3" placeholder="What is this group about?"></textarea>
+        <div id="ng-status" class="muted" style="margin:6px 0"></div><button class="primary" id="ng-submit" style="width:100%">Create group</button>
+      </div>
+      <div class="card glass" id="recommended-groups"><div class="muted">Finding groups for you…</div></div>
+      ${groups.map(g => `<div class="card glass" data-group="${g.id}" style="cursor:pointer"><strong>${escapeHtml(g.name)}</strong><div class="muted">@${escapeHtml(g.username || '')} · ${g.member_count || 0} members${g.sport ? ' · ' + escapeHtml(g.sport) : ''}${g.location_name ? ' · ' + escapeHtml(g.location_name) : ''}</div><div class="muted">${escapeHtml(g.description || '')}</div></div>`).join('')}
       <h2>Quests</h2>
       ${quests.map(q => `<div class="card glass"><strong>${q.name}</strong><div class="muted">${q.description} · theme: ${q.theme}</div></div>`).join('')}
     `;
+    document.getElementById('new-group-btn').onclick = () => { const f = document.getElementById('new-group-form'); f.style.display = f.style.display === 'none' ? 'block' : 'none'; };
+    document.getElementById('ng-submit').onclick = async () => {
+      const status = document.getElementById('ng-status'); status.textContent = 'Creating…';
+      const r = await api('/groups', { method: 'POST', body: { name: document.getElementById('ng-name').value, username: document.getElementById('ng-username').value, sport: document.getElementById('ng-sport').value, church_name: document.getElementById('ng-church').value, location_name: document.getElementById('ng-location').value, description: document.getElementById('ng-description').value } });
+      if (r.error) { status.textContent = r.hint || r.error; return; }
+      renderGroupDetail(r.group.id);
+    };
+    api('/groups/recommended').then(r => { const el = document.getElementById('recommended-groups'); if (!r.groups.length) { el.remove(); return; } el.innerHTML = `<div class="field-label">${r.chosen_by === 'gloo' ? '✦ Gloo picks for you' : 'Suggested groups'}</div>` + r.groups.slice(0, 3).map(g => `<div class="comment" data-group="${g.id}" style="cursor:pointer"><b>${escapeHtml(g.name)}</b><div class="muted">@${escapeHtml(g.username || '')} · ${escapeHtml(g.reason || '')}</div></div>`).join(''); el.querySelectorAll('[data-group]').forEach(x => x.onclick = () => renderGroupDetail(x.dataset.group)); }).catch(() => document.getElementById('recommended-groups')?.remove());
     body.querySelectorAll('[data-group]').forEach(el => el.onclick = () => renderGroupDetail(el.dataset.group));
   } else if (state.exploreTab === 'breathe') {
     await renderBreathe(body);
@@ -951,9 +970,12 @@ async function renderGroupDetail(groupId) {
     <button class="ghost back-btn" id="group-back">← Back</button>
     <div class="card glass">
       <h2 style="margin-top:0">${escapeHtml(g.name)}</h2>
-      <div class="muted" style="margin-bottom:10px">${escapeHtml(g.description || '')}</div>
+      <div class="muted" style="margin-bottom:6px">@${escapeHtml(g.username || '')}${g.sport ? ' · ' + escapeHtml(g.sport) : ''}${g.location_name ? ' · ' + escapeHtml(g.location_name) : ''}</div>
+      ${g.church_name ? `<div class="muted" style="margin-bottom:6px">⛪ ${escapeHtml(g.church_name)}</div>` : ''}
+      <div style="margin-bottom:10px">${escapeHtml(g.description || '')}</div>
       <div class="muted" style="margin-bottom:10px">${data.member_count} member${data.member_count === 1 ? '' : 's'}</div>
       <button class="follow-btn ${data.is_member ? 'following' : ''}" id="group-join-leave">${data.is_member ? 'Leave group' : 'Join group'}</button>
+      ${data.is_admin ? `<div style="display:flex;gap:8px;margin-top:10px"><button class="ghost" id="group-invite-btn">Invite members</button><button class="ghost" id="group-sync-btn">✦ Sync with Gloo</button></div><div id="group-invite-box" style="display:none;margin-top:10px"></div><div id="group-sync-status" class="muted" style="margin-top:6px"></div>` : ''}
     </div>
     <div class="card glass">
       <h2>Upcoming meetups</h2>
@@ -990,6 +1012,22 @@ async function renderGroupDetail(groupId) {
     await api(`/groups/${groupId}/${data.is_member ? 'leave' : 'join'}`, { method: 'POST' });
     renderGroupDetail(groupId);
   };
+
+  if (data.is_admin) {
+    document.getElementById('group-invite-btn').onclick = async () => {
+      const box = document.getElementById('group-invite-box');
+      const invite = await api(`/groups/${groupId}/invites`, { method: 'POST' });
+      box.style.display = 'block';
+      box.innerHTML = `<div class="muted" style="margin-bottom:6px">Share this link or scan the QR code:</div><input class="input" readonly value="${escapeHtml(invite.link)}" onclick="this.select()" /><img src="${escapeHtml(invite.qr_url)}" alt="Group invite QR code" style="width:180px;height:180px;border-radius:12px;margin-top:8px;background:#fff;padding:8px;display:block" /><button class="ghost" id="copy-group-invite" style="margin-top:8px">Copy invite link</button>`;
+      document.getElementById('copy-group-invite').onclick = async () => { await navigator.clipboard?.writeText(invite.link); document.getElementById('copy-group-invite').textContent = 'Copied ✓'; };
+    };
+    document.getElementById('group-sync-btn').onclick = async () => {
+      const status = document.getElementById('group-sync-status'); status.textContent = 'Gloo is refreshing the group profile…';
+      const r = await api(`/groups/${groupId}/gloo-sync`, { method: 'POST' });
+      status.textContent = r.error ? (r.hint || r.error) : `Synced with Gloo${r.welcome ? ': ' + r.welcome : ' ✓'}`;
+      if (!r.error) setTimeout(() => renderGroupDetail(groupId), 900);
+    };
+  }
 
   const wireRsvp = () => {
     document.querySelectorAll('[data-rsvp]').forEach(btn => btn.onclick = async () => {
@@ -2324,7 +2362,22 @@ else wireNotifBell();
 
 (async () => {
   await loadMe();
-  if (state.me) consumeSignedInRedirectParams();
+  if (state.me) {
+    consumeSignedInRedirectParams();
+    const token = new URLSearchParams(location.search).get('group_invite');
+    if (token) {
+      try {
+        const info = await api('/groups/invites/' + encodeURIComponent(token));
+        if (confirm(`Join @${info.group.username || info.group.name}?`)) {
+          await api('/groups/invites/' + encodeURIComponent(token) + '/join', { method: 'POST' });
+          history.replaceState({}, '', location.pathname);
+          state.tab = 'explore';
+          setTimeout(() => renderGroupDetail(info.group.id), 0);
+          return;
+        }
+      } catch { /* invalid or expired invite */ }
+    }
+  }
   render();
 })();
 

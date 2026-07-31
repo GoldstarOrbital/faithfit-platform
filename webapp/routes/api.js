@@ -1201,7 +1201,9 @@ router.get('/users/:id', (req, res) => {
 
 // ---- explore ----
 router.get('/explore', (req, res) => {
-  const groups = db.prepare('SELECT * FROM groups').all();
+  const groups = db.prepare(`SELECT g.*, COUNT(gm.user_id) AS member_count
+    FROM groups g LEFT JOIN group_members gm ON gm.group_id = g.id
+    GROUP BY g.id ORDER BY g.name`).all();
   const quests = db.prepare('SELECT * FROM quests').all();
   res.json({ groups, quests });
 });
@@ -1210,6 +1212,102 @@ router.get('/explore', (req, res) => {
 function isGroupMember(groupId, userId) {
   return !!db.prepare('SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?').get(groupId, userId);
 }
+function isGroupAdmin(groupId, userId) {
+  return !!db.prepare("SELECT 1 FROM groups WHERE id = ? AND creator_id = ?").get(groupId, userId);
+}
+function groupUsername(value) {
+  return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
+}
+function groupInvitePayload(group, token) {
+  const base = process.env.APP_BASE_URL || 'https://faithfit-demo-production.up.railway.app';
+  const link = `${base}/?group_invite=${encodeURIComponent(token)}`;
+  return { link, token, qr_url: `https://quickchart.io/qr?size=320&text=${encodeURIComponent(link)}` };
+}
+
+router.post('/groups', requireAuth, (req, res) => {
+  const { name, description, username, church_osm_id, church_name, location_name, lat, lng, sport } = req.body || {};
+  const cleanName = String(name || '').trim().slice(0, 80);
+  const handle = groupUsername(username || name);
+  if (!cleanName) return res.status(400).json({ error: 'name_required' });
+  if (!/^[a-z0-9][a-z0-9_-]{2,29}$/.test(handle)) return res.status(400).json({ error: 'invalid_username', hint: 'Use 3–30 lowercase letters, numbers, hyphens, or underscores.' });
+  if (db.prepare('SELECT 1 FROM groups WHERE username = ?').get(handle)) return res.status(409).json({ error: 'username_taken' });
+  const id = randomUUID();
+  db.prepare(`INSERT INTO groups (id, name, description, username, creator_id, church_osm_id, church_name,
+    location_name, lat, lng, sport, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
+    .run(id, cleanName, String(description || '').trim().slice(0, 500) || null, handle, req.session.userId,
+      church_osm_id ? String(church_osm_id).slice(0, 80) : null, church_name ? String(church_name).trim().slice(0, 120) : null,
+      location_name ? String(location_name).trim().slice(0, 120) : null, Number.isFinite(Number(lat)) ? Number(lat) : null,
+      Number.isFinite(Number(lng)) ? Number(lng) : null, sport ? String(sport).trim().slice(0, 50) : null);
+  db.prepare("INSERT INTO group_members (group_id, user_id, role) VALUES (?, ?, 'admin')").run(id, req.session.userId);
+  res.status(201).json({ group: db.prepare('SELECT * FROM groups WHERE id = ?').get(id), is_admin: true });
+});
+
+router.get('/groups/username/:username', requireAuth, (req, res) => {
+  const group = db.prepare('SELECT id, name, username, description, church_name, location_name, sport FROM groups WHERE username = ?')
+    .get(groupUsername(req.params.username));
+  if (!group) return res.status(404).json({ error: 'not_found' });
+  res.json(group);
+});
+
+// Gloo recommends from the real group catalog; it never invents group IDs.
+router.get('/groups/recommended', requireAuth, async (req, res) => {
+  const user = db.prepare('SELECT church, church_name, fitness_group, tradition FROM users WHERE id = ?').get(req.session.userId) || {};
+  const groups = db.prepare(`SELECT g.id, g.name, g.username, g.description, g.church_name, g.location_name, g.sport,
+      COUNT(gm.user_id) AS member_count FROM groups g LEFT JOIN group_members gm ON gm.group_id = g.id GROUP BY g.id`).all();
+  if (!groups.length) return res.json({ groups: [], chosen_by: 'fallback' });
+  let ranked = groups.map(g => ({ ...g, reason: 'A community that matches your movement.' }));
+  if (gloo.isConfigured()) {
+    const out = await gloo.chatJson({ kind: 'group_recommendations', userId: req.session.userId, tradition: gloo.normaliseTradition(user.tradition), cacheDays: 1,
+      maxTokens: 500, messages: [{ role: 'system', content: 'Recommend groups only from the supplied catalog. Return strict JSON: {"groups":[{"id":"existing id","reason":"short reason"}]}. Never invent ids.' },
+        { role: 'user', content: JSON.stringify({ member: { church: user.church_name || user.church, fitness_group: user.fitness_group }, catalog: groups }) }] });
+    const picks = out && out.json && Array.isArray(out.json.groups) ? out.json.groups : [];
+    const byId = new Map(groups.map(g => [g.id, g]));
+    const valid = picks.filter(p => byId.has(p.id)).slice(0, 8);
+    if (valid.length) ranked = valid.map(p => ({ ...byId.get(p.id), reason: String(p.reason || 'A community selected for you.').slice(0, 180) }));
+  }
+  res.json({ groups: ranked.slice(0, 8), chosen_by: gloo.isConfigured() ? 'gloo' : 'fallback' });
+});
+
+router.post('/groups/:id/gloo-sync', requireAuth, async (req, res) => {
+  const group = db.prepare('SELECT * FROM groups WHERE id = ?').get(req.params.id);
+  if (!group) return res.status(404).json({ error: 'not_found' });
+  if (!isGroupAdmin(group.id, req.session.userId)) return res.status(403).json({ error: 'admin_only' });
+  if (!gloo.isConfigured()) return res.status(503).json({ error: 'gloo_not_configured' });
+  const out = await gloo.chatJson({ kind: 'group_sync', userId: req.session.userId, cache: false, maxTokens: 300,
+    messages: [{ role: 'system', content: 'Clean up this Christian fitness group profile. Return strict JSON with only description (max 240 chars), sport (max 40 chars), and welcome (max 180 chars). Do not change the group name or invent affiliations.' },
+      { role: 'user', content: JSON.stringify({ name: group.name, description: group.description, sport: group.sport, church: group.church_name, location: group.location_name }) }] });
+  const suggestion = out && out.json;
+  if (!suggestion) return res.status(502).json({ error: 'gloo_unavailable' });
+  db.prepare("UPDATE groups SET description = ?, sport = ?, gloo_synced_at = datetime('now') WHERE id = ?")
+    .run(String(suggestion.description || group.description || '').slice(0, 500), String(suggestion.sport || group.sport || '').slice(0, 50) || null, group.id);
+  res.json({ group: db.prepare('SELECT * FROM groups WHERE id = ?').get(group.id), welcome: String(suggestion.welcome || '').slice(0, 180), chosen_by: 'gloo' });
+});
+
+router.post('/groups/:id/invites', requireAuth, (req, res) => {
+  const group = db.prepare('SELECT * FROM groups WHERE id = ?').get(req.params.id);
+  if (!group) return res.status(404).json({ error: 'not_found' });
+  if (!isGroupAdmin(group.id, req.session.userId)) return res.status(403).json({ error: 'admin_only' });
+  let invite = db.prepare('SELECT token FROM group_invites WHERE group_id = ? ORDER BY created_at DESC LIMIT 1').get(group.id);
+  if (!invite) {
+    invite = { token: randomUUID().replace(/-/g, '') };
+    db.prepare('INSERT INTO group_invites (id, group_id, token, created_by) VALUES (?, ?, ?, ?)').run(randomUUID(), group.id, invite.token, req.session.userId);
+  }
+  res.json(groupInvitePayload(group, invite.token));
+});
+
+router.get('/groups/invites/:token', (req, res) => {
+  const invite = db.prepare(`SELECT i.token, g.id, g.name, g.username, g.description, g.church_name, g.location_name, g.sport
+    FROM group_invites i JOIN groups g ON g.id = i.group_id WHERE i.token = ?`).get(String(req.params.token));
+  if (!invite) return res.status(404).json({ error: 'invalid_invite' });
+  res.json({ group: invite });
+});
+
+router.post('/groups/invites/:token/join', requireAuth, (req, res) => {
+  const invite = db.prepare('SELECT group_id FROM group_invites WHERE token = ?').get(String(req.params.token));
+  if (!invite) return res.status(404).json({ error: 'invalid_invite' });
+  db.prepare("INSERT OR IGNORE INTO group_members (group_id, user_id, role) VALUES (?, ?, 'member')").run(invite.group_id, req.session.userId);
+  res.json({ ok: true, group_id: invite.group_id });
+});
 
 router.get('/groups/:id', requireAuth, (req, res) => {
   const group = db.prepare('SELECT * FROM groups WHERE id = ?').get(req.params.id);
@@ -1230,7 +1328,7 @@ router.get('/groups/:id', requireAuth, (req, res) => {
     WHERE e.group_id = @gid AND e.event_time >= datetime('now')
     ORDER BY e.event_time ASC
   `).all({ gid: group.id, me: req.session.userId });
-  res.json({ group, member_count: memberCount, is_member: isMember, messages, events });
+  res.json({ group, member_count: memberCount, is_member: isMember, is_admin: isGroupAdmin(group.id, req.session.userId), messages, events });
 });
 
 router.post('/groups/:id/join', requireAuth, (req, res) => {
@@ -3380,10 +3478,10 @@ router.get('/search', (req, res) => {
     .map(c => ({ id: c.key, title: c.name, subtitle: c.description })));
 
   add('groups', 'Groups', db.prepare(
-    `SELECT id, name, description FROM groups
-     WHERE name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\'
-     ORDER BY length(name) LIMIT ?`).all(like, like, limit)
-    .map(g => ({ id: g.id, title: g.name, subtitle: g.description })));
+    `SELECT id, name, username, description FROM groups
+     WHERE name LIKE ? ESCAPE '\\' OR username LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\'
+     ORDER BY length(name) LIMIT ?`).all(like, like, like, limit)
+    .map(g => ({ id: g.id, title: g.name, subtitle: g.username ? '@' + g.username + ' · ' + (g.description || '') : g.description })));
 
   try {
     add('videos', 'Videos', db.prepare(
