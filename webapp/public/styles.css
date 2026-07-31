@@ -900,14 +900,23 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
 .reels-hero { margin:0 2px 12px; padding:18px; border-radius:21px; color:#f5fff8; background:linear-gradient(145deg,var(--forest),var(--walnut-0)); box-shadow:0 12px 25px rgba(43,30,18,.18); }
 .reels-hero h2 { margin:3px 0 6px; color:#fff8e7; font-size:1.35rem; letter-spacing:-.035em; }
 .reels-hero p { margin:0; color:rgba(245,255,248,.78); font-size:.8rem; line-height:1.45; }
-.reels-filters { margin-bottom:12px; }
-#reels-list { display:flex; flex-direction:column; gap:14px; }
-.reel-card { padding:10px; overflow:hidden; cursor:pointer; }
-.reel-frame { position:relative; min-height:300px; max-height:68vh; aspect-ratio:9/14; border-radius:16px; overflow:hidden; background:var(--walnut-0); }
-.reel-frame img, .reel-frame iframe { width:100%; height:100%; object-fit:cover; border:0; display:block; }
-.reel-play { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:2.5rem; text-shadow:0 2px 12px rgba(0,0,0,.65); background:linear-gradient(180deg,rgba(0,0,0,.02),rgba(0,0,0,.28)); pointer-events:none; }
-.reel-meta { padding:10px 4px 2px; }
-.reel-title { margin-top:7px; font-size:1rem; font-weight:800; line-height:1.3; color:var(--ink); }
+.reels-filters { margin-bottom:12px; position:relative; z-index:2; }
+#reels-list { height:calc(100svh - 248px); min-height:430px; display:flex; flex-direction:column; gap:0; overflow-y:auto; overscroll-behavior-y:contain; scroll-snap-type:y mandatory; border-radius:22px; scrollbar-width:none; background:#160f0b; }
+#reels-list::-webkit-scrollbar { display:none; }
+.reel-card { position:relative; flex:0 0 100%; min-height:100%; scroll-snap-align:start; scroll-snap-stop:always; overflow:hidden; cursor:pointer; background:#160f0b; }
+.reel-frame { position:absolute; inset:0; overflow:hidden; background:linear-gradient(155deg,var(--forest),var(--walnut-0)); }
+.reel-frame img, .reel-frame iframe { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border:0; display:block; }
+.reel-frame:after { content:""; position:absolute; inset:0; pointer-events:none; background:linear-gradient(180deg,rgba(0,0,0,.12) 0%,transparent 38%,rgba(0,0,0,.82) 100%); }
+.reel-play { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:2.5rem; text-shadow:0 2px 12px rgba(0,0,0,.65); pointer-events:none; opacity:.88; }
+.reel-sound { position:absolute; right:14px; top:14px; z-index:2; padding:6px 9px; border:1px solid rgba(255,255,255,.22); border-radius:999px; color:#fff; background:rgba(0,0,0,.42); backdrop-filter:blur(8px); font-size:.65rem; font-weight:750; }
+.reel-overlay { position:absolute; z-index:2; left:16px; right:16px; bottom:18px; color:#fff; text-shadow:0 1px 8px rgba(0,0,0,.55); }
+.reel-overlay .muted { color:rgba(255,255,255,.75); margin-top:5px; }
+.reel-overlay .video-audience { color:#fff; background:rgba(70,192,127,.8); text-shadow:none; }
+.reel-title { margin-top:9px; font-size:1.04rem; font-weight:850; line-height:1.28; }
+.reel-card.is-active .reel-play { display:none; }
+@media (min-width:700px) {
+  #reels-list { max-width:440px; height:calc(100vh - 230px); margin:0 auto; box-shadow:0 16px 38px rgba(43,30,18,.22); }
+}
 
 
 /* Live HUD additions: gradient, live gaps to the real riders on this road,
