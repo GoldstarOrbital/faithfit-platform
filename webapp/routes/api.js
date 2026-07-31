@@ -976,7 +976,7 @@ function notifyChallengeCompletions(userId, completed) {
 router.get('/activity-types', (req, res) => res.json(ACTIVITY_TYPES));
 
 // Share a workout / reflection. Visibility defaults to the user's setting.
-const PHOTO_CATEGORIES = ['nature', 'animal', 'group'];
+const PHOTO_CATEGORIES = ['workout', 'nature', 'animal', 'group'];
 // --- Published routes -------------------------------------------------------
 // A GPS trace is the most identifying thing a fitness app holds: it normally
 // begins and ends at the author's front door. So it is published only when the
@@ -1086,7 +1086,7 @@ router.patch('/posts/:id/visibility', requireAuth, (req, res) => {
 // private profile fields (job/church/gym/age/email).
 router.get('/public/post/:id', (req, res) => {
   const p = db.prepare(`
-    SELECT p.id, p.content, p.created_at, p.visibility, u.display_name author,
+    SELECT p.id, p.content, p.created_at, p.visibility, p.photo_data, p.photo_category, u.display_name author,
            w.type workout_type, w.calories, w.avg_hr, w.max_hr, w.distance_km,
            w.start_time, w.end_time, w.gps_path,
            v.reference verse_reference, v.text verse_text
@@ -1111,6 +1111,8 @@ router.get('/public/post/:id', (req, res) => {
     author: p.author,
     content: p.content,
     created_at: p.created_at,
+    photo_data: p.photo_data,
+    photo_category: p.photo_category,
     workout: p.workout_type ? {
       type: p.workout_type, calories: p.calories, avg_hr: p.avg_hr, max_hr: p.max_hr,
       distance_km: distanceKm, duration_min: durationMin, pace_min_per_km: pace,

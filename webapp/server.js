@@ -49,7 +49,9 @@ const app = express();
 // Railway terminates TLS in front of the app — trust its X-Forwarded-* headers
 // so req.protocol/req.secure and the OAuth redirect_uri we build are correct.
 app.set('trust proxy', 1);
-app.use(express.json());
+// Photos are resized in the browser before being sent as a data URL. Keep the
+// parser above the 250KB image cap so valid photo posts reach the route.
+app.use(express.json({ limit: '400kb' }));
 app.use(express.urlencoded({ extended: false })); // Apple posts its OAuth callback as form_post
 app.use(cookieSession({
   name: 'faithfit_session',

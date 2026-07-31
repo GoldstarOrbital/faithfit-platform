@@ -2077,6 +2077,7 @@ function renderShareForm(main, ctx) {
       <div id="share-photo-preview" style="margin-top:8px"></div>
       <div id="share-photo-cat-wrap" style="display:none;margin-top:8px">
         <label class="field-label">What's in this photo?</label>
+        <label style="display:block"><input type="radio" name="share-photo-cat" value="workout"> Workout / gear</label>
         <label style="display:block"><input type="radio" name="share-photo-cat" value="nature"> 🌿 Nature</label>
         <label style="display:block"><input type="radio" name="share-photo-cat" value="animal"> 🐾 Animal</label>
         <label style="display:block"><input type="radio" name="share-photo-cat" value="group"> 👥 Group of people</label>
@@ -2131,7 +2132,7 @@ function renderShareForm(main, ctx) {
     let photoCategory = null;
     if (sharePhotoDataUrl) {
       const checked = main.querySelector('input[name="share-photo-cat"]:checked');
-      if (!checked) { resultEl.textContent = 'Pick a category for your photo (nature, animal, or group).'; return; }
+      if (!checked) { resultEl.textContent = 'Pick a category for your photo.'; return; }
       photoCategory = checked.value;
     }
     const routeEl = document.getElementById('share-route');
