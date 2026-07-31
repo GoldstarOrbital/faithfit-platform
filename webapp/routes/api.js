@@ -17,6 +17,8 @@ const segments = require('../lib/segments');
 const overlay = require('../lib/overlay');
 const usernames = require('../lib/usernames');
 const youversion = require('../lib/youversion');
+const gloo = require('../lib/gloo');
+const companion = require('../lib/companion');
 const breathwork = require('../lib/breathwork');
 const dms = require('../lib/dms');
 const oauth = require('../lib/oauth');
@@ -63,7 +65,11 @@ const VISIBILITIES = ['private', 'followers', 'public'];
 
 function publicUser(row) {
   if (!row) return null;
-  const { password_hash, email, ...rest } = row;
+  // Tradition is deliberately not public. A member sets it so scripture is
+  // chosen for them in their own theology — that is a setting, not a badge, and
+  // publishing someone's denomination to everyone who opens their profile is
+  // not what they agreed to. /me adds it back for the member themselves.
+  const { password_hash, email, tradition, ...rest } = row;
   return rest;
 }
 
@@ -443,7 +449,8 @@ router.get('/me', (req, res) => {
     return res.status(401).json({ error: 'not_signed_in' });
   }
   // Never expose email or password_hash in any API response (secure-profile rule).
-  const user = publicUser(userRow);
+  // Tradition is stripped by publicUser for everyone else; you can see your own.
+  const user = { ...publicUser(userRow), tradition: userRow.tradition || null };
   const xp = db.prepare('SELECT * FROM user_xp WHERE user_id = ?').get(uid);
   const badges = db.prepare(`SELECT b.* FROM user_badges ub JOIN badges b ON b.id = ub.badge_id WHERE ub.user_id = ?`).all(uid);
   const consents = db.prepare('SELECT scope FROM user_consents WHERE user_id = ? AND revoked_at IS NULL').all(uid).map(r => r.scope);
@@ -936,7 +943,7 @@ function publishedRoute(post) {
   if (!Array.isArray(pts) || pts.length < 2) return null;
   return trimRoute(pts, post.route_privacy_m);
 }
-
+
 router.post('/posts', requireAuth, (req, res) => {
   const { content, workout_id, verse_id, visibility, photo_data, photo_category,
           show_route, route_privacy_m } = req.body || {};
@@ -1666,9 +1673,36 @@ const MAX_FIELD_LEN = 80;
 
 router.put('/profile', requireAuth, (req, res) => {
   const uid = req.session.userId;
-  const { display_name, bio_verse_ref, job, church, fitness_group, gym, age, show_age, avatar_data, bio_link_url } = req.body || {};
+  const { display_name, bio_verse_ref, job, church, fitness_group, gym, age, show_age, avatar_data, bio_link_url,
+          tradition, bible_version_id } = req.body || {};
 
   const updates = {};
+
+  // Theological tradition — the one profile field the AI actually acts on. It
+  // is only ever set by the member: an empty value clears it, and clearing it
+  // means Gloo calls go out unshaped rather than shaped by a guess.
+  if (tradition !== undefined) {
+    if (tradition === null || tradition === '') {
+      updates.tradition = null;
+    } else {
+      const t = gloo.normaliseTradition(tradition);
+      if (!t) return res.status(400).json({ error: 'unknown_tradition', hint: 'Choose one of: ' + gloo.TRADITIONS.join(', ') });
+      updates.tradition = t;
+    }
+  }
+
+  // Preferred YouVersion translation, validated against the versions the
+  // platform actually told us about rather than any number the client sends.
+  if (bible_version_id !== undefined) {
+    if (bible_version_id === null || bible_version_id === '') {
+      updates.bible_version_id = null;
+    } else {
+      const vid = Number(bible_version_id);
+      const known = youversion.versions().some(v => v.id === vid);
+      if (!known) return res.status(400).json({ error: 'unknown_version' });
+      updates.bible_version_id = vid;
+    }
+  }
 
   if (avatar_data !== undefined) {
     if (avatar_data === null) {
@@ -2421,6 +2455,70 @@ router.get('/verses/:reference/thread', (req, res) => {
   });
 });
 
+// What the AI integration is, and what it has actually been doing. Public and
+// unauthenticated on purpose: the claim this app makes is that a model never
+// puts words in scripture's mouth, and a claim like that should be checkable
+// by anyone, not asserted in a README.
+router.get('/ai/status', (req, res) => {
+  const s = gloo.stats(7);
+  const cited = s.reduce((a, r) => a + (r.refs_cited || 0), 0);
+  const verified = s.reduce((a, r) => a + (r.refs_verified || 0), 0);
+  res.json({
+    gloo: {
+      configured: gloo.isConfigured(),
+      traditions: gloo.TRADITIONS,
+      purpose: 'Chooses which scripture fits a moment and writes the words around it, shaped to the member\'s tradition.',
+    },
+    youversion: {
+      configured: youversion.isConfigured(),
+      versions: youversion.versions().length,
+      purpose: 'Supplies the verse text itself. No model output is ever shown as scripture.',
+    },
+    guardrails: [
+      'Completions that stop for length are discarded, not trimmed — a truncated reference is a different verse.',
+      'Every scripture reference a model cites is resolved against YouVersion or the verified local library.',
+      'A reply whose references cannot be resolved is dropped entirely; the app falls back to hand-authored scripture.',
+      'Verse text always comes from the resolver, never from the model.',
+    ],
+    last_7_days: { by_kind: s, refs_cited: cited, refs_verified: verified },
+  });
+});
+
+// --- The companion in the room --------------------------------------------
+// A verse thread is a conversation between people. This answers the question
+// that stalls one — what a word meant, who was being addressed — so the human
+// conversation can carry on, in the asker's own tradition.
+//
+// It is deliberately not a participant: the answer is returned to the asker and
+// is not written into the thread as a reflection. Nobody's thread fills up with
+// machine text, and nothing here is attributable to another member.
+router.post('/verses/:reference/ask', requireAuth, async (req, res) => {
+  if (!gloo.isConfigured()) return res.status(503).json({ error: 'companion_unavailable' });
+
+  const { row, error, hint } = resolveVerseReference(req.params.reference);
+  if (error) return res.status(400).json({ error, hint });
+  const canonical = `${row.book} ${row.chapter}:${row.verse}`;
+
+  const question = String((req.body && req.body.question) || '').trim();
+  if (!question) return res.status(400).json({ error: 'empty_question' });
+  if (question.length > 500) return res.status(400).json({ error: 'question_too_long' });
+
+  const me = db.prepare('SELECT tradition, bible_version_id FROM users WHERE id = ?')
+    .get(req.session.userId) || {};
+
+  const answer = await companion.askAboutVerse({
+    userId: req.session.userId,
+    tradition: me.tradition,
+    versionId: me.bible_version_id,
+    reference: canonical,
+    question,
+  });
+  // Null covers every failure mode, including an answer that cited scripture
+  // which does not exist. We say nothing rather than something unverified.
+  if (!answer) return res.status(502).json({ error: 'no_verified_answer' });
+  res.json(answer);
+});
+
 // Add a reflection, or a reply to one (exactly one level deep).
 router.post('/verses/threads/:id/reflections', requireAuth, (req, res) => {
   const thread = db.prepare('SELECT * FROM verse_threads WHERE id = ?').get(req.params.id);
@@ -2755,9 +2853,10 @@ router.delete('/webhooks/:id', requireAuth, (req, res) => {
 // moment it is actually in, plus scripture chosen for that moment. Heart-rate
 // derived moments are only ever returned when a real monitor is streaming;
 // `measured` says which kind of read this was, and the client shows that.
-router.post('/live/moment', requireAuth, (req, res) => {
+router.post('/live/moment', requireAuth, async (req, res) => {
   const b = req.body || {};
-  const me = db.prepare('SELECT max_hr, resting_hr, birth_year FROM users WHERE id = ?').get(req.session.userId);
+  const me = db.prepare('SELECT max_hr, resting_hr, birth_year, tradition, bible_version_id FROM users WHERE id = ?')
+    .get(req.session.userId);
   const maxHr = effortLib.estimatedMaxHr(me || {});
 
   const state = moments.classify({
@@ -2781,12 +2880,45 @@ router.post('/live/moment', requireAuth, (req, res) => {
   // does not resolve against the local library is skipped, never invented.
   const seen = Array.isArray(b.seen_refs) ? b.seen_refs.map(String) : [];
   let verse = null;
+
+  // First ask Gloo to weigh this member's actual numbers against the authored
+  // shortlist for the moment, in their own tradition, and to write a line about
+  // the choice. The verse text still comes from YouVersion or the local
+  // library — see lib/companion.js. Null means unconfigured, unreachable, or
+  // an answer that failed a check, and the authored path below takes over.
+  try {
+    const picked = await companion.momentVerse({
+      userId: req.session.userId,
+      tradition: me && me.tradition,
+      versionId: me && me.bible_version_id,
+      moment: state.moment,
+      seenRefs: seen,
+      measured: state.measured,
+      zone: state.zone,
+      hr: b.hr_measured ? b.hr : null,
+      distanceKm: Number(b.distance_km),
+      totalKm: Number(b.total_km),
+      elapsedSec: Number(b.elapsed_sec),
+      gradeAhead: Number(b.grade_ahead),
+      reason: state.reason,
+    });
+    if (picked) {
+      verse = {
+        reference: picked.reference,
+        text: picked.text,
+        note: picked.note,            // the only model-written words shown
+        chosen_by: 'gloo',
+        tradition: picked.tradition,
+      };
+    }
+  } catch { /* the authored path is the fallback for everything */ }
+
   const tried = seen.slice();
   for (let i = 0; i < 6 && !verse; i++) {
     const ref = moments.pickRef(state.moment, tried);
     if (!ref) break;
     const text = lookupScriptureText(ref);
-    if (text) verse = { reference: ref, text };
+    if (text) verse = { reference: ref, text, chosen_by: 'authored' };
     else tried.push(ref);
   }
 

@@ -1565,3 +1565,50 @@ header.topbar .brand { gap: 0; }
 @media (max-width: 420px) {
   header.topbar .brand-mark svg { width: 30px; height: 30px; }
 }
+
+/* ---------------------------------------------------------------------------
+   The scripture companion.
+   Set apart from the human reflections around it, deliberately: a member should
+   never be unsure whether they are reading a neighbour or a machine.
+   --------------------------------------------------------------------------- */
+.companion {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line, rgba(0,0,0,.14));
+}
+.companion-row { display: flex; gap: 8px; }
+.companion-row input { flex: 1; min-width: 0; }
+.companion-hint { font-size: .72rem; margin-top: 6px; line-height: 1.35; }
+
+.companion-answer {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--parch-2, #fdf8ea);
+  border: 1px solid var(--line, rgba(0,0,0,.10));
+  /* The gold edge marks machine-written prose wherever it appears. */
+  border-left: 3px solid var(--gold-2, #d9ab55);
+}
+.companion-answer p { margin: 0; line-height: 1.5; }
+.companion-q { font-weight: 600; font-size: .84rem; margin-bottom: 6px; opacity: .75; }
+
+/* A cited cross-reference: real text, fetched, never model-written. */
+.companion-ref {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: rgba(0,0,0,.035);
+}
+.companion-ref .verse-ref { font-size: .76rem; letter-spacing: .04em; opacity: .8; }
+.companion-ref .verse-text { font-size: .88rem; line-height: 1.45; }
+.companion-meta { font-size: .7rem; margin-top: 8px; }
+
+/* The one model-written line on a live session card. */
+.moment-note {
+  margin-top: 8px;
+  padding-left: 9px;
+  border-left: 3px solid var(--gold-2, #d9ab55);
+  font-size: .86rem;
+  line-height: 1.4;
+  opacity: .92;
+}

@@ -20,6 +20,89 @@ The competition story is **Scripture in Motion**: a grounded Scripture moment at
 to real movement, a game-like world, and a community that helps people flourish. The
 demo script and integration checklist live in [`docs/hackathon-readiness.md`](docs/hackathon-readiness.md).
 
+Built on both contest platforms — **Gloo AI** for values-aligned inference and
+**YouVersion** for scripture — with a hard line between what a model may decide
+and what only scripture may say. See [Scripture, AI, and the line between
+them](#scripture-ai-and-the-line-between-them).
+
+## Scripture, AI, and the line between them
+
+Two APIs do the faith work in this app, and they are deliberately given
+different jobs:
+
+| | **Gloo AI Platform** | **YouVersion Platform** |
+|---|---|---|
+| Job | Decides **which** scripture fits this moment, and writes the words *around* it | Supplies **what the verse actually says** |
+| Why it | Values-aligned inference, and a `tradition` parameter no general model endpoint has | The canon, in 14 English translations, from the people who publish them |
+| Code | [`webapp/lib/gloo.js`](webapp/lib/gloo.js) | [`webapp/lib/youversion.js`](webapp/lib/youversion.js) |
+
+They meet in exactly one place — [`webapp/lib/companion.js`](webapp/lib/companion.js) —
+and that file exists to enforce one rule:
+
+> **A model never produces scripture.**
+
+Ask a language model to recall a verse and it will give you something
+verse-shaped, subtly wrong: a word swapped, a clause dropped, a reference off by
+one. So no text a model emits is ever shown as scripture. The model returns a
+*reference*; the reference is resolved against YouVersion (or the locally
+ingested public-domain library, verified word-for-word); and the real text is
+what a member reads.
+
+**Three checks stand between a model and a member.** They are code, not prompt
+instructions:
+
+1. **Truncated replies are discarded, not trimmed.** Found while building this:
+   a length-capped completion returned `Philippians 4:1` — almost certainly a cut
+   `4:13`. Both are real verses, so no reference check could ever catch it. Any
+   completion whose `finish_reason` isn't `stop` is thrown away.
+2. **Every cited reference must resolve.** Extraction is deliberately
+   over-inclusive: it matches anything *shaped* like a citation, not just real
+   book names, because a model that invents `Hezekiah 3:16` produces something
+   no book-name pattern would recognise. Unknown book → treated as unresolved.
+3. **Verse text always comes from the resolver.** A reply whose references all
+   fail is dropped whole and the app falls back to its hand-authored verse
+   lists — the behaviour it shipped with.
+
+`GET /api/ai/status` is public and unauthenticated on purpose. It reports both
+integrations, the guardrails, and a 7-day count of references cited vs.
+references verified. A claim like the one above should be checkable by anyone
+rather than asserted in a README.
+
+### What this actually changes
+
+**Scripture chosen for the moment you're in.** The app already classified live
+sessions from real telemetry and had an authored shortlist per moment. What it
+couldn't do was weigh *your* numbers against that shortlist. Now the shortlist,
+your measured heart-rate zone, the gradient ahead, and your tradition go to
+Gloo, which picks one and writes a single line about the choice. Same telemetry,
+different traditions, genuinely different answers — verified live:
+
+```
+evangelical → Hebrews 12:1     catholic → Galatians 6:9
+```
+
+Selection stays inside scripture a human already vetted for that moment; the
+judgement about which one fits *now* is made with the real numbers in hand.
+
+**Scripture as conversation.** Verse threads gained a companion that answers the
+question which stalls a thread — what a word meant, who was being addressed — in
+the asker's own tradition. It is not a participant: its answer goes to the asker
+and is never written into the thread, so nobody's conversation fills with
+machine text. Any further verse it cites is fetched and shown as real text
+beside the answer; one that can't be resolved is stripped from the reply.
+
+**Tradition as a real setting.** Members could always name their church. That
+was decoration. `tradition` (evangelical / catholic / mainline /
+not_faith-specific, or blank) is the first field the app acts on. Blank means
+calls go out unshaped — a stranger's theology is never inferred from a church
+name. It is also **not public**: it's a setting, not a badge, so it's stripped
+from every profile payload except your own.
+
+Everything degrades. With no Gloo credentials the companion is absent and
+sessions use the authored verse lists; with no YouVersion key the local 22-book
+library serves and references beyond it stay bare. Neither is stubbed with a
+placeholder, and nothing is ever filled in from nowhere.
+
 ## What it does
 
 **Fitness**
@@ -117,8 +200,17 @@ a true no-op (not even a background timer) until its variables are present.
 | `APPLE_CLIENT_ID`, `APPLE_KEY_ID`, `APPLE_TEAM_ID`, `APPLE_PRIVATE_KEY` | "Sign in with Apple" | **Paid** — requires an active Apple Developer Program membership ($99/yr) | Set up a Services ID + Sign in with Apple key in the Apple Developer portal. |
 | `STRAVA_CLIENT_ID` / `STRAVA_CLIENT_SECRET` | Strava activity sync | Free | Register an app at [strava.com/settings/api](https://www.strava.com/settings/api). |
 | `YOUTUBE_API_KEY` | Church devotionals + curated video library | Free tier | [Google Cloud Console](https://console.cloud.google.com/) → enable "YouTube Data API v3" → create an API key. Has a daily free quota; the church-website video path needs no key at all. |
+| `YOUVERSION_API_KEY` | Real verse text for the whole canon, in 14 English translations | Free | [YouVersion Platform](https://developers.youversion.com/). Sent as `x-yvp-app-key`. Without it the app serves its 22 locally ingested public-domain books and leaves other references bare. |
+| `GLOO_CLIENT_ID` / `GLOO_CLIENT_SECRET` | Values-aligned AI: moment-aware scripture selection + the verse companion | Metered | [Gloo AI Studio](https://studio.ai.gloo.com/) → API Credentials. OAuth2 client credentials. Without them the companion is absent and sessions use the authored verse lists. |
+| `GLOO_PUBLISHER` | Grounds companion answers in your own uploaded content (Gloo RAG) | — | Optional. Only meaningful once content is ingested into Gloo under your publisher; unset means ordinary completions. |
 
-**Not included:** paid LLM-based sermon summarization was deliberately left out —
-the sermon feature only fetches the real caption transcript (free) and reads it
-aloud via the browser's built-in text-to-speech (free). No Anthropic/OpenAI API
-call is made anywhere in this app, so there's no per-request AI cost to budget for.
+**Cost note:** Gloo is the only metered dependency. Every call is cached by a
+hash of the exact request (`gloo_cache`) and logged with its token usage
+(`gloo_calls`), because the same moment and tradition recur constantly across a
+session and across members — inspect either table, or `GET /api/ai/status`, to
+see what it is actually spending. Expect a large `prompt_tokens` figure on every
+call: Gloo prepends its own values-alignment system prompt, which is the point.
+
+**Still not included:** paid LLM sermon summarization. The sermon feature fetches
+the real caption transcript (free) and reads it aloud via the browser's built-in
+text-to-speech (free) — no model rewrites a preacher's words.

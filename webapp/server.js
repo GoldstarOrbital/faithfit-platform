@@ -12,6 +12,7 @@ const overlay = require('./lib/overlay');
 const usernames = require('./lib/usernames');
 const dms = require('./lib/dms');
 const youversion = require('./lib/youversion');
+const gloo = require('./lib/gloo');
 
 seed();
 // Create the webhook tables and attach the dispatcher to the domain event bus.
@@ -23,6 +24,9 @@ usernames.ensureUniqueIndex();
 dms.init();
 // YouVersion Platform: lifts scripture beyond the 22 locally ingested books.
 youversion.start();
+// Gloo AI: values-aligned inference, shaped by each member's tradition. It
+// chooses scripture and writes around it; YouVersion above supplies the text.
+gloo.start();
 // Ingest real podcast episodes from public RSS feeds (background, non-blocking).
 startPodcastRefresh();
 // Church devotionals from YouTube — true no-op (not even a timer) unless

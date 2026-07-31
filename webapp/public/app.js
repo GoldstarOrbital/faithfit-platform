@@ -1129,6 +1129,18 @@ async function renderProfile(main) {
       <input id="p-job" type="text" maxlength="80" placeholder="e.g. Nurse" value="${me.user.job || ''}">
       <label class="field-label">Church</label>
       <input id="p-church" type="text" maxlength="80" placeholder="e.g. Grace Community Church" value="${me.user.church || ''}">
+      <label class="field-label">Tradition (optional)</label>
+      <select id="p-tradition">
+        <option value=""${!me.user.tradition ? ' selected' : ''}>— Prefer not to say —</option>
+        <option value="evangelical"${me.user.tradition === 'evangelical' ? ' selected' : ''}>Evangelical</option>
+        <option value="catholic"${me.user.tradition === 'catholic' ? ' selected' : ''}>Catholic</option>
+        <option value="mainline"${me.user.tradition === 'mainline' ? ' selected' : ''}>Mainline Protestant</option>
+        <option value="not_faith_specific"${me.user.tradition === 'not_faith_specific' ? ' selected' : ''}>Not faith-specific</option>
+      </select>
+      <div class="muted" style="font-size:.74rem;margin:-2px 0 8px">
+        Shapes how scripture is chosen for you mid-workout and how the companion
+        answers your questions. Left blank, nothing is assumed.
+      </div>
       <label class="field-label">Fitness group</label>
       <input id="p-group" type="text" maxlength="80" placeholder="e.g. Sunrise 5K Fellowship" value="${me.user.fitness_group || ''}">
       <label class="field-label">Gym</label>
@@ -1276,6 +1288,7 @@ async function renderProfile(main) {
         bio_verse_ref: versePicker.value || null,
         job: document.getElementById('p-job').value,
         church: document.getElementById('p-church').value,
+        tradition: document.getElementById('p-tradition').value || null,
         fitness_group: document.getElementById('p-group').value,
         gym: document.getElementById('p-gym').value,
         bio_link_url: document.getElementById('p-bio-link').value.trim() || null,
@@ -1892,7 +1905,7 @@ function renderSplits() {
         + '<span>km ' + sp.km + '</span>'
         + '<span>' + paceStr(sp.sec / 60) + ' /km</span></div>').join('');
 }
-
+
 async function startWorkout() {
   const type = document.getElementById('workout-type').value;
   const w = await api('/workouts/start', { method: 'POST', body: { type } });
@@ -2769,6 +2782,78 @@ async function renderScriptureTab(body) {
 
 // The verse conversation screen: the real verse, the opener's prompt, and the
 // reflection thread (replies indented one level).
+// Is values-aligned AI actually available? Asked once and remembered, so the
+// companion box is simply absent rather than offering something that 503s.
+let aiStatus = null;
+async function aiAvailable() {
+  if (aiStatus === null) {
+    try { aiStatus = await api('/ai/status'); } catch { aiStatus = { gloo: { configured: false } }; }
+  }
+  return !!(aiStatus.gloo && aiStatus.gloo.configured);
+}
+
+/**
+ * The scripture companion on a verse thread.
+ *
+ * Renders the answer, then the real text of every additional verse it cited —
+ * fetched by the server from YouVersion, never written by the model. If the
+ * server could not verify what came back, nothing is shown but a plain note.
+ */
+async function wireCompanion(reference) {
+  const box = document.getElementById('companion');
+  if (!box) return;
+  if (!(await aiAvailable())) return;      // stays hidden
+  box.hidden = false;
+
+  const input = document.getElementById('companion-q');
+  const btn = document.getElementById('companion-ask');
+  const out = document.getElementById('companion-out');
+
+  const ask = async () => {
+    const question = input.value.trim();
+    if (!question) return;
+    btn.disabled = true;
+    out.innerHTML = `<div class="companion-answer muted">Thinking&hellip;</div>`;
+    let res;
+    try {
+      res = await api(`/verses/${encodeURIComponent(reference)}/ask`,
+                      { method: 'POST', body: { question } });
+    } catch {
+      res = { error: 'unreachable' };
+    }
+    btn.disabled = false;
+
+    if (!res || res.error) {
+      out.innerHTML = `<div class="companion-answer muted">` +
+        (res && res.error === 'no_verified_answer'
+          ? 'No answer came back that could be checked against real scripture, so nothing is shown.'
+          : 'The companion is unavailable right now.') + `</div>`;
+      return;
+    }
+
+    out.innerHTML = `
+      <div class="companion-answer">
+        <div class="companion-q">${escapeHtml(question)}</div>
+        <p>${escapeHtml(res.answer)}</p>
+        ${(res.also || []).map(a => `
+          <div class="companion-ref">
+            <div class="verse-ref">${escapeHtml(a.reference)}</div>
+            <div class="verse-text">${escapeHtml(a.text)}</div>
+          </div>`).join('')}
+        <div class="muted companion-meta">
+          ${res.tradition ? escapeHtml(String(res.tradition).replace(/_/g, ' ')) + ' &middot; ' : ''}
+          verse text from YouVersion${res.also && res.also.length
+            ? ' &middot; ' + res.also.length + ' cross-reference' + (res.also.length > 1 ? 's' : '') + ' verified'
+            : ''}
+        </div>
+      </div>`;
+    input.value = '';
+  };
+
+  btn.onclick = ask;
+  input.onkeydown = (e) => { if (e.key === 'Enter') ask(); };
+}
+
 async function renderVerseThread(reference) {
   const main = document.getElementById('main');
   document.querySelectorAll('nav button').forEach(b => b.style.display = 'none');
@@ -2828,6 +2913,20 @@ async function renderVerseThread(reference) {
           </div>
           <div class="muted yv-note" id="yv-note"></div>
         </div>
+        <!-- The companion answers the question that stalls a thread. Its answer
+             is shown to the asker only; it never posts into the conversation. -->
+        <div class="companion" id="companion" hidden>
+          <div class="companion-row">
+            <input type="text" id="companion-q" maxlength="500"
+                   placeholder="Ask about this verse&hellip;" />
+            <button id="companion-ask">Ask</button>
+          </div>
+          <div class="muted companion-hint">
+            Answered in your tradition. Every verse it cites is shown from
+            YouVersion &mdash; nothing is quoted from memory.
+          </div>
+          <div id="companion-out"></div>
+        </div>
         ${thread && thread.prompt ? `<div class="verse-prompt">&ldquo;${escapeHtml(thread.prompt)}&rdquo;<div class="muted" style="font-size:0.74rem;margin-top:4px">opened by ${escapeHtml(thread.opened_by_name || 'Someone')}</div></div>` : ''}
         ${!thread ? `
           <p class="muted" style="margin-top:10px">No one has opened a conversation on this verse yet. Ask the first question.</p>
@@ -2846,6 +2945,7 @@ async function renderVerseThread(reference) {
           </div>`}
       </div>`;
     document.getElementById('verse-back').onclick = goBack;
+    wireCompanion(verseRef);
 
     if (!thread) {
       document.getElementById('verse-open-btn').onclick = async () => {

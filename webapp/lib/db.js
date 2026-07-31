@@ -247,8 +247,8 @@ if (!postCols.includes('visibility')) db.exec("ALTER TABLE posts ADD COLUMN visi
 
 const workoutCols = db.prepare("PRAGMA table_info(workouts)").all().map(c => c.name);
 // gps_path: JSON array of [lat,lng] for the real route, used by the public share page.
-if (!workoutCols.includes('gps_path')) db.exec("ALTER TABLE workouts ADD COLUMN gps_path TEXT");
-
+if (!workoutCols.includes('gps_path')) db.exec("ALTER TABLE workouts ADD COLUMN gps_path TEXT");
+
 // Whether a post shows the route that was actually ridden. Off unless the author
 // turns it on: a GPS trace usually starts and ends at someone's home, so it is
 // never published as a side effect of sharing a workout.
@@ -581,6 +581,22 @@ if (!workoutColsHr.includes('peak_zone')) db.exec('ALTER TABLE workouts ADD COLU
 const trigCols = db.prepare("PRAGMA table_info(scripture_triggers)").all().map(c => c.name);
 if (!trigCols.includes('workout_id')) db.exec('ALTER TABLE scripture_triggers ADD COLUMN workout_id TEXT');
 if (!trigCols.includes('moment')) db.exec('ALTER TABLE scripture_triggers ADD COLUMN moment TEXT');
+
+// --- migration: theological tradition, for values-aligned AI (additive) ---
+// Members have always been able to name their church. This records the
+// tradition that church belongs to, which is the one thing Gloo's API can act
+// on: the same question about the same verse is answered differently for an
+// evangelical member and a catholic one.
+//
+// Nullable and never inferred. A blank tradition means every Gloo call for that
+// member goes out without the parameter, which is the platform's own neutral
+// default — guessing a stranger's theology from a church name would be both
+// unreliable and presumptuous.
+const userColsTrad = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+if (!userColsTrad.includes('tradition')) db.exec('ALTER TABLE users ADD COLUMN tradition TEXT');
+// Preferred YouVersion translation. Also nullable: unset means the app's
+// default (engWEBUS), which matches the locally ingested text.
+if (!userColsTrad.includes('bible_version_id')) db.exec('ALTER TABLE users ADD COLUMN bible_version_id INTEGER');
 
 // --- Scripture as conversation, not broadcast (additive) ---
 // One canonical thread per verse reference (UNIQUE) so conversation about a

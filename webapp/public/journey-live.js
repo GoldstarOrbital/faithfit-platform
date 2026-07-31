@@ -503,6 +503,12 @@ async function renderJourneyLive(key) {
       + '<div class="verse-card verse-tappable live-moment-verse" data-verse-ref="' + escapeHtml(r.verse.reference) + '">'
       +   '<div class="verse-ref">' + escapeHtml(r.verse.reference) + '</div>'
       +   '<div class="verse-text">' + escapeHtml(r.verse.text) + '</div>'
+      // The one line written for this member, at this moment, in their own
+      // tradition. Marked off from the verse above it so the boundary between
+      // scripture and commentary is visible, not implied.
+      +   (r.verse.note
+            ? '<div class="moment-note">' + escapeHtml(r.verse.note) + '</div>'
+            : '')
       +   '<div class="verse-convo">\ud83d\udcac Talk about this</div>'
       + '</div>';
     const btn = box.querySelector('[data-verse-ref]');
