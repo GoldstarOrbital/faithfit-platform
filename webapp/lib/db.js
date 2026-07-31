@@ -560,6 +560,8 @@ CREATE TABLE IF NOT EXISTS videos (
   UNIQUE(category, video_id)
 );
 `);
+const videoCols = db.prepare("PRAGMA table_info(videos)").all().map(c => c.name);
+if (!videoCols.includes('is_short')) db.exec('ALTER TABLE videos ADD COLUMN is_short INTEGER NOT NULL DEFAULT 0');
 
 // --- weekly full-service sermon + AI summary (additive) ---
 db.exec(`

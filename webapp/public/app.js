@@ -851,6 +851,7 @@ async function renderVideosTab(body) {
     { key: 'christian', label: 'Christian voices' },
     { key: 'veggietales', label: 'VeggieTales' },
     { key: 'nickbare', label: 'Nick Bare' },
+    { key: 'reels', label: 'Reels' },
   ];
   const CURATED = {
     kids: [
@@ -885,7 +886,7 @@ async function renderVideosTab(body) {
     <div class="section-tabs section-tabs-scroll" style="margin-bottom:12px">
       ${CATS.map(c => `<button data-vcat="${c.key}" class="${state.videoCategory === c.key ? 'active' : ''}">${c.label}</button>`).join('')}
     </div>
-    <div class="video-source-note">${configured ? 'Fresh from connected YouTube sources · ' : 'Featured official/public sources · '}tap a card to play inline</div>
+    <div class="video-source-note">${state.videoCategory === 'reels' ? 'Short-form encouragement from every video section · ' : (configured ? 'Fresh from connected YouTube sources · ' : 'Featured official/public sources · ')}tap a card to play inline</div>
     <div id="videos-list"><div class="muted">Loading…</div></div>`;
 
   body.querySelectorAll('[data-vcat]').forEach(b => b.onclick = () => { state.videoCategory = b.dataset.vcat; renderVideosTab(body); });

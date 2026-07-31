@@ -59,6 +59,10 @@ const SOURCES = {
 };
 
 const MAX_VIDEOS_PER_CHANNEL = 8;
+function looksLikeShort(v) {
+  const text = `${v.title || ''} ${v.description || ''}`.toLowerCase();
+  return /(^|\s)#?(shorts?|reels?)(\s|$|[.!?,])/i.test(text) ? 1 : 0;
+}
 
 // Search each category's queries, take the top verified-looking result, and
 // upsert it into video_sources keyed by (category, channel_id). Resilient:
@@ -106,11 +110,11 @@ async function refreshVideos() {
   if (!youtube.isConfigured()) return { updated: 0 };
   const sources = db.prepare('SELECT category, channel_id, channel_title FROM video_sources').all();
   const upsert = db.prepare(`
-    INSERT INTO videos (id, category, video_id, title, description, thumbnail_url, channel_title, published_at)
-    VALUES (@id, @category, @video_id, @title, @description, @thumbnail_url, @channel_title, @published_at)
+    INSERT INTO videos (id, category, video_id, title, description, thumbnail_url, channel_title, published_at, is_short)
+    VALUES (@id, @category, @video_id, @title, @description, @thumbnail_url, @channel_title, @published_at, @is_short)
     ON CONFLICT(category, video_id) DO UPDATE SET
       title=excluded.title, description=excluded.description, thumbnail_url=excluded.thumbnail_url,
-      channel_title=excluded.channel_title, published_at=excluded.published_at
+      channel_title=excluded.channel_title, published_at=excluded.published_at, is_short=excluded.is_short
   `);
   let updated = 0;
   for (const s of sources) {
@@ -126,6 +130,7 @@ async function refreshVideos() {
           thumbnail_url: v.thumbnailUrl,
           channel_title: v.channelTitle || s.channel_title,
           published_at: v.publishedAt,
+          is_short: looksLikeShort(v),
         });
       }
       updated += uploads.length;
