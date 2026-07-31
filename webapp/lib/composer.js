@@ -8,7 +8,7 @@ function composeForEvent(topic, event) {
     case 'quest.progress':
       return { type: 'quest', title: event.completed ? 'Quest complete!' : 'Quest progress', message: event.completed ? 'Quest complete!' : 'You made progress on a quest', body: event.completed ? 'Quest complete!' : 'Quest progress', data: event };
     default:
-      return { type: 'generic', title: 'FitFaith update', message: 'FitFaith update', body: topic, data: event };
+      return { type: 'generic', title: 'Functioning Faith update', message: 'Functioning Faith update', body: topic, data: event };
   }
 }
 

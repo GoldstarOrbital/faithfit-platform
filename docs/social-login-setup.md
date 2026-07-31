@@ -1,6 +1,6 @@
-# FaithFit social login setup
+# Functioning Faith social login setup
 
-FaithFit already implements Authorization Code + PKCE, state/nonce checks, signed ID-token verification, account creation, and identity linking for Gmail and iCloud. Provider buttons appear automatically on the sign-in screen only when their Railway variables are present.
+Functioning Faith already implements Authorization Code + PKCE, state/nonce checks, signed ID-token verification, account creation, and identity linking for Gmail and iCloud. Provider buttons appear automatically on the sign-in screen only when their Railway variables are present.
 
 Production callback base:
 
@@ -16,7 +16,7 @@ In Google Cloud Console:
 1. Create or select a project and configure the OAuth consent screen.
 2. Create an OAuth 2.0 Web application client.
 3. Add the production callback above to Authorized redirect URIs.
-4. Add these Railway variables to `faithfit-demo`:
+4. Add these Railway variables to `functioning-faith-demo`:
 
 ```text
 GOOGLE_CLIENT_ID=<web-client-id>
@@ -28,7 +28,7 @@ APP_BASE_URL=https://faithfit-demo-production.up.railway.app
 
 In Apple Developer → Certificates, Identifiers & Profiles:
 
-1. Create a Sign in with Apple Services ID, for example `com.example.faithfit.web`.
+1. Create a Sign in with Apple Services ID, for example `com.example.functioning-faith.web`.
 2. Enable Sign in with Apple and configure the primary App ID.
 3. Add the production domain `faithfit-demo-production.up.railway.app`.
 4. Add the callback URL above as the Return URL.
@@ -43,7 +43,7 @@ APPLE_PRIVATE_KEY=<contents-of-the-p8-file>
 APP_BASE_URL=https://faithfit-demo-production.up.railway.app
 ```
 
-`APPLE_PRIVATE_KEY` may contain literal `\n` sequences; FaithFit converts them to PEM line breaks before signing Apple's short-lived client secret.
+`APPLE_PRIVATE_KEY` may contain literal `\n` sequences; Functioning Faith converts them to PEM line breaks before signing Apple's short-lived client secret.
 
 ## Verify
 

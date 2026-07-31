@@ -1,4 +1,4 @@
-/* FitFaith — "Rustic Silver / Wood" theme.
+/* Functioning Faith — "Rustic Silver / Wood" theme.
    Aged parchment + weathered walnut + brushed pewter, with forest-green and
    hearth-gold accents. Illuminated-manuscript display type (Cinzel) over a
    readable serif body (Spectral). Textures are inline SVG data-URIs — no
@@ -829,7 +829,7 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
 }
 
 /* Second-pass home surface: more editorial, more social, and immediately
-   actionable without losing the warm FaithFit identity. */
+   actionable without losing the warm Functioning Faith identity. */
 .home-hero { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; padding:8px 3px 14px; }
 .home-kicker { color:var(--forest); font-size:.66rem; font-weight:850; letter-spacing:.14em; }
 .home-hero h1 { margin:5px 0 4px; color:var(--ink); font-size:1.7rem; line-height:1.08; letter-spacing:-.045em; }

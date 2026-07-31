@@ -6,13 +6,13 @@ function seed() {
   if (userCount > 0) return;
 
   const users = [
-    { id: randomUUID(), email: 'alex@faithfit.demo', display_name: 'Alex G.',
+    { id: randomUUID(), email: 'alex@functioningfaith.demo', display_name: 'Alex G.',
       bio_verse_ref: 'Philippians 4:13', bio_verse_text: 'I can do all things through Christ who strengtheneth me.',
       job: 'Software Engineer', church: 'Grace Community Church', fitness_group: 'Sunrise 5K Fellowship', gym: 'Anytime Fitness', age: 29, show_age: 1 },
-    { id: randomUUID(), email: 'sam@faithfit.demo', display_name: 'Sam T.',
+    { id: randomUUID(), email: 'sam@functioningfaith.demo', display_name: 'Sam T.',
       bio_verse_ref: 'Isaiah 40:31', bio_verse_text: 'Those who hope in the Lord will renew their strength. They will soar on wings like eagles.',
       job: 'Physical Therapist', church: 'Riverside Fellowship', fitness_group: 'Sunrise 5K Fellowship', gym: null, age: null, show_age: 0 },
-    { id: randomUUID(), email: 'priya@faithfit.demo', display_name: 'Priya K.',
+    { id: randomUUID(), email: 'priya@functioningfaith.demo', display_name: 'Priya K.',
       bio_verse_ref: 'Psalm 46:1', bio_verse_text: 'God is our refuge and strength, an ever-present help in trouble.',
       job: 'Yoga Instructor', church: 'New Hope Chapel', fitness_group: null, gym: 'Peak Studio', age: 34, show_age: 1 },
   ];
@@ -116,7 +116,7 @@ function seed() {
   const insertQuote = db.prepare('INSERT INTO motivation_quotes (id, text, attribution, theme) VALUES (@id, @text, @attribution, @theme)');
   quotes.forEach(q => insertQuote.run(q));
 
-  // Real, currently-running independent Christian podcasts (not fictional FaithFit
+  // Real, currently-running independent Christian podcasts (not fictional Functioning Faith
   // originals). Titles/hosts verified against known public podcast directories.
   const podcasts = [
     { id: randomUUID(), title: 'The Bible Recap', host: 'Tara-Leigh Cobble', description: 'A daily companion podcast that recaps that day\'s Bible reading in about 20 minutes.', duration_min: 20, theme: 'devotion' },

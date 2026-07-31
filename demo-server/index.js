@@ -1,8 +1,8 @@
 /**
- * FaithFit live demo server.
+ * Functioning Faith live demo server.
  * Deployed standalone (no Postgres/Kafka dependency) so the Scripture Trigger Engine
  * and gamification/notification logic can be exercised over HTTP as a free-tier demo
- * of the full platform in /faithfit-platform. See that repo's README for the real
+ * of the full platform in /functioning-faith-platform. See that repo's README for the real
  * microservice architecture this demo is a thin illustrative slice of.
  */
 const express = require('express');
@@ -29,7 +29,7 @@ const VERSE_TEXT = {
   'rom.8.28': 'In all things God works for the good of those who love him.',
 };
 
-app.get('/health', (req, res) => res.json({ status: 'ok', service: 'faithfit-demo' }));
+app.get('/health', (req, res) => res.json({ status: 'ok', service: 'functioning-faith-demo' }));
 
 app.post('/api/demo/scripture-trigger', (req, res) => {
   const { workout_type, movement_intensity = 0, stress_level = 0, personalization_opt_in = false } = req.body || {};
@@ -56,4 +56,4 @@ app.post('/api/demo/notification-preview', (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`FaithFit demo server listening on ${PORT}`));
+app.listen(PORT, () => console.log(`Functioning Faith demo server listening on ${PORT}`));

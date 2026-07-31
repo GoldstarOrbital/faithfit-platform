@@ -1,4 +1,4 @@
-# FitFaith
+# Functioning Faith
 
 A faith-based fitness + social web app — Strava and Instagram, reimagined around
 scripture, community, and Christian identity instead of vanity metrics. Track real
@@ -43,7 +43,7 @@ demo script and integration checklist live in [`docs/hackathon-readiness.md`](do
   no key needed) and daily devotionals from your church's real, linked YouTube
   channel.
 - Church official website integration: if your church already embeds a sermon
-  player (YouTube/Vimeo) on its own site, add the link and FitFaith surfaces the
+  player (YouTube/Vimeo) on its own site, add the link and Functioning Faith surfaces the
   real embed directly — no API key needed for this path at all.
 - Weekly sermon transcript + read-aloud (real YouTube captions, read via your
   browser's free built-in text-to-speech — not an AI voice, not a paid summary).

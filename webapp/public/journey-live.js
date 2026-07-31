@@ -187,7 +187,7 @@ async function renderJourneyLive(key) {
   const canvas = el('live-canvas');
   let world = null;
   try {
-    world = await window.FitFaithJourney3D.create(canvas, { journey: j, waypoints: data.waypoints, onError: () => {} });
+    world = await window.FunctioningFaithJourney3D.create(canvas, { journey: j, waypoints: data.waypoints, onError: () => {} });
   } catch { world = null; }
   if (!world) {
     canvas.hidden = true;
@@ -218,7 +218,7 @@ async function renderJourneyLive(key) {
   let segStartedAt = null;      // elapsed seconds when the current segment began
   let segStartedKm = startKm;
 
-  const session = window.FitFaithSensors.createSession({
+  const session = window.FunctioningFaithSensors.createSession({
     onUpdate(s) {
       if (s.hrMeasured && s.hr) hrSamples.push({ hr: s.hr, at: Math.round(s.elapsedSec) });
       const total = startKm + s.distanceKm;

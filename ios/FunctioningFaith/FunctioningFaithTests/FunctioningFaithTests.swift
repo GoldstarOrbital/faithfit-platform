@@ -1,7 +1,7 @@
 import XCTest
-@testable import FaithFit
+@testable import Functioning Faith
 
-final class FaithFitTests: XCTestCase {
+final class FunctioningFaithTests: XCTestCase {
     func testMockFeedIsNonEmpty() async throws {
         let client = APIClient.shared
         client.useMock = true

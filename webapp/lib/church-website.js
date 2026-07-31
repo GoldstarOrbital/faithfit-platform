@@ -62,7 +62,7 @@ async function fetchChurchWebsiteEmbeds(websiteUrl) {
   try {
     const res = await fetch(websiteUrl, {
       signal: ctrl.signal,
-      headers: { 'User-Agent': 'fitfaith-church-website/1.0 (+https://faithfit-demo-production.up.railway.app)' },
+      headers: { 'User-Agent': 'functioning-faith-church-website/1.0 (+https://faithfit-demo-production.up.railway.app)' },
       redirect: 'follow',
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

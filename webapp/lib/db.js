@@ -252,6 +252,22 @@ if (!workoutCols.includes('gps_path')) db.exec("ALTER TABLE workouts ADD COLUMN 
 // Whether a post shows the route that was actually ridden. Off unless the author
 // turns it on: a GPS trace usually starts and ends at someone's home, so it is
 // never published as a side effect of sharing a workout.
+// --- Rename: FaithFit -> Functioning Faith ----------------------------------
+// The seeded demo accounts carried an @faithfit.demo address, and three routes
+// identify a demo account by that domain. Renaming the code without moving the
+// rows would leave the live database full of accounts no query matches, and
+// demo sign-in would simply stop working.
+//
+// Idempotent and narrowly scoped: only ever touches the demo domain, and does
+// nothing at all once there is nothing left to move.
+try {
+  const stale = db.prepare("SELECT COUNT(*) c FROM users WHERE email LIKE '%@faithfit.demo'").get().c;
+  if (stale > 0) {
+    db.prepare("UPDATE users SET email = replace(email, '@faithfit.demo', '@functioningfaith.demo') WHERE email LIKE '%@faithfit.demo'").run();
+    console.log('[rename] moved %d demo account(s) to @functioningfaith.demo', stale);
+  }
+} catch { /* users table not built yet on a first run; the seed writes the new domain anyway */ }
+
 const postRouteCols = db.prepare('PRAGMA table_info(posts)').all().map(c => c.name);
 if (!postRouteCols.includes('show_route')) db.exec('ALTER TABLE posts ADD COLUMN show_route INTEGER NOT NULL DEFAULT 0');
 // Trims the first and last stretch of the published trace, which is the usual
@@ -342,7 +358,7 @@ CREATE TABLE IF NOT EXISTS user_identities (
 `);
 
 // --- Third-party data connectors (wearables / activity platforms) ---
-// Separate from sign-in identities: a connector grants FitFaith permission to
+// Separate from sign-in identities: a connector grants Functioning Faith permission to
 // pull the user's activity data (e.g. Strava). Tokens are stored so we can
 // refresh and re-sync later; scope is recorded for transparency (shown to the
 // user, exportable via /api/me/export).

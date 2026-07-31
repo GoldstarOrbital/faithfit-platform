@@ -3,11 +3,11 @@
 apiVersion: gateway.solo.io/v1
 kind: VirtualService
 metadata:
-  name: faithfit-vs
+  name: functioning-faith-vs
   namespace: gloo-system
 spec:
   virtualHost:
-    domains: ["api.faithfit.example"]
+    domains: ["api.functioning-faith.example"]
     routes:
       - matchers: [{ prefix: /api/auth }]
         routeAction: { single: { upstream: { name: auth-upstream, namespace: gloo-system } } }

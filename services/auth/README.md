@@ -3,7 +3,7 @@
 Stub REST microservice. Port: 4001
 
 ## Responsibilities
-See section 1 of platform spec for this service's role in the FaithFit architecture.
+See section 1 of platform spec for this service's role in the Functioning Faith architecture.
 
 ## Run locally
 ```
@@ -13,6 +13,6 @@ npm start
 
 ## Docker
 ```
-docker build -t faithfit-auth .
-docker run -p 4001:4001 faithfit-auth
+docker build -t functioning-faith-auth .
+docker run -p 4001:4001 functioning-faith-auth
 ```

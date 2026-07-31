@@ -2,7 +2,7 @@
 
 ## One-line pitch
 
-FaithFit turns a real walk, run, ride, or workout into a shared Scripture practice: your body moves through a living world, a verified passage meets the moment, and your community helps you keep going.
+Functioning Faith turns a real walk, run, ride, or workout into a shared Scripture practice: your body moves through a living world, a verified passage meets the moment, and your community helps you keep going.
 
 ## The 60-second demo
 

@@ -1,7 +1,7 @@
 /**
  * Developer webhooks.
  *
- * Anyone building on FitFaith can register a live HTTPS endpoint and receive
+ * Anyone building on Functioning Faith can register a live HTTPS endpoint and receive
  * their own account's domain events as they happen — the same events the
  * in-process bus already publishes (workout.completed, badge.awarded, journey
  * waypoints, and so on).
@@ -252,11 +252,11 @@ async function send(hook, topic, event) {
       redirect: 'error', // a redirect could hop to private space after validation
       headers: {
         'content-type': 'application/json',
-        'user-agent': 'FitFaith-Webhooks/1.0',
-        'x-fitfaith-event': topic,
-        'x-fitfaith-delivery': event.event_id,
-        'x-fitfaith-timestamp': ts,
-        'x-fitfaith-signature': 't=' + ts + ',v1=' + sign(hook.secret, ts, body),
+        'user-agent': 'Functioning Faith-Webhooks/1.0',
+        'x-functioning-faith-event': topic,
+        'x-functioning-faith-delivery': event.event_id,
+        'x-functioning-faith-timestamp': ts,
+        'x-functioning-faith-signature': 't=' + ts + ',v1=' + sign(hook.secret, ts, body),
       },
       body,
     });

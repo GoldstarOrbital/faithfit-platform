@@ -60,7 +60,7 @@ async function fetchChapter(book, chapter, translation) {
     try {
       const ctrl = new AbortController();
       const to = setTimeout(() => ctrl.abort(), 30000);
-      const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'faithfit-verify/1.0' } });
+      const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'functioning-faith-verify/1.0' } });
       clearTimeout(to);
       if (res.status === 429) { await sleep(3000 * attempt); throw new Error('rate-limited (429)'); }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

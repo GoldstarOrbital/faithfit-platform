@@ -10,7 +10,7 @@ provider "aws" { region = var.aws_region }
 module "eks" {
   source          = "terraform-aws-modules/eks/aws"
   version         = "~> 20.0"
-  cluster_name    = "faithfit-${var.environment}"
+  cluster_name    = "functioning-faith-${var.environment}"
   cluster_version = "1.29"
   vpc_id          = var.vpc_id
   subnet_ids      = var.subnet_ids
@@ -18,20 +18,20 @@ module "eks" {
 
 # RDS Postgres (with TimescaleDB extension enabled post-provision) for biometric_data + core schema.
 resource "aws_db_instance" "postgres" {
-  identifier          = "faithfit-${var.environment}-pg"
+  identifier          = "functioning-faith-${var.environment}-pg"
   engine              = "postgres"
   engine_version      = "16"
   instance_class      = var.db_instance_class
   allocated_storage   = 100
-  db_name             = "faithfit"
-  username            = "faithfit_admin"
+  db_name             = "functioning-faith"
+  username            = "functioning-faith_admin"
   manage_master_user_password = true
   skip_final_snapshot = var.environment != "production"
 }
 
 # MSK (Kafka) for the event bus.
 resource "aws_msk_cluster" "kafka" {
-  cluster_name           = "faithfit-${var.environment}"
+  cluster_name           = "functioning-faith-${var.environment}"
   kafka_version          = "3.6.0"
   number_of_broker_nodes = 3
   broker_node_group_info {
@@ -43,7 +43,7 @@ resource "aws_msk_cluster" "kafka" {
 
 # ElastiCache Redis for caching layer.
 resource "aws_elasticache_cluster" "redis" {
-  cluster_id      = "faithfit-${var.environment}-redis"
+  cluster_id      = "functioning-faith-${var.environment}-redis"
   engine          = "redis"
   node_type       = var.redis_node_type
   num_cache_nodes = 1

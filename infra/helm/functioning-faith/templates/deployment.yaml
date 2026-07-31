@@ -3,7 +3,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ . }}
-  namespace: faithfit
+  namespace: functioning-faith
 spec:
   replicas: {{ $.Values.replicaCount }}
   selector: { matchLabels: { app: {{ . }} } }

@@ -34,7 +34,7 @@ ensureChallenges();
 // Seed / refresh the Journeys catalog (virtual routes + waypoints).
 ensureJourneys();
 
-// Activities FaithFit can track. Kept server-side so the client and validation
+// Activities Functioning Faith can track. Kept server-side so the client and validation
 // stay in sync. `d` = whether distance/pace is meaningful for that activity.
 const ACTIVITY_TYPES = [
   { type: 'Run', icon: '🏃', d: true },
@@ -172,10 +172,10 @@ router.post('/auth/logout', (req, res) => {
 
 // Sign in as one of the seeded EXAMPLE accounts (no password). Kept so people can
 // explore a populated app instantly — clearly optional demo content, not the
-// primary way to use FaithFit. Only works for the pre-seeded demo emails.
+// primary way to use Functioning Faith. Only works for the pre-seeded demo emails.
 router.post('/auth/demo', (req, res) => {
   const { user_id } = req.body || {};
-  const user = db.prepare("SELECT * FROM users WHERE id = ? AND email LIKE '%@faithfit.demo'").get(user_id);
+  const user = db.prepare("SELECT * FROM users WHERE id = ? AND email LIKE '%@functioningfaith.demo'").get(user_id);
   if (!user) return res.status(404).json({ error: 'demo_user_not_found' });
   req.session.userId = user.id;
   res.json({ ok: true, user: publicUser(user) });
@@ -279,7 +279,7 @@ async function handleOauthCallback(req, res) {
     if (!userId) {
       // New account — no password (identity-only sign-in).
       userId = randomUUID();
-      const uniqueEmail = email || `${provider}-${claims.sub}@login.faithfit`;
+      const uniqueEmail = email || `${provider}-${claims.sub}@login.functioning-faith`;
       // A name clash must never be why somebody's Google sign-in fails, so this
       // path takes the nearest free variant instead of refusing.
       const chosen = usernames.suggest(String(name || 'Friend'), null);
@@ -367,7 +367,7 @@ router.post('/connectors/:provider/disconnect', requireAuth, (req, res) => {
 });
 
 // Pull recent Strava activities and import any not already seen, mapped into
-// FaithFit's own workout model (source='strava'). Idempotent — dedupes by
+// Functioning Faith's own workout model (source='strava'). Idempotent — dedupes by
 // Strava's activity id via imported_activities. Auto-refreshes an expired
 // access token using the stored refresh token.
 async function syncStravaForUser(userId) {
@@ -418,7 +418,7 @@ async function syncStravaForUser(userId) {
 // the sign-in screen without exposing real users as passwordless login targets.
 router.get('/auth/demo-users', (req, res) => {
   res.json(db.prepare(`
-    SELECT id, display_name, bio_verse_ref FROM users WHERE email LIKE '%@faithfit.demo' ORDER BY display_name
+    SELECT id, display_name, bio_verse_ref FROM users WHERE email LIKE '%@functioningfaith.demo' ORDER BY display_name
   `).all());
 });
 
@@ -426,7 +426,7 @@ router.get('/auth/demo-users', (req, res) => {
 // existing sessions/clients keep working, but restrict to seeded demo accounts.
 router.post('/session', (req, res) => {
   const { user_id } = req.body || {};
-  const user = db.prepare("SELECT * FROM users WHERE id = ? AND email LIKE '%@faithfit.demo'").get(user_id);
+  const user = db.prepare("SELECT * FROM users WHERE id = ? AND email LIKE '%@functioningfaith.demo'").get(user_id);
   if (!user) return res.status(404).json({ error: 'user_not_found' });
   req.session.userId = user.id;
   res.json({ ok: true, user: publicUser(user) });
@@ -1513,7 +1513,7 @@ router.get('/me/export', requireAuth, (req, res) => {
   const { password_hash, ...profile } = db.prepare('SELECT * FROM users WHERE id = ?').get(uid) || {};
   const data = {
     exported_at: new Date().toISOString(),
-    note: 'This is all the data FitFaith holds about your account. Email is included because this is your own export.',
+    note: 'This is all the data Functioning Faith holds about your account. Email is included because this is your own export.',
     profile,
     workouts: db.prepare('SELECT * FROM workouts WHERE user_id = ?').all(uid),
     biometric_samples: db.prepare('SELECT * FROM biometric_samples WHERE user_id = ?').all(uid),
@@ -1526,7 +1526,7 @@ router.get('/me/export', requireAuth, (req, res) => {
     xp: db.prepare('SELECT * FROM user_xp WHERE user_id = ?').get(uid),
     badges: db.prepare('SELECT badge_id, earned_at FROM user_badges WHERE user_id = ?').all(uid),
   };
-  res.setHeader('Content-Disposition', 'attachment; filename="fitfaith-my-data.json"');
+  res.setHeader('Content-Disposition', 'attachment; filename="functioning-faith-my-data.json"');
   res.json(data);
 });
 

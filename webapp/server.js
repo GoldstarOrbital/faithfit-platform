@@ -51,7 +51,7 @@ app.get('/w/:id', (req, res) => res.sendFile(path.join(__dirname, 'public', 'sha
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-app.get('/health', (req, res) => res.json({ status: 'ok', service: 'fitfaith-webapp' }));
+app.get('/health', (req, res) => res.json({ status: 'ok', service: 'functioning-faith-webapp' }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`FitFaith webapp listening on ${PORT}`));
+app.listen(PORT, () => console.log(`Functioning Faith webapp listening on ${PORT}`));

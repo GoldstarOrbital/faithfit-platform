@@ -5,7 +5,7 @@ import Foundation
 final class APIClient {
     static let shared = APIClient()
     var useMock = true
-    var baseURL = URL(string: "https://api.faithfit.example")!
+    var baseURL = URL(string: "https://api.functioning-faith.example")!
 
     func fetchFeed() async throws -> [FeedPost] {
         if useMock { return MockData.feed }

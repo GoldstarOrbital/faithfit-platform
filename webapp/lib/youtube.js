@@ -20,7 +20,7 @@ async function ytFetch(pathAndQuery) {
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'faithfit-devotionals/1.0' } });
+    const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'functioning-faith-devotionals/1.0' } });
     if (!res.ok) throw new Error(`YouTube API HTTP ${res.status}`);
     return await res.json();
   } finally {

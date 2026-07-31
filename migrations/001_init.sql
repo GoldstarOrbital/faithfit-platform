@@ -1,4 +1,4 @@
--- FaithFit platform: core schema
+-- Functioning Faith platform: core schema
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS postgis;
 

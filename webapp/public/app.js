@@ -139,7 +139,7 @@ const OAUTH_ERROR_MESSAGES = {
   state_mismatch: 'Sign-in could not be verified — please try again.',
   sign_in_failed: 'Sign-in failed — please try again or use email + password.',
   access_denied: 'Sign-in was cancelled.',
-  identity_linked_elsewhere: 'That account is already linked to a different FitFaith profile.',
+  identity_linked_elsewhere: 'That account is already linked to a different Functioning Faith profile.',
 };
 
 async function renderSignIn() {
@@ -295,7 +295,7 @@ async function renderHome(main) {
       <div class="mission-verse"><div class="verse-ref">${escapeHtml(rec.verse.reference)}</div><div class="verse-text">${escapeHtml(rec.verse.text)}</div></div>
       <p class="mission-prompt">Take a short movement break, notice your breath, and let this verse shape the next mile—not as a performance test, but as a practice of presence.</p>
       <div class="mission-actions"><button class="primary" data-home-tab="workout">Begin the mission</button><a class="ghost mission-read" href="https://www.bible.com/search/bible?query=${encodeURIComponent(rec.verse.reference)}" target="_blank" rel="noopener">Read in Bible ↗</a></div>
-      <div class="mission-grounding">FaithFit coaching is generated from your activity context; Scripture text is always shown from the verified library.</div>
+      <div class="mission-grounding">Functioning Faith coaching is generated from your activity context; Scripture text is always shown from the verified library.</div>
     </div>` : ''}
     <div class="social-section-label"><span>Community</span><span>${users.length ? users.length + ' nearby' : 'Your people'}</span></div>
     <div class="stories">
@@ -678,7 +678,7 @@ function exploreIcon(paths) {
 function renderExploreIndex(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
   main.innerHTML = '<div class="explore-hero"><h2>Explore</h2>'
-    + '<p class="muted">Everything FitFaith has beyond your own training. Pick a section.</p></div>'
+    + '<p class="muted">Everything Functioning Faith has beyond your own training. Pick a section.</p></div>'
     + '<div class="explore-grid">'
     + EXPLORE_SECTIONS.map(sec => '<button class="explore-tile" data-esec="' + sec.key + '">'
         + '<span class="explore-tile-icon">' + exploreIcon(sec.icon) + '</span>'
@@ -812,7 +812,7 @@ async function renderExplore(main) {
 
 // ---- Curated video library -------------------------------------------------
 // Fallback entries are official/public YouTube videos, embedded through
-// YouTube's player rather than copied into FaithFit. The API-backed library can
+// YouTube's player rather than copied into Functioning Faith. The API-backed library can
 // add fresh episodes later; these keep the experience useful without a key.
 async function renderVideosTab(body) {
   if (!state.videoCategory) state.videoCategory = 'kids';
@@ -853,7 +853,7 @@ async function renderVideosTab(body) {
   let configured = true;
   try { ({ configured } = await api('/youtube/configured')); } catch { configured = false; }
 
-  body.innerHTML = `<div class="video-hero"><div class="video-kicker">FAITHFIT WATCH</div><h2>Train your body. Feed your soul.</h2><p>Hand-picked movement, kids content, Christian voices, and stories that help the whole family keep going.</p></div>
+  body.innerHTML = `<div class="video-hero"><div class="video-kicker">FUNCTIONING FAITH WATCH</div><h2>Train your body. Feed your soul.</h2><p>Hand-picked movement, kids content, Christian voices, and stories that help the whole family keep going.</p></div>
     <div class="section-tabs section-tabs-scroll" style="margin-bottom:12px">
       ${CATS.map(c => `<button data-vcat="${c.key}" class="${state.videoCategory === c.key ? 'active' : ''}">${c.label}</button>`).join('')}
     </div>
@@ -1187,8 +1187,8 @@ async function renderProfile(main) {
     </div>
     <div class="card glass">
       <h2>Your data</h2>
-      <div class="muted" style="margin-bottom:10px">Full transparency — download everything FitFaith stores about your account as a JSON file.</div>
-      <a class="ghost" id="data-export" href="/api/me/export" download="fitfaith-my-data.json" style="display:block;text-align:center;text-decoration:none">⬇ Download my data</a>
+      <div class="muted" style="margin-bottom:10px">Full transparency — download everything Functioning Faith stores about your account as a JSON file.</div>
+      <a class="ghost" id="data-export" href="/api/me/export" download="functioning-faith-my-data.json" style="display:block;text-align:center;text-decoration:none">⬇ Download my data</a>
     </div>
     <div class="card glass" id="creator-overlay">
       <h2>Creator overlay</h2>
@@ -1200,10 +1200,10 @@ async function renderProfile(main) {
       <div class="muted" style="margin-bottom:10px">Get your account's events pushed to your own HTTPS endpoint the moment they happen.</div>
       <div id="wh-list" class="muted">Loading…</div>
       <div class="wh-new">
-        <input id="wh-url" type="url" placeholder="https://your-service.example/fitfaith" />
+        <input id="wh-url" type="url" placeholder="https://your-service.example/functioning-faith" />
         <button class="primary" id="wh-add">Add endpoint</button>
       </div>
-      <div class="muted wh-note" id="wh-note">Endpoints must be HTTPS and publicly reachable. Every request is signed — verify <code>X-FitFaith-Signature</code> as HMAC-SHA256 over <code>timestamp + "." + rawBody</code>.</div>
+      <div class="muted wh-note" id="wh-note">Endpoints must be HTTPS and publicly reachable. Every request is signed — verify <code>X-Functioning Faith-Signature</code> as HMAC-SHA256 over <code>timestamp + "." + rawBody</code>.</div>
     </div>
     <button class="ghost" id="signout" style="width:100%">Sign out</button>
   `;
@@ -2519,9 +2519,9 @@ async function renderJourneyDetail(key) {
   // current distance; "Travel this route" is the same world, driven by real speed.
   (async () => {
     const canvas = document.getElementById('journey-world');
-    if (!canvas || !window.FitFaithJourney3D) return;
+    if (!canvas || !window.FunctioningFaithJourney3D) return;
     let world = null;
-    try { world = await window.FitFaithJourney3D.create(canvas, { journey: j, waypoints: data.waypoints, onError: () => {} }); }
+    try { world = await window.FunctioningFaithJourney3D.create(canvas, { journey: j, waypoints: data.waypoints, onError: () => {} }); }
     catch { world = null; }
     if (!world) {
       canvas.hidden = true;
@@ -2973,7 +2973,7 @@ async function renderChurchOnboarding() {
       const doneEl = document.getElementById('onb-done');
       document.getElementById('onb-results').innerHTML = '';
       doneEl.style.display = 'block';
-      doneEl.innerHTML = `<button class="primary" id="onb-continue" style="width:100%">Continue to FaithFit</button>`;
+      doneEl.innerHTML = `<button class="primary" id="onb-continue" style="width:100%">Continue to Functioning Faith</button>`;
       document.getElementById('onb-continue').onclick = enterApp;
       document.getElementById('onb-skip').textContent = 'Continue';
     },

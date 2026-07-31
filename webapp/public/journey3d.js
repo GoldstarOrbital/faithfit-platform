@@ -1,4 +1,4 @@
-// FitFaith 3D journey world.
+// Functioning Faith 3D journey world.
 //
 // A lightweight WebGL scene (Three.js, loaded from a CDN like Leaflet already
 // is) that renders the route you are actually travelling. Real distance from a
@@ -990,5 +990,5 @@
     };
   }
 
-  global.FitFaithJourney3D = { create, webglAvailable, themeFor, THEMES };
+  global.FunctioningFaithJourney3D = { create, webglAvailable, themeFor, THEMES };
 })(window);

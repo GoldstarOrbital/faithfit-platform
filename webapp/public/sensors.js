@@ -1,4 +1,4 @@
-// FitFaith live workout sensors.
+// Functioning Faith live workout sensors.
 //
 // Four honest sources of "how fast am I actually going", in preference order:
 //   1. A smart trainer / spin bike / treadmill speaking the Bluetooth SIG
@@ -400,7 +400,7 @@
     };
   }
 
-  global.FitFaithSensors = {
+  global.FunctioningFaithSensors = {
     createSession,
     // exported for testing against synthetic frames
     _parsers: { parseIndoorBikeData, parseTreadmillData, parseRscData, makeCscParser, parseHeartRate },

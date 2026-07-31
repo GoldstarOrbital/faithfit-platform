@@ -47,8 +47,8 @@
     const st = data.state;
     root.hidden = false;
 
-    el('route').textContent = st.journey_name || 'FitFaith';
-    el('mark-name').textContent = data.display_name || 'FitFaith';
+    el('route').textContent = st.journey_name || 'Functioning Faith';
+    el('mark-name').textContent = data.display_name || 'Functioning Faith';
 
     const done = Number(st.distance_km) || 0;
     const total = Number(st.total_km) || 0;

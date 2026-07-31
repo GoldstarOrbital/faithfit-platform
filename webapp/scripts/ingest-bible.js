@@ -99,7 +99,7 @@ async function fetchChapter(t, chapter) {
     try {
       const ctrl = new AbortController();
       const to = setTimeout(() => ctrl.abort(), 30000);
-      const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'faithfit-ingest/1.0' } });
+      const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'functioning-faith-ingest/1.0' } });
       clearTimeout(to);
       if (res.status === 429) { await sleep(2000 * attempt); throw new Error('rate-limited (429)'); }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);

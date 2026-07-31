@@ -1,6 +1,6 @@
 replicaCount: 2
 image:
-  registry: ghcr.io/faithfit
+  registry: ghcr.io/functioning-faith
   tag: latest
 services:
   - auth

@@ -1,7 +1,7 @@
 // Strava connector — real device/wearable activity sync. Strava aggregates data
 // from most GPS watches and fitness wearables (Garmin, Apple Watch, Coros,
 // Suunto, Wahoo, etc.), so connecting Strava is the practical, zero-cost way to
-// pull real wearable-recorded activity into FaithFit without registering (and
+// pull real wearable-recorded activity into Functioning Faith without registering (and
 // paying for, in Apple's case) a developer account with every individual
 // hardware vendor. Registering a Strava API application is free at
 // https://www.strava.com/settings/api.
@@ -68,7 +68,7 @@ async function fetchRecentActivities(accessToken, { perPage = 30 } = {}) {
   return res.json();
 }
 
-// Map FaithFit's own activity taxonomy from Strava's activity `type`/`sport_type`.
+// Map Functioning Faith's own activity taxonomy from Strava's activity `type`/`sport_type`.
 const TYPE_MAP = {
   Run: 'Run', TrailRun: 'Trail Run', Walk: 'Walk', Hike: 'Hike', Ride: 'Cycle',
   MountainBikeRide: 'Cycle', GravelRide: 'Cycle', Swim: 'Swim', Rowing: 'Row',

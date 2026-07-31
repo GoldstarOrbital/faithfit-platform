@@ -116,7 +116,7 @@ async function fetchFeed(url) {
   // Some feeds (e.g. a daily show's full archive) are large — allow ample time.
   const to = setTimeout(() => ctrl.abort(), 60000);
   try {
-    const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'faithfit-podcasts/1.0' } });
+    const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'functioning-faith-podcasts/1.0' } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.text();
   } finally { clearTimeout(to); }

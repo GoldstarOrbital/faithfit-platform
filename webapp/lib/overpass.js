@@ -37,7 +37,7 @@ async function searchNearbyChurches({ lat, lng, radiusM = 5000 } = {}) {
       signal: ctrl.signal,
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'faithfit-church-search/1.0 (contact: alexmarcusgoldsmith@gmail.com)',
+        'User-Agent': 'functioning-faith-church-search/1.0 (contact: alexmarcusgoldsmith@gmail.com)',
       },
       body: 'data=' + encodeURIComponent(query),
     });

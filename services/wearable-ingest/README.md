@@ -3,7 +3,7 @@
 Stub REST microservice. Port: 4004
 
 ## Responsibilities
-See section 1 of platform spec for this service's role in the FaithFit architecture.
+See section 1 of platform spec for this service's role in the Functioning Faith architecture.
 
 ## Run locally
 ```
@@ -13,6 +13,6 @@ npm start
 
 ## Docker
 ```
-docker build -t faithfit-wearable-ingest .
-docker run -p 4004:4004 faithfit-wearable-ingest
+docker build -t functioning-faith-wearable-ingest .
+docker run -p 4004:4004 functioning-faith-wearable-ingest
 ```

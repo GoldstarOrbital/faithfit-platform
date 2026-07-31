@@ -2,7 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: notification
-  namespace: faithfit
+  namespace: functioning-faith
 spec:
   replicas: 2
   selector: { matchLabels: { app: notification } }
@@ -11,16 +11,16 @@ spec:
     spec:
       containers:
         - name: notification
-          image: ghcr.io/faithfit/notification:latest
+          image: ghcr.io/functioning-faith/notification:latest
           ports: [{ containerPort: 4000 }]
           envFrom:
-            - secretRef: { name: faithfit-secrets }
+            - secretRef: { name: functioning-faith-secrets }
           readinessProbe: { httpGet: { path: /health, port: 4000 }, initialDelaySeconds: 5 }
           livenessProbe: { httpGet: { path: /health, port: 4000 }, initialDelaySeconds: 15 }
 ---
 apiVersion: v1
 kind: Service
-metadata: { name: notification, namespace: faithfit }
+metadata: { name: notification, namespace: functioning-faith }
 spec:
   selector: { app: notification }
   ports: [{ port: 80, targetPort: 4000 }]

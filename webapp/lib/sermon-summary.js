@@ -23,7 +23,7 @@ async function fetchTranscript(videoId) {
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), TIMEDTEXT_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'fitfaith-sermon-transcript/1.0' } });
+    const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'functioning-faith-sermon-transcript/1.0' } });
     if (!res.ok) return null;
     const xml = await res.text();
     if (!xml || !xml.includes('<text')) return null;

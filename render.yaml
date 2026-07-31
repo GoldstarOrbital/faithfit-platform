@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: faithfit-demo
+    name: functioning-faith-demo
     runtime: node
     plan: free
     rootDir: demo-server

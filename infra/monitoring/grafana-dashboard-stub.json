@@ -1,5 +1,5 @@
 {
-  "title": "FaithFit Platform Overview",
+  "title": "Functioning Faith Platform Overview",
   "panels": [
     { "title": "Request rate by service", "type": "graph" },
     { "title": "Biometric ingest throughput", "type": "graph" },

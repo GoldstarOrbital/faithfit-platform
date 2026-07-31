@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct FaithFitApp: App {
+struct FunctioningFaithApp: App {
     var body: some Scene {
         WindowGroup {
             RootTabView()

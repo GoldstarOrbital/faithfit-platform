@@ -2,7 +2,7 @@ const { Kafka } = require('kafkajs');
 const crypto = require('crypto');
 
 class EventProducer {
-  constructor({ clientId = 'faithfit-service', brokers = (process.env.KAFKA_BROKERS || 'localhost:9092').split(',') } = {}) {
+  constructor({ clientId = 'functioning-faith-service', brokers = (process.env.KAFKA_BROKERS || 'localhost:9092').split(',') } = {}) {
     this.kafka = new Kafka({ clientId, brokers });
     this.producer = this.kafka.producer();
     this.connected = false;
