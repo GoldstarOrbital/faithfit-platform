@@ -665,6 +665,8 @@ const EXPLORE_SECTIONS = [
     icon: '<path d="M7 4h10v4a5 5 0 01-10 0V4z"/><path d="M7 6H4v1a3 3 0 003 3M17 6h3v1a3 3 0 01-3 3"/><path d="M10 15h4v3h-4z"/><path d="M8 21h8"/>' },
   { key: 'videos',      name: 'Videos',      blurb: 'Kids, fitness, and short teaching films.',
     icon: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M10 9.5l5 2.5-5 2.5z"/>' },
+  { key: 'reels',       name: 'Reels',       blurb: 'Scroll short encouragement, movement, faith, and food.',
+    icon: '<rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9 3l2 4h4l-2-4M9 11h6M9 15h4"/>' },
   { key: 'podcasts',    name: 'Podcasts',    blurb: 'Full episodes from public faith and fitness feeds.',
     icon: '<rect x="9" y="3" width="6" height="10" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3M9 21h6"/>' },
   { key: 'scripture',   name: 'Scripture',   blurb: 'Search the Bible and join the conversation on a verse.',
@@ -833,9 +835,35 @@ async function renderExplore(main) {
       `).join('');
   } else if (state.exploreTab === 'videos') {
     await renderVideosTab(body);
+  } else if (state.exploreTab === 'reels') {
+    await renderReelsTab(body);
   } else if (state.exploreTab === 'scripture') {
     await renderScriptureTab(body);
   }
+}
+
+// Standalone short-form feed: Reels is intentionally separate from Videos so
+// it behaves like a scrollable social surface, not another category shelf.
+async function renderReelsTab(body) {
+  if (!state.reelsCategory) state.reelsCategory = 'all';
+  body.innerHTML = `<div class="reels-hero"><div class="video-kicker">FUNCTIONING FAITH REELS</div><h2>Small moments. Big encouragement.</h2><p>Short movement, faith, food, and family-friendly encouragement to meet you wherever you are.</p></div>
+    <div class="section-tabs section-tabs-scroll reels-filters"><button data-reel-filter="all" class="${state.reelsCategory === 'all' ? 'active' : ''}">All</button><button data-reel-filter="food" class="${state.reelsCategory === 'food' ? 'active' : ''}">Food + fitness</button></div>
+    <div id="reels-list"><div class="muted">Loading reels…</div></div>`;
+  body.querySelectorAll('[data-reel-filter]').forEach(btn => btn.onclick = () => { state.reelsCategory = btn.dataset.reelFilter; renderReelsTab(body); });
+  let videos = [];
+  try { videos = await api('/videos?category=reels'); } catch { videos = []; }
+  if (state.reelsCategory === 'food') videos = videos.filter(v => v.category === 'food');
+  const list = document.getElementById('reels-list');
+  if (!videos.length) { list.innerHTML = '<div class="card glass"><p class="muted">No reels in this filter yet. Fresh videos will appear here as the library refreshes.</p></div>'; return; }
+  list.innerHTML = videos.map(v => `<article class="reel-card card glass" data-reel-card="${escapeHtml(v.video_id)}">
+    <div class="reel-frame video-thumb-wrap"><img src="${escapeHtml(v.thumbnail_url || `https://i.ytimg.com/vi/${encodeURIComponent(v.video_id)}/hqdefault.jpg`)}" alt="${escapeHtml(v.title || 'Functioning Faith reel')}" /><span class="reel-play">▶</span></div>
+    <div class="reel-meta"><span class="video-audience">${v.category === 'food' ? 'Food + fitness' : 'Faith + movement'}</span><div class="reel-title">${escapeHtml(v.title || 'Short encouragement')}</div><div class="muted">${escapeHtml(v.channel_title || '')}</div></div>
+  </article>`).join('');
+  list.querySelectorAll('[data-reel-card]').forEach(card => card.onclick = () => {
+    const id = card.dataset.reelCard;
+    const frame = card.querySelector('.reel-frame');
+    frame.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?autoplay=1" title="Functioning Faith reel" frameborder="0" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+  });
 }
 
 // ---- Curated video library -------------------------------------------------
@@ -852,7 +880,6 @@ async function renderVideosTab(body) {
     { key: 'christian', label: 'Christian voices' },
     { key: 'veggietales', label: 'VeggieTales' },
     { key: 'nickbare', label: 'Nick Bare' },
-    { key: 'reels', label: 'Reels' },
   ];
   const CURATED = {
     kids: [
@@ -887,7 +914,7 @@ async function renderVideosTab(body) {
     <div class="section-tabs section-tabs-scroll" style="margin-bottom:12px">
       ${CATS.map(c => `<button data-vcat="${c.key}" class="${state.videoCategory === c.key ? 'active' : ''}">${c.label}</button>`).join('')}
     </div>
-    <div class="video-source-note">${state.videoCategory === 'reels' ? 'Short-form encouragement from every video section · ' : (configured ? 'Fresh from connected YouTube sources · ' : 'Featured official/public sources · ')}tap a card to play inline</div>
+    <div class="video-source-note">${configured ? 'Fresh from connected YouTube sources · ' : 'Featured official/public sources · '}tap a card to play inline</div>
     <div id="videos-list"><div class="muted">Loading…</div></div>`;
 
   body.querySelectorAll('[data-vcat]').forEach(b => b.onclick = () => { state.videoCategory = b.dataset.vcat; renderVideosTab(body); });
