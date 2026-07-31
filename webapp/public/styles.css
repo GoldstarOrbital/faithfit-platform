@@ -914,6 +914,11 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
 .reel-overlay .video-audience { color:#fff; background:rgba(70,192,127,.8); text-shadow:none; }
 .reel-title { margin-top:9px; font-size:1.04rem; font-weight:850; line-height:1.28; }
 .reel-card.is-active .reel-play { display:none; }
+.integration-list { display:flex; flex-direction:column; gap:8px; margin:10px 0; }
+.integration-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-top:1px solid var(--line); }
+.integration-row strong { font-size:.88rem; }
+.integration-row .ghost { white-space:nowrap; padding:7px 10px; font-size:.74rem; text-decoration:none; }
+.wearable-callout { padding:10px 12px; border-radius:14px; background:rgba(70,192,127,.09); border:1px solid rgba(70,192,127,.2); font-size:.8rem; line-height:1.4; }
 @media (min-width:700px) {
   #reels-list { max-width:440px; height:calc(100vh - 230px); margin:0 auto; box-shadow:0 16px 38px rgba(43,30,18,.22); }
 }

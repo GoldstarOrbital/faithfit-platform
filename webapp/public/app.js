@@ -1160,16 +1160,21 @@ async function renderProfile(main) {
   const me = await api('/me');
   state.me = me;
 
-  let connections = { identities: [], connectors: [] }, providers = [], stravaConfigured = false;
+  let connections = { identities: [], connectors: [] }, providers = [], stravaConfigured = false, wearableProviders = [];
   try {
-    const [connRes, provRes, stravaRes] = await Promise.all([
-      api('/auth/connections'), api('/auth/providers'), api('/connectors/strava/configured'),
+    const [connRes, provRes, stravaRes, wearableRes] = await Promise.all([
+      api('/auth/connections'), api('/auth/providers'), api('/connectors/strava/configured'), api('/connectors/configured'),
     ]);
-    connections = connRes; providers = provRes.providers || []; stravaConfigured = !!stravaRes.configured;
+    connections = connRes; providers = provRes.providers || []; stravaConfigured = !!stravaRes.configured; wearableProviders = wearableRes.providers || [];
   } catch (e) { console.error('connections load failed', e); }
 
   const linkedProviders = new Map(connections.identities.map(i => [i.provider, i]));
   const stravaConn = connections.connectors.find(c => c.provider === 'strava');
+  const wearableRows = wearableProviders.map(p => {
+    const conn = connections.connectors.find(c => c.provider === p.name);
+    if (conn) return `<div class="integration-row"><div><strong>${escapeHtml(p.label)}</strong><div class="muted">Connected · last synced ${conn.last_synced_at ? `${timeAgo(conn.last_synced_at)} ago` : 'never'}</div></div><div style="display:flex;gap:6px"><button class="ghost" data-wearable-sync="${p.name}">Sync</button><button class="ghost" data-wearable-disconnect="${p.name}">Disconnect</button></div></div>`;
+    return `<div class="integration-row"><div><strong>${escapeHtml(p.label)}</strong><div class="muted">Sleep, recovery, heart rate, and activity import</div></div>${p.configured ? `<a class="ghost" href="/api/connectors/${p.name}/start" style="text-decoration:none">Connect</a>` : '<span class="muted" style="font-size:.72rem">Admin setup needed</span>'}</div>`;
+  }).join('');
 
   const providerRows = providers.map(p => {
     const idn = linkedProviders.get(p.name);
@@ -1284,6 +1289,9 @@ async function renderProfile(main) {
     </div>
     <div class="card glass profile-panel" data-profile-group="integrations">
       <h2>Connected Devices</h2>
+      <div class="wearable-callout"><strong>Wearables sync</strong><div class="muted">Garmin devices work through Strava. Fitbit and Oura can connect directly when enabled by the server. Imported activities become workouts; available sleep and recovery signals stay in your private stats.</div></div>
+      <div class="integration-list">${wearableRows || '<div class="muted">No direct Fitbit/Oura connectors are configured yet.</div>'}</div>
+      ${stravaConfigured ? '<div class="integration-row"><div><strong>Garmin / other watch bridge</strong><div class="muted">Connect Garmin, Apple Watch, COROS, Suunto, or Wahoo to Strava, then sync here.</div></div><a class="ghost" href="/api/connectors/strava/start" style="text-decoration:none">Connect Strava</a></div>' : ''}
       <div class="muted" id="ble-status">${state.bleConnected ? `Connected: ${state.bleDevice?.name || 'Heart rate monitor'}` : 'No Bluetooth heart rate monitor connected.'}</div>
       <button class="ghost" style="width:100%;margin-top:10px" id="ble-connect">${state.bleConnected ? 'Disconnect' : 'Pair Bluetooth Heart Rate Monitor'}</button>
       <div class="muted" style="margin-top:6px">Requires Chrome/Edge on a device with Bluetooth. Standard BLE Heart Rate Service (0x180D) — works with most chest straps.</div>
@@ -2123,6 +2131,12 @@ async function requestWorkoutCoach() {
   } catch {
     button.disabled = false; button.textContent = 'Try again';
   }
+  main.querySelectorAll('[data-wearable-sync]').forEach(btn => btn.onclick = async () => {
+    btn.disabled = true; btn.textContent = 'Syncing…';
+    try { const result = await api(`/connectors/${btn.dataset.wearableSync}/sync`, { method: 'POST' }); btn.textContent = `Synced ${result.imported || 0}`; setTimeout(() => renderProfile(main), 900); }
+    catch { btn.disabled = false; btn.textContent = 'Retry'; }
+  });
+  main.querySelectorAll('[data-wearable-disconnect]').forEach(btn => btn.onclick = async () => { await api(`/connectors/${btn.dataset.wearableDisconnect}/disconnect`, { method: 'POST' }); renderProfile(main); });
 }
 
 async function startWorkout() {

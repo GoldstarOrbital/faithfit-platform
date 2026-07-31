@@ -29,6 +29,7 @@ const breathwork = require('../lib/breathwork');
 const dms = require('../lib/dms');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
+const wearables = require('../lib/wearables');
 const { searchNearbyChurches } = require('../lib/overpass');
 const youtube = require('../lib/youtube');
 const sermonSummary = require('../lib/sermon-summary');
@@ -498,6 +499,65 @@ router.get('/me', (req, res) => {
   };
   res.json({ user, xp, badges, consents, stats });
 });
+
+// Direct Fitbit/Oura cloud connectors. Garmin devices are intentionally offered
+// through Strava above because Garmin's direct Health API is partner-gated.
+router.get('/connectors/configured', (req, res) => {
+  res.json({ providers: Object.entries(wearables.PROVIDERS).map(([name, p]) => ({ name, label: p.label, configured: wearables.isConfigured(name) })) });
+});
+router.get('/connectors/:provider/configured', (req, res) => {
+  res.json({ configured: wearables.isConfigured(req.params.provider) });
+});
+router.get('/connectors/:provider/start', requireAuth, (req, res) => {
+  const name = req.params.provider;
+  if (!wearables.isConfigured(name)) return res.status(404).json({ error: 'provider_not_configured' });
+  const state = oauth.b64url(require('crypto').randomBytes(16));
+  req.session.wearablePending = { state, provider: name, userId: req.session.userId, createdAt: Date.now() };
+  res.redirect(wearables.buildAuthorizationUrl(name, { redirectUri: `${baseUrl(req)}/api/connectors/${name}/callback`, state }));
+});
+router.get('/connectors/:provider/callback', async (req, res) => {
+  const name = req.params.provider; const pending = req.session.wearablePending;
+  const fail = reason => res.redirect(`/?wearable_error=${encodeURIComponent(reason)}`);
+  if (!pending || pending.provider !== name || Date.now() - pending.createdAt > 10 * 60 * 1000) { req.session.wearablePending = null; return fail('session_expired'); }
+  if (req.query.error || req.query.state !== pending.state) { req.session.wearablePending = null; return fail(req.query.error ? 'access_denied' : 'state_mismatch'); }
+  try {
+    const tokens = await wearables.exchangeCodeForTokens(name, req.query.code, `${baseUrl(req)}/api/connectors/${name}/callback`);
+    db.prepare(`INSERT INTO user_connectors (id,user_id,provider,provider_user_id,access_token,refresh_token,expires_at,scope)
+      VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(user_id,provider) DO UPDATE SET access_token=excluded.access_token,refresh_token=excluded.refresh_token,expires_at=excluded.expires_at,scope=excluded.scope`)
+      .run(randomUUID(), pending.userId, name, String(tokens.user_id || tokens.user?.id || ''), tokens.access_token, tokens.refresh_token || null, new Date(Date.now() + Number(tokens.expires_in || 3600) * 1000).toISOString(), tokens.scope || wearables.provider(name).scope);
+    req.session.wearablePending = null;
+    await syncWearableForUser(pending.userId, name).catch(err => console.error(`[${name}] initial sync failed:`, err.message));
+    res.redirect(`/?connected=${name}`);
+  } catch (err) { req.session.wearablePending = null; console.error(`[${name}] callback failed:`, err.message); fail('connect_failed'); }
+});
+router.post('/connectors/:provider/sync', requireAuth, async (req, res) => {
+  try { res.json({ ok: true, ...(await syncWearableForUser(req.session.userId, req.params.provider)) }); }
+  catch (err) { res.status(502).json({ error: 'sync_failed', detail: err.message }); }
+});
+
+async function syncWearableForUser(userId, provider) {
+  if (!wearables.provider(provider)) throw new Error('unsupported_wearable');
+  let conn = db.prepare('SELECT * FROM user_connectors WHERE user_id = ? AND provider = ?').get(userId, provider);
+  if (!conn) throw new Error('not_connected');
+  if (conn.expires_at && new Date(conn.expires_at).getTime() < Date.now() + 60000 && conn.refresh_token) {
+    const fresh = await wearables.refreshTokens(provider, conn.refresh_token);
+    db.prepare('UPDATE user_connectors SET access_token=?, refresh_token=?, expires_at=? WHERE user_id=? AND provider=?').run(fresh.access_token, fresh.refresh_token || conn.refresh_token, new Date(Date.now() + Number(fresh.expires_in || 3600) * 1000).toISOString(), userId, provider);
+    conn = { ...conn, access_token: fresh.access_token };
+  }
+  const payload = await wearables.fetchRecent(provider, conn.access_token); let imported = 0;
+  for (const raw of payload.activities || []) {
+    const a = wearables.normalizeActivity(provider, raw);
+    if (!a.externalId || db.prepare('SELECT 1 FROM imported_activities WHERE provider=? AND external_id=?').get(provider, a.externalId)) continue;
+    const durationSec = Math.max(0, a.durationSec || 0); const end = new Date(a.start.getTime() + durationSec * 1000).toISOString();
+    const workoutId = randomUUID();
+    db.prepare(`INSERT INTO workouts (id,user_id,type,start_time,end_time,calories,avg_hr,max_hr,distance_km,duration_sec,note,source) VALUES (?,?,?,?,?,?,?,?,?,?,? ,?)`).run(workoutId,userId,a.type,a.start.toISOString(),end,a.calories,a.avgHr,a.maxHr,a.distanceKm,durationSec,a.note,provider);
+    db.prepare('INSERT INTO imported_activities (id,user_id,provider,external_id,workout_id) VALUES (?,?,?,?,?)').run(randomUUID(),userId,provider,a.externalId,workoutId);
+    publish('workout.completed',{user_id:userId,workout_id:workoutId,calories:a.calories||0,avg_hr:a.avgHr||null}); imported++;
+  }
+  for (const m of wearables.normalizeRecovery(provider, payload)) db.prepare(`INSERT INTO wearable_metrics (id,user_id,provider,metric_date,sleep_score,sleep_sec,readiness_score,hrv,raw_json) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(user_id,provider,metric_date) DO UPDATE SET sleep_score=excluded.sleep_score,sleep_sec=excluded.sleep_sec,readiness_score=excluded.readiness_score,hrv=excluded.hrv,raw_json=excluded.raw_json,updated_at=datetime('now')`).run(randomUUID(),userId,provider,m.date,m.sleep_score||null,m.sleep_sec||null,m.readiness_score||null,m.hrv||null,JSON.stringify(m.raw||{}));
+  db.prepare('UPDATE user_connectors SET last_synced_at=? WHERE user_id=? AND provider=?').run(new Date().toISOString(),userId,provider);
+  return { imported, checked: (payload.activities || []).length, recovery_days: wearables.normalizeRecovery(provider, payload).length };
+}
 
 // The full accomplishment shelf: earned badges stay visible, while locked
 // badges show the next honest milestone instead of disappearing.

@@ -593,6 +593,21 @@ CREATE TABLE IF NOT EXISTS videos (
   fetched_at TEXT DEFAULT (datetime('now')),
   UNIQUE(category, video_id)
 );
+CREATE TABLE IF NOT EXISTS wearable_metrics (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  metric_date TEXT NOT NULL,
+  sleep_score REAL,
+  sleep_sec INTEGER,
+  readiness_score REAL,
+  hrv REAL,
+  resting_hr REAL,
+  steps INTEGER,
+  raw_json TEXT,
+  updated_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(user_id, provider, metric_date)
+);
 `);
 const videoCols = db.prepare("PRAGMA table_info(videos)").all().map(c => c.name);
 if (!videoCols.includes('is_short')) db.exec('ALTER TABLE videos ADD COLUMN is_short INTEGER NOT NULL DEFAULT 0');
