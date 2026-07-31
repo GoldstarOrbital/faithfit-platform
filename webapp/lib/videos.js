@@ -22,30 +22,43 @@ const SOURCES = {
     'Superbook Official',
     'Bibleman Official',
     'What\'s In The Bible Official',
+    'Minno Kids Christian cartoons',
+    'Bible Kids animated stories',
   ],
   fitness: [
     'Christian workout devotional fitness',
     'Faith fitness Christian workout',
+    'Revelation Wellness official',
+    'Faithful Workouts official',
+    'Shaped faith fitness official',
   ],
   motivational: [
     'Christian motivation short',
     'biblical philosophy explained',
     'Christian academia lecture short',
+    'Sadie Robertson encouragement',
+    'Craig Groeschel motivation',
+    'Christian endurance perseverance talk',
   ],
   christian: [
     'BibleProject official',
     'Passion City Church official',
     'Christian speeches faith sermon',
+    'The Gospel Coalition official',
+    'IF Gathering official',
+    'Desiring God official',
   ],
   veggietales: [
     'VeggieTales Official',
+    'Big Idea VeggieTales',
   ],
   nickbare: [
     'Nick Bare Fitness official',
+    'Nick Bare Podcast official',
   ],
 };
 
-const MAX_VIDEOS_PER_CHANNEL = 6;
+const MAX_VIDEOS_PER_CHANNEL = 8;
 
 // Search each category's queries, take the top verified-looking result, and
 // upsert it into video_sources keyed by (category, channel_id). Resilient:
