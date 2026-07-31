@@ -455,7 +455,7 @@ async function renderUserProfile(userId) {
   try { data = await api(`/users/${userId}`); } catch { main.innerHTML = '<div class="card glass">Could not load profile.</div>'; return; }
   const u = data.user;
   const followBtn = data.is_me ? '' :
-    `<button class="follow-btn ${data.is_following ? 'following' : ''}" id="profile-follow">${data.is_following ? 'Following' : 'Follow'}</button><button class="ghost profile-message" id="profile-message">Message</button>`;
+    `<button class="follow-btn ${data.is_following ? 'following' : ''}" id="profile-follow">${data.is_following ? 'Following' : 'Follow'}</button><button class="ghost profile-message" id="profile-message">Message</button><button class="primary profile-invite" id="profile-invite">Invite to workout</button>`;
 
   main.innerHTML = `
     <button class="ghost back-btn" id="profile-back">← Back</button>
@@ -499,6 +499,8 @@ async function renderUserProfile(userId) {
   wireVerseCards(main);
   const mb = document.getElementById('profile-message');
   if (mb) mb.onclick = () => openDmWith(userId);
+  const inviteBtn = document.getElementById('profile-invite');
+  if (inviteBtn) inviteBtn.onclick = () => openWorkoutInvite(userId, u.display_name);
   const fb = document.getElementById('profile-follow');
   if (fb) fb.onclick = async () => {
     const r = await api(`/users/${userId}/follow`, { method: 'POST' });
@@ -1415,14 +1417,18 @@ function wireAvatarUpload() {
   };
 }
 
-// ---- Workout invites: pending "worked out with…" partner tags awaiting my response ----
+// ---- Workout invites: planned DM invites plus post-workout confirmations ----
 async function loadPartnerInvites() {
   const el = document.getElementById('partner-invites');
   if (!el) return;
   try {
-    const rows = await api('/workout-partners/pending');
-    if (!rows.length) { el.innerHTML = '<span class="muted">No pending workout invites.</span>'; return; }
-    el.innerHTML = rows.map(r => `
+    const [planned, partnerRows] = await Promise.all([api('/workout-invites/pending'), api('/workout-partners/pending')]);
+    if (!planned.length && !partnerRows.length) { el.innerHTML = '<span class="muted">No pending workout invites.</span>'; return; }
+    el.innerHTML = planned.map(r => `
+      <div class="toggle-row invite-list-row" data-planned-invite="${r.id}">
+        <span><strong>${escapeHtml(r.sender_name)}</strong> invited you to a ${escapeHtml(r.workout_type.toLowerCase())}${r.scheduled_at ? ` · ${escapeHtml(new Date(r.scheduled_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }))}` : ''}</span>
+        <span style="display:flex;gap:6px"><button class="follow-btn" data-planned-accept="${r.id}">Accept</button><button class="ghost" data-planned-decline="${r.id}">Decline</button></span>
+      </div>`).join('') + partnerRows.map(r => `
       <div class="toggle-row" data-invite="${r.id}">
         <span>${escapeHtml(r.tagged_by_name)} tagged you${r.workout_type ? ` on a ${escapeHtml(r.workout_type)}` : ''} — confirm for bonus XP</span>
         <span style="display:flex;gap:6px">
@@ -1430,6 +1436,11 @@ async function loadPartnerInvites() {
           <button class="ghost" data-decline="${r.id}">Decline</button>
         </span>
       </div>`).join('');
+    el.querySelectorAll('[data-planned-accept],[data-planned-decline]').forEach(btn => btn.onclick = async () => {
+      const id = btn.dataset.plannedAccept || btn.dataset.plannedDecline;
+      await api(`/workout-invites/${id}/respond`, { method: 'POST', body: { accept: !!btn.dataset.plannedAccept } });
+      loadPartnerInvites();
+    });
     el.querySelectorAll('[data-accept]').forEach(btn => btn.onclick = async () => {
       await api(`/workout-partners/${btn.dataset.accept}/respond`, { method: 'POST', body: { accept: true } });
       await loadMe();
@@ -3865,6 +3876,48 @@ function startBreathe(body, pattern) {
 
 let dmPoll = null;
 
+function openWorkoutInvite(recipientId, recipientName, threadId) {
+  document.querySelector('.workout-invite-modal')?.remove();
+  const modal = document.createElement('div');
+  modal.className = 'workout-invite-modal';
+  modal.innerHTML = `<div class="workout-invite-sheet card glass" role="dialog" aria-modal="true" aria-label="Invite to workout">
+    <div class="modal-head"><div><span class="eyebrow">Plan together</span><h2>Invite ${escapeHtml(recipientName || 'your friend')}</h2></div><button class="ghost modal-close" type="button" aria-label="Close">×</button></div>
+    <form id="workout-invite-form">
+      <label class="field-label">Workout</label>
+      <select id="wi-type"><option>Run</option><option>Walk</option><option>Cycle</option><option>Hike</option><option>Strength</option><option>Yoga</option><option>Swim</option><option>Other</option></select>
+      <label class="field-label">When (optional)</label><input id="wi-time" type="datetime-local">
+      <label class="field-label">Duration (minutes)</label><input id="wi-duration" type="number" min="5" max="1440" placeholder="45">
+      <label class="field-label">Where (optional)</label><input id="wi-location" type="text" maxlength="120" placeholder="Park, gym, or video call">
+      <label class="field-label">Note (optional)</label><textarea id="wi-note" maxlength="240" rows="3" placeholder="Let’s encourage each other…"></textarea>
+      <div id="wi-status" class="muted" aria-live="polite"></div>
+      <button class="primary" type="submit" style="width:100%;margin-top:10px">Send workout invite</button>
+    </form>
+  </div>`;
+  document.body.appendChild(modal);
+  const close = () => modal.remove();
+  modal.querySelector('.modal-close').onclick = close;
+  modal.onclick = e => { if (e.target === modal) close(); };
+  modal.querySelector('#workout-invite-form').onsubmit = async e => {
+    e.preventDefault();
+    const status = modal.querySelector('#wi-status');
+    const submit = modal.querySelector('button[type=submit]');
+    submit.disabled = true; status.textContent = 'Sending…';
+    try {
+      const r = await api('/workout-invites', { method: 'POST', throwOnError: true, body: {
+        recipient_id: recipientId, thread_id: threadId,
+        workout_type: modal.querySelector('#wi-type').value,
+        scheduled_at: modal.querySelector('#wi-time').value || null,
+        duration_min: modal.querySelector('#wi-duration').value || null,
+        location: modal.querySelector('#wi-location').value,
+        note: modal.querySelector('#wi-note').value,
+      }});
+      status.textContent = 'Invite sent in your messages.';
+      setTimeout(() => { close(); if (r.thread_id) renderThread(r.thread_id); }, 450);
+    } catch (err) { status.textContent = err.message || 'Could not send the invite.'; submit.disabled = false; }
+  };
+  modal.querySelector('#wi-type').focus();
+}
+
 function stopDmPoll() { if (dmPoll) { clearInterval(dmPoll); dmPoll = null; } }
 
 function dmTime(iso) {
@@ -3933,6 +3986,29 @@ async function openDmWith(userId) {
   }
 }
 
+function renderWorkoutInviteMessage(m) {
+  const d = m.metadata || {};
+  const when = d.scheduled_at ? new Date(d.scheduled_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Time to be decided';
+  const details = [when, d.duration_min ? `${d.duration_min} min` : '', d.location].filter(Boolean).join(' · ');
+  return '<div class="dm-msg workout-invite-message' + (m.from_me ? ' mine' : '') + '" data-invite-card="' + escapeHtml(d.invite_id || '') + '">' +
+    '<div class="workout-invite-card"><div class="eyebrow">Workout invite</div><strong>' + escapeHtml(d.workout_type || 'Workout') + '</strong>' +
+    '<div class="workout-invite-meta">' + escapeHtml(details) + '</div>' + (d.note ? '<div class="workout-invite-note">' + escapeHtml(d.note) + '</div>' : '') +
+    (!m.from_me && d.invite_id ? '<div class="workout-invite-actions"><button class="primary" data-invite-accept="' + escapeHtml(d.invite_id) + '">Accept</button><button class="ghost" data-invite-decline="' + escapeHtml(d.invite_id) + '">Decline</button></div>' : '') +
+    '</div><div class="dm-meta">' + dmTime(m.created_at) + '</div></div>';
+}
+
+function wireWorkoutInviteCards(root) {
+  root.querySelectorAll('[data-invite-accept],[data-invite-decline]').forEach(btn => {
+    btn.onclick = async () => {
+      const accept = !!btn.dataset.inviteAccept;
+      try {
+        await api('/workout-invites/' + encodeURIComponent(btn.dataset.inviteAccept || btn.dataset.inviteDecline) + '/respond', { method: 'POST', throwOnError: true, body: { accept } });
+        btn.closest('.workout-invite-actions').innerHTML = '<span class="muted">' + (accept ? 'Accepted' : 'Declined') + '</span>';
+      } catch (e) { showToast(e.message || 'Could not respond to invite.', true); }
+    };
+  });
+}
+
 async function renderThread(threadId) {
   stopDmPoll();
   const main = document.getElementById('main');
@@ -3946,6 +4022,7 @@ async function renderThread(threadId) {
     +   '<button class="ghost back-btn" id="dm-back">←</button>'
     +   avatarHtml(data.user, 'avatar-sm')
     +   '<span class="dm-head-name">' + escapeHtml(data.user.display_name) + '</span>'
+    +   (!data.blocked ? '<button class="primary dm-invite" id="dm-invite">Invite</button>' : '')
     +   '<button class="ghost dm-block" id="dm-block">' + (data.blocked ? 'Unblock' : 'Block') + '</button>'
     + '</div>'
     + '<div class="dm-scroll" id="dm-scroll"></div>'
@@ -3962,13 +4039,19 @@ async function renderThread(threadId) {
   let lastId = null;
 
   const paint = (msgs) => {
-    scroll.innerHTML = msgs.map(m => '<div class="dm-msg' + (m.from_me ? ' mine' : '') + '">'
+    scroll.innerHTML = msgs.map(m => (m.kind === 'workout_invite' && m.metadata)
+      ? renderWorkoutInviteMessage(m)
+      : '<div class="dm-msg' + (m.from_me ? ' mine' : '') + '">'
       + '<div class="dm-bubble">' + escapeHtml(m.body) + '</div>'
       + '<div class="dm-meta">' + dmTime(m.created_at) + (m.from_me && m.read ? ' · read' : '') + '</div></div>').join('');
     if (msgs.length) lastId = msgs[msgs.length - 1].id;
     scroll.scrollTop = scroll.scrollHeight;
   };
   paint(data.messages);
+
+  const inviteButton = document.getElementById('dm-invite');
+  if (inviteButton) inviteButton.onclick = () => openWorkoutInvite(data.user.id, data.user.display_name, threadId);
+  wireWorkoutInviteCards(scroll);
 
   const blockBtn = document.getElementById('dm-block');
   blockBtn.onclick = async () => {
@@ -4003,7 +4086,7 @@ async function renderThread(threadId) {
     try {
       const fresh = await api('/dms/' + encodeURIComponent(threadId));
       const newest = fresh.messages.length ? fresh.messages[fresh.messages.length - 1].id : null;
-      if (newest !== lastId) paint(fresh.messages);
+      if (newest !== lastId) { paint(fresh.messages); wireWorkoutInviteCards(scroll); }
     } catch { /* keep the thread open; the next tick retries */ }
   }, 5000);
 }

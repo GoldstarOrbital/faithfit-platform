@@ -3417,6 +3417,72 @@ router.post('/dms/:threadId', requireAuth, (req, res) => {
   res.status(201).json({ message: r.message });
 });
 
+// Planned workout invitations travel as rich DM cards, so both people have the
+// schedule in context and the recipient can accept or decline without leaving
+// the conversation.
+router.post('/workout-invites', requireAuth, (req, res) => {
+  const senderId = req.session.userId;
+  const b = req.body || {};
+  const recipientId = String(b.recipient_id || '').trim();
+  if (!recipientId || recipientId === senderId) return res.status(400).json({ error: 'invalid_recipient' });
+  const recipient = db.prepare('SELECT id, display_name FROM users WHERE id = ?').get(recipientId);
+  if (!recipient) return res.status(404).json({ error: 'user_not_found' });
+  if (dms.isBlockedEitherWay(senderId, recipientId)) return res.status(403).json({ error: 'blocked' });
+
+  const type = String(b.workout_type || 'Run').trim().slice(0, 40) || 'Run';
+  const duration = b.duration_min === '' || b.duration_min == null ? null : Number(b.duration_min);
+  if (duration != null && (!Number.isInteger(duration) || duration < 5 || duration > 1440)) {
+    return res.status(400).json({ error: 'invalid_duration', hint: 'Duration must be between 5 minutes and 24 hours.' });
+  }
+  const scheduled = b.scheduled_at ? new Date(b.scheduled_at) : null;
+  if (scheduled && Number.isNaN(scheduled.getTime())) return res.status(400).json({ error: 'invalid_time' });
+  const invite = {
+    id: randomUUID(), sender_id: senderId, recipient_id: recipientId,
+    workout_type: type, scheduled_at: scheduled ? scheduled.toISOString() : null,
+    duration_min: duration, location: b.location ? String(b.location).trim().slice(0, 120) : null,
+    note: b.note ? String(b.note).trim().slice(0, 240) : null,
+  };
+  db.prepare(`INSERT INTO workout_invites
+    (id, sender_id, recipient_id, workout_type, scheduled_at, duration_min, location, note)
+    VALUES (?,?,?,?,?,?,?,?)`).run(invite.id, invite.sender_id, invite.recipient_id,
+      invite.workout_type, invite.scheduled_at, invite.duration_min, invite.location, invite.note);
+  const opened = dms.openThread(senderId, recipientId);
+  if (opened.error) return res.status(403).json(opened);
+  const summary = `${type} workout invite${scheduled ? ` for ${scheduled.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}` : ''}`;
+  const sent = dms.send(senderId, opened.thread.id, summary, {
+    kind: 'workout_invite', metadata: { invite_id: invite.id, ...invite },
+  });
+  if (sent.error) return res.status(403).json(sent);
+  notify(recipientId, 'workout_invite', `${displayName(senderId)} invited you to a ${type.toLowerCase()} workout.`, {
+    invite_id: invite.id, thread_id: opened.thread.id,
+  });
+  res.status(201).json({ invite, thread_id: opened.thread.id });
+});
+
+router.get('/workout-invites/pending', requireAuth, (req, res) => {
+  const rows = db.prepare(`SELECT wi.*, u.display_name sender_name
+    FROM workout_invites wi JOIN users u ON u.id = wi.sender_id
+    WHERE wi.recipient_id = ? AND wi.status = 'pending' ORDER BY wi.created_at DESC`).all(req.session.userId);
+  res.json(rows);
+});
+
+router.post('/workout-invites/:id/respond', requireAuth, (req, res) => {
+  const invite = db.prepare('SELECT * FROM workout_invites WHERE id = ? AND recipient_id = ?').get(req.params.id, req.session.userId);
+  if (!invite) return res.status(404).json({ error: 'invite_not_found' });
+  if (invite.status !== 'pending') return res.status(409).json({ error: 'already_responded' });
+  const accepted = !!(req.body || {}).accept;
+  const status = accepted ? 'accepted' : 'declined';
+  db.prepare("UPDATE workout_invites SET status = ?, responded_at = datetime('now') WHERE id = ? AND status = 'pending'").run(status, invite.id);
+  const opened = dms.openThread(req.session.userId, invite.sender_id);
+  if (!opened.error) {
+    dms.send(req.session.userId, opened.thread.id, `${accepted ? 'Accepted' : 'Declined'} your ${invite.workout_type.toLowerCase()} workout invite.`, {
+      kind: 'workout_invite_response', metadata: { invite_id: invite.id, status },
+    });
+  }
+  notify(invite.sender_id, 'workout_invite_response', `${displayName(req.session.userId)} ${accepted ? 'accepted' : 'declined'} your workout invite.`, { invite_id: invite.id, status });
+  res.json({ ok: true, status });
+});
+
 router.post('/dms/block/:userId', requireAuth, (req, res) => {
   res.json(dms.block(req.session.userId, req.params.userId));
 });

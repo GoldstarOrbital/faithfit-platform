@@ -476,6 +476,20 @@ CREATE TABLE IF NOT EXISTS workout_partners (
   created_at TEXT DEFAULT (datetime('now')),
   UNIQUE(workout_id, partner_user_id)
 );
+CREATE TABLE IF NOT EXISTS workout_invites (
+  id TEXT PRIMARY KEY,
+  sender_id TEXT NOT NULL,
+  recipient_id TEXT NOT NULL,
+  workout_type TEXT NOT NULL DEFAULT 'Run',
+  scheduled_at TEXT,
+  duration_min INTEGER,
+  location TEXT,
+  note TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  created_at TEXT DEFAULT (datetime('now')),
+  responded_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_workout_invites_recipient ON workout_invites(recipient_id, status, created_at);
 `);
 
 // --- video library (YouTube, additive, no-op unless YOUTUBE_API_KEY is set) ---

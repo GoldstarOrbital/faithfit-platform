@@ -1397,6 +1397,21 @@ header.topbar .xp-ring::before, nav.tabbar .xp-ring::before { background: var(--
 .dm-row-last { font-size:.82rem; opacity:.68; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .dm-unread { min-width:20px; height:20px; padding:0 6px; border-radius:999px; background:var(--meadow);
   color:#fdf8ea; font-size:.68rem; font-weight:700; display:grid; place-items:center; }
+.dm-invite { min-height:36px !important; padding:7px 11px !important; font-size:.76rem !important; }
+.workout-invite-modal { position:fixed; inset:0; z-index:120; display:grid; place-items:end center; padding:16px; background:rgba(31,23,15,.42); backdrop-filter:blur(8px); }
+.workout-invite-sheet { width:min(100%, 460px); max-height:92vh; overflow:auto; margin:0; animation:inviteSheetIn .22s ease both; }
+@keyframes inviteSheetIn { from { opacity:0; transform:translateY(18px); } to { opacity:1; transform:none; } }
+.modal-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:4px; }
+.modal-head h2 { margin:2px 0 10px; }
+.modal-close { min-width:40px; padding:5px 10px !important; font-size:1.25rem !important; }
+.workout-invite-message { max-width:88%; }
+.workout-invite-card { padding:12px 13px; border:1px solid rgba(123,168,79,.3); border-left:3px solid var(--meadow); border-radius:16px; background:linear-gradient(145deg, rgba(255,252,242,.98), rgba(239,242,218,.82)); color:var(--ink); }
+.workout-invite-card strong { display:block; font-size:1rem; margin-top:3px; }
+.workout-invite-meta { margin-top:4px; color:var(--muted); font-size:.76rem; }
+.workout-invite-note { margin-top:8px; font-family:var(--reading); font-size:.86rem; }
+.workout-invite-actions { display:flex; gap:7px; margin-top:10px; }
+.workout-invite-actions button { min-height:34px; padding:6px 10px; font-size:.76rem; }
+.profile-message, .profile-invite { margin-top:8px; }
 
 .dm-head { display:flex; align-items:center; gap:10px; padding:4px 0 10px; border-bottom:1px solid var(--line); }
 .dm-head-name { font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

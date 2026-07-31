@@ -51,6 +51,9 @@ function init() {
       PRIMARY KEY (blocker_id, blocked_id)
     );
   `);
+  // Additive migrations for installations created before rich DM cards.
+  try { db.exec("ALTER TABLE dm_messages ADD COLUMN kind TEXT NOT NULL DEFAULT 'text'"); } catch {}
+  try { db.exec("ALTER TABLE dm_messages ADD COLUMN metadata TEXT"); } catch {}
 }
 
 /** The canonical ordering that makes one pair mean one thread. */
@@ -136,7 +139,7 @@ function messages(me, threadId, limit = 200) {
   const t = threadFor(me, threadId);
   if (!t) return null;
   const rows = db.prepare(
-    'SELECT id, sender_id, body, created_at, read_at FROM dm_messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?'
+    'SELECT id, sender_id, body, kind, metadata, created_at, read_at FROM dm_messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?'
   ).all(threadId, Math.min(Number(limit) || 200, 500)).reverse();
 
   db.prepare("UPDATE dm_messages SET read_at = datetime('now') WHERE thread_id = ? AND sender_id != ? AND read_at IS NULL")
@@ -149,13 +152,13 @@ function messages(me, threadId, limit = 200) {
     user: { id: otherId, display_name: u.display_name || 'Someone', has_avatar: !!u.has_avatar },
     blocked: isBlockedEitherWay(me, otherId),
     messages: rows.map(m => ({
-      id: m.id, body: m.body, from_me: m.sender_id === me,
+      id: m.id, body: m.body, kind: m.kind || 'text', metadata: m.metadata ? (() => { try { return JSON.parse(m.metadata); } catch { return null; } })() : null, from_me: m.sender_id === me,
       created_at: m.created_at, read: !!m.read_at,
     })),
   };
 }
 
-function send(me, threadId, body) {
+function send(me, threadId, body, options = {}) {
   const t = threadFor(me, threadId);
   if (!t) return { error: 'not_found' };
   const otherId = otherOf(t, me);
@@ -165,9 +168,11 @@ function send(me, threadId, body) {
   if (!text) return { error: 'empty_message' };
 
   const id = randomUUID();
-  db.prepare('INSERT INTO dm_messages (id, thread_id, sender_id, body) VALUES (?,?,?,?)').run(id, threadId, me, text);
+  db.prepare('INSERT INTO dm_messages (id, thread_id, sender_id, body, kind, metadata) VALUES (?,?,?,?,?,?)')
+    .run(id, threadId, me, text, options.kind || 'text', options.metadata ? JSON.stringify(options.metadata) : null);
   db.prepare("UPDATE dm_threads SET last_message_at = datetime('now') WHERE id = ?").run(threadId);
-  const row = db.prepare('SELECT id, body, created_at FROM dm_messages WHERE id = ?').get(id);
+  const row = db.prepare('SELECT id, body, kind, metadata, created_at FROM dm_messages WHERE id = ?').get(id);
+  if (row.metadata) { try { row.metadata = JSON.parse(row.metadata); } catch { row.metadata = null; } }
   return { message: { ...row, from_me: true, read: false }, recipient_id: otherId };
 }
 
