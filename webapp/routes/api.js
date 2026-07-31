@@ -14,6 +14,9 @@ const { ensureChallenges, applyWorkoutToChallenges } = require('../lib/challenge
 const { ensureJourneys, applyWorkoutToJourneys, advanceJourney, lookupScriptureText } = require('../lib/journeys');
 const moments = require('../lib/moments');
 const contexts = require('../lib/contexts');
+const apikeys = require('../lib/apikeys');
+const push = require('../lib/push');
+const daily = require('../lib/daily');
 const segments = require('../lib/segments');
 const overlay = require('../lib/overlay');
 const usernames = require('../lib/usernames');
@@ -2384,6 +2387,39 @@ function resolveVerseReference(raw) {
   return { row };
 }
 
+/**
+ * The same, but able to reach the whole canon.
+ *
+ * The local library holds 22 books. Every other book — most of the Bible — used
+ * to be unopenable: no verse thread, no bio verse, no conversation, because the
+ * app could not prove the verse existed. With the YouVersion canon index loaded
+ * it can, and with the Platform it can fetch the real text too.
+ *
+ * Still never invents. A reference outside the canon is rejected as before, and
+ * one the Platform cannot serve is reported as unavailable rather than filled in.
+ */
+async function resolveVerseReferenceFull(raw) {
+  const local = resolveVerseReference(raw);
+  if (local.row || local.error === 'invalid_verse_format') return local;
+
+  const ref = String(raw || '').trim();
+  const m = ref.match(/^(.+?)\s+(\d+):(\d+)$/);
+  const inCanon = youversion.canonHas(ref);
+  if (inCanon === false) {
+    return { error: 'not_in_canon', hint: 'That chapter or verse does not exist in the Bible.' };
+  }
+
+  const hit = await companion.resolveRef(ref, null);
+  if (!hit) return local;                       // unchanged message when we simply cannot fetch it
+  return {
+    row: {
+      text: hit.text,
+      book: m[1].trim(), chapter: Number(m[2]), verse: Number(m[3]),
+      translation: hit.source === 'youversion' ? 'YouVersion' : 'WEB',
+    },
+  };
+}
+
 function reflectionRows(threadId, meId) {
   const rows = db.prepare(`
     SELECT r.id, r.parent_id, r.content, r.created_at, r.user_id,
@@ -2420,8 +2456,8 @@ function reflectionRows(threadId, meId) {
 }
 
 // Open (or return the existing) conversation for a real verse.
-router.post('/verses/:reference/thread', requireAuth, (req, res) => {
-  const { row, error, hint } = resolveVerseReference(req.params.reference);
+router.post('/verses/:reference/thread', requireAuth, async (req, res) => {
+  const { row, error, hint } = await resolveVerseReferenceFull(req.params.reference);
   if (error) return res.status(400).json({ error, hint });
 
   const canonical = `${row.book} ${row.chapter}:${row.verse}`;
@@ -2441,8 +2477,8 @@ router.post('/verses/:reference/thread', requireAuth, (req, res) => {
 });
 
 // Read a verse conversation. Open to everyone; per-user fields only when signed in.
-router.get('/verses/:reference/thread', (req, res) => {
-  const { row, error, hint } = resolveVerseReference(req.params.reference);
+router.get('/verses/:reference/thread', async (req, res) => {
+  const { row, error, hint } = await resolveVerseReferenceFull(req.params.reference);
   if (error) return res.status(400).json({ error, hint });
   const canonical = `${row.book} ${row.chapter}:${row.verse}`;
   const thread = db.prepare('SELECT * FROM verse_threads WHERE reference = ?').get(canonical);
@@ -2563,6 +2599,93 @@ router.post('/breathing/:key/verse', requireAuth, async (req, res) => {
   res.json({ pattern: pattern.key, context, verse });
 });
 
+// --- Developer API keys ----------------------------------------------------
+// The other half of the webhook story: webhooks push events out, keys let
+// software ask questions. Both belong to a member, not to the platform.
+router.get('/dev/keys', requireAuth, (req, res) => {
+  res.json({ keys: apikeys.list(req.session.userId), scopes: apikeys.SCOPES });
+});
+
+router.post('/dev/keys', requireAuth, (req, res) => {
+  const b = req.body || {};
+  // `key` appears in this response and nowhere else, ever again.
+  const created = apikeys.create(req.session.userId, { name: b.name, scopes: b.scopes });
+  res.status(201).json({
+    ...created,
+    warning: 'Copy this key now — it is stored only as a hash and cannot be shown again.',
+  });
+});
+
+router.post('/dev/keys/:id/rotate', requireAuth, (req, res) => {
+  const fresh = apikeys.rotate(req.session.userId, req.params.id);
+  if (!fresh) return res.status(404).json({ error: 'not_found' });
+  res.json({ ...fresh, warning: 'The previous key is now revoked. Copy this one — it cannot be shown again.' });
+});
+
+router.delete('/dev/keys/:id', requireAuth, (req, res) => {
+  if (!apikeys.revoke(req.session.userId, req.params.id)) return res.status(404).json({ error: 'not_found' });
+  res.json({ ok: true });
+});
+
+// --- Push notifications -----------------------------------------------------
+// Everything here is opt-in and per-category. The public key is served so the
+// browser can subscribe; there is nothing secret about it.
+router.get('/push/config', (req, res) => {
+  res.json({
+    enabled: push.isConfigured(),
+    public_key: push.publicKey(),
+    categories: push.CATEGORIES,
+    defaults: push.DEFAULT_CATEGORIES,
+    subscriptions: req.session.userId ? push.get(req.session.userId) : [],
+  });
+});
+
+router.post('/push/subscribe', requireAuth, (req, res) => {
+  if (!push.isConfigured()) return res.status(503).json({ error: 'push_not_configured' });
+  const b = req.body || {};
+  const subs = push.subscribe(req.session.userId, b.subscription, b.categories, req.get('user-agent'));
+  if (!subs) return res.status(400).json({ error: 'invalid_subscription' });
+  res.json({ subscriptions: subs });
+});
+
+router.post('/push/categories', requireAuth, (req, res) => {
+  const b = req.body || {};
+  if (!push.setCategories(req.session.userId, b.endpoint, b.categories)) {
+    return res.status(404).json({ error: 'not_subscribed' });
+  }
+  res.json({ subscriptions: push.get(req.session.userId) });
+});
+
+router.post('/push/unsubscribe', requireAuth, (req, res) => {
+  push.unsubscribe(req.session.userId, (req.body || {}).endpoint);
+  res.json({ subscriptions: push.get(req.session.userId) });
+});
+
+// Send one to yourself, so permission and delivery can be proven immediately
+// rather than by waiting until tomorrow morning.
+router.post('/push/test', requireAuth, async (req, res) => {
+  if (!push.isConfigured()) return res.status(503).json({ error: 'push_not_configured' });
+  const r = await push.send(req.session.userId, 'daily_verse', {
+    title: 'Functioning Faith',
+    body: 'Notifications are working. Your morning verse will arrive here.',
+    url: '/', tag: 'test',
+  });
+  res.json(r);
+});
+
+router.get('/push/history', requireAuth, (req, res) => {
+  res.json({ sent: push.history(req.session.userId, req.query.limit) });
+});
+
+// Send yourself today's morning verse now — the real thing, same code path.
+router.post('/push/daily-now', requireAuth, async (req, res) => {
+  if (!push.isConfigured()) return res.status(503).json({ error: 'push_not_configured' });
+  const r = await daily.sendFor(req.session.userId);
+  if (!r) return res.status(409).json({ error: 'nothing_to_send',
+    hint: 'Subscribe to the daily verse category first, or you have had every verse in the pool recently.' });
+  res.json(r);
+});
+
 // What the AI integration is, and what it has actually been doing. Public and
 // unauthenticated on purpose: the claim this app makes is that a model never
 // puts words in scripture's mouth, and a claim like that should be checkable
@@ -2603,7 +2726,7 @@ router.get('/ai/status', (req, res) => {
 router.post('/verses/:reference/ask', requireAuth, async (req, res) => {
   if (!gloo.isConfigured()) return res.status(503).json({ error: 'companion_unavailable' });
 
-  const { row, error, hint } = resolveVerseReference(req.params.reference);
+  const { row, error, hint } = await resolveVerseReferenceFull(req.params.reference);
   if (error) return res.status(400).json({ error, hint });
   const canonical = `${row.book} ${row.chapter}:${row.verse}`;
 

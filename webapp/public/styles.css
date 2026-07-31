@@ -1617,3 +1617,10 @@ header.topbar .brand { gap: 0; }
 .heart-check { margin-top: 16px; }
 .hc-read { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .hc-num { font-variant-numeric: tabular-nums; font-size: 1.3rem; font-weight: 600; }
+
+/* A newly issued API key: shown once, selectable, impossible to miss. */
+.ak-reveal { margin-bottom: 10px; padding: 10px 12px; border-radius: 10px;
+  background: var(--parch-2, #fdf8ea); border: 1px solid var(--line, rgba(0,0,0,.12));
+  border-left: 3px solid var(--gold-2, #d9ab55); }
+.ak-reveal input { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .8rem; }

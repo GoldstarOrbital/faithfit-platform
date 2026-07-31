@@ -1215,7 +1215,22 @@ async function renderProfile(main) {
         <input id="wh-url" type="url" placeholder="https://your-service.example/functioning-faith" />
         <button class="primary" id="wh-add">Add endpoint</button>
       </div>
-      <div class="muted wh-note" id="wh-note">Endpoints must be HTTPS and publicly reachable. Every request is signed — verify <code>X-Functioning Faith-Signature</code> as HMAC-SHA256 over <code>timestamp + "." + rawBody</code>.</div>
+      <div class="muted wh-note" id="wh-note">Endpoints must be HTTPS and publicly reachable. Every request is signed — verify <code>X-Functioning-Faith-Signature</code> as HMAC-SHA256 over <code>timestamp + "." + rawBody</code>.</div>
+    </div>
+    <div class="card glass" id="dev-keys">
+      <h2>API keys</h2>
+      <div class="muted" style="margin-bottom:10px">Ask Functioning Faith for scripture from your own software — a game, a wearable, your church's app. <a href="/developers" target="_blank" rel="noopener">Read the docs &#8599;</a></div>
+      <div id="ak-list" class="muted">Loading&hellip;</div>
+      <div class="wh-new">
+        <input id="ak-name" type="text" maxlength="80" placeholder="What is this key for?" />
+        <button class="primary" id="ak-add">Create key</button>
+      </div>
+      <div class="muted wh-note">A key is shown once and stored only as a hash. Lose it and you rotate it, you don't recover it.</div>
+    </div>
+    <div class="card glass" id="push-card">
+      <h2>Notifications</h2>
+      <div class="muted" style="margin-bottom:10px">Reach you when the app is closed — a verse each morning, and replies to your reflections.</div>
+      <div id="push-body" class="muted">Loading&hellip;</div>
     </div>
     <button class="ghost" id="signout" style="width:100%">Sign out</button>
   `;
@@ -1223,6 +1238,8 @@ async function renderProfile(main) {
   // avatarHtml, so its ring needs filling explicitly.
   hydrateXpRings(main);
   renderWebhooks();
+  renderApiKeys();
+  renderPush();
   renderOverlayCard();
   document.getElementById('p-defvis').onchange = async (e) => {
     await api('/profile', { method: 'PUT', body: { default_visibility: e.target.value } });
@@ -3129,6 +3146,172 @@ function wireChurchVideoThumbs(root) {
   });
 }
 
+
+// --- API keys panel --------------------------------------------------------
+// The key is rendered once, at creation, and never fetched again — the server
+// only keeps a hash. It is put in a selectable field rather than an alert so it
+// can actually be copied on a phone.
+async function renderApiKeys() {
+  const box = document.getElementById('ak-list');
+  if (!box) return;
+
+  let keys = [];
+  try { keys = (await api('/dev/keys')).keys || []; }
+  catch { box.innerHTML = '<div class="muted">Could not load your keys.</div>'; return; }
+
+  const live = keys.filter(k => !k.revoked);
+  box.innerHTML = live.length ? live.map(k => `
+    <div class="wh-row">
+      <div>
+        <b>${escapeHtml(k.name || 'Untitled key')}</b>
+        <div class="muted" style="font-size:.76rem">
+          <code>${escapeHtml(k.key_prefix)}…</code> ·
+          ${k.last_used_at ? 'last used ' + timeAgo(k.last_used_at) + ' ago' : 'never used'}
+        </div>
+      </div>
+      <div>
+        <button class="action-btn" data-akrotate="${k.id}">Rotate</button>
+        <button class="action-btn" data-akdel="${k.id}">Revoke</button>
+      </div>
+    </div>`).join('')
+    : '<div class="muted">No keys yet.</div>';
+
+  const reveal = (res) => {
+    const el = document.createElement('div');
+    el.className = 'ak-reveal';
+    el.innerHTML =
+        '<div class="muted" style="font-size:.76rem;margin-bottom:4px">'
+      + escapeHtml(res.warning || 'Copy this now — it cannot be shown again.') + '</div>'
+      + '<input readonly value="' + escapeHtml(res.key) + '" />';
+    box.prepend(el);
+    const input = el.querySelector('input');
+    input.focus(); input.select();
+  };
+
+  box.querySelectorAll('[data-akrotate]').forEach(b => b.onclick = async () => {
+    const res = await api('/dev/keys/' + b.dataset.akrotate + '/rotate', { method: 'POST' });
+    await renderApiKeys();
+    if (res && res.key) reveal(res);
+  });
+  box.querySelectorAll('[data-akdel]').forEach(b => b.onclick = async () => {
+    await api('/dev/keys/' + b.dataset.akdel, { method: 'DELETE' }).catch(() => {});
+    renderApiKeys();
+  });
+
+  const add = document.getElementById('ak-add');
+  if (add) add.onclick = async () => {
+    const nameEl = document.getElementById('ak-name');
+    const res = await api('/dev/keys', { method: 'POST', body: { name: nameEl.value.trim() || undefined } });
+    nameEl.value = '';
+    await renderApiKeys();
+    if (res && res.key) reveal(res);
+  };
+}
+
+// --- Notifications panel ---------------------------------------------------
+// Web Push: the browser's own permission prompt, the browser's own delivery.
+// Every category is opt-in separately and nothing is subscribed by default.
+async function renderPush() {
+  const box = document.getElementById('push-body');
+  if (!box) return;
+
+  let cfg;
+  try { cfg = await api('/push/config'); }
+  catch { box.innerHTML = '<div class="muted">Could not load notification settings.</div>'; return; }
+
+  if (!cfg.enabled) {
+    box.innerHTML = '<div class="muted">Push notifications are not configured on this deployment. ' +
+                    'The in-app bell still works.</div>';
+    return;
+  }
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+    box.innerHTML = '<div class="muted">This browser cannot receive push notifications. ' +
+                    'On iPhone, add Functioning Faith to your Home Screen first.</div>';
+    return;
+  }
+
+  const mine = cfg.subscriptions || [];
+  const subscribedHere = async () => {
+    const reg = await navigator.serviceWorker.getRegistration();
+    const sub = reg && await reg.pushManager.getSubscription();
+    return sub && mine.some(m => m.endpoint === sub.endpoint) ? sub : null;
+  };
+  const here = await subscribedHere();
+  const cats = here ? (mine.find(m => m.endpoint === here.endpoint) || {}).categories || [] : cfg.defaults;
+
+  box.innerHTML = here
+    ? Object.entries(cfg.categories).map(([key, label]) => `
+        <label class="toggle-row" style="cursor:pointer">
+          <span>${escapeHtml(label)}</span>
+          <input type="checkbox" data-pcat="${key}" ${cats.includes(key) ? 'checked' : ''} />
+        </label>`).join('')
+      + '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
+      + '<button class="ghost" id="push-test">Send a test</button>'
+      + '<button class="ghost" id="push-daily">Send today\'s verse</button>'
+      + '<button class="ghost" id="push-off">Turn off on this device</button></div>'
+      + '<div class="muted" id="push-status" style="font-size:.78rem;margin-top:8px"></div>'
+    : '<button class="primary" id="push-on">Enable notifications</button>'
+      + '<div class="muted" id="push-status" style="font-size:.78rem;margin-top:8px"></div>';
+
+  const status = (m) => { const s = document.getElementById('push-status'); if (s) s.textContent = m; };
+
+  const on = document.getElementById('push-on');
+  if (on) on.onclick = async () => {
+    status('Asking your browser…');
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { status('Permission denied. Your browser blocks it until you change that.'); return; }
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(cfg.public_key),
+      });
+      await api('/push/subscribe', { method: 'POST',
+        body: { subscription: sub.toJSON(), categories: cfg.defaults } });
+      renderPush();
+    } catch (e) { status('Could not enable: ' + (e && e.message ? e.message : 'unknown error')); }
+  };
+
+  box.querySelectorAll('[data-pcat]').forEach(cb => cb.onchange = async () => {
+    const chosen = [...box.querySelectorAll('[data-pcat]')].filter(x => x.checked).map(x => x.dataset.pcat);
+    await api('/push/categories', { method: 'POST', body: { endpoint: here.endpoint, categories: chosen } })
+      .catch(() => {});
+    status('Saved.');
+  });
+
+  const test = document.getElementById('push-test');
+  if (test) test.onclick = async () => {
+    status('Sending…');
+    const r = await api('/push/test', { method: 'POST' }).catch(() => null);
+    status(r && r.sent ? 'Sent — it should appear now.' : 'Nothing was sent. Check the category is on.');
+  };
+
+  const dailyBtn = document.getElementById('push-daily');
+  if (dailyBtn) dailyBtn.onclick = async () => {
+    status('Choosing a verse…');
+    const r = await api('/push/daily-now', { method: 'POST' }).catch(() => null);
+    status(r && r.reference ? 'Sent ' + r.reference + '.'
+                            : (r && r.hint) || 'Nothing to send right now.');
+  };
+
+  const off = document.getElementById('push-off');
+  if (off) off.onclick = async () => {
+    const reg = await navigator.serviceWorker.getRegistration();
+    const sub = reg && await reg.pushManager.getSubscription();
+    if (sub) { await api('/push/unsubscribe', { method: 'POST', body: { endpoint: sub.endpoint } }).catch(() => {});
+               await sub.unsubscribe().catch(() => {}); }
+    renderPush();
+  };
+}
+
+// The VAPID public key travels as base64url; PushManager wants raw bytes.
+function urlBase64ToUint8Array(base64) {
+  const padded = (base64 + '='.repeat((4 - base64.length % 4) % 4))
+    .replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(padded);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
 
 // --- Developer webhooks panel ---------------------------------------------
 // Registration, delivery health and a test event, so a developer can wire up

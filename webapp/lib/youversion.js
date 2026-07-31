@@ -54,6 +54,23 @@ function init() {
       PRIMARY KEY (version_id, usfm)
     );
 
+    -- The canon itself: every book, and how many chapters and verses each has.
+    -- Fetched once from /bibles/{id}/books, which returns the whole structure.
+    --
+    -- This is what lets the app know that Obadiah has one chapter and 21 verses
+    -- without having ingested Obadiah. Before this, "is that a real reference?"
+    -- could only be answered for the 22 books held locally, so a verse thread
+    -- could not be opened on most of the Bible.
+    CREATE TABLE IF NOT EXISTS yv_canon (
+      book TEXT NOT NULL,
+      chapter INTEGER NOT NULL,
+      verses INTEGER NOT NULL,
+      title TEXT,
+      canon TEXT,
+      position INTEGER,
+      PRIMARY KEY (book, chapter)
+    );
+
     CREATE TABLE IF NOT EXISTS yv_versions (
       id INTEGER PRIMARY KEY,
       abbreviation TEXT,
@@ -64,11 +81,11 @@ function init() {
   `);
 }
 
-async function call(path) {
+async function call(path, timeoutMs) {
   const key = apiKey();
   if (!key) return null;
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ac.abort(), timeoutMs || TIMEOUT_MS);
   try {
     const res = await fetch(BASE + path, {
       headers: { 'x-yvp-app-key': key, accept: 'application/json' },
@@ -152,6 +169,85 @@ function versions() {
   return db.prepare('SELECT id, abbreviation, title, deep_link FROM yv_versions ORDER BY abbreviation').all();
 }
 
+// --- The canon --------------------------------------------------------------
+/**
+ * Fetch and store the whole canonical structure: 66 books (80 rows including
+ * deuterocanon in some translations), their chapters, and the verse count of
+ * each chapter.
+ *
+ * Runs once and is then permanent — the shape of the canon does not change.
+ */
+async function refreshCanon(versionId) {
+  const vid = Number(versionId) || DEFAULT_VERSION;
+  // This one response carries every verse address in the Bible — around 5
+  // seconds to fetch and parse, which quietly exceeded the ordinary 6s budget
+  // often enough that the canon simply never loaded. It runs once, so it gets
+  // room rather than a retry loop.
+  const json = await call('/bibles/' + vid + '/books', 45000);
+  const list = json && Array.isArray(json.data) ? json.data : (Array.isArray(json) ? json : null);
+  if (!list) return 0;
+
+  const up = db.prepare(`INSERT INTO yv_canon (book, chapter, verses, title, canon, position)
+                         VALUES (?,?,?,?,?,?)
+                         ON CONFLICT(book, chapter) DO UPDATE SET verses=excluded.verses,
+                           title=excluded.title, canon=excluded.canon, position=excluded.position`);
+  let rows = 0;
+  db.exec('BEGIN');
+  try {
+    list.forEach((b, i) => {
+      for (const ch of (b.chapters || [])) {
+        // Some entries carry non-numeric "chapters" (intros); those are not
+        // addressable as chapter:verse and are skipped rather than stored as 0.
+        const n = Number(ch.id);
+        if (!Number.isFinite(n) || n < 1) continue;
+        up.run(b.id, n, (ch.verses || []).length, b.title || null, b.canon || null, i);
+        rows++;
+      }
+    });
+    db.exec('COMMIT');
+  } catch (e) { db.exec('ROLLBACK'); throw e; }
+  return rows;
+}
+
+function canonLoaded() {
+  try { return db.prepare('SELECT COUNT(*) c FROM yv_canon').get().c > 0; } catch { return false; }
+}
+
+/** Every book, with its chapter count — the index a developer navigates by. */
+function books() {
+  return db.prepare(`SELECT book, MAX(title) AS title, MAX(canon) AS canon,
+                            COUNT(*) AS chapters, MIN(position) AS position
+                       FROM yv_canon GROUP BY book ORDER BY position`).all();
+}
+
+function chapters(book) {
+  return db.prepare('SELECT chapter, verses FROM yv_canon WHERE book = ? ORDER BY chapter')
+    .all(String(book || '').toUpperCase());
+}
+
+/**
+ * Does this reference exist in the canon?
+ *
+ * Distinct from "can we show its text" — this answers whether the address is
+ * real, which is what lets the app accept a reference for a book it has never
+ * ingested instead of rejecting it as unknown.
+ *
+ * Returns null when the canon has not been loaded, so callers can tell "no"
+ * apart from "cannot say".
+ */
+function canonHas(reference) {
+  if (!canonLoaded()) return null;
+  const usfm = toUsfm(reference);
+  if (!usfm) return false;
+  const m = /^([A-Z0-9]{3})\.(\d+)(?:\.(\d+))?/.exec(usfm);
+  if (!m) return false;
+  const row = db.prepare('SELECT verses FROM yv_canon WHERE book = ? AND chapter = ?')
+    .get(m[1], Number(m[2]));
+  if (!row) return false;
+  if (m[3] === undefined) return true;                 // a whole chapter
+  return Number(m[3]) >= 1 && Number(m[3]) <= row.verses;
+}
+
 // --- Passages ---------------------------------------------------------------
 /**
  * Real text for a reference, from cache or the API. Returns null when the key
@@ -197,8 +293,13 @@ function start() {
     return;
   }
   refreshVersions()
-    .then((n) => {
+    .then(async (n) => {
       console.log('[youversion] %d English translations available', n);
+      if (!canonLoaded()) {
+        const rows = await refreshCanon(DEFAULT_VERSION).catch(() => 0);
+        if (rows) console.log('[youversion] canon index loaded: %d chapters across %d books',
+                              rows, books().length);
+      }
       // Deliberately after boot, and never awaited: the app serves fine while
       // this fills in behind it.
       let lookupLocal = null;
@@ -248,4 +349,5 @@ async function backfillAuthoredRefs(lookupLocal) {
 module.exports = {
   start, init, isConfigured, versions, refreshVersions, backfillAuthoredRefs,
   passage, deepLink, toUsfm, DEFAULT_VERSION,
+  refreshCanon, canonLoaded, canonHas, books, chapters,
 };

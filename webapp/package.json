@@ -3,11 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "main": "server.js",
-  "engines": { "node": ">=22.5.0" },
-  "scripts": { "start": "node server.js" },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
   "dependencies": {
-    "express": "^4.19.2",
     "cookie-session": "^2.1.0",
-    "uuid": "^9.0.1"
+    "express": "^4.19.2",
+    "uuid": "^9.0.1",
+    "web-push": "^3.6.7"
   }
 }

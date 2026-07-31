@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Functioning Faith — Developer API</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='27' fill='none' stroke='%232d2013' stroke-width='5.5' stroke-dasharray='76 94' transform='rotate(96 32 32)'/%3E%3Ccircle cx='32' cy='32' r='27' fill='none' stroke='%23d9ab55' stroke-width='5.5' stroke-dasharray='76 94' transform='rotate(-84 32 32)'/%3E%3Cpath d='M39.5 19V52M30 30.5H49' stroke='%23d9ab55' stroke-width='5.5' fill='none'/%3E%3Cpath d='M37 15.5h-3.5a7.5 7.5 0 0 0-7.5 7.5V47M19 30.5H33' stroke='%232d2013' stroke-width='5.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" />
+<style>
+  :root { --ink:#2d2013; --parch:#f3ecd8; --parch2:#fdf8ea; --gold:#d9ab55;
+          --line:rgba(45,32,19,.14); --muted:#6f6046; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--parch); color:var(--ink);
+         font:16px/1.6 ui-serif, Georgia, "Times New Roman", serif; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 28px 20px 80px; }
+  header { display:flex; align-items:center; gap:12px; margin-bottom: 6px; }
+  header svg { width:44px; height:44px; }
+  h1 { font-size:1.7rem; margin:0; }
+  h2 { font-size:1.15rem; margin:34px 0 8px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+  h3 { font-size:.95rem; margin:22px 0 6px; font-family: ui-sans-serif, system-ui, sans-serif; }
+  p, li { color:#3a2c1c; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background:var(--parch2); padding:1px 5px; border-radius:4px; font-size:.88em; }
+  pre { background:var(--parch2); border:1px solid var(--line); border-left:3px solid var(--gold);
+        padding:12px 14px; border-radius:8px; overflow-x:auto; font-size:.82rem; line-height:1.5; }
+  pre code { background:none; padding:0; }
+  .ep { display:flex; gap:10px; align-items:baseline; padding:7px 0; border-bottom:1px dotted var(--line); flex-wrap:wrap; }
+  .m { font-family: ui-monospace, monospace; font-size:.72rem; font-weight:700; letter-spacing:.06em;
+       padding:2px 7px; border-radius:4px; background:var(--ink); color:var(--parch2); }
+  .m.post { background:#5c6b3f; }
+  .ep code { flex:0 0 auto; }
+  .ep span { color:var(--muted); font-size:.85rem; }
+  .promise { background:var(--parch2); border:1px solid var(--line); border-left:3px solid var(--gold);
+             padding:14px 16px; border-radius:8px; margin:16px 0; }
+  .promise ul { margin:8px 0 0; padding-left:20px; }
+  table { width:100%; border-collapse:collapse; font-size:.9rem; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { font-family: ui-sans-serif, system-ui, sans-serif; font-size:.76rem; text-transform:uppercase;
+       letter-spacing:.06em; color:var(--muted); }
+  a { color:#7a5a1e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#f0e6d0; --parch:#221a11; --parch2:#2c2317; --line:rgba(240,230,208,.16); --muted:#a1917a; }
+    p, li { color:#e6dcc6; }
+    .m { background:var(--parch2); color:var(--ink); }
+    a { color:var(--gold); }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <svg viewBox="0 0 64 64" role="img" aria-label="Functioning Faith">
+    <g fill="none" stroke-linecap="butt">
+      <circle cx="32" cy="32" r="27" stroke="currentColor" stroke-width="5.5" stroke-dasharray="76 94" transform="rotate(96 32 32)"/>
+      <circle cx="32" cy="32" r="27" stroke="#d9ab55" stroke-width="5.5" stroke-dasharray="76 94" transform="rotate(-84 32 32)"/>
+    </g>
+    <g fill="none" stroke="#d9ab55" stroke-width="5.5"><path d="M39.5 19 V 52"/><path d="M30 30.5 H 49"/></g>
+    <g fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M37 15.5 h-3.5 a7.5 7.5 0 0 0 -7.5 7.5 V 47"/><path d="M19 30.5 H 33"/>
+    </g>
+  </svg>
+  <h1>Functioning Faith API</h1>
+</header>
+<p class="muted">Verified scripture, chosen for the moment someone is actually in.
+Base URL <code>/v1</code> · <a href="/v1">machine-readable index</a></p>
+
+<div class="promise">
+  <b>What this API guarantees</b>
+  <ul>
+    <li><code>text</code> is always real scripture — from the YouVersion Platform or a
+        word-for-word verified public-domain library. <code>source</code> tells you which.</li>
+    <li>A reference that cannot be resolved returns <b>404</b>. Nothing is ever invented
+        to fill the gap.</li>
+    <li>The only model-written field is <code>note</code>, and it is always labelled.
+        Verse text never comes from a language model.</li>
+    <li>Physiological claims require real measurement. A heart-rate moment needs
+        <code>hr_measured: true</code>; a resting comparison needs a real
+        <code>resting_hr</code>, never an estimate.</li>
+  </ul>
+</div>
+
+<h2>Getting a key</h2>
+<p>Sign in to Functioning Faith, open <b>Profile → Developer</b>, and create a key. It is shown
+once and stored only as a hash — if you lose it, rotate it. Send it as a bearer token:</p>
+<pre><code>curl https://faithfit-demo-production.up.railway.app/v1/scripture/Hebrews%2012:1 \
+  -H "Authorization: Bearer ff_live_…"</code></pre>
+
+<h3>Scopes</h3>
+<table>
+  <tr><th>Scope</th><th>Grants</th></tr>
+  <tr><td><code>scripture:read</code></td><td>Verse text, translations, the canon index.</td></tr>
+  <tr><td><code>moment:read</code></td><td>Telemetry → a fitting verse.</td></tr>
+  <tr><td><code>breathwork:read</code></td><td>Guided breathing patterns and their scripture.</td></tr>
+</table>
+
+<h3>Rate limits</h3>
+<p class="muted">1,000 requests/hour per key; 120/hour for <code>/moment</code> and <code>/rest</code>,
+which reach values-aligned inference. Every response carries
+<code>X-RateLimit-Remaining</code> and <code>X-RateLimit-Reset</code>.</p>
+
+<h2>Endpoints</h2>
+<div class="ep"><span class="m">GET</span><code>/v1/versions</code><span>Available Bible translations.</span></div>
+<div class="ep"><span class="m">GET</span><code>/v1/books</code><span>The canon index — every book and its chapter count.</span></div>
+<div class="ep"><span class="m">GET</span><code>/v1/books/:book/chapters</code><span>Chapters in a book, with verse counts.</span></div>
+<div class="ep"><span class="m">GET</span><code>/v1/scripture/:reference</code><span>Verified text. <code>?version=</code> to choose a translation.</span></div>
+<div class="ep"><span class="m">GET</span><code>/v1/moments</code><span>The moment types the engine recognises.</span></div>
+<div class="ep"><span class="m post">POST</span><code>/v1/moment</code><span>Workout telemetry in, a fitting verse out.</span></div>
+<div class="ep"><span class="m post">POST</span><code>/v1/rest</code><span>A heart rate taken at rest, in; a fitting verse out.</span></div>
+<div class="ep"><span class="m">GET</span><code>/v1/breathwork</code><span>Guided breathing patterns with their scripture.</span></div>
+
+<h2>Looking up a verse</h2>
+<pre><code>GET /v1/scripture/Isaiah%2040:31?version=206
+
+{
+  "reference": "Isaiah 40:31",
+  "text": "But those who wait for Yahweh will renew their strength…",
+  "source": "local",
+  "version_id": 206,
+  "deep_link": "https://www.bible.com/bible/206/ISA.40.31"
+}</code></pre>
+<p class="muted">Ranges (<code>Isaiah 40:30-31</code>) and whole chapters (<code>Exodus 19</code>)
+work too. <code>deep_link</code> opens the passage in YouVersion, so your users can keep reading
+where they already read.</p>
+
+<h2>Scripture for a moment</h2>
+<p>This is the part worth integrating. Send what your app actually measured; get back the
+moment it classifies to and a verse chosen for it.</p>
+<pre><code>POST /v1/moment
+{
+  "elapsed_sec": 2400,
+  "distance_km": 8.2,
+  "total_km": 15,
+  "hr": 171,
+  "hr_measured": true,
+  "max_hr": 190,
+  "trigger": "climb_ahead",
+  "grade_ahead": 6.2,
+  "tradition": "evangelical",
+  "seen_refs": []
+}
+
+{
+  "moment": "climbing",
+  "label": "Climbing",
+  "measured": true,
+  "zone": 4,
+  "reason": "A climb ahead, around 6.2%.",
+  "verse": {
+    "reference": "Psalm 121:1",
+    "text": "I will lift up my eyes to the hills…",
+    "note": "You're climbing strong right now — let this hill remind you where your help comes from.",
+    "source": "local",
+    "chosen_by": "values-aligned-ai"
+  }
+}</code></pre>
+
+<h3>Honesty rules travel with the API</h3>
+<ul>
+  <li>Heart-rate-derived moments require <code>hr_measured: true</code>. Without it the engine
+      classifies from time, distance and gradient, and <code>measured</code> comes back
+      <code>false</code> — it will not infer a training zone from pace and present it as measured.</li>
+  <li><code>chosen_by</code> is <code>values-aligned-ai</code> or <code>authored</code>, so you always
+      know which produced the choice.</li>
+  <li><code>tradition</code> is optional (<code>evangelical</code>, <code>catholic</code>,
+      <code>mainline</code>, <code>not_faith_specific</code>). Omit it and nothing is assumed.</li>
+</ul>
+
+<h2>A heart rate taken at rest</h2>
+<p>For wearables and desk apps: a rate that has climbed with no movement to explain it.
+<code>resting_hr</code> is required and never estimated — <i>elevated</i> is a comparison, and a
+comparison against an invented number means nothing.</p>
+<pre><code>POST /v1/rest
+{ "hr": 110, "hr_measured": true, "recent_hr": [109,110,111,110],
+  "resting_hr": 58, "max_hr": 190, "moving": false }
+
+{
+  "context": "high_at_rest",
+  "hr": 110, "resting_hr": 58, "above_resting": 52,
+  "reason": "52 bpm above your resting rate of 58, with no movement to account for it.",
+  "verse": { "reference": "Philippians 4:6", "text": "…", "chosen_by": "values-aligned-ai" },
+  "suggested_pattern": { "key": "physiological-sigh", "name": "The double breath" }
+}</code></pre>
+<p class="muted"><b>What it will not do:</b> it never tells anyone what they are feeling. A heart
+rate is a measurement; stress and anxiety are interpretations of one. The response gives you
+numbers, scripture, and a breathing pattern — the meaning belongs to your user. If you build a UI
+on top of this, please keep it that way.</p>
+
+<h3>When it declines</h3>
+<pre><code>{ "context": null, "status": "no_baseline", "missing": "resting_hr",
+  "hint": "\"Elevated\" is a comparison, and comparing to an estimate would not mean anything." }</code></pre>
+<p class="muted">Also <code>no_monitor</code>, <code>moving</code> (movement explains the reading),
+and <code>unsettled</code> (one spike is not a state). These are successful responses with
+<code>context: null</code>, not errors.</p>
+
+<h2>Errors</h2>
+<table>
+  <tr><th>Status</th><th>Meaning</th></tr>
+  <tr><td><code>401</code></td><td>Missing or unrecognised key.</td></tr>
+  <tr><td><code>403</code></td><td>Key lacks the required scope.</td></tr>
+  <tr><td><code>404</code></td><td><code>not_in_canon</code> (the address isn't real) or
+      <code>unresolved</code> (real, but no verified text available).</td></tr>
+  <tr><td><code>429</code></td><td>Hourly budget spent. See <code>X-RateLimit-Reset</code>.</td></tr>
+</table>
+
+<h2>Events, the other direction</h2>
+<p>Webhooks push activity to you as it happens — signed, with delivery history. Set them up in
+<b>Profile → Developer</b>. <code>GET /api/webhooks/events</code> lists the topics.</p>
+
+<p class="muted" style="margin-top:40px">
+  Built on the <a href="https://docs.gloo.com/">Gloo AI Platform</a> and the
+  <a href="https://developers.youversion.com/">YouVersion Platform</a>.
+  <a href="/api/ai/status">See what the AI integration has actually been doing →</a>
+</p>
+
+</div>
+</body>
+</html>

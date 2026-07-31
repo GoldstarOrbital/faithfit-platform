@@ -13,6 +13,10 @@ const usernames = require('./lib/usernames');
 const dms = require('./lib/dms');
 const youversion = require('./lib/youversion');
 const gloo = require('./lib/gloo');
+const apikeys = require('./lib/apikeys');
+const push = require('./lib/push');
+const daily = require('./lib/daily');
+const publicApi = require('./routes/public-api');
 
 seed();
 // Create the webhook tables and attach the dispatcher to the domain event bus.
@@ -27,6 +31,12 @@ youversion.start();
 // Gloo AI: values-aligned inference, shaped by each member's tradition. It
 // chooses scripture and writes around it; YouVersion above supplies the text.
 gloo.start();
+// The public developer API: other software can ask this app for scripture that
+// fits a moment, with the same guarantees the app gives its own members.
+apikeys.init();
+// Off-app reach. Both are inert without VAPID keys — no timer, nothing sent.
+push.start();
+daily.start();
 // Ingest real podcast episodes from public RSS feeds (background, non-blocking).
 startPodcastRefresh();
 // Church devotionals from YouTube — true no-op (not even a timer) unless
@@ -48,6 +58,9 @@ app.use(cookieSession({
 }));
 
 app.use('/api', apiRoutes);
+// Versioned and separate from /api, because this one is a public contract:
+// /api may change with the app, /v1 may not.
+app.use('/v1', publicApi);
 
 // Public, unauthenticated share page for a public workout (like a Strava activity
 // link). Serves a standalone page that fetches /api/public/post/:id client-side.
