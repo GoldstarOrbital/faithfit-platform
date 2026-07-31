@@ -21,11 +21,27 @@
 <div id="share-wrap">
   <header class="topbar">
     <div class="brand">
-      <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M12 2l7 3v6c0 5-3.5 8-7 11-3.5-3-7-6-7-11V5l7-3z"/><path d="M12 7v7M9 10h6"/>
-        </svg>
-      </span>
+      <span class="brand-mark"><svg viewBox="0 0 64 64" role="img" aria-label="Functioning Faith">
+          <!-- The ring, as two arcs with a gap top and bottom. Dash lengths are
+               fractions of the circumference (2*pi*27 = 169.6). -->
+          <g fill="none" stroke-linecap="butt">
+            <circle cx="32" cy="32" r="27" stroke="var(--logo-ink)" stroke-width="5.5"
+                    stroke-dasharray="76 94" transform="rotate(96 32 32)"/>
+            <circle cx="32" cy="32" r="27" stroke="var(--logo-gold)" stroke-width="5.5"
+                    stroke-dasharray="76 94" transform="rotate(-84 32 32)"/>
+          </g>
+          <!-- The cross sits behind the f, so the f's stem reads in front. -->
+          <g fill="none" stroke="var(--logo-gold)" stroke-width="5.5" stroke-linecap="butt">
+            <path d="M39.5 19 V 52"/>
+            <path d="M30 30.5 H 49"/>
+          </g>
+          <!-- The f: hooked stem plus the shared crossbar. -->
+          <g fill="none" stroke="var(--logo-ink)" stroke-width="5.5"
+             stroke-linecap="round" stroke-linejoin="round">
+            <path d="M37 15.5 h-3.5 a7.5 7.5 0 0 0 -7.5 7.5 V 47"/>
+            <path d="M19 30.5 H 33"/>
+          </g>
+        </svg></span>
       <span class="brand-word">Functioning Faith</span>
     </div>
   </header>

@@ -1529,3 +1529,39 @@ button.primary:disabled { opacity:.55; cursor:not-allowed; filter:saturate(.6); 
   white-space:nowrap; }
 .yv-open:hover { text-decoration:underline; }
 .yv-note { font-size:.72rem; margin-top:5px; min-height:1em; }
+
+
+/* ---------------------------------------------------------------------------
+   The mark.
+   Two-tone by design: one half of the ring and the f in the darker tone, the
+   other half of the ring and the cross in hearth gold. The tones are variables
+   so the same markup works on the dark top bar and on parchment.
+   --------------------------------------------------------------------------- */
+:root {
+  --logo-ink: var(--ink);          /* on light surfaces */
+  --logo-gold: var(--gold-2);
+}
+/* On the dark bar the navy of the original would vanish, so its role is taken
+   by the cream the bar already uses for type. */
+header.topbar { --logo-ink: var(--parch-2); --logo-gold: var(--hearth-soft); }
+
+header.topbar .brand-mark { display: inline-flex; }
+header.topbar .brand-mark svg {
+  width: 34px; height: 34px;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,.45));
+}
+/* The mark is the brand now; nothing needs to sit beside it. */
+header.topbar .brand { gap: 0; }
+
+/* Available to assistive technology, invisible on screen. */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  clip: rect(0 0 0 0); clip-path: inset(50%);
+  overflow: hidden; white-space: nowrap;
+}
+
+@media (max-width: 420px) {
+  header.topbar .brand-mark svg { width: 30px; height: 30px; }
+}
