@@ -17,7 +17,14 @@ async function api(path, opts = {}) {
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   if (res.status === 401) { renderSignIn(); throw new Error('not_signed_in'); }
-  return res.json();
+  const payload = await res.json();
+  if (!res.ok && opts.throwOnError) {
+    const message = payload.hint || payload.error || `Request failed (${res.status})`;
+    const error = new Error(message);
+    error.status = res.status;
+    throw error;
+  }
+  return payload;
 }
 
 async function loadMe() {
@@ -1092,7 +1099,7 @@ async function renderProfile(main) {
   }
 
   main.innerHTML = `
-    <div class="card glass">
+    <div class="card glass profile-panel" data-profile-group="overview">
       <div class="profile-header">
         <span class="xp-ring xp-ring-lg" data-xp-user="${me.user.id}"><div class="avatar" id="p-avatar" style="${me.user.avatar_data ? `background-image:url(${me.user.avatar_data});background-size:cover;background-position:center` : ''}">${me.user.avatar_data ? '' : initials(me.user.display_name)}</div></span>
         <div>
@@ -1115,11 +1122,11 @@ async function renderProfile(main) {
         ${me.badges.length ? me.badges.map(b => `<span class="badge-pill">${b.icon} ${b.name}</span>`).join('') : '<span class="muted">No badges yet — complete a workout!</span>'}
       </div>
     </div>
-    <div class="card glass">
+    <div class="card glass profile-panel" data-profile-group="overview">
       <h2>Workout invites</h2>
       <div id="partner-invites" class="muted">Loading…</div>
     </div>
-    <div class="card glass">
+    <div class="card glass profile-panel" data-profile-group="settings">
       <h2>Profile Details</h2>
       <div class="muted" style="margin-bottom:10px">Your bio can only be a Bible verse — pick one from our verified library. Other fields are optional.</div>
       <div id="verse-preview" class="verse-preview">${me.user.bio_verse_ref ? `📖 <strong>${me.user.bio_verse_ref}</strong> — "${me.user.bio_verse_text}"` : 'No verse selected yet.'}</div>
@@ -1156,7 +1163,7 @@ async function renderProfile(main) {
       <button class="primary" id="p-save" style="width:100%;margin-top:10px">Save Profile</button>
       <div id="p-status" class="muted" style="margin-top:6px"></div>
     </div>
-    <div class="card glass">
+    <div class="card glass profile-panel" data-profile-group="settings">
       <h2>Find your church</h2>
       <div class="muted" style="margin-bottom:10px">Search real churches near you using OpenStreetMap — pick the one you attend.</div>
       <div id="church-current">${me.user.church_name ? `📍 <strong>${escapeHtml(me.user.church_name)}</strong>${me.user.church_address ? ` — ${escapeHtml(me.user.church_address)}` : ''} <button class="ghost" id="church-clear" style="margin-left:8px">Clear</button>` : '<span class="muted">No church selected yet.</span>'}</div>
@@ -1166,23 +1173,23 @@ async function renderProfile(main) {
       <div id="youtube-link-section" style="margin-top:14px"></div>
       <div id="church-website-section" style="margin-top:14px"></div>
     </div>
-    <div class="card glass">
+    <div class="card glass profile-panel" data-profile-group="settings">
       <h2>This week's sermon transcript</h2>
       <div class="muted" style="margin-bottom:10px">The real caption transcript from your church's most recent full-service video, read aloud with your browser's built-in text-to-speech.</div>
       <div id="sermon-summary-section"></div>
     </div>
-    <div class="card glass">
+    <div class="card glass profile-panel" data-profile-group="integrations">
       <h2>Connected accounts</h2>
       ${providers.length ? providerRows : '<div class="muted">No sign-in providers are configured on this server.</div>'}
       ${stravaConfigured ? `<div class="muted" style="margin:10px 0 4px;font-weight:600">Strava</div>${stravaRow}` : ''}
     </div>
-    <div class="card glass">
+    <div class="card glass profile-panel" data-profile-group="integrations">
       <h2>Connected Devices</h2>
       <div class="muted" id="ble-status">${state.bleConnected ? `Connected: ${state.bleDevice?.name || 'Heart rate monitor'}` : 'No Bluetooth heart rate monitor connected.'}</div>
       <button class="ghost" style="width:100%;margin-top:10px" id="ble-connect">${state.bleConnected ? 'Disconnect' : 'Pair Bluetooth Heart Rate Monitor'}</button>
       <div class="muted" style="margin-top:6px">Requires Chrome/Edge on a device with Bluetooth. Standard BLE Heart Rate Service (0x180D) — works with most chest straps.</div>
     </div>
-    <div class="card glass">
+    <div class="card glass profile-panel" data-profile-group="settings">
       <h2>Privacy</h2>
       <div class="toggle-row">
         <span>Share biometrics for workout tracking</span>
@@ -1197,17 +1204,17 @@ async function renderProfile(main) {
         ${[['public','🌍 Public'],['followers','👥 Followers'],['private','🔒 Only me']].map(([v,l]) => `<option value="${v}" ${((me.user.default_visibility||'public')===v)?'selected':''}>${l}</option>`).join('')}
       </select>
     </div>
-    <div class="card glass">
+    <div class="card glass profile-panel" data-profile-group="settings">
       <h2>Your data</h2>
       <div class="muted" style="margin-bottom:10px">Full transparency — download everything Functioning Faith stores about your account as a JSON file.</div>
       <a class="ghost" id="data-export" href="/api/me/export" download="functioning-faith-my-data.json" style="display:block;text-align:center;text-decoration:none">⬇ Download my data</a>
     </div>
-    <div class="card glass" id="creator-overlay">
+    <div class="card glass profile-panel" data-profile-group="integrations" id="creator-overlay">
       <h2>Creator overlay</h2>
       <div class="muted" style="margin-bottom:10px">Add this as a browser source in OBS or Streamlabs. While you ride a journey, your route, pace, heart-rate zone and the scripture you are given appear over your stream.</div>
       <div id="ov-body" class="muted">Loading…</div>
     </div>
-    <div class="card glass" id="dev-webhooks">
+    <div class="card glass profile-panel" data-profile-group="integrations" id="dev-webhooks">
       <h2>Developer webhooks</h2>
       <div class="muted" style="margin-bottom:10px">Get your account's events pushed to your own HTTPS endpoint the moment they happen.</div>
       <div id="wh-list" class="muted">Loading…</div>
@@ -1217,7 +1224,7 @@ async function renderProfile(main) {
       </div>
       <div class="muted wh-note" id="wh-note">Endpoints must be HTTPS and publicly reachable. Every request is signed — verify <code>X-Functioning-Faith-Signature</code> as HMAC-SHA256 over <code>timestamp + "." + rawBody</code>.</div>
     </div>
-    <div class="card glass" id="dev-keys">
+    <div class="card glass profile-panel" data-profile-group="integrations" id="dev-keys">
       <h2>API keys</h2>
       <div class="muted" style="margin-bottom:10px">Ask Functioning Faith for scripture from your own software — a game, a wearable, your church's app. <a href="/developers" target="_blank" rel="noopener">Read the docs &#8599;</a></div>
       <div id="ak-list" class="muted">Loading&hellip;</div>
@@ -1225,15 +1232,41 @@ async function renderProfile(main) {
         <input id="ak-name" type="text" maxlength="80" placeholder="What is this key for?" />
         <button class="primary" id="ak-add">Create key</button>
       </div>
+      <div class="muted wh-note" id="ak-status" aria-live="polite"></div>
       <div class="muted wh-note">A key is shown once and stored only as a hash. Lose it and you rotate it, you don't recover it.</div>
     </div>
-    <div class="card glass" id="push-card">
+    <div class="card glass profile-panel" data-profile-group="integrations" id="push-card">
       <h2>Notifications</h2>
       <div class="muted" style="margin-bottom:10px">Reach you when the app is closed — a verse each morning, and replies to your reflections.</div>
       <div id="push-body" class="muted">Loading&hellip;</div>
     </div>
     <button class="ghost" id="signout" style="width:100%">Sign out</button>
   `;
+  const profileNav = document.createElement('div');
+  profileNav.className = 'profile-nav card glass';
+  profileNav.innerHTML = `
+    <div class="profile-nav-heading"><div><span class="eyebrow">Your space</span><h2>Profile</h2></div><span class="muted">Manage your faith, fitness, and connections.</span></div>
+    <div class="profile-nav-tabs" role="tablist" aria-label="Profile sections">
+      <button class="profile-nav-tab active" data-profile-view="overview" role="tab">Overview</button>
+      <button class="profile-nav-tab" data-profile-view="settings" role="tab">Settings</button>
+      <button class="profile-nav-tab" data-profile-view="integrations" role="tab">Integrations</button>
+    </div>`;
+  main.prepend(profileNav);
+  const showProfileView = (view) => {
+    main.querySelectorAll('.profile-panel').forEach(panel => {
+      panel.hidden = panel.dataset.profileGroup !== view;
+    });
+    main.querySelectorAll('[data-profile-view]').forEach(tab => {
+      const active = tab.dataset.profileView === view;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', active ? 'true' : 'false');
+    });
+    profileNav.dataset.activeView = view;
+  };
+  profileNav.querySelectorAll('[data-profile-view]').forEach(tab => {
+    tab.onclick = () => showProfileView(tab.dataset.profileView);
+  });
+  showProfileView('overview');
   // The profile screen builds its avatar inline rather than through
   // avatarHtml, so its ring needs filling explicitly.
   hydrateXpRings(main);
@@ -3157,7 +3190,7 @@ async function renderApiKeys() {
 
   let keys = [];
   try { keys = (await api('/dev/keys')).keys || []; }
-  catch { box.innerHTML = '<div class="muted">Could not load your keys.</div>'; return; }
+  catch (e) { box.innerHTML = '<div class="muted">Could not load your keys. ' + escapeHtml(e.message || 'Try again.') + '</div>'; return; }
 
   const live = keys.filter(k => !k.revoked);
   box.innerHTML = live.length ? live.map(k => `
@@ -3182,16 +3215,24 @@ async function renderApiKeys() {
     el.innerHTML =
         '<div class="muted" style="font-size:.76rem;margin-bottom:4px">'
       + escapeHtml(res.warning || 'Copy this now — it cannot be shown again.') + '</div>'
-      + '<input readonly value="' + escapeHtml(res.key) + '" />';
+      + '<div class="ak-reveal-actions"><input readonly value="' + escapeHtml(res.key) + '" />'
+      + '<button class="ghost" type="button" id="ak-copy">Copy</button></div>';
     box.prepend(el);
     const input = el.querySelector('input');
     input.focus(); input.select();
+    const copy = el.querySelector('#ak-copy');
+    if (copy) copy.onclick = async () => {
+      try { await navigator.clipboard.writeText(res.key); copy.textContent = 'Copied'; }
+      catch { input.focus(); input.select(); copy.textContent = 'Select and copy'; }
+    };
   };
 
   box.querySelectorAll('[data-akrotate]').forEach(b => b.onclick = async () => {
-    const res = await api('/dev/keys/' + b.dataset.akrotate + '/rotate', { method: 'POST' });
-    await renderApiKeys();
-    if (res && res.key) reveal(res);
+    try {
+      const res = await api('/dev/keys/' + b.dataset.akrotate + '/rotate', { method: 'POST', throwOnError: true });
+      await renderApiKeys();
+      if (res && res.key) reveal(res);
+    } catch (e) { const s = document.getElementById('ak-status'); if (s) s.textContent = e.message || 'Could not rotate key.'; }
   });
   box.querySelectorAll('[data-akdel]').forEach(b => b.onclick = async () => {
     await api('/dev/keys/' + b.dataset.akdel, { method: 'DELETE' }).catch(() => {});
@@ -3201,10 +3242,17 @@ async function renderApiKeys() {
   const add = document.getElementById('ak-add');
   if (add) add.onclick = async () => {
     const nameEl = document.getElementById('ak-name');
-    const res = await api('/dev/keys', { method: 'POST', body: { name: nameEl.value.trim() || undefined } });
-    nameEl.value = '';
-    await renderApiKeys();
-    if (res && res.key) reveal(res);
+    const status = document.getElementById('ak-status');
+    add.disabled = true;
+    if (status) status.textContent = 'Creating secure key…';
+    try {
+      const res = await api('/dev/keys', { method: 'POST', body: { name: nameEl.value.trim() || undefined }, throwOnError: true });
+      nameEl.value = '';
+      await renderApiKeys();
+      if (res && res.key) reveal(res);
+      if (status) status.textContent = 'Key created. Copy it now — it cannot be recovered later.';
+    } catch (e) { if (status) status.textContent = e.message || 'Could not create key. Please try again.'; }
+    finally { add.disabled = false; }
   };
 }
 

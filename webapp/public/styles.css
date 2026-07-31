@@ -1624,3 +1624,23 @@ header.topbar .brand { gap: 0; }
   border-left: 3px solid var(--gold-2, #d9ab55); }
 .ak-reveal input { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: .8rem; }
+.ak-reveal-actions { display:flex; gap:8px; align-items:center; }
+.ak-reveal-actions input { flex:1; min-width:0; }
+.ak-reveal-actions button { flex:0 0 auto; }
+
+/* Profile is a small hub now: the overview stays light, while settings and
+   integrations collect the deeper account controls behind one predictable tab row. */
+.profile-nav { padding:14px 16px 10px; position:sticky; top:8px; z-index:4; }
+.profile-nav-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.profile-nav-heading h2 { margin:2px 0 0; font-size:1.15rem; }
+.profile-nav-heading > .muted { text-align:right; font-size:.75rem; }
+.eyebrow { color:var(--gold-2, #a77b29); font-size:.65rem; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+.profile-nav-tabs { display:flex; gap:6px; margin-top:12px; overflow:auto; }
+.profile-nav-tab { flex:1; min-width:104px; border:0; border-radius:999px; padding:9px 12px; background:rgba(0,0,0,.045); color:var(--muted); font:inherit; font-size:.8rem; font-weight:750; cursor:pointer; }
+.profile-nav-tab.active { background:var(--ink, #2d2013); color:var(--parch-2, #fdf8ea); box-shadow:0 5px 14px rgba(43,30,18,.14); }
+.profile-panel[hidden] { display:none !important; }
+@media (max-width:480px) {
+  .profile-nav-heading { display:block; }
+  .profile-nav-heading > .muted { text-align:left; margin-top:4px; }
+  .profile-nav { top:4px; }
+}

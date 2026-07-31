@@ -81,7 +81,7 @@ Base URL <code>/v1</code> · <a href="/v1">machine-readable index</a></p>
 </div>
 
 <h2>Getting a key</h2>
-<p>Sign in to Functioning Faith, open <b>Profile → Developer</b>, and create a key. It is shown
+<p>Sign in to Functioning Faith, open <b>Profile → Integrations</b>, and use the <b>API keys</b> panel. Give the key a name and select <b>Create key</b>. It is shown
 once and stored only as a hash — if you lose it, rotate it. Send it as a bearer token:</p>
 <pre><code>curl https://faithfit-demo-production.up.railway.app/v1/scripture/Hebrews%2012:1 \
   -H "Authorization: Bearer ff_live_…"</code></pre>
@@ -205,7 +205,7 @@ and <code>unsettled</code> (one spike is not a state). These are successful resp
 
 <h2>Events, the other direction</h2>
 <p>Webhooks push activity to you as it happens — signed, with delivery history. Set them up in
-<b>Profile → Developer</b>. <code>GET /api/webhooks/events</code> lists the topics.</p>
+<b>Profile → Integrations</b>. <code>GET /api/webhooks/events</code> lists the topics.</p>
 
 <p class="muted" style="margin-top:40px">
   Built on the <a href="https://docs.gloo.com/">Gloo AI Platform</a> and the
