@@ -126,8 +126,25 @@ const PARTNER_XP_BONUS = Math.max(10, Math.round(xpForEvent('workout.completed')
 // Never notifies a user about their own action (self-kudos, own comment, etc.).
 function notify(userId, type, message, extra) {
   if (!userId) return;
+  const details = extra || {};
+  const destination = details.url || notificationDestination(type, details);
+  const payload = { message, ...details, url: destination };
   db.prepare('INSERT INTO notifications (id, user_id, type, payload) VALUES (?, ?, ?, ?)')
-    .run(randomUUID(), userId, type, JSON.stringify({ message, ...(extra || {}) }));
+    .run(randomUUID(), userId, type, JSON.stringify(payload));
+  // Push respects the member's explicit social/reminder category choice. It is
+  // fire-and-forget so a browser push outage never delays the app action.
+  const category = ['challenge_complete', 'streak', 'effort', 'journey', 'badge', 'quest'].includes(type) ? 'reminders' : 'social';
+  push.send(userId, category, { title: 'Functioning Faith', body: message, url: destination, tag: `${type}:${details.post_id || details.thread_id || details.event_id || details.invite_id || 'notification'}` }).catch(() => {});
+}
+function notificationDestination(type, details) {
+  const q = new URLSearchParams();
+  if (details.post_id) { q.set('open', 'post'); q.set('post_id', details.post_id); }
+  else if (details.thread_id) { q.set('open', 'dm'); q.set('thread_id', details.thread_id); }
+  else if (details.group_id || details.event_id) { q.set('open', 'group'); if (details.group_id) q.set('group_id', details.group_id); if (details.event_id) q.set('event_id', details.event_id); }
+  else if (details.workout_id) { q.set('open', 'workout'); q.set('workout_id', details.workout_id); }
+  else if (details.reference) { q.set('open', 'verse'); q.set('ref', details.reference); }
+  else if (type === 'journey') { q.set('open', 'journeys'); }
+  return '/?' + q.toString();
 }
 function displayName(userId) {
   return db.prepare('SELECT display_name FROM users WHERE id = ?').get(userId)?.display_name || 'Someone';
@@ -1427,7 +1444,7 @@ router.post('/events/:id/rsvp', requireAuth, (req, res) => {
     // Let the organiser know someone's coming (only on a real change, not a re-click).
     if (event.creator_id !== req.session.userId && (!had || had.status !== status)) {
       const verb = status === 'going' ? 'is going to' : 'is interested in';
-      notify(event.creator_id, 'event_rsvp', `${displayName(req.session.userId)} ${verb} "${event.title}"`, { event_id: event.id });
+      notify(event.creator_id, 'event_rsvp', `${displayName(req.session.userId)} ${verb} "${event.title}"`, { event_id: event.id, group_id: event.group_id });
     }
   } else {
     db.prepare('DELETE FROM event_rsvps WHERE event_id = ? AND user_id = ?').run(event.id, req.session.userId);
@@ -1710,7 +1727,10 @@ router.get('/me/export', requireAuth, (req, res) => {
 // ---- notifications ----
 router.get('/notifications', requireAuth, (req, res) => {
   const uid = req.session.userId;
-  const notifications = db.prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY delivered_at DESC LIMIT 20').all(uid);
+  const notifications = db.prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY delivered_at DESC LIMIT 20').all(uid).map(n => {
+    try { const p = JSON.parse(n.payload || '{}'); return { ...n, url: p.url || notificationDestination(n.type, p) }; }
+    catch { return { ...n, url: notificationDestination(n.type, {}) }; }
+  });
   const unread_count = db.prepare('SELECT COUNT(*) c FROM notifications WHERE user_id = ? AND read = 0').get(uid).c;
   res.json({ notifications, unread_count });
 });

@@ -2285,6 +2285,26 @@ const NOTIF_ICONS = {
 };
 function notifIcon(type) { return NOTIF_ICONS[type] || '✦'; }
 
+function notificationUrl(n) {
+  if (n && n.url) return n.url;
+  try { const p = JSON.parse((n && n.payload) || '{}'); return p.url || '/'; } catch { return '/'; }
+}
+function openNotificationDestination(url) {
+  let u;
+  try { u = new URL(url || '/', location.origin); } catch { return; }
+  if (u.origin !== location.origin) { location.href = u.href; return; }
+  const p = u.searchParams, kind = p.get('open');
+  history.replaceState({}, '', u.pathname + (u.hash || ''));
+  if (kind === 'group' && p.get('group_id')) return renderGroupDetail(p.get('group_id'));
+  if (kind === 'dm') { state.tab = 'profile'; return render(); }
+  if (kind === 'workout') { state.tab = 'stats'; return render(); }
+  if (kind === 'journeys') { state.tab = 'explore'; state.exploreTab = 'journeys'; return render(); }
+  state.tab = 'home';
+  render().then(() => {
+    if (kind === 'post' && p.get('post_id')) setTimeout(() => document.querySelector(`[data-post="${CSS.escape(p.get('post_id'))}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 250);
+  });
+}
+
 // Render the panel body. Split out from the toggle so "mark all read" can
 // refresh in place instead of the old close-then-reopen double-toggle hack.
 async function renderNotifPanel() {
@@ -2322,10 +2342,13 @@ async function renderNotifPanel() {
   };
   panel.querySelectorAll('[data-notif]').forEach(item => {
     item.onclick = async () => {
-      if (!item.classList.contains('unread')) return;
-      await api(`/notifications/${item.dataset.notif}/read`, { method: 'POST' });
-      item.classList.remove('unread');
+      if (item.classList.contains('unread')) {
+        await api(`/notifications/${item.dataset.notif}/read`, { method: 'POST' });
+        item.classList.remove('unread');
+      }
       refreshNotifBadge();
+      const n = notifications.find(x => x.id === item.dataset.notif);
+      if (n) { panel.style.display = 'none'; openNotificationDestination(notificationUrl(n)); }
     };
   });
 }
@@ -2364,6 +2387,10 @@ else wireNotifBell();
   await loadMe();
   if (state.me) {
     consumeSignedInRedirectParams();
+    if (new URLSearchParams(location.search).get('open')) {
+      openNotificationDestination(location.href);
+      return;
+    }
     const token = new URLSearchParams(location.search).get('group_invite');
     if (token) {
       try {
