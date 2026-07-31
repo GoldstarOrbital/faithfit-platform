@@ -251,6 +251,19 @@ button.ghost:hover { background: var(--parch-1); border-color: var(--gold); }
 .profile-stats .l { font-size:0.7rem; color:var(--muted); }
 .badge-row { display:flex; gap: 8px; flex-wrap: wrap; }
 .badge-pill { background: var(--parch-2); border: 1px solid var(--gold); color: var(--ink-soft); border-radius: 20px; padding: 6px 12px; font-size: 0.8rem; }
+.accomplishments-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:16px; padding-top:14px; border-top:1px solid var(--line); }
+.accomplishments-head h3 { margin:0 0 2px; font-size:.94rem; }
+.badge-shelf { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
+.accomplishment { display:flex; align-items:flex-start; gap:9px; min-width:0; padding:10px; border-radius:15px; border:1px solid rgba(51,37,26,.10); background:rgba(255,252,242,.62); }
+.accomplishment.locked { opacity:.62; filter:saturate(.55); }
+.accomplishment-icon { flex:0 0 32px; width:32px; height:32px; display:grid; place-items:center; border-radius:11px; background:rgba(217,171,85,.18); font-size:1.1rem; }
+.accomplishment-copy { min-width:0; display:flex; flex-direction:column; gap:2px; }
+.accomplishment-copy strong { font-size:.76rem; line-height:1.2; }
+.accomplishment-copy span { color:var(--muted); font-size:.65rem; line-height:1.25; }
+.accomplishment-copy small { color:var(--muted); font-size:.6rem; }
+.earned-label { color:var(--forest) !important; font-weight:800; }
+.badge-progress { height:5px; margin-top:4px; overflow:hidden; border-radius:999px; background:rgba(51,37,26,.10); }
+.badge-progress i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--meadow),var(--hearth)); }
 .toggle-row { display:flex; justify-content:space-between; align-items:center; padding: 12px 0; border-bottom: 1px solid var(--hairline-soft); }
 .switch { position:relative; width:44px; height:26px; flex-shrink:0; }
 .switch input { opacity:0; width:0; height:0; }

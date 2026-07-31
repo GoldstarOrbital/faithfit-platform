@@ -1123,6 +1123,8 @@ async function renderProfile(main) {
       <div class="badge-row">
         ${me.badges.length ? me.badges.map(b => `<span class="badge-pill">${b.icon} ${b.name}</span>`).join('') : '<span class="muted">No badges yet — complete a workout!</span>'}
       </div>
+      <div class="accomplishments-head"><div><h3>Accomplishments</h3><div class="muted">Every milestone, earned or still ahead.</div></div><span id="badge-count" class="premium-badge">Loading</span></div>
+      <div id="badge-shelf" class="badge-shelf"><span class="muted">Loading accomplishments…</span></div>
     </div>
     <div class="card glass profile-panel" data-profile-group="overview">
       <h2>Workout invites</h2>
@@ -1272,6 +1274,7 @@ async function renderProfile(main) {
   // The profile screen builds its avatar inline rather than through
   // avatarHtml, so its ring needs filling explicitly.
   hydrateXpRings(main);
+  renderAccomplishments();
   renderWebhooks();
   renderApiKeys();
   renderPush();
@@ -1415,6 +1418,24 @@ function wireAvatarUpload() {
     await loadMe();
     renderProfile(document.getElementById('main'));
   };
+}
+
+async function renderAccomplishments() {
+  const shelf = document.getElementById('badge-shelf');
+  const count = document.getElementById('badge-count');
+  if (!shelf) return;
+  try {
+    const badges = await api('/badges');
+    const earned = badges.filter(b => b.earned).length;
+    if (count) count.textContent = `${earned}/${badges.length || 0} earned`;
+    shelf.innerHTML = badges.length ? badges.map(b => `
+      <div class="accomplishment ${b.earned ? 'earned' : 'locked'}">
+        <div class="accomplishment-icon">${b.icon || '✦'}</div>
+        <div class="accomplishment-copy"><strong>${escapeHtml(b.name)}</strong><span>${escapeHtml(b.description || '')}</span>
+        ${!b.earned && b.target ? `<div class="badge-progress"><i style="width:${b.percent}%"></i></div><small>${b.progress}/${b.target}</small>` : ''}
+        ${b.earned ? '<small class="earned-label">Earned</small>' : ''}</div>
+      </div>`).join('') : '<span class="muted">Your next accomplishment is waiting.</span>';
+  } catch { shelf.innerHTML = '<span class="muted">Could not load accomplishments.</span>'; }
 }
 
 // ---- Workout invites: planned DM invites plus post-workout confirmations ----

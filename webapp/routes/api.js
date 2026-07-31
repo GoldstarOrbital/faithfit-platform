@@ -467,6 +467,25 @@ router.get('/me', (req, res) => {
   res.json({ user, xp, badges, consents, stats });
 });
 
+// The full accomplishment shelf: earned badges stay visible, while locked
+// badges show the next honest milestone instead of disappearing.
+router.get('/badges', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const workouts = db.prepare("SELECT COUNT(*) c FROM workouts WHERE user_id = ? AND end_time IS NOT NULL").get(uid).c;
+  const verses = db.prepare('SELECT COUNT(*) c FROM scripture_triggers WHERE user_id = ?').get(uid).c;
+  const earned = db.prepare('SELECT badge_id, earned_at FROM user_badges WHERE user_id = ?').all(uid);
+  const earnedMap = new Map(earned.map(b => [b.badge_id, b.earned_at]));
+  const rows = db.prepare('SELECT * FROM badges ORDER BY name').all();
+  const targetFor = { 'b-first-workout': 1, 'b-verse-seeker': 5, 'b-five-workouts': 5 };
+  const progressFor = { 'b-first-workout': workouts, 'b-verse-seeker': verses, 'b-five-workouts': workouts };
+  return res.json(rows.map(b => {
+    const target = targetFor[b.id] || null;
+    const progress = progressFor[b.id] ?? null;
+    return { ...b, earned: earnedMap.has(b.id), earned_at: earnedMap.get(b.id) || null,
+      progress, target, percent: target ? Math.min(100, Math.round((progress / target) * 100)) : null };
+  }));
+});
+
 function requireAuth(req, res, next) {
   if (!req.session.userId) return res.status(401).json({ error: 'not_signed_in' });
   const exists = db.prepare('SELECT 1 FROM users WHERE id = ?').get(req.session.userId);
