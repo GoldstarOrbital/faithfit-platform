@@ -847,6 +847,7 @@ async function renderVideosTab(body) {
   const CATS = [
     { key: 'kids', label: 'Kids' },
     { key: 'fitness', label: 'Fitness' },
+    { key: 'food', label: 'Food + fitness' },
     { key: 'motivational', label: 'Motivation' },
     { key: 'christian', label: 'Christian voices' },
     { key: 'veggietales', label: 'VeggieTales' },

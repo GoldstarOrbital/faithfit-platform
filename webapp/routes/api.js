@@ -2151,7 +2151,7 @@ router.get('/devotionals/today', requireAuth, (req, res) => {
 // ---- Curated video library (real YouTube channels, gated behind YOUTUBE_API_KEY) ----
 router.get('/videos', (req, res) => {
   const category = String(req.query.category || '').trim();
-  const allowed = new Set(['kids', 'fitness', 'motivational', 'christian', 'veggietales', 'nickbare', 'reels']);
+  const allowed = new Set(['kids', 'fitness', 'food', 'motivational', 'christian', 'veggietales', 'nickbare', 'reels']);
   if (!allowed.has(category)) return res.status(400).json({ error: 'invalid_category' });
   const rows = category === 'reels'
     ? db.prepare(`SELECT video_id, title, description, thumbnail_url, channel_title, published_at, category
@@ -2162,7 +2162,8 @@ router.get('/videos', (req, res) => {
     : db.prepare(
       'SELECT video_id, title, description, thumbnail_url, channel_title, published_at, category FROM videos WHERE category = ? ORDER BY published_at DESC LIMIT 30'
     ).all(category);
-  res.json(rows);
+  const blocked = /\b(porn|sex|onlyfans|cannabis|marijuana|weed|alcohol|beer|wine|vodka|drug|steroid|anorexia|bulimia|purge|starvation|pro[- ]ana|laxative)\b/i;
+  res.json(rows.filter(v => category !== 'food' && v.category !== 'food' || !blocked.test(`${v.title || ''} ${v.description || ''}`)));
 });
 
 // ---- AI sermon summary ("10 minute podcast review") ----

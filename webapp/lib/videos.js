@@ -32,6 +32,12 @@ const SOURCES = {
     'Faithful Workouts official',
     'Shaped faith fitness official',
   ],
+  food: [
+    'Fit Men Cook official',
+    'Pick Up Limes healthy recipes',
+    'Downshiftology healthy recipes',
+    'healthy meal prep fitness',
+  ],
   motivational: [
     'Christian motivation short',
     'biblical philosophy explained',
@@ -62,6 +68,10 @@ const MAX_VIDEOS_PER_CHANNEL = 8;
 function looksLikeShort(v) {
   const text = `${v.title || ''} ${v.description || ''}`.toLowerCase();
   return /(^|\s)#?(shorts?|reels?)(\s|$|[.!?,])/i.test(text) ? 1 : 0;
+}
+const FOOD_BLOCKLIST = /\b(porn|sex|onlyfans|cannabis|marijuana|weed|alcohol|beer|wine|vodka|drug|steroid|anorexia|bulimia|purge|starvation|pro[- ]ana|laxative)\b/i;
+function isAppropriateVideo(v) {
+  return !FOOD_BLOCKLIST.test(`${v.title || ''} ${v.description || ''}`);
 }
 
 // Search each category's queries, take the top verified-looking result, and
@@ -121,6 +131,7 @@ async function refreshVideos() {
     try {
       const uploads = await youtube.fetchRecentUploads(s.channel_id, MAX_VIDEOS_PER_CHANNEL);
       for (const v of uploads) {
+        if (s.category === 'food' && !isAppropriateVideo(v)) continue;
         upsert.run({
           id: randomUUID(),
           category: s.category,
