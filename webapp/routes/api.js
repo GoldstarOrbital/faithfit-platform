@@ -785,7 +785,7 @@ router.post('/workouts/:id/sample', requireAuth, async (req, res) => {
     push.send(req.session.userId, 'reminders', {
       title: `${result.moment_label} · Functioning Faith`,
       body: `${result.payload.reference} — ${result.payload.snippet || 'Keep going with courage.'}`,
-      url: '/', tag: `workout-${workout.id}-${result.moment}`,
+      url: notificationDestination('verse', { reference: result.payload.reference }), tag: `workout-${workout.id}-${result.moment}`,
     }).catch(() => {});
   }
 

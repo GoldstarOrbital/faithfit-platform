@@ -131,7 +131,7 @@ async function sendFor(userId) {
     title: verse.reference,
     // The reference leads so `recentRefs` can read it back out.
     body: verse.reference + ' — ' + preview,
-    url: '/?verse=' + encodeURIComponent(verse.reference),
+    url: '/?open=verse&ref=' + encodeURIComponent(verse.reference),
     tag: 'daily-verse',
   });
   return { reference: verse.reference, note: verse.note, ...res };
