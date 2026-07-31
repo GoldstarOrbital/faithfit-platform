@@ -1202,6 +1202,15 @@ header.topbar .brand { font-family: var(--display); letter-spacing: .04em; }
 .topbar-icon-btn:active, .notif-bell:active { transform: scale(.94); }
 .topbar-icon-btn svg, .notif-bell svg { width: 18px; height: 18px; }
 
+/* Top-bar actions are primary touch targets: give each icon a larger, clearer
+   home without changing the compact header layout. */
+#topbar-right { gap: 10px; }
+#topbar-right .topbar-icon-btn,
+#topbar-right .notif-bell { width: 44px; height: 44px; }
+#topbar-right .topbar-icon-btn svg,
+#topbar-right .notif-bell svg { width: 23px; height: 23px; stroke-width: 1.8; }
+#topbar-right .notif-badge { top: -4px; right: -4px; min-width: 19px; height: 19px; font-size: .68rem; }
+
 /* --- tab bar --------------------------------------------------------------- */
 nav.tabbar {
   background: var(--walnut-1);
