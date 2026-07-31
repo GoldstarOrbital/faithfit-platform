@@ -22,6 +22,7 @@ const segments = require('../lib/segments');
 const overlay = require('../lib/overlay');
 const usernames = require('../lib/usernames');
 const youversion = require('../lib/youversion');
+const motivation = require('../lib/motivation');
 const gloo = require('../lib/gloo');
 const companion = require('../lib/companion');
 const breathwork = require('../lib/breathwork');
@@ -1830,9 +1831,13 @@ subscribe('workout.completed', (event) => {
 });
 
 // ---- motivation / podcasts / breathing (new social+wellness surfaces) ----
-router.get('/motivation', (req, res) => {
-  const rows = db.prepare('SELECT * FROM motivation_quotes').all();
-  res.json(rows[Math.floor(Math.random() * rows.length)]);
+router.get('/motivation', requireAuth, async (req, res) => {
+  try {
+    res.json(await motivation.next(req.session.userId));
+  } catch (error) {
+    console.error('[motivation] next quote failed', error);
+    res.status(503).json({ error: 'motivation_unavailable' });
+  }
 });
 
 // Podcasts with their most-recent real episodes (ingested from public RSS feeds).

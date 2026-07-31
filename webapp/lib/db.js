@@ -231,6 +231,27 @@ CREATE TABLE IF NOT EXISTS motivation_quotes (
   theme TEXT
 );
 
+-- Per-member history for the Explore Motivation queue. The quote id is
+-- intentionally a string so curated, local Bible, and YouVersion verses can
+-- share one history without pretending they are the same source.
+CREATE TABLE IF NOT EXISTS motivation_seen (
+  user_id TEXT NOT NULL,
+  quote_id TEXT NOT NULL,
+  seen_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, quote_id)
+);
+
+-- Verse addresses from the complete YouVersion canon. Text is fetched only
+-- when selected, then cached by the existing YouVersion passage layer.
+CREATE TABLE IF NOT EXISTS motivation_bible_refs (
+  quote_id TEXT PRIMARY KEY,
+  version_id INTEGER NOT NULL,
+  reference TEXT NOT NULL,
+  book TEXT NOT NULL,
+  chapter INTEGER NOT NULL,
+  verse INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS podcasts (
   id TEXT PRIMARY KEY,
   title TEXT,
