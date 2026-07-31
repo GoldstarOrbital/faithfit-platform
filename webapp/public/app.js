@@ -1992,6 +1992,8 @@ async function startWorkout() {
   const type = document.getElementById('workout-type').value;
   const w = await api('/workouts/start', { method: 'POST', body: { type } });
   state.activeWorkout = w.id;
+  state.lastVerseId = w.start_verse ? w.start_verse.youversion_id : null;
+  state.lastVerse = w.start_verse || null;
   state.elapsed = 0;
   state.gpsTimes = []; state.gpsAlt = []; state.elevGainM = 0; state.altRef = null;
   state.splits = []; state.lastSplitKm = 0; state.lastSplitElapsed = 0;
@@ -2000,6 +2002,10 @@ async function startWorkout() {
   if (!state.bleConnected) state.hr = 0;
   startGps();
   renderWorkout(document.getElementById('main'));
+  const opening = document.getElementById('verse-preview');
+  if (opening && w.start_verse) opening.innerHTML = renderMomentVerseCard({
+    verse: w.start_verse, moment_label: w.start_moment_label, caption: 'Your opening word for this session',
+  });
   state.hrTimer = setInterval(async () => {
     state.elapsed += 1;
     document.getElementById('timer-display').textContent = formatElapsed(state.elapsed);
@@ -2007,10 +2013,14 @@ async function startWorkout() {
     if (state.elapsed % 5 === 0) {
       const hr = state.bleConnected && state.hr > 0 ? state.hr : null;
       const result = await api(`/workouts/${state.activeWorkout}/sample`, { method: 'POST', body: { heart_rate: hr } });
-      state.lastVerseId = result.verse_id || null;
-      state.lastVerse = result.verse || null;
       const vp = document.getElementById('verse-preview');
-      if (vp && result.verse) vp.innerHTML = renderMomentVerseCard(result);
+      // The server returns verse:null for ordinary telemetry samples. Keep the
+      // current card stable until a meaningful effort transition earns a new one.
+      if (result.verse) {
+        state.lastVerseId = result.verse_id || null;
+        state.lastVerse = result.verse;
+        if (vp) vp.innerHTML = renderMomentVerseCard(result);
+      }
     }
   }, 1000);
 }

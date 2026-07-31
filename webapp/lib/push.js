@@ -40,7 +40,9 @@ const CATEGORIES = {
   social: 'Follows, likes and comments.',
   reminders: 'Streaks and challenges you have joined.',
 };
-const DEFAULT_CATEGORIES = ['daily_verse', 'verse_reply'];
+// Encouragement is intentionally included: it is event-driven at meaningful
+// effort transitions, never a heartbeat or a five-second workout stream.
+const DEFAULT_CATEGORIES = ['daily_verse', 'verse_reply', 'reminders'];
 
 function publicKey() { return process.env.VAPID_PUBLIC_KEY || null; }
 function isConfigured() {

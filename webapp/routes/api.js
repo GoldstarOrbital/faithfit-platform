@@ -634,11 +634,36 @@ router.post('/workouts/start', requireAuth, (req, res) => {
   const id = randomUUID();
   db.prepare('INSERT INTO workouts (id, user_id, type, start_time) VALUES (?, ?, ?, ?)')
     .run(id, req.session.userId, type, new Date().toISOString());
+  // One intentional opening word: personalize it from the member's history,
+  // consent, and chosen activity, then keep it stable until the workout earns
+  // a meaningful moment transition.
+  const uid = req.session.userId;
+  const user = db.prepare('SELECT max_hr, birth_year, tradition FROM users WHERE id = ?').get(uid) || {};
+  const consents = db.prepare('SELECT scope FROM user_consents WHERE user_id = ? AND revoked_at IS NULL').all(uid).map(r => r.scope);
+  const candidateVerses = db.prepare('SELECT id, reference, youversion_id, themes FROM scripture_verses').all()
+    .map(v => ({ ...v, themes: v.themes.split(',') }));
+  const history = db.prepare('SELECT verse_id, 0 AS engaged FROM scripture_triggers WHERE user_id = ? ORDER BY timestamp DESC LIMIT 20').all(uid);
+  const workout = db.prepare('SELECT * FROM workouts WHERE id = ?').get(id);
+  const maxInfo = effortLib.maxHrInfo(user);
+  const startSignals = computeEffortSignals(workout, [], maxInfo && maxInfo.value, {});
+  const startResult = runPipeline({
+    rawSnapshot: { heart_rate: null, workout_type: type, movement: { intensity: 0.4 }, stress_level: 0 },
+    candidateVerses, userHistory: history, userPreferences: {
+      preferred_themes: [String(type).toLowerCase(), 'strength', 'perseverance'],
+      tradition: user.tradition || null,
+    }, personalizationEnabled: consents.includes('scripture_personalization'),
+    verseTextLookup: (yid) => db.prepare('SELECT text FROM scripture_verses WHERE youversion_id = ?').get(yid),
+    effort: startSignals, lookupReference: lookupBibleReference, ftsSearch: bibleFtsSearch,
+    sessionVerseIds: [], recentVerseIds: history.map(h => h.verse_id),
+  });
+  db.prepare('INSERT INTO scripture_triggers (id, user_id, verse_id, trigger_type, biometric_snapshot, workout_id, moment) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(randomUUID(), uid, startResult.verse.id, 'workout_start', JSON.stringify(startSignals), id, 'starting_out');
+  publish('verse.triggered', { user_id: uid, verse_id: startResult.verse.id, youversion_id: startResult.verse.youversion_id, trigger_type: 'workout_start', payload: startResult.payload });
   publish('workout.started', { user_id: req.session.userId, workout_id: id, type });
-  res.json({ id, type, start_time: new Date().toISOString() });
+  res.json({ id, type, start_time: workout.start_time, start_verse: startResult.payload, start_moment: 'starting_out', start_moment_label: 'Starting out' });
 });
 
-router.post('/workouts/:id/sample', requireAuth, (req, res) => {
+router.post('/workouts/:id/sample', requireAuth, async (req, res) => {
   // Heart rate is only ever a REAL reading from a paired monitor. When there is no
   // monitor the client sends nothing, and we store NULL — we never substitute a
   // default, and every zone/effort surface downstream degrades to "unknown".
@@ -664,6 +689,7 @@ router.post('/workouts/:id/sample', requireAuth, (req, res) => {
   const sessionSamples = db.prepare('SELECT time, heart_rate FROM biometric_samples WHERE workout_id = ? ORDER BY time').all(workout.id);
   const signals = computeEffortSignals(workout, sessionSamples, maxInfo && maxInfo.value, req.body || {});
   const sessionVerseIds = db.prepare('SELECT verse_id FROM scripture_triggers WHERE workout_id = ?').all(workout.id).map(r => r.verse_id);
+  const lastTrigger = db.prepare('SELECT moment, timestamp FROM scripture_triggers WHERE workout_id = ? ORDER BY timestamp DESC LIMIT 1').get(workout.id);
 
   const result = runPipeline({
     rawSnapshot: { heart_rate, workout_type: workout.type, movement: { intensity: 0.8 }, stress_level: stress_level ?? 0 },
@@ -679,10 +705,31 @@ router.post('/workouts/:id/sample', requireAuth, (req, res) => {
     recentVerseIds: history.map(h => h.verse_id),
   });
 
+  // Sampling remains frequent for telemetry, but scripture is event-driven:
+  // never replace the card for the same moment, and never introduce a new
+  // moment before two minutes have passed in the session.
+  const elapsed = Number(signals.elapsed_sec) || 0;
+  const meaningfulTransition = !lastTrigger || result.moment !== lastTrigger.moment;
+  if (!meaningfulTransition || elapsed < 120) {
+    return res.json({ context: result.context, verse: null, suppressed: true, moment: result.moment,
+      moment_label: result.moment_label, zone: signals.zone,
+      zone_source: signals.zone == null ? null : (maxInfo ? maxInfo.source : null), trend: signals.trend, elapsed_sec: elapsed });
+  }
+
   db.prepare('INSERT INTO scripture_triggers (id, user_id, verse_id, trigger_type, biometric_snapshot, workout_id, moment) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(randomUUID(), req.session.userId, result.verse.id, result.context, JSON.stringify({ ...result.snapshot, ...signals }), workout.id, result.moment);
 
   publish('verse.triggered', { user_id: req.session.userId, verse_id: result.verse.id, youversion_id: result.verse.youversion_id, trigger_type: result.context, payload: result.payload });
+
+  // Closed-device encouragement is reserved for hard transitions, and only if
+  // the member opted into reminders. The on-site card remains the primary path.
+  if (['climbing', 'the_wall', 'finishing'].includes(result.moment)) {
+    push.send(req.session.userId, 'reminders', {
+      title: `${result.moment_label} · Functioning Faith`,
+      body: `${result.payload.reference} — ${result.payload.snippet || 'Keep going with courage.'}`,
+      url: '/', tag: `workout-${workout.id}-${result.moment}`,
+    }).catch(() => {});
+  }
 
   res.json({
     context: result.context,
