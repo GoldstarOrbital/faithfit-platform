@@ -129,23 +129,36 @@ const PARTNER_XP_BONUS = Math.max(10, Math.round(xpForEvent('workout.completed')
 function notify(userId, type, message, extra) {
   if (!userId) return;
   const details = extra || {};
-  const destination = details.url || notificationDestination(type, details);
+  const destination = isSafeInternalNotificationUrl(details.url) ? details.url : notificationDestination(type, details);
   const payload = { message, ...details, url: destination };
   db.prepare('INSERT INTO notifications (id, user_id, type, payload) VALUES (?, ?, ?, ?)')
     .run(randomUUID(), userId, type, JSON.stringify(payload));
   // Push respects the member's explicit social/reminder category choice. It is
   // fire-and-forget so a browser push outage never delays the app action.
-  const category = ['challenge_complete', 'streak', 'effort', 'journey', 'badge', 'quest'].includes(type) ? 'reminders' : 'social';
-  push.send(userId, category, { title: 'Functioning Faith', body: message, url: destination, tag: `${type}:${details.post_id || details.thread_id || details.event_id || details.invite_id || 'notification'}` }).catch(() => {});
+  push.send(userId, notificationPushCategory(type), { title: 'Functioning Faith', body: message, url: destination, tag: `${type}:${details.post_id || details.thread_id || details.event_id || details.invite_id || 'notification'}` }).catch(() => {});
+}
+function notificationPushCategory(type) {
+  if (type === 'verse' || type === 'reflection') return 'verse_reply';
+  return ['challenge_complete', 'streak', 'effort', 'journey', 'badge', 'quest'].includes(type) ? 'reminders' : 'social';
+}
+function isSafeInternalNotificationUrl(value) {
+  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//');
 }
 function notificationDestination(type, details) {
+  details = { ...details, ...(details && details.data && typeof details.data === 'object' ? details.data : {}) };
   const q = new URLSearchParams();
-  if (details.post_id) { q.set('open', 'post'); q.set('post_id', details.post_id); }
-  else if (details.thread_id) { q.set('open', 'dm'); q.set('thread_id', details.thread_id); }
+  if (type === 'reflection' && details.reference) { q.set('open', 'verse'); q.set('ref', details.reference); }
+  else if (details.post_id) { q.set('open', 'post'); q.set('post_id', details.post_id); }
+  else if (details.thread_id && ['dm', 'workout_invite', 'workout_invite_response'].includes(type)) { q.set('open', 'dm'); q.set('thread_id', details.thread_id); }
   else if (details.group_id || details.event_id) { q.set('open', 'group'); if (details.group_id) q.set('group_id', details.group_id); if (details.event_id) q.set('event_id', details.event_id); }
   else if (details.workout_id) { q.set('open', 'workout'); q.set('workout_id', details.workout_id); }
   else if (details.reference) { q.set('open', 'verse'); q.set('ref', details.reference); }
-  else if (type === 'journey') { q.set('open', 'journeys'); }
+  else if (type === 'journey' || type === 'segment') { q.set('open', 'journeys'); if (details.journey_key) q.set('journey_key', details.journey_key); }
+  else if (['challenge_complete', 'quest'].includes(type)) { q.set('open', 'challenges'); }
+  else if (type === 'follow') { q.set('open', 'profile'); if (details.follower_id) q.set('user_id', details.follower_id); }
+  else if (type === 'badge') { q.set('open', 'profile'); }
+  else if (['streak', 'effort'].includes(type)) { q.set('open', 'stats'); }
+  else { q.set('open', 'home'); }
   return '/?' + q.toString();
 }
 function displayName(userId) {
@@ -637,7 +650,7 @@ function tagWorkoutPartners(taggerId, workoutId, partnerUserIds) {
         .run(id, workoutId, taggerId, partnerId, 'pending');
       db.prepare('INSERT INTO notifications (id, user_id, type, payload) VALUES (?, ?, ?, ?)')
         .run(randomUUID(), partnerId, 'workout_partner_tag', JSON.stringify({
-          workout_partner_id: id, message: `${taggerName} tagged you as a workout partner — confirm to both get bonus XP`,
+          workout_partner_id: id, workout_id: workoutId, message: `${taggerName} tagged you as a workout partner — confirm to both get bonus XP`,
         }));
       tagged.push(partnerId);
     } catch (e) {
@@ -1014,7 +1027,7 @@ router.post('/workout-partners/:id/respond', requireAuth, (req, res) => {
     const partnerName = db.prepare('SELECT display_name FROM users WHERE id = ?').get(uid)?.display_name || 'Your partner';
     db.prepare('INSERT INTO notifications (id, user_id, type, payload) VALUES (?, ?, ?, ?)')
       .run(randomUUID(), tag.tagged_by, 'workout_partner_confirmed', JSON.stringify({
-        message: `${partnerName} confirmed the workout partner tag — you both earned +${PARTNER_XP_BONUS} XP!`,
+        workout_id: tag.workout_id, message: `${partnerName} confirmed the workout partner tag — you both earned +${PARTNER_XP_BONUS} XP!`,
       }));
   }
   res.json({ ok: true, status: newStatus, bonus_xp: accept ? PARTNER_XP_BONUS : 0 });
@@ -1779,7 +1792,7 @@ router.get('/me/export', requireAuth, (req, res) => {
 router.get('/notifications', requireAuth, (req, res) => {
   const uid = req.session.userId;
   const notifications = db.prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY delivered_at DESC LIMIT 20').all(uid).map(n => {
-    try { const p = JSON.parse(n.payload || '{}'); return { ...n, url: p.url || notificationDestination(n.type, p) }; }
+    try { const p = JSON.parse(n.payload || '{}'); return { ...n, url: isSafeInternalNotificationUrl(p.url) ? p.url : notificationDestination(n.type, p) }; }
     catch { return { ...n, url: notificationDestination(n.type, {}) }; }
   });
   const unread_count = db.prepare('SELECT COUNT(*) c FROM notifications WHERE user_id = ? AND read = 0').get(uid).c;
@@ -1876,6 +1889,12 @@ subscribe('workout.completed', (event) => {
     const message = composeForEvent(topic, event);
     db.prepare('INSERT INTO notifications (id, user_id, type, payload) VALUES (?, ?, ?, ?)')
       .run(randomUUID(), event.user_id, message.type, JSON.stringify(message));
+    const details = { ...message, ...(message.data && typeof message.data === 'object' ? message.data : {}) };
+    const destination = notificationDestination(message.type, details);
+    push.send(event.user_id, notificationPushCategory(message.type), {
+      title: message.title || 'Functioning Faith', body: message.body || message.message,
+      url: destination, tag: `${message.type}:${event.badge_id || event.quest_id || event.verse_id || 'notification'}`,
+    }).catch(() => {});
   });
 });
 

@@ -211,6 +211,7 @@ async function renderSignIn() {
       // New accounts go through the church onboarding step first, so a member's
       // church (and its videos) are set up before they ever reach the feed.
       if (isRegister) return renderChurchOnboarding();
+      if (new URLSearchParams(location.search).get('open')) return openNotificationDestination(location.href);
       return render();
     }
     const data = await res.json().catch(() => ({}));
@@ -2376,19 +2377,27 @@ const NOTIF_ICONS = {
 function notifIcon(type) { return NOTIF_ICONS[type] || '✦'; }
 
 function notificationUrl(n) {
-  if (n && n.url) return n.url;
-  try { const p = JSON.parse((n && n.payload) || '{}'); return p.url || '/'; } catch { return '/'; }
+  const raw = n && n.url ? n.url : (() => { try { return JSON.parse((n && n.payload) || '{}').url; } catch { return null; } })();
+  try {
+    const u = new URL(raw || '/', location.origin);
+    return u.origin === location.origin ? u.pathname + u.search + u.hash : '/';
+  } catch { return '/'; }
 }
-function openNotificationDestination(url) {
+async function openNotificationDestination(url) {
   let u;
   try { u = new URL(url || '/', location.origin); } catch { return; }
-  if (u.origin !== location.origin) { location.href = u.href; return; }
+  if (u.origin !== location.origin) return;
   const p = u.searchParams, kind = p.get('open');
   history.replaceState({}, '', u.pathname + (u.hash || ''));
   if (kind === 'group' && p.get('group_id')) return renderGroupDetail(p.get('group_id'));
-  if (kind === 'dm') { state.tab = 'profile'; return render(); }
-  if (kind === 'workout') { state.tab = 'stats'; return render(); }
-  if (kind === 'journeys') { state.tab = 'explore'; state.exploreTab = 'journeys'; return render(); }
+  if (kind === 'dm') { await renderInbox(); if (p.get('thread_id')) return renderThread(p.get('thread_id')); return; }
+  if (kind === 'workout' && p.get('workout_id')) return renderWorkoutDetail(p.get('workout_id'));
+  if (kind === 'verse' && p.get('ref')) return renderVerseThread(p.get('ref'));
+  if (kind === 'journeys') { if (p.get('journey_key')) return renderJourneyDetail(p.get('journey_key')); state.tab = 'explore'; state.exploreTab = 'journeys'; return render(); }
+  if (kind === 'challenges') { state.tab = 'explore'; state.exploreTab = 'challenges'; return render(); }
+  if (kind === 'profile' && p.get('user_id')) return renderUserProfile(p.get('user_id'));
+  if (kind === 'profile') { state.tab = 'profile'; return render(); }
+  if (kind === 'stats') { state.tab = 'stats'; return render(); }
   state.tab = 'home';
   render().then(() => {
     if (kind === 'post' && p.get('post_id')) setTimeout(() => document.querySelector(`[data-post="${CSS.escape(p.get('post_id'))}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 250);

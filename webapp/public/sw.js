@@ -33,7 +33,11 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = (event.notification.data && event.notification.data.url) || '/';
+  let url = '/';
+  try {
+    const candidate = new URL((event.notification.data && event.notification.data.url) || '/', self.location.origin);
+    if (candidate.origin === self.location.origin) url = candidate.pathname + candidate.search + candidate.hash;
+  } catch { /* malformed or external notification targets stay on the app home */ }
   event.waitUntil((async () => {
     const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     // Reuse an open tab rather than stacking up new ones.

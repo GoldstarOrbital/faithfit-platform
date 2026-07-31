@@ -48,17 +48,32 @@ if (youtube.isConfigured()) youtube.startDevotionalRefresh();
 if (youtube.isConfigured()) startVideoLibraryRefresh();
 
 const app = express();
+const productionMode = process.env.NODE_ENV === 'production' || !!process.env.RAILWAY_ENVIRONMENT;
+const sessionSecret = process.env.SESSION_SECRET || (productionMode ? null : 'faithfit-local-session-secret');
+if (!sessionSecret) throw new Error('SESSION_SECRET must be configured in production');
 // Railway terminates TLS in front of the app — trust its X-Forwarded-* headers
 // so req.protocol/req.secure and the OAuth redirect_uri we build are correct.
 app.set('trust proxy', 1);
+// Baseline browser protections compatible with YouTube, Leaflet, OAuth, and
+// the service-worker surfaces used by the app.
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self), bluetooth=(self)');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  next();
+});
 // Photos are resized in the browser before being sent as a data URL. Keep the
 // parser above the 250KB image cap so valid photo posts reach the route.
 app.use(express.json({ limit: '400kb' }));
 app.use(express.urlencoded({ extended: false })); // Apple posts its OAuth callback as form_post
 app.use(cookieSession({
   name: 'faithfit_session',
-  keys: [process.env.SESSION_SECRET || 'faithfit-demo-secret-change-in-real-deploy'],
+  keys: [sessionSecret],
   maxAge: 30 * 24 * 60 * 60 * 1000,
+  httpOnly: true,
+  sameSite: 'lax',
+  secure: productionMode,
 }));
 
 app.use('/api', apiRoutes);
