@@ -847,26 +847,29 @@ async function renderExplore(main) {
 // Standalone short-form feed: Reels is intentionally separate from Videos so
 // it behaves like a scrollable social surface, not another category shelf.
 async function renderReelsTab(body) {
-  if (!state.reelsCategory) state.reelsCategory = 'all';
-  body.innerHTML = `<div class="reels-hero"><div class="video-kicker">FUNCTIONING FAITH REELS</div><h2>Small moments. Big encouragement.</h2><p>Swipe up for the next faith, movement, food, or family-friendly moment. Reels autoplay silently so the feed feels instant and stays respectful in public.</p></div>
-    <div class="section-tabs section-tabs-scroll reels-filters"><button data-reel-filter="all" class="${state.reelsCategory === 'all' ? 'active' : ''}">For you</button><button data-reel-filter="food" class="${state.reelsCategory === 'food' ? 'active' : ''}">Food + fitness</button></div>
+  body.innerHTML = `<div class="reels-hero"><div class="video-kicker">FUNCTIONING FAITH REELS</div><h2>Small moments. Big encouragement.</h2><p>One mixed feed for faith, movement, meals, family, and your church. Swipe up for the next moment.</p>
+    <div class="reels-feed-note">Shorts + food + church content · Gloo-curated when available</div></div>
     <div id="reels-list"><div class="muted">Loading reels…</div></div>`;
-  body.querySelectorAll('[data-reel-filter]').forEach(btn => btn.onclick = () => { state.reelsCategory = btn.dataset.reelFilter; renderReelsTab(body); });
-  let videos = [];
-  try { videos = await api('/videos?category=reels'); } catch { videos = []; }
-  const curatedFood = [
+  let payload = { videos: [] };
+  try { payload = await api('/reels'); } catch { try { payload.videos = await api('/videos?category=reels'); } catch { payload.videos = []; } }
+  const starters = [
     { video_id: 'nENP1nWCJGU', title: 'Meal Prep: 5 Recipes + 10 Meals for Variety', channel_title: 'Fit Men Cook', category: 'food', is_short: 1 },
     { video_id: 'pDgEBQx7wKY', title: 'Budget Meal Prep with Nutrient-Dense Ingredients', channel_title: 'Downshiftology', category: 'food', is_short: 1 },
+    { video_id: 'KjytadfepNQ', title: 'Full Body Strength, Stretching, Core & Cardio', channel_title: 'Shaped · Faith & Fitness', category: 'fitness' },
+    { video_id: '6vAqOIoaKdQ', title: 'Quick Exercises for Physical & Spiritual Strength', channel_title: 'Shaped · Faith & Fitness', category: 'fitness' },
+    { video_id: 'VoyPK-sqoyQ', title: 'Living With a Warrior Mentality', channel_title: 'Passion City Church', category: 'motivational' },
+    { video_id: 'Ezs5GWi6KWk', title: 'The Fullest and Freest Version of You', channel_title: 'Passion City Church', category: 'motivational' },
+    { video_id: 'ak06MSETeo4', title: 'What Is the Bible? · Animated Explainer', channel_title: 'BibleProject', category: 'christian' },
+    { video_id: 'xsIRy1IlI_0', title: 'Fruit of the Spirit Brain Break', channel_title: 'Ready Set Fitness Kids', category: 'kids' },
   ].map(v => ({ ...v, thumbnail_url: `https://i.ytimg.com/vi/${v.video_id}/hqdefault.jpg` }));
-  if (state.reelsCategory === 'food') videos = videos.filter(v => v.category === 'food');
-  if (state.reelsCategory === 'food' && !videos.length) videos = curatedFood;
+  let videos = [...(payload.videos || []), ...starters];
   const seen = new Set();
-  videos = videos.filter(v => v.video_id && !seen.has(v.video_id) && (state.reelsCategory !== 'food' || v.category === 'food'))
+  videos = videos.filter(v => v.video_id && !seen.has(v.video_id))
     .map(v => { seen.add(v.video_id); return v; })
     .sort(() => Math.random() - 0.5);
   const list = document.getElementById('reels-list');
   if (!videos.length) { list.innerHTML = '<div class="card glass"><p class="muted">No reels in this filter yet. Fresh videos will appear here as the library refreshes.</p></div>'; return; }
-  const labels = { food: 'Food + fitness', kids: 'Kids + family', fitness: 'Faith + movement', christian: 'Scripture + formation', motivational: 'Purpose + perseverance', veggietales: 'Kids + family', nickbare: 'Training + discipline' };
+  const labels = { food: 'Food + fitness', kids: 'Kids + family', fitness: 'Faith + movement', christian: 'Scripture + formation', motivational: 'Purpose + perseverance', veggietales: 'Kids + family', nickbare: 'Training + discipline', church: 'Your church' };
   list.innerHTML = videos.map(v => `<article class="reel-card" data-reel-card="${escapeHtml(v.video_id)}">
     <div class="reel-frame video-thumb-wrap" data-reel-frame="${escapeHtml(v.video_id)}"><img loading="lazy" src="${escapeHtml(v.thumbnail_url || `https://i.ytimg.com/vi/${encodeURIComponent(v.video_id)}/hqdefault.jpg`)}" alt="${escapeHtml(v.title || 'Functioning Faith reel')}" /><span class="reel-play">▶</span><span class="reel-sound">Tap for sound</span></div>
     <div class="reel-overlay"><span class="video-audience">${escapeHtml(labels[v.category] || 'Faith + movement')}</span><div class="reel-title">${escapeHtml(v.title || 'Short encouragement')}</div><div class="muted">${escapeHtml(v.channel_title || '')}</div></div>

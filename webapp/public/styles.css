@@ -901,6 +901,7 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
 .reels-hero h2 { margin:3px 0 6px; color:#fff8e7; font-size:1.35rem; letter-spacing:-.035em; }
 .reels-hero p { margin:0; color:rgba(245,255,248,.78); font-size:.8rem; line-height:1.45; }
 .reels-filters { margin-bottom:12px; position:relative; z-index:2; }
+.reels-feed-note { margin-top:10px; color:rgba(245,255,248,.72); font-size:.68rem; font-weight:700; }
 #reels-list { height:calc(100svh - 248px); min-height:430px; display:flex; flex-direction:column; gap:0; overflow-y:auto; overscroll-behavior-y:contain; scroll-snap-type:y mandatory; border-radius:22px; scrollbar-width:none; background:#160f0b; }
 #reels-list::-webkit-scrollbar { display:none; }
 .reel-card { position:relative; flex:0 0 100%; min-height:100%; scroll-snap-align:start; scroll-snap-stop:always; overflow:hidden; cursor:pointer; background:#160f0b; }

@@ -2317,6 +2317,43 @@ router.get('/videos', (req, res) => {
   res.json(rows.filter(v => !blocked.test(`${v.title || ''} ${v.description || ''}`)));
 });
 
+// The single social short-form feed. It combines library Shorts, the member's
+// church videos, and Gloo's grounded curation of those church candidates. Gloo
+// never invents a video ID here: it may only rank IDs we supplied.
+router.get('/reels', requireAuth, async (req, res) => {
+  const blocked = /\b(porn|sex|onlyfans|cannabis|marijuana|weed|alcohol|beer|wine|vodka|drug|steroid|anorexia|bulimia|purge|starvation|pro[- ]ana|laxative)\b/i;
+  const library = db.prepare(`SELECT video_id, title, description, thumbnail_url, channel_title, published_at, category
+    FROM (SELECT video_id,title,description,thumbnail_url,channel_title,published_at,category,
+      ROW_NUMBER() OVER (PARTITION BY video_id ORDER BY CASE WHEN category='food' THEN 0 ELSE 1 END,published_at DESC) reel_rank
+      FROM videos WHERE is_short=1 OR lower(title||'') LIKE '%#short%' OR lower(title||'') LIKE '%shorts%'
+        OR lower(title||'') LIKE '%reel%' OR lower(description||'') LIKE '%#short%' OR lower(description||'') LIKE '%shorts%')
+    WHERE reel_rank=1 ORDER BY RANDOM() LIMIT 100`).all().filter(v => !blocked.test(`${v.title || ''} ${v.description || ''}`));
+  const churchVideos = [];
+  const me = db.prepare('SELECT church_osm_id, church_name FROM users WHERE id = ?').get(req.session.userId);
+  const church = me?.church_osm_id ? db.prepare('SELECT * FROM churches WHERE osm_id = ?').get(me.church_osm_id) : null;
+  if (church?.youtube_channel_id && youtube.isConfigured()) {
+    try { for (const v of await youtube.fetchRecentUploads(church.youtube_channel_id, 12)) churchVideos.push({ video_id: v.videoId, title: v.title, description: v.description || '', thumbnail_url: v.thumbnailUrl, channel_title: church.youtube_channel_title || church.name, published_at: v.publishedAt, category: 'church', church_name: church.name }); } catch (err) { console.error('[reels/church] youtube fetch failed:', err.message); }
+  }
+  if (!churchVideos.length && church?.website_url) {
+    try { for (const v of (await fetchChurchWebsiteEmbeds(church.website_url)).slice(0, 12)) churchVideos.push({ video_id: v.videoId, title: `${church.name} · Church video`, thumbnail_url: null, channel_title: church.name, published_at: null, category: 'church', church_name: church.name, provider: v.provider }); } catch (err) { console.error('[reels/church] website fetch failed:', err.message); }
+  }
+  let curatedChurch = churchVideos; let chosenBy = 'fallback';
+  if (churchVideos.length && gloo.isConfigured()) {
+    const candidateText = churchVideos.map(v => `${v.video_id} | ${v.title || ''} | ${v.description || ''}`).join('\n').slice(0, 9000);
+    const out = await gloo.chatJson({ kind: 'church_reels_curation', userId: req.session.userId, cacheDays: 1, maxTokens: 500, messages: [
+      { role: 'system', content: 'You curate a safe Christian fitness social feed. Return JSON only: {"video_ids":[{"id":"existing id","reason":"short reason"}]}. Keep every candidate appropriate for a church and family audience. You may only use IDs present in the candidate list.' },
+      { role: 'user', content: `Select up to 12 church videos for a mixed short-form feed. Prefer encouraging, youth-safe, faith-and-life content. Candidates:\n${candidateText}` },
+    ] });
+    const allowed = new Map(churchVideos.map(v => [v.video_id, v]));
+    const picks = Array.isArray(out?.json?.video_ids) ? out.json.video_ids : [];
+    const ranked = picks.map(p => allowed.get(String(p.id))).filter(Boolean);
+    if (ranked.length) { curatedChurch = ranked; chosenBy = 'gloo'; }
+  }
+  const seen = new Set();
+  const videos = [...library, ...curatedChurch].filter(v => v.video_id && !seen.has(v.video_id) && (seen.add(v.video_id), true));
+  res.json({ videos, church_name: church?.name || me?.church_name || null, church_count: curatedChurch.length, chosen_by: chosenBy });
+});
+
 // ---- AI sermon summary ("10 minute podcast review") ----
 // ISO week key, e.g. "2026-W28" — stable per calendar week (Mon-Sun, ISO 8601).
 function isoWeekKey(date) {
