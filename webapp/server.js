@@ -16,6 +16,7 @@ const gloo = require('./lib/gloo');
 const apikeys = require('./lib/apikeys');
 const push = require('./lib/push');
 const daily = require('./lib/daily');
+const reminders = require('./lib/reminders');
 const publicApi = require('./routes/public-api');
 
 seed();
@@ -37,6 +38,7 @@ apikeys.init();
 // Off-app reach. Both are inert without VAPID keys — no timer, nothing sent.
 push.start();
 daily.start();
+reminders.start();
 // Ingest real podcast episodes from public RSS feeds (background, non-blocking).
 startPodcastRefresh();
 // Church devotionals from YouTube — true no-op (not even a timer) unless

@@ -1310,6 +1310,8 @@ async function renderProfile(main) {
       <h2>Notifications</h2>
       <div class="muted" style="margin-bottom:10px">Reach you when the app is closed — a verse each morning, and replies to your reflections.</div>
       <div id="push-body" class="muted">Loading&hellip;</div>
+      <div class="reminder-divider"></div>
+      <div id="reminders-body" class="muted">Loading motivation reminders…</div>
     </div>
     <button class="ghost" id="signout" style="width:100%">Sign out</button>
   `;
@@ -1345,6 +1347,7 @@ async function renderProfile(main) {
   renderWebhooks();
   renderApiKeys();
   renderPush();
+  renderReminders();
   renderOverlayCard();
   document.getElementById('p-defvis').onchange = async (e) => {
     await api('/profile', { method: 'PUT', body: { default_visibility: e.target.value } });
@@ -3414,6 +3417,25 @@ async function renderApiKeys() {
 // --- Notifications panel ---------------------------------------------------
 // Web Push: the browser's own permission prompt, the browser's own delivery.
 // Every category is opt-in separately and nothing is subscribed by default.
+async function renderReminders() {
+  const box = document.getElementById('reminders-body');
+  if (!box) return;
+  let rows = [];
+  try { rows = await api('/reminders'); } catch { box.textContent = 'Could not load motivation reminders.'; return; }
+  const localValue = iso => { const d = new Date(String(iso || '').replace(' ', 'T') + 'Z'); return isNaN(d) ? '' : d.toISOString().slice(0, 16); };
+  box.innerHTML = `<div class="field-label">Motivation reminders</div><div class="muted" style="margin-bottom:8px">Write your own encouragement and choose when it should meet you. It appears in the app and, with reminders enabled, on your home screen.</div>
+    <div class="reminder-form"><input class="input" id="rm-title" maxlength="80" placeholder="Title · e.g. Keep your promise" /><textarea class="input" id="rm-body" maxlength="240" rows="2" placeholder="Your motivation or reminder…"></textarea><div class="reminder-form-row"><input class="input" id="rm-time" type="datetime-local" /><select class="input" id="rm-repeat"><option value="once">Once</option><option value="daily">Every day</option><option value="weekly">Every week</option></select></div><button class="primary" id="rm-add">Schedule motivation</button></div>
+    <div id="rm-status" class="muted" style="margin-top:7px"></div><div class="reminder-list">${rows.length ? rows.map(r => `<div class="reminder-row ${r.enabled ? '' : 'disabled'}"><div><b>${escapeHtml(r.title)}</b><div class="muted">${escapeHtml(r.body)} · ${r.repeat_rule} · ${new Date(String(r.scheduled_at).replace(' ', 'T') + 'Z').toLocaleString()}</div></div><div class="reminder-actions"><button class="ghost" data-rm-toggle="${r.id}">${r.enabled ? 'Pause' : 'Resume'}</button><button class="ghost danger" data-rm-delete="${r.id}">Delete</button></div></div>`).join('') : '<div class="muted">No scheduled motivation yet.</div>'}</div>`;
+  const status = msg => { const el = document.getElementById('rm-status'); if (el) el.textContent = msg; };
+  document.getElementById('rm-add').onclick = async () => {
+    const r = await api('/reminders', { method: 'POST', body: { title: document.getElementById('rm-title').value, body: document.getElementById('rm-body').value, scheduled_at: document.getElementById('rm-time').value, repeat_rule: document.getElementById('rm-repeat').value } });
+    if (r.error) { status(r.hint || r.error); return; }
+    status('Motivation scheduled.'); renderReminders();
+  };
+  box.querySelectorAll('[data-rm-toggle]').forEach(btn => btn.onclick = async () => { const row = rows.find(x => x.id === btn.dataset.rmToggle); await api('/reminders/' + row.id, { method: 'PATCH', body: { enabled: !row.enabled } }); renderReminders(); });
+  box.querySelectorAll('[data-rm-delete]').forEach(btn => btn.onclick = async () => { await api('/reminders/' + btn.dataset.rmDelete, { method: 'DELETE' }); renderReminders(); });
+}
+
 async function renderPush() {
   const box = document.getElementById('push-body');
   if (!box) return;

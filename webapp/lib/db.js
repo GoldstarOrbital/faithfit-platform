@@ -135,6 +135,19 @@ CREATE TABLE IF NOT EXISTS notifications (
   read INTEGER DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS user_reminders (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  scheduled_at TEXT NOT NULL,
+  repeat_rule TEXT NOT NULL DEFAULT 'once',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  last_sent_at TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_user_reminders_due ON user_reminders(enabled, scheduled_at);
+
 CREATE TABLE IF NOT EXISTS groups (
   id TEXT PRIMARY KEY,
   name TEXT,

@@ -17,6 +17,7 @@ const contexts = require('../lib/contexts');
 const apikeys = require('../lib/apikeys');
 const push = require('../lib/push');
 const daily = require('../lib/daily');
+const reminders = require('../lib/reminders');
 const segments = require('../lib/segments');
 const overlay = require('../lib/overlay');
 const usernames = require('../lib/usernames');
@@ -2868,6 +2869,40 @@ router.post('/push/test', requireAuth, async (req, res) => {
 
 router.get('/push/history', requireAuth, (req, res) => {
   res.json({ sent: push.history(req.session.userId, req.query.limit) });
+});
+
+// Personal motivation is opt-in and user-authored. The scheduler creates the
+// in-app notification first, then attempts the home-screen push if reminders
+// are enabled on one of the member's subscriptions.
+router.get('/reminders', requireAuth, (req, res) => res.json(reminders.list(req.session.userId)));
+
+router.post('/reminders', requireAuth, (req, res) => {
+  const b = req.body || {};
+  const title = String(b.title || 'Keep moving').trim().slice(0, 80);
+  const body = String(b.body || '').trim().slice(0, 240);
+  const when = new Date(b.scheduled_at);
+  const repeat = ['once', 'daily', 'weekly'].includes(b.repeat_rule) ? b.repeat_rule : 'once';
+  if (!body) return res.status(400).json({ error: 'message_required' });
+  if (!title) return res.status(400).json({ error: 'title_required' });
+  if (Number.isNaN(when.getTime()) || when.getTime() < Date.now() - 30000) return res.status(400).json({ error: 'invalid_time', hint: 'Choose a time in the future.' });
+  const id = randomUUID();
+  db.prepare(`INSERT INTO user_reminders (id, user_id, title, body, scheduled_at, repeat_rule)
+    VALUES (?, ?, ?, ?, ?, ?)`).run(id, req.session.userId, title, body, reminders.sqlDate(when), repeat);
+  res.status(201).json(db.prepare('SELECT * FROM user_reminders WHERE id = ?').get(id));
+});
+
+router.patch('/reminders/:id', requireAuth, (req, res) => {
+  const current = db.prepare('SELECT * FROM user_reminders WHERE id = ? AND user_id = ?').get(req.params.id, req.session.userId);
+  if (!current) return res.status(404).json({ error: 'not_found' });
+  const enabled = req.body && req.body.enabled !== undefined ? (req.body.enabled ? 1 : 0) : current.enabled;
+  db.prepare('UPDATE user_reminders SET enabled = ? WHERE id = ? AND user_id = ?').run(enabled, current.id, req.session.userId);
+  res.json(db.prepare('SELECT * FROM user_reminders WHERE id = ?').get(current.id));
+});
+
+router.delete('/reminders/:id', requireAuth, (req, res) => {
+  const r = db.prepare('DELETE FROM user_reminders WHERE id = ? AND user_id = ?').run(req.params.id, req.session.userId);
+  if (!r.changes) return res.status(404).json({ error: 'not_found' });
+  res.json({ ok: true });
 });
 
 // Send yourself today's morning verse now — the real thing, same code path.
