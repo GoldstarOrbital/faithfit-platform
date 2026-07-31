@@ -35,6 +35,7 @@
 const gloo = require('./gloo');
 const youversion = require('./youversion');
 const moments = require('./moments');
+const contexts = require('./contexts');
 
 /**
  * Real text for a reference: the local verified library first, the YouVersion
@@ -73,6 +74,75 @@ function cleanNote(s, maxWords) {
   const words = t.split(' ');
   if (maxWords && words.length > maxWords) t = words.slice(0, maxWords).join(' ');
   return t;
+}
+
+// ---------------------------------------------------------------------------
+// The shared path: choose one verse from a vetted shortlist, write one line.
+// ---------------------------------------------------------------------------
+/**
+ * Every context in the app — mid-workout, mid-breath, or a heart rate that has
+ * climbed while sitting still — reduces to the same question: given what is
+ * actually true right now, which of these authored verses fits, and what is the
+ * one sentence worth saying about it?
+ *
+ * Keeping that in one function means the guardrails are in one place too. There
+ * is no second route by which a model's idea of a verse can reach a member.
+ *
+ * @param {object} o
+ *   label, blurb   what this moment is
+ *   facts          strings, each independently true and measured
+ *   candidates     authored references to choose among
+ *   framing        extra instruction specific to the context
+ */
+async function chooseVerse(o) {
+  if (!gloo.isConfigured()) return null;
+  if (!Array.isArray(o.candidates) || !o.candidates.length) return null;
+
+  const prompt =
+    `You are helping someone using a Christian fitness and wellbeing app. ` +
+    `Their situation right now: ${o.label} — ${o.blurb}\n\n` +
+    `What is actually true right now:\n` +
+    (o.facts && o.facts.length ? o.facts.map(f => '- ' + f).join('\n')
+                               : '- no sensor data available') +
+    `\n\nChoose the ONE scripture from this list that best meets this exact moment:\n` +
+    o.candidates.map(r => '- ' + r).join('\n') +
+    `\n\nReply with ONLY compact JSON, no prose and no code fence:\n` +
+    `{"reference":"<one reference exactly as written above>","note":"<one sentence, max 22 words>"}\n\n` +
+    `Rules for "note": speak to them directly and briefly. Do NOT quote, paraphrase, ` +
+    `or restate the verse — they will see its real text beside your sentence. ` +
+    `Do NOT claim anything about their body that is not listed above.` +
+    (o.framing ? '\n' + o.framing : '');
+
+  const res = await gloo.chatJson({
+    kind: o.kind || 'context_verse',
+    userId: o.userId,
+    tradition: o.tradition,
+    messages: [{ role: 'user', content: prompt }],
+    maxTokens: 800,
+    cacheDays: 30,
+  });
+  if (!res || !res.json) return null;
+
+  const reference = String(res.json.reference || '').trim();
+  if (!reference) return null;
+
+  const resolved = await resolveRef(reference, o.versionId);
+  if (!resolved) return null;                   // unresolvable -> discard
+
+  const note = cleanNote(res.json.note, 30);
+  if (!note) return null;
+
+  return {
+    reference: resolved.reference,
+    text: resolved.text,                        // text always from the resolver
+    note,
+    source: resolved.source,
+    version_id: resolved.version_id || null,
+    tradition: res.tradition || null,
+    model: res.model || null,
+    chosen_from: o.candidates.length,
+    cached: !!res.cached,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -126,51 +196,105 @@ async function momentVerse(opts) {
   }
   if (o.reason) facts.push(o.reason);
 
-  const prompt =
-    `You are helping someone mid-workout in a Christian fitness app. They are at this ` +
-    `moment: ${def.label} — ${def.blurb}\n\n` +
-    `What is actually true right now:\n` +
-    (facts.length ? facts.map(f => '- ' + f).join('\n') : '- no sensor data available') +
-    `\n\nChoose the ONE scripture from this list that best meets this exact moment:\n` +
-    candidates.map(r => '- ' + r).join('\n') +
-    `\n\nReply with ONLY compact JSON, no prose and no code fence:\n` +
-    `{"reference":"<one reference exactly as written above>","note":"<one sentence, max 22 words>"}\n\n` +
-    `Rules for "note": speak to them directly and briefly. Do NOT quote, paraphrase, ` +
-    `or restate the verse — they will see its real text beside your sentence. ` +
-    `Do NOT claim anything about their body that is not listed above.`;
-
-  const res = await gloo.chatJson({
+  return chooseVerse({
     kind: 'moment_verse',
-    userId: o.userId,
-    tradition: o.tradition,
-    messages: [{ role: 'user', content: prompt }],
-    maxTokens: 800,
-    // Same moment + same tradition + same shortlist recurs constantly across a
-    // session and across members; caching makes this affordable.
-    cacheDays: 30,
+    userId: o.userId, tradition: o.tradition, versionId: o.versionId,
+    label: def.label, blurb: def.blurb,
+    facts, candidates,
   });
-  if (!res || !res.json) return null;
+}
 
-  const reference = String(res.json.reference || '').trim();
-  if (!reference) return null;
+// ---------------------------------------------------------------------------
+// 1b. Scripture for guided breathing
+// ---------------------------------------------------------------------------
+/**
+ * The verse for a breathing pattern.
+ *
+ * Each pattern already ships with one authored reference, which is the same for
+ * everyone forever. This chooses from the shortlist for what the pattern is
+ * *for* — steadying before effort, coming to rest, winding down, waking up —
+ * and can take into account why the member opened it: a heart rate that was
+ * climbing is a different reason to breathe than bedtime.
+ */
+async function breathVerse(opts) {
+  const o = opts || {};
+  const context = String(o.context || '');
+  const def = contexts.CONTEXTS[context];
+  if (!def) return null;
 
-  const resolved = await resolveRef(reference, o.versionId);
-  if (!resolved) return null;                   // check 2: unresolvable -> discard
+  const seen = new Set(o.seenRefs || []);
+  const candidates = def.refs.filter(r => !seen.has(r));
+  if (!candidates.length) return null;
 
-  const note = cleanNote(res.json.note, 30);
-  if (!note) return null;
+  const facts = [];
+  if (o.patternName) facts.push(`about to breathe: ${o.patternName}`);
+  if (o.breathsPerMin) facts.push(`${o.breathsPerMin} breaths per minute`);
+  if (o.minutes) facts.push(`${o.minutes} minutes`);
+  // Only stated when it was actually measured, never as a mood.
+  if (o.aboveResting && o.restingHr) {
+    facts.push(`opened this with a measured heart rate ${o.aboveResting} bpm ` +
+               `above their resting rate of ${o.restingHr}`);
+  }
+  if (o.reason) facts.push(o.reason);
 
-  return {
-    reference: resolved.reference,
-    text: resolved.text,                        // check 3: text from the resolver
-    note,
-    source: resolved.source,
-    version_id: resolved.version_id || null,
-    tradition: res.tradition || null,
-    model: res.model || null,
-    chosen_from: candidates.length,
-    cached: !!res.cached,
-  };
+  return chooseVerse({
+    kind: 'breath_verse',
+    userId: o.userId, tradition: o.tradition, versionId: o.versionId,
+    label: def.label, blurb: def.blurb,
+    facts, candidates,
+    framing: 'They are about to sit still and breathe, not to exert themselves. ' +
+             'Keep the sentence quiet. Do NOT describe what their body is doing ' +
+             'or about to do — "your heart is calming", "your breathing is slowing" ' +
+             'are predictions, not measurements, and this app does not make them.',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 1c. Scripture for a heart rate that is up while the body is still
+// ---------------------------------------------------------------------------
+/**
+ * The hardest of the three, and the one with the strictest rule.
+ *
+ * A heart rate 20 bpm above resting at a desk is a measurement. It is NOT
+ * evidence of stress, anxiety, fear, or anything else happening inside someone,
+ * and this app does not get to decide which. Two people with identical readings
+ * may be dreading a meeting, recovering from coffee, fighting an infection, or
+ * about to propose to somebody.
+ *
+ * So the model is given the numbers and forbidden the interpretation. The
+ * framing below is not decoration — it is the mechanism, and it is why this
+ * function passes `facts` that contain only measured quantities.
+ */
+async function restVerse(opts) {
+  const o = opts || {};
+  const state = o.state || {};
+  const def = contexts.CONTEXTS[state.context];
+  if (!def) return null;                     // nothing to say without a real read
+
+  const seen = new Set(o.seenRefs || []);
+  const candidates = def.refs.filter(r => !seen.has(r));
+  if (!candidates.length) return null;
+
+  const facts = [];
+  if (state.hr) facts.push(`measured heart rate ${state.hr} bpm`);
+  if (state.resting_hr) facts.push(`their own resting heart rate is ${state.resting_hr} bpm`);
+  if (state.above_resting) facts.push(`${state.above_resting} bpm above resting`);
+  facts.push('they are not moving — no exercise accounts for this');
+  if (state.reason) facts.push(state.reason);
+
+  return chooseVerse({
+    kind: 'rest_verse',
+    userId: o.userId, tradition: o.tradition, versionId: o.versionId,
+    label: def.label, blurb: def.blurb,
+    facts, candidates,
+    framing:
+      'CRITICAL: you know their heart rate and nothing else. Do NOT tell them ' +
+      'they are stressed, anxious, worried, panicking, overwhelmed, or afraid — ' +
+      'you cannot know that, and being told the wrong feeling at a moment like ' +
+      'this is worse than being told nothing. Do not diagnose and do not give ' +
+      'medical advice. Speak to the God who is present, not to a mood you have ' +
+      'guessed at.',
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -251,4 +375,7 @@ async function askAboutVerse(opts) {
   };
 }
 
-module.exports = { momentVerse, askAboutVerse, resolveRef, cleanNote };
+module.exports = {
+  momentVerse, breathVerse, restVerse, askAboutVerse,
+  chooseVerse, resolveRef, cleanNote,
+};

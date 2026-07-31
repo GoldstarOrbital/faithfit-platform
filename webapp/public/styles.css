@@ -1612,3 +1612,8 @@ header.topbar .brand { gap: 0; }
   line-height: 1.4;
   opacity: .92;
 }
+
+/* The heart check: a measurement, presented as one. */
+.heart-check { margin-top: 16px; }
+.hc-read { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.hc-num { font-variant-numeric: tabular-nums; font-size: 1.3rem; font-weight: 600; }

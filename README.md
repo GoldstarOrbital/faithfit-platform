@@ -36,8 +36,10 @@ different jobs:
 | Why it | Values-aligned inference, and a `tradition` parameter no general model endpoint has | The canon, in 14 English translations, from the people who publish them |
 | Code | [`webapp/lib/gloo.js`](webapp/lib/gloo.js) | [`webapp/lib/youversion.js`](webapp/lib/youversion.js) |
 
-They meet in exactly one place — [`webapp/lib/companion.js`](webapp/lib/companion.js) —
-and that file exists to enforce one rule:
+Scripture is supplied in three places, all through one verified path in
+[`webapp/lib/companion.js`](webapp/lib/companion.js): **mid-workout**,
+**during breathwork**, and **when your heart rate is up while you're sitting
+still**. That file exists to enforce one rule:
 
 > **A model never produces scripture.**
 
@@ -83,6 +85,39 @@ evangelical → Hebrews 12:1     catholic → Galatians 6:9
 
 Selection stays inside scripture a human already vetted for that moment; the
 judgement about which one fits *now* is made with the real numbers in hand.
+
+**Scripture while you breathe.** Each breathing pattern used to ship one
+authored verse, identical for everyone forever. Now the verse is chosen from a
+shortlist matched to what the pattern is *for* — steadying before effort,
+coming to rest, winding down, waking up — in your tradition, and it can take
+account of why you opened it.
+
+**Scripture when your heart rate is up at a desk.** The third context, and the
+one with the strictest rule in the codebase. `POST /api/checkin/heart` compares
+a live monitor reading against **your own measured resting rate**, using
+heart-rate reserve rather than raw bpm (+20 is a lot at a resting rate of 48 and
+unremarkable at 78), and offers scripture plus a breathing pattern.
+
+It refuses to speak without the evidence. No monitor, no resting baseline, or
+you're moving → it says exactly what is missing instead of producing a softer
+answer from thinner evidence. `"Elevated" is a comparison, and comparing to an
+estimate would not mean anything.` A single high reading is a twitch, not a
+state, so it requires a sustained one.
+
+And it never tells you what you are feeling:
+
+> A heart rate is a measurement. Stress, anxiety, fear and dread are not — they
+> are interpretations of a measurement, and a wrong one lands on someone at the
+> worst possible moment.
+
+Two people with identical readings may be dreading a meeting, recovering from
+coffee, fighting an infection, or about to propose to somebody. So the model
+gets the numbers and is explicitly forbidden the interpretation — it may not
+call you stressed, anxious, worried, panicking, overwhelmed or afraid, may not
+diagnose, and may not predict what your body is about to do. It reports what was
+measured, offers scripture, and offers a way to breathe. What the reading *means*
+is yours to say. A test asserts no context label or blurb in the app names a
+feeling.
 
 **Scripture as conversation.** Verse threads gained a companion that answers the
 question which stalls a thread — what a word meant, who was being addressed — in

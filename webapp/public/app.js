@@ -3441,8 +3441,96 @@ async function renderBreathe(body) {
     + '</div>';
 
   body.querySelectorAll('[data-bkey]').forEach(b => {
-    b.onclick = () => startBreathe(body, patterns.find(p => p.key === b.dataset.bkey));
+    b.onclick = () => { breatheCameFrom = {}; startBreathe(body, patterns.find(p => p.key === b.dataset.bkey)); };
   });
+
+  wireHeartCheck(body, patterns);
+}
+
+// Context carried from a heart check-in into the pattern it suggested, so the
+// verse can take account of a measured delta. Cleared whenever a pattern is
+// opened directly — it must never outlive the reading it came from.
+let breatheCameFrom = {};
+
+/**
+ * The heart check.
+ *
+ * A heart rate that climbs at a desk, with no effort to explain it, is the
+ * third place this app offers scripture. It reports what the strap measured
+ * against the member's own resting rate — and nothing else. It does not name a
+ * feeling, because it cannot know one, and being told the wrong feeling at a
+ * moment like that is worse than being told nothing.
+ */
+async function wireHeartCheck(body, patterns) {
+  const card = document.createElement('div');
+  card.className = 'card glass heart-check';
+  card.innerHTML =
+      '<h3 style="margin:0 0 4px">Heart check</h3>'
+    + '<p class="muted" style="font-size:.82rem;margin:0 0 10px">'
+    + 'Sitting still and your heart rate is up? Connect a monitor and see what it '
+    + 'actually reads against your own resting rate.</p>'
+    + '<button class="ghost" id="hc-start">Connect monitor</button>'
+    + '<div id="hc-out" style="margin-top:10px"></div>';
+  body.appendChild(card);
+
+  const out = document.getElementById('hc-out');
+  document.getElementById('hc-start').onclick = async () => {
+    const S = window.FunctioningFaithSensors;
+    if (!S || !S.connectHr) { out.innerHTML = '<p class="muted">Heart-rate pairing is not available in this browser.</p>'; return; }
+    out.innerHTML = '<p class="muted">Pairing…</p>';
+
+    const samples = [];
+    try {
+      await S.connectHr((r) => { if (r && r.hr) samples.push(r.hr); });
+    } catch {
+      out.innerHTML = '<p class="muted">No monitor connected.</p>';
+      return;
+    }
+
+    // Hold for a few seconds: one reading is a twitch, not a state, and the
+    // server will refuse to classify a single sample anyway.
+    out.innerHTML = '<p class="muted">Reading… hold still for a few seconds.</p>';
+    await new Promise(r => setTimeout(r, 8000));
+    if (samples.length < 3) { out.innerHTML = '<p class="muted">Not enough readings came through. Try again.</p>'; return; }
+
+    let res;
+    try {
+      res = await api('/checkin/heart', { method: 'POST', body: {
+        hr: samples[samples.length - 1], hr_measured: true,
+        recent_hr: samples.slice(-10), moving: false,
+      }});
+    } catch { out.innerHTML = '<p class="muted">Could not complete the check.</p>'; return; }
+
+    // Nothing measurable: say exactly what is missing rather than softening it.
+    if (!res.context) {
+      out.innerHTML = '<p class="muted">' + escapeHtml(res.hint || res.reason || 'Nothing to flag.') + '</p>';
+      return;
+    }
+
+    out.innerHTML =
+        '<div class="hc-read"><b>' + escapeHtml(res.label) + '</b>'
+      +   '<span class="hc-num">' + res.hr + ' bpm</span></div>'
+      + '<div class="muted" style="font-size:.8rem">' + escapeHtml(res.reason) + '</div>'
+      + (res.verse ? '<div class="verse-card verse-tappable" style="margin-top:10px" data-verse-ref="'
+          + escapeHtml(res.verse.reference) + '">'
+          + '<div class="verse-ref">' + escapeHtml(res.verse.reference) + '</div>'
+          + '<div class="verse-text">' + escapeHtml(res.verse.text) + '</div>'
+          + (res.verse.note ? '<div class="moment-note">' + escapeHtml(res.verse.note) + '</div>' : '')
+          + '<div class="verse-convo">💬 Talk about this</div></div>' : '')
+      + (res.suggested_pattern ? '<button class="primary" id="hc-breathe" style="margin-top:10px">'
+          + 'Breathe · ' + escapeHtml(res.suggested_pattern.name) + '</button>' : '');
+
+    const v = out.querySelector('[data-verse-ref]');
+    if (v) v.onclick = () => renderVerseThread(v.dataset.verseRef);
+
+    const go = document.getElementById('hc-breathe');
+    if (go) go.onclick = () => {
+      // Carry the measured delta — never an interpretation of it — into the
+      // breathing screen so its verse can account for why they came.
+      breatheCameFrom = { aboveResting: res.above_resting };
+      startBreathe(body, patterns.find(p => p.key === res.suggested_pattern.key));
+    };
+  };
 }
 
 function startBreathe(body, pattern) {
@@ -3470,8 +3558,36 @@ function startBreathe(body, pattern) {
     + '</div>';
 
   document.getElementById('br-back').onclick = () => { stopBreathe(true); renderBreathe(body); };
-  const verse = body.querySelector('[data-verse-ref]');
-  if (verse) verse.onclick = () => { stopBreathe(true); renderVerseThread(verse.dataset.verseRef); };
+  const wireVerseTap = () => {
+    const v = body.querySelector('[data-verse-ref]');
+    if (v) v.onclick = () => { stopBreathe(true); renderVerseThread(v.dataset.verseRef); };
+  };
+  wireVerseTap();
+
+  // Ask for scripture chosen for what this pattern is *for*, in this member's
+  // tradition, rather than the one reference the catalogue ships for everyone.
+  // The authored verse above is already on screen, so if this never returns —
+  // no credentials, unreachable, failed a check — nothing changes.
+  (async () => {
+    if (!(await aiAvailable())) return;
+    let res;
+    try {
+      res = await api(`/breathing/${encodeURIComponent(pattern.key)}/verse`, {
+        method: 'POST',
+        body: { above_resting: breatheCameFrom.aboveResting || null },
+      });
+    } catch { return; }
+    if (!res || res.error || !res.verse || res.verse.chosen_by !== 'gloo') return;
+    const card = body.querySelector('.breathe-verse');
+    if (!card) return;
+    card.dataset.verseRef = res.verse.reference;
+    card.innerHTML =
+        '<div class="verse-ref">' + escapeHtml(res.verse.reference) + '</div>'
+      + '<div class="verse-text">' + escapeHtml(res.verse.text) + '</div>'
+      + (res.verse.note ? '<div class="moment-note">' + escapeHtml(res.verse.note) + '</div>' : '')
+      + '<div class="verse-convo">💬 Talk about this</div>';
+    wireVerseTap();
+  })();
 
   const orb = document.getElementById('br-orb');
   const phaseEl = document.getElementById('br-phase');

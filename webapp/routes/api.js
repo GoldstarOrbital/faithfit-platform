@@ -13,6 +13,7 @@ const { hashPassword, verifyPassword } = require('../lib/password');
 const { ensureChallenges, applyWorkoutToChallenges } = require('../lib/challenges');
 const { ensureJourneys, applyWorkoutToJourneys, advanceJourney, lookupScriptureText } = require('../lib/journeys');
 const moments = require('../lib/moments');
+const contexts = require('../lib/contexts');
 const segments = require('../lib/segments');
 const overlay = require('../lib/overlay');
 const usernames = require('../lib/usernames');
@@ -2453,6 +2454,113 @@ router.get('/verses/:reference/thread', (req, res) => {
     verse: row,
     reflections: reflectionRows(thread.id, meId),
   });
+});
+
+// --- A heart rate that is up while the body is still -----------------------
+// The third place scripture is supplied, alongside workouts and breathing: at a
+// desk, mid-afternoon, when the number climbs and no effort explains it.
+//
+// This route reports a measurement and offers scripture and a way to breathe.
+// It does not tell anyone what they are feeling — see lib/contexts.js. When the
+// inputs are not there (no monitor, no resting baseline) it says exactly what
+// is missing rather than producing a softer answer from thinner evidence.
+router.post('/checkin/heart', requireAuth, async (req, res) => {
+  const b = req.body || {};
+  const me = db.prepare('SELECT max_hr, resting_hr, birth_year, tradition, bible_version_id FROM users WHERE id = ?')
+    .get(req.session.userId) || {};
+
+  const state = contexts.classifyRest({
+    // Heart rate is passed through only when it came from a real monitor.
+    hr: b.hr_measured ? b.hr : null,
+    recent_hr: b.hr_measured ? b.recent_hr : null,
+    resting_hr: me.resting_hr,
+    max_hr: effortLib.estimatedMaxHr(me),
+    moving: !!b.moving,
+  });
+
+  // Nothing measurable to act on: return the state and what would fix it.
+  if (!state.context) return res.json({ ...state, verse: null, suggested_pattern: null });
+
+  const seen = Array.isArray(b.seen_refs) ? b.seen_refs.map(String) : [];
+  let verse = null;
+  try {
+    const picked = await companion.restVerse({
+      userId: req.session.userId,
+      tradition: me.tradition,
+      versionId: me.bible_version_id,
+      state, seenRefs: seen,
+    });
+    if (picked) verse = { ...picked, chosen_by: 'gloo' };
+  } catch { /* authored fallback below */ }
+
+  if (!verse) {
+    const tried = seen.slice();
+    for (let i = 0; i < 6 && !verse; i++) {
+      const ref = contexts.pickRef(state.context, tried);
+      if (!ref) break;
+      const text = lookupScriptureText(ref);
+      if (text) verse = { reference: ref, text, chosen_by: 'authored' };
+      else tried.push(ref);
+    }
+  }
+
+  const patternKey = contexts.suggestPattern(state.context);
+  const pattern = patternKey ? breathwork.byKey(patternKey) : null;
+
+  res.json({
+    ...state,
+    verse,
+    suggested_pattern: pattern
+      ? { key: pattern.key, name: pattern.name, tagline: pattern.tagline,
+          minutes: pattern.default_minutes }
+      : null,
+  });
+});
+
+// --- Scripture for a breathing pattern -------------------------------------
+// The catalogue ships one authored verse per pattern, identical for everyone.
+// This chooses from the shortlist for what the pattern is *for*, in the
+// member's tradition, and can take account of why they opened it.
+router.post('/breathing/:key/verse', requireAuth, async (req, res) => {
+  const pattern = breathwork.byKey(req.params.key);
+  if (!pattern) return res.status(404).json({ error: 'unknown_pattern' });
+
+  const me = db.prepare('SELECT resting_hr, tradition, bible_version_id FROM users WHERE id = ?')
+    .get(req.session.userId) || {};
+  const b = req.body || {};
+  const context = contexts.contextForPattern(pattern.key);
+
+  const seen = Array.isArray(b.seen_refs) ? b.seen_refs.map(String) : [];
+  let verse = null;
+  try {
+    const picked = await companion.breathVerse({
+      userId: req.session.userId,
+      tradition: me.tradition,
+      versionId: me.bible_version_id,
+      context,
+      patternName: pattern.name,
+      minutes: pattern.default_minutes,
+      breathsPerMin: Math.round((60 / breathwork.cycleSeconds(pattern)) * 10) / 10,
+      // Carried over from a heart check-in, when that is why they came here.
+      // Only ever a measured delta, never a mood.
+      aboveResting: Number(b.above_resting) || null,
+      restingHr: me.resting_hr || null,
+      seenRefs: seen,
+    });
+    if (picked) verse = { ...picked, chosen_by: 'gloo' };
+  } catch { /* authored fallback below */ }
+
+  if (!verse) {
+    const tried = seen.slice();
+    for (let i = 0; i < 6 && !verse; i++) {
+      const ref = contexts.pickRef(context, tried) || pattern.scripture_ref;
+      const text = lookupScriptureText(ref);
+      if (text) { verse = { reference: ref, text, chosen_by: 'authored' }; break; }
+      tried.push(ref);
+    }
+  }
+
+  res.json({ pattern: pattern.key, context, verse });
 });
 
 // What the AI integration is, and what it has actually been doing. Public and
