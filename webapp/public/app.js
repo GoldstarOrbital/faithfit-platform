@@ -2665,8 +2665,10 @@ async function renderJourneyDetail(key) {
     + '<span class="journey-world">' + (JOURNEY_WORLD_LABEL[j.world] || escapeHtml(j.world)) + '</span></div>'
     + '<div class="journey-world-wrap" id="journey-world-wrap">'
     +   '<canvas id="journey-world"></canvas>'
-    +   '<div class="journey-world-hud"><span id="jw-km">' + fmtKm(prog) + '</span>'
+    +   '<div class="journey-world-hud"><span class="jw-live-dot"></span><span class="jw-live-label">COURSE PREVIEW</span><span id="jw-km">' + fmtKm(prog) + '</span>'
     +     '<small> / ' + fmtKm(j.total_km) + ' km</small></div>'
+    +   '<div class="journey-world-stats"><span><b>' + (j.elevation_m || 0) + '</b><small>m ascent</small></span><span><b>' + escapeHtml(j.terrain || 'route') + '</b><small>terrain</small></span></div>'
+    +   '<div class="journey-minimap"><div class="journey-minimap-label">COURSE MAP</div>' + journeyMapSvg(j, data.waypoints, prog) + '</div>'
     +   '<div class="journey-world-fallback" id="journey-world-fallback" hidden></div>'
     + '</div>'
     + (j.terrain === 'climb'
@@ -2685,6 +2687,7 @@ async function renderJourneyDetail(key) {
       : '<div class="journey-meta">' + fmtKm(j.total_km) + ' km · ' + escapeHtml(j.terrain || '')
         + (j.elevation_m ? ' · ' + j.elevation_m + ' m' : '')
         + ' · best on a ' + escapeHtml(j.activity_hint || 'any') + '</div>')
+    + (data.next_waypoint ? '<div class="journey-next-card"><span class="jw-next-kicker">NEXT WAYPOINT</span><strong>' + escapeHtml(data.next_waypoint.title) + '</strong><span>' + fmtKm(data.next_waypoint.km_remaining) + ' km ahead</span></div>' : '')
     + '<div class="journey-actions">'
     + (data.joined && !data.completed
       ? '<button class="primary journey-ride-btn" id="journey-ride">▶ Travel this route</button>' : '')

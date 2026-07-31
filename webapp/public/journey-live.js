@@ -155,6 +155,7 @@ async function renderJourneyLive(key) {
     '    <div class="live-moment" id="live-moment" hidden></div>',
     '    <div class="live-gaps" id="live-gaps" hidden></div>',
     '    <div class="live-split" id="live-split" hidden></div>',
+    '    <div class="live-minimap"><div class="journey-minimap-label">COURSE</div>' + journeyMapSvg(j, data.waypoints, startKm) + '</div>',
     '  </div>',
     '  <div class="card glass live-panel">',
     '    <div class="challenge-track"><span id="live-bar" style="width:' + (data.percent || 0) + '%"></span></div>',
