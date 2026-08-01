@@ -1486,6 +1486,13 @@ header.topbar .xp-ring::before, nav.tabbar .xp-ring::before { background: var(--
 .dm-compose .input { flex:1; min-width:0; }
 .dm-compose .primary { padding:11px 20px; }
 .dm-blocked-note { text-align:center; padding:14px; font-size:.85rem; }
+.dm-verse { padding:6px 10px !important; font-size:.74rem !important; }
+.verse-share-actions, .verse-dm-actions { display:flex; gap:7px; flex-wrap:wrap; margin-top:10px; }
+.verse-share-actions .ghost { padding:6px 9px; font-size:.7rem; }
+.verse-dm-card { padding:13px 14px; border-radius:16px; background:linear-gradient(145deg,#fffdf4,#eef2da); border:1px solid rgba(123,168,79,.28); border-left:3px solid var(--gold-2); }
+.verse-dm-card .verse-ref { margin-top:5px; }
+.verse-dm-card .verse-text { margin-top:6px; font-family:var(--reading); line-height:1.45; }
+.verse-dm-actions button { min-height:32px; padding:6px 10px; font-size:.72rem; }
 
 
 /* Publishing a route is opt-in, and the control says why. */

@@ -3058,6 +3058,16 @@ router.get('/push/history', requireAuth, (req, res) => {
   res.json({ sent: push.history(req.session.userId, req.query.limit) });
 });
 
+// A safe, canonical link that opens the verified verse in the app. The link is
+// intentionally just a deep link; no private user/session data is embedded.
+router.get('/verses/:reference/share', async (req, res) => {
+  const { row, error, hint } = await resolveVerseReferenceFull(req.params.reference);
+  if (error) return res.status(400).json({ error, hint });
+  const reference = `${row.book} ${row.chapter}:${row.verse}`;
+  const relative = `/?open=verse&ref=${encodeURIComponent(reference)}`;
+  res.json({ reference, url: relative, absolute_url: `${baseUrl(req)}${relative}` });
+});
+
 // Personal motivation is opt-in and user-authored. The scheduler creates the
 // in-app notification first, then attempts the home-screen push if reminders
 // are enabled on one of the member's subscriptions.
@@ -3830,6 +3840,21 @@ router.post('/dms/:threadId', requireAuth, (req, res) => {
   notify(r.recipient_id, 'dm', `${displayName(req.session.userId)} sent you a message.`,
     { thread_id: req.params.threadId });
   res.status(201).json({ message: r.message });
+});
+
+router.post('/dms/:threadId/verse', requireAuth, async (req, res) => {
+  const { row, error, hint } = await resolveVerseReferenceFull(req.body && req.body.reference);
+  if (error) return res.status(400).json({ error, hint });
+  const reference = `${row.book} ${row.chapter}:${row.verse}`;
+  const thread = dms.threadFor(req.session.userId, req.params.threadId);
+  if (!thread) return res.status(404).json({ error: 'not_found' });
+  const shareUrl = `/?open=verse&ref=${encodeURIComponent(reference)}`;
+  const sent = dms.send(req.session.userId, req.params.threadId, `Shared ${reference}`, {
+    kind: 'verse', metadata: { reference, text: row.text, share_url: shareUrl },
+  });
+  if (sent.error) return res.status(sent.error === 'blocked' ? 403 : 400).json(sent);
+  notify(sent.recipient_id, 'dm', `${displayName(req.session.userId)} shared ${reference} with you.`, { thread_id: req.params.threadId });
+  res.status(201).json({ message: sent.message, verse: { reference, text: row.text }, share_url: shareUrl });
 });
 
 // Planned workout invitations travel as rich DM cards, so both people have the

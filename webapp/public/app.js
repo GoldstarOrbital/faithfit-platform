@@ -3020,10 +3020,25 @@ function wireVerseCards(root) {
   const cards = [...scope.querySelectorAll('.verse-tappable[data-verse-ref]')];
   if (!cards.length) return;
   cards.forEach(card => {
+    if (!card.querySelector('.verse-share-actions')) {
+      const actions = document.createElement('div');
+      actions.className = 'verse-share-actions';
+      actions.innerHTML = '<button class="ghost" type="button" data-verse-share>Share link</button><button class="ghost" type="button" data-verse-dm>Send via DM</button>';
+      card.appendChild(actions);
+    }
     card.onclick = (e) => {
       e.stopPropagation();
+      if (e.target.closest('.verse-share-actions')) return;
       renderVerseThread(card.dataset.verseRef);
     };
+  });
+  scope.querySelectorAll('[data-verse-share]').forEach(btn => btn.onclick = async e => {
+    e.stopPropagation();
+    await shareVerseLink(btn.closest('[data-verse-ref]').dataset.verseRef);
+  });
+  scope.querySelectorAll('[data-verse-dm]').forEach(btn => btn.onclick = async e => {
+    e.stopPropagation();
+    await openVerseDmPicker(btn.closest('[data-verse-ref]').dataset.verseRef);
   });
   const refs = [...new Set(cards.map(c => c.dataset.verseRef))];
   api(`/verses/thread-summary?refs=${encodeURIComponent(refs.join('|'))}`).then(summary => {
@@ -3522,6 +3537,28 @@ async function renderApiKeys() {
     } catch (e) { if (status) status.textContent = e.message || 'Could not create key. Please try again.'; }
     finally { add.disabled = false; }
   };
+}
+
+async function shareVerseLink(reference) {
+  try {
+    const data = await api(`/verses/${encodeURIComponent(reference)}/share`);
+    await navigator.clipboard.writeText(`${location.origin}${data.url}`);
+    showToast(`${data.reference} link copied`);
+  } catch { showToast('Could not create that verse link.', true); }
+}
+
+async function openVerseDmPicker(reference) {
+  try {
+    const users = (await api('/users')).filter(u => !state.me?.user?.id || u.id !== state.me.user.id).slice(0, 24);
+    if (!users.length) return showToast('No friends are available to message yet.', true);
+    const choices = users.map((u, i) => `${i + 1}. ${u.display_name}`).join('\n');
+    const answer = prompt(`Send ${reference} to:\n\n${choices}\n\nEnter a number:`);
+    const index = Number(answer) - 1; const recipient = users[index];
+    if (!recipient) return;
+    const opened = await api(`/dms/with/${encodeURIComponent(recipient.id)}`, { method: 'POST' });
+    await api(`/dms/${encodeURIComponent(opened.thread_id)}/verse`, { method: 'POST', body: { reference } });
+    showToast(`${reference} sent to ${recipient.display_name}`);
+  } catch { showToast('Could not send that verse.', true); }
 }
 
 // --- Notifications panel ---------------------------------------------------
@@ -4273,6 +4310,21 @@ function renderWorkoutInviteMessage(m) {
     '</div><div class="dm-meta">' + dmTime(m.created_at) + '</div></div>';
 }
 
+function renderVerseMessage(m) {
+  const d = m.metadata || {};
+  return '<div class="dm-msg verse-dm-message' + (m.from_me ? ' mine' : '') + '">' +
+    '<div class="verse-dm-card"><div class="eyebrow">Scripture shared with you</div>' +
+    '<div class="verse-ref">' + escapeHtml(d.reference || 'Bible verse') + '</div>' +
+    '<div class="verse-text">' + escapeHtml(d.text || '') + '</div>' +
+    '<div class="verse-dm-actions"><button class="primary" data-open-shared-verse="' + escapeHtml(d.reference || '') + '">Open verse</button><button class="ghost" data-copy-shared-verse="' + escapeHtml(d.reference || '') + '">Copy link</button></div>' +
+    '</div><div class="dm-meta">' + dmTime(m.created_at) + '</div></div>';
+}
+
+function wireVerseDmCards(root) {
+  root.querySelectorAll('[data-open-shared-verse]').forEach(btn => btn.onclick = () => renderVerseThread(btn.dataset.openSharedVerse));
+  root.querySelectorAll('[data-copy-shared-verse]').forEach(btn => btn.onclick = () => shareVerseLink(btn.dataset.copySharedVerse));
+}
+
 function wireWorkoutInviteCards(root) {
   root.querySelectorAll('[data-invite-accept],[data-invite-decline]').forEach(btn => {
     btn.onclick = async () => {
@@ -4298,7 +4350,7 @@ async function renderThread(threadId) {
     +   '<button class="ghost back-btn" id="dm-back">←</button>'
     +   avatarHtml(data.user, 'avatar-sm')
     +   '<span class="dm-head-name">' + escapeHtml(data.user.display_name) + '</span>'
-    +   (!data.blocked ? '<button class="primary dm-invite" id="dm-invite">Invite</button>' : '')
+    +   (!data.blocked ? '<button class="primary dm-invite" id="dm-invite">Invite</button><button class="ghost dm-verse" id="dm-verse">Verse</button>' : '')
     +   '<button class="ghost dm-block" id="dm-block">' + (data.blocked ? 'Unblock' : 'Block') + '</button>'
     + '</div>'
     + '<div class="dm-scroll" id="dm-scroll"></div>'
@@ -4317,6 +4369,7 @@ async function renderThread(threadId) {
   const paint = (msgs) => {
     scroll.innerHTML = msgs.map(m => (m.kind === 'workout_invite' && m.metadata)
       ? renderWorkoutInviteMessage(m)
+      : (m.kind === 'verse' && m.metadata) ? renderVerseMessage(m)
       : '<div class="dm-msg' + (m.from_me ? ' mine' : '') + '">'
       + '<div class="dm-bubble">' + escapeHtml(m.body) + '</div>'
       + '<div class="dm-meta">' + dmTime(m.created_at) + (m.from_me && m.read ? ' · read' : '') + '</div></div>').join('');
@@ -4324,9 +4377,17 @@ async function renderThread(threadId) {
     scroll.scrollTop = scroll.scrollHeight;
   };
   paint(data.messages);
+  wireVerseDmCards(scroll);
 
   const inviteButton = document.getElementById('dm-invite');
   if (inviteButton) inviteButton.onclick = () => openWorkoutInvite(data.user.id, data.user.display_name, threadId);
+  const verseButton = document.getElementById('dm-verse');
+  if (verseButton) verseButton.onclick = async () => {
+    const reference = prompt('Which verified verse should you send? Example: Philippians 4:13');
+    if (!reference) return;
+    try { await api(`/dms/${encodeURIComponent(threadId)}/verse`, { method: 'POST', body: { reference } }); const fresh = await api(`/dms/${encodeURIComponent(threadId)}`); paint(fresh.messages); wireVerseDmCards(scroll); }
+    catch (e) { showToast(e.error === 'verse_not_found' ? 'That verse could not be verified.' : 'Could not send that verse.', true); }
+  };
   wireWorkoutInviteCards(scroll);
 
   const blockBtn = document.getElementById('dm-block');
@@ -4362,7 +4423,7 @@ async function renderThread(threadId) {
     try {
       const fresh = await api('/dms/' + encodeURIComponent(threadId));
       const newest = fresh.messages.length ? fresh.messages[fresh.messages.length - 1].id : null;
-      if (newest !== lastId) { paint(fresh.messages); wireWorkoutInviteCards(scroll); }
+      if (newest !== lastId) { paint(fresh.messages); wireWorkoutInviteCards(scroll); wireVerseDmCards(scroll); }
     } catch { /* keep the thread open; the next tick retries */ }
   }, 5000);
 }
