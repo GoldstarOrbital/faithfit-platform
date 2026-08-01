@@ -2136,19 +2136,32 @@ function startGps() {
       if (state.leafletMap) { state.leafletLine.addLatLng(pt); state.leafletMap.panTo(pt); }
     },
     (err) => {
-      state.gpsAccuracyM = null;
       // Code 1 is PERMISSION_DENIED: settled, and no amount of waiting changes
       // it. Codes 2 and 3 (position unavailable, timeout) can still resolve on
       // a later fix, so those keep the normal countdown and the watch stays up.
       const denied = !!(err && err.code === 1);
-      if (denied) state.gpsFatal = true;
+      if (denied) {
+        state.gpsFatal = true;
+        state.gpsAccuracyM = null;
+        state.gpsGoodFixes = 0;
+      }
+      // A transient miss must NOT discard the reading we already have.
+      // Throwing away a real ±12 m fix because the next acquisition timed out
+      // sent the gate back to "waiting for a fix", so on a slow receiver the
+      // accuracy on screen kept vanishing instead of visibly tightening.
       state.gpsStatus = denied
         ? 'Location permission denied — you can start anyway; route tracking is unavailable.'
-        : 'GPS is unavailable here — you can start anyway; route tracking may be limited.';
+        : (state.gpsAccuracyM != null
+            ? 'Still refining — last fix ±' + Math.round(state.gpsAccuracyM) + ' m.'
+            : 'GPS is unavailable here — you can start anyway; route tracking may be limited.');
       assessGps();
       updateGpsGate();
     },
-    { enableHighAccuracy: true, maximumAge: 2000, timeout: 8000 }
+    // A cold satellite lock routinely takes 15-45 seconds; timing out at 8
+    // interrupted the receiver before it ever settled, over and over.
+    // maximumAge 0 so the browser must actually acquire, rather than hand back
+    // a coarse cached position while we are trying to get an accurate one.
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 }
   );
 }
 function updateGpsGate() {
