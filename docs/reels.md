@@ -34,6 +34,39 @@ Two source kinds:
 - **queries** — the material is spread across many uploaders (film edits,
   television clips). Costs 100 units, so these run weekly, not per cycle.
 
+## Seeds
+
+`SEEDS` in `reel-sources.js` holds **19 hand-picked videos** — 10 Little House
+on the Prairie, 9 Highway to Heaven — inserted at boot with no API call and no
+quota, so the feed has real material on a cold start instead of waiting for an
+ingest cycle.
+
+These are the **only hardcoded video IDs in the app**, and every one was
+verified before being written down: pulled from the real channel and search
+pages in a browser, then confirmed individually through YouTube's public oEmbed
+endpoint, which returns the true title and uploader and fails for anything
+private or non-embeddable. The stored titles are the actual returned titles.
+
+That check earned its keep. The raw search pages also yielded a **Motorola ad, a
+Kerrygold ad and a Disney+ promo**, which look exactly like content in a list of
+IDs until you ask what they are.
+
+The Little House seeds are all from the official channel
+([@lhprairie](https://www.youtube.com/@lhprairie), "The official home of Little
+House on the Prairie®"). Highway to Heaven has no comparable official clip
+channel, so most of those are fan uploads and are correspondingly more likely to
+disappear — the liveness check covers that.
+
+Re-verify at any time (no key, no quota, exits non-zero on failure so it can
+gate a deploy):
+
+```bash
+node scripts/verify-reel-seeds.js
+```
+
+Seeding never overwrites a richer row that ingestion later fetched for the same
+video — a seed is a floor, not a ceiling.
+
 ## Safety
 
 `safeSearch=strict` is YouTube's filter and it is **not** sufficient alone. Two

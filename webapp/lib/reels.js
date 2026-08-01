@@ -29,7 +29,7 @@
 const { randomUUID } = require('crypto');
 const db = require('./db');
 const youtube = require('./youtube');
-const { CATEGORIES, screen } = require('./reel-sources');
+const { CATEGORIES, SEEDS, screen } = require('./reel-sources');
 
 // How long a video stays "seen" for one member. Long enough that the feed does
 // not loop back within a session or a day of casual use; short enough that a
@@ -93,6 +93,38 @@ function upsert(row) {
       last_checked_at = datetime('now'),
       dead_at = NULL
   `).run(row);
+}
+
+/**
+ * Insert the hand-verified seed videos.
+ *
+ * Runs at boot with no API call and no quota, so the feed has real Walnut Grove
+ * and Highway to Heaven material immediately instead of waiting on an ingest
+ * cycle. Idempotent, and it never overwrites a richer row that ingestion later
+ * fetched for the same video — the seed is a floor, not a ceiling.
+ */
+function seed() {
+  let added = 0;
+  for (const [category, list] of Object.entries(SEEDS)) {
+    for (const item of list) {
+      const exists = db.prepare('SELECT 1 FROM videos WHERE category = ? AND video_id = ?')
+        .get(category, item.id);
+      if (exists) continue;
+      const check = screen({ title: item.title, description: '' }, category);
+      if (!check.ok) continue;
+      upsert({
+        id: randomUUID(), category, video_id: item.id,
+        title: item.title, description: '',
+        thumbnail_url: `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
+        channel_title: null, published_at: null,
+        is_short: 1, language_flag: check.language_flag,
+        source_kind: 'seed', source_note: 'hand-verified via oEmbed',
+      });
+      added++;
+    }
+  }
+  if (added) console.log('[reels] seeded %d hand-verified video(s)', added);
+  return { added };
 }
 
 /**
@@ -358,6 +390,8 @@ function stats() {
 let timer = null;
 function start() {
   init();
+  // Seeds first: no API, no quota, so the feed is never empty on a cold start.
+  try { seed(); } catch (err) { console.error('[reels] seeding failed:', err.message); }
   if (!youtube.isConfigured()) {
     console.log('[reels] no YOUTUBE_API_KEY — no ingestion; existing library still serves');
     return;
@@ -372,6 +406,6 @@ function start() {
 }
 
 module.exports = {
-  start, init, ingest, pruneDead, feed, markSeen, stats,
+  start, init, seed, ingest, pruneDead, feed, markSeen, stats,
   SEEN_COOLDOWN_DAYS, CATEGORIES,
 };
