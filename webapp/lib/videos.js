@@ -87,9 +87,19 @@ async function resolveChannels() {
   const existing = new Set(
     db.prepare('SELECT category || \'::\' || channel_id AS k FROM video_sources').all().map(r => r.k)
   );
+  // Which search queries already produced a channel. Checked BEFORE the API
+  // call, not after: a channel search costs 100 quota units against a
+  // 10,000/day allowance, and the old order re-bought the same answer on every
+  // cycle -- thousands of units a day spent rediscovering channels already on
+  // file. A large part of why ingestion was failing with HTTP 429.
+  const resolvedQueries = new Set(
+    db.prepare("SELECT added_note FROM video_sources WHERE added_note IS NOT NULL").all()
+      .map(r => String(r.added_note).replace(/^resolved from search query "(.*)"$/, '$1'))
+  );
   let resolved = 0;
   for (const [category, queries] of Object.entries(SOURCES)) {
     for (const query of queries) {
+      if (resolvedQueries.has(query)) continue;   // on file already; do not re-buy it
       try {
         const results = await youtube.searchChannels(query);
         if (!results.length) continue;
@@ -104,6 +114,7 @@ async function resolveChannels() {
           added_note: `resolved from search query "${query}"`,
         });
         existing.add(key);
+        resolvedQueries.add(query);
         resolved++;
         console.log(`[videos] resolved ${category} channel: ${top.title} (query: "${query}")`);
       } catch (err) {
@@ -129,7 +140,7 @@ async function refreshVideos() {
   let updated = 0;
   for (const s of sources) {
     try {
-      const uploads = await youtube.fetchRecentUploads(s.channel_id, MAX_VIDEOS_PER_CHANNEL);
+      const uploads = await youtube.fetchUploadsCheap(s.channel_id, MAX_VIDEOS_PER_CHANNEL);
       for (const v of uploads) {
         if (s.category === 'food' && !isAppropriateVideo(v)) continue;
         upsert.run({

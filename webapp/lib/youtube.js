@@ -43,6 +43,90 @@ async function searchChannels(query) {
   })).filter(c => c.channelId && c.title);
 }
 
+/**
+ * Real video search.
+ *
+ * Channel search finds a publisher; this finds material. Some of what the reels
+ * feed wants — Rocky and Creed edits, Little House and Highway to Heaven clips —
+ * does not live on one official channel, so it has to be searched for as video.
+ *
+ * Three of these parameters are doing real work and should not be dropped:
+ *
+ *   safeSearch=strict       a family and church audience is the whole premise.
+ *   videoEmbeddable=true    a video that refuses to embed renders as an error
+ *                           box inside the reel. Asking YouTube to exclude them
+ *                           is the only way to know before we store it.
+ *   videoSyndicated=true    excludes videos that cannot be played outside
+ *                           youtube.com, which fail the same way.
+ *
+ * Returns [] rather than throwing when the key is absent or the query is empty.
+ */
+async function searchVideos(query, opts = {}) {
+  if (!isConfigured()) return [];
+  const q = String(query || '').trim();
+  if (!q) return [];
+  const params = [
+    'part=snippet',
+    'type=video',
+    'safeSearch=strict',
+    'videoEmbeddable=true',
+    'videoSyndicated=true',
+    `maxResults=${Math.min(50, Math.max(1, Number(opts.maxResults) || 12))}`,
+    `order=${encodeURIComponent(opts.order || 'relevance')}`,
+    `q=${encodeURIComponent(q)}`,
+  ];
+  if (opts.publishedAfter) params.push(`publishedAfter=${encodeURIComponent(opts.publishedAfter)}`);
+  if (opts.videoDuration) params.push(`videoDuration=${encodeURIComponent(opts.videoDuration)}`);
+
+  const data = await ytFetch(`search?${params.join('&')}`);
+  const items = Array.isArray(data.items) ? data.items : [];
+  return items.map(it => ({
+    videoId: it.id && it.id.videoId,
+    title: (it.snippet && it.snippet.title) || null,
+    description: (it.snippet && it.snippet.description) || '',
+    channelTitle: (it.snippet && it.snippet.channelTitle) || null,
+    channelId: (it.snippet && it.snippet.channelId) || null,
+    thumbnailUrl: (it.snippet && it.snippet.thumbnails
+      && (it.snippet.thumbnails.high || it.snippet.thumbnails.medium || it.snippet.thumbnails.default || {}).url) || null,
+    publishedAt: (it.snippet && it.snippet.publishedAt) || null,
+  })).filter(v => v.videoId && v.title);
+}
+
+/**
+ * Which of these video IDs are still alive and still embeddable.
+ *
+ * Unofficial clips — which is most of what a "Rocky edit" or a television clip
+ * is — get taken down or blocked routinely. A stored ID is a snapshot of a
+ * permission that can be revoked, so the feed has to re-check rather than
+ * assume. IDs the API does not return are gone.
+ */
+async function checkVideos(ids) {
+  if (!isConfigured() || !Array.isArray(ids) || !ids.length) return new Map();
+  const alive = new Map();
+  for (let i = 0; i < ids.length; i += 50) {          // API caps id lists at 50
+    const batch = ids.slice(i, i + 50);
+    try {
+      const data = await ytFetch('videos?part=status,snippet,contentDetails&id=' +
+        encodeURIComponent(batch.join(',')));
+      for (const it of (Array.isArray(data.items) ? data.items : [])) {
+        const s = it.status || {};
+        if (s.embeddable === false || s.privacyStatus === 'private') continue;
+        alive.set(it.id, {
+          videoId: it.id,
+          title: (it.snippet && it.snippet.title) || null,
+          durationIso: (it.contentDetails && it.contentDetails.duration) || null,
+        });
+      }
+    } catch (err) {
+      // A failed batch must not be read as "all of these are dead" — that would
+      // delete a working library on one bad request. Treat them as unknown.
+      console.error('[youtube] checkVideos batch failed:', err.message);
+      for (const id of batch) alive.set(id, { videoId: id, unknown: true });
+    }
+  }
+  return alive;
+}
+
 // Most recent real video uploaded by a channel, or null if none found.
 async function fetchLatestUpload(channelId) {
   if (!isConfigured() || !channelId) return null;
@@ -115,6 +199,55 @@ function startDevotionalRefresh() {
 }
 
 // Up to maxResults recent real videos uploaded by a channel, newest first.
+/**
+ * A channel's uploads playlist id, cached forever (it never changes).
+ *
+ * This exists to avoid `search`, which costs 100 quota units per call against a
+ * 10,000/day allowance. channels.list costs 1, and playlistItems.list costs 1,
+ * so reading a channel's recent uploads this way is a hundredth of the price of
+ * searching for them. Ingestion was exceeding the daily quota and failing with
+ * HTTP 429 on nearly every channel; this is the difference between "affordable
+ * twice a day" and "not affordable once".
+ */
+const uploadsPlaylistCache = new Map();
+async function uploadsPlaylistId(channelId) {
+  if (!isConfigured() || !channelId) return null;
+  if (uploadsPlaylistCache.has(channelId)) return uploadsPlaylistCache.get(channelId);
+  try {
+    const data = await ytFetch('channels?part=contentDetails&id=' + encodeURIComponent(channelId));
+    const items = Array.isArray(data.items) ? data.items : [];
+    const id = items.length && items[0].contentDetails
+      && items[0].contentDetails.relatedPlaylists
+      && items[0].contentDetails.relatedPlaylists.uploads;
+    const out = id || null;
+    uploadsPlaylistCache.set(channelId, out);
+    return out;
+  } catch (err) {
+    console.error('[youtube] uploadsPlaylistId failed:', err.message);
+    return null;
+  }
+}
+
+/** Recent uploads for a channel at 1 quota unit instead of 100. */
+async function fetchUploadsCheap(channelId, maxResults = 8) {
+  const playlist = await uploadsPlaylistId(channelId);
+  if (!playlist) return [];
+  const data = await ytFetch('playlistItems?part=snippet&maxResults=' +
+    Math.min(50, Math.max(1, maxResults)) + '&playlistId=' + encodeURIComponent(playlist));
+  const items = Array.isArray(data.items) ? data.items : [];
+  return items.map(it => {
+    const sn = it.snippet || {};
+    return {
+      videoId: sn.resourceId && sn.resourceId.videoId,
+      title: sn.title || null,
+      description: sn.description || '',
+      channelTitle: sn.channelTitle || null,
+      thumbnailUrl: sn.thumbnails && (sn.thumbnails.high || sn.thumbnails.medium || sn.thumbnails.default || {}).url,
+      publishedAt: sn.publishedAt || null,
+    };
+  }).filter(v => v.videoId && v.title && v.title !== 'Private video' && v.title !== 'Deleted video');
+}
+
 async function fetchRecentUploads(channelId, maxResults = 6) {
   if (!isConfigured() || !channelId) return [];
   const n = Math.min(50, Math.max(1, Number(maxResults) || 6));
@@ -174,5 +307,6 @@ async function fetchWeeklyServiceVideo(channelId) {
 
 module.exports = {
   isConfigured, searchChannels, fetchLatestUpload, refreshTodaysDevotionals, startDevotionalRefresh,
-  fetchRecentUploads, fetchWeeklyServiceVideo,
+  fetchRecentUploads, fetchWeeklyServiceVideo, searchVideos, checkVideos,
+  fetchUploadsCheap, uploadsPlaylistId,
 };

@@ -14,6 +14,7 @@ const { ensureChallenges, applyWorkoutToChallenges } = require('../lib/challenge
 const { ensureJourneys, applyWorkoutToJourneys, advanceJourney, lookupScriptureText } = require('../lib/journeys');
 const moments = require('../lib/moments');
 const contexts = require('../lib/contexts');
+const reels = require('../lib/reels');
 const apikeys = require('../lib/apikeys');
 const push = require('../lib/push');
 const daily = require('../lib/daily');
@@ -2349,9 +2350,32 @@ router.get('/reels', requireAuth, async (req, res) => {
     const ranked = picks.map(p => allowed.get(String(p.id))).filter(Boolean);
     if (ranked.length) { curatedChurch = ranked; chosenBy = 'gloo'; }
   }
+  // The curated catalogue -- Goggins and the fight films, Lewis and Tolkien,
+  // Walnut Grove and Highway to Heaven -- comes through the reels algorithm,
+  // which handles freshness, the category mix, and what this member has already
+  // been shown. See lib/reels.js.
+  let curated = { videos: [], recycled: false };
+  try { curated = reels.feed(req.session.userId, { limit: 30, familySafe: req.query.safe !== 'off' }); }
+  catch (err) { console.error('[reels] feed failed:', err.message); }
+
   const seen = new Set();
-  const videos = [...library, ...curatedChurch].filter(v => v.video_id && !seen.has(v.video_id) && (seen.add(v.video_id), true));
-  res.json({ videos, church_name: church?.name || me?.church_name || null, church_count: curatedChurch.length, chosen_by: chosenBy });
+  const videos = [...curated.videos, ...library, ...curatedChurch]
+    .filter(v => v.video_id && !seen.has(v.video_id) && (seen.add(v.video_id), true));
+
+  // Record what actually went out, so the next load is genuinely different.
+  try { reels.markSeen(req.session.userId, curated.videos.map(v => v.video_id)); }
+  catch (err) { console.error('[reels] markSeen failed:', err.message); }
+
+  res.json({
+    videos,
+    church_name: church?.name || me?.church_name || null,
+    church_count: curatedChurch.length,
+    chosen_by: chosenBy,
+    curated_count: curated.videos.length,
+    // Honest when the cooldown had to be relaxed: these are repeats, and the
+    // client can say so rather than presenting them as new.
+    recycled: !!curated.recycled,
+  });
 });
 
 // ---- AI sermon summary ("10 minute podcast review") ----

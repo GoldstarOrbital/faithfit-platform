@@ -18,6 +18,7 @@ const push = require('./lib/push');
 const daily = require('./lib/daily');
 const reminders = require('./lib/reminders');
 const publicApi = require('./routes/public-api');
+const reels = require('./lib/reels');
 
 seed();
 // Create the webhook tables and attach the dispatcher to the domain event bus.
@@ -36,6 +37,9 @@ gloo.start();
 // fits a moment, with the same guarantees the app gives its own members.
 apikeys.init();
 // Off-app reach. Both are inert without VAPID keys — no timer, nothing sent.
+// Reels: ingest the curated catalogue from real YouTube searches, screen it,
+// and keep checking that what we stored still plays.
+reels.start();
 push.start();
 daily.start();
 reminders.start();
