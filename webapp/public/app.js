@@ -10,16 +10,28 @@ const state = {
   splits: [], lastSplitKm: 0, lastSplitElapsed: 0, hrSamples: [],
   bleDevice: null, bleServer: null, bleConnected: false,
   breathePhase: 'idle',
+  homeCache: null,
 };
 
 let gpsStartedAt = null, gpsTicker = null;
 
 async function api(path, opts = {}) {
-  const res = await fetch('/api' + path, {
-    method: opts.method || 'GET',
-    headers: { 'Content-Type': 'application/json' },
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), opts.timeoutMs || 12000);
+  let res;
+  try {
+    res = await fetch('/api' + path, {
+      method: opts.method || 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      body: opts.body ? JSON.stringify(opts.body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('Request timed out');
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
   if (res.status === 401) { renderSignIn(); throw new Error('not_signed_in'); }
   const payload = await res.json();
   if (!res.ok && opts.throwOnError) {
@@ -285,7 +297,11 @@ function realRouteSvg(points) {
 
 async function renderHome(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
-  const [posts, users, suggested, rec, devo, churchVideos] = await Promise.all([api('/feed'), api('/users'), api('/users/suggested').catch(() => []), api('/recommendations').catch(() => null), api('/devotionals/today').catch(() => null), api('/church/videos').catch(() => null)]);
+  const critical = state.homeCache && state.homeCache.posts ? [state.homeCache.posts, state.homeCache.users] : await Promise.all([api('/feed'), api('/users')]);
+  const [posts, users] = critical;
+  const secondary = state.homeCache && state.homeCache.secondary;
+  const [suggested, rec, devo, churchVideos] = secondary || [[], null, null, null];
+  if (!state.homeCache) state.homeCache = { posts, users, secondary: null };
   const firstName = escapeHtml((state.me && state.me.user && state.me.user.display_name || 'friend').split(' ')[0]);
   main.innerHTML = `
     <section class="home-hero">
@@ -421,6 +437,7 @@ async function renderHome(main) {
   postsEl.querySelectorAll('.post-user[data-user]').forEach(el => el.onclick = () => renderUserProfile(el.dataset.user));
   postsEl.querySelectorAll('[data-like]').forEach(btn => btn.onclick = async () => {
     await api(`/posts/${btn.dataset.like}/like`, { method: 'POST' });
+    state.homeCache = null;
     renderHome(main);
   });
   postsEl.querySelectorAll('[data-comment-toggle]').forEach(btn => btn.onclick = () => {
@@ -432,6 +449,7 @@ async function renderHome(main) {
     const input = document.getElementById(`comment-input-${id}`);
     if (!input.value.trim()) return;
     await api(`/posts/${id}/comments`, { method: 'POST', body: { content: input.value } });
+    state.homeCache = null;
     renderHome(main);
   });
   postsEl.querySelectorAll('[data-vis]').forEach(sel => {
@@ -440,6 +458,7 @@ async function renderHome(main) {
       await fetch(`/api/posts/${sel.dataset.vis}/visibility`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ visibility: sel.value }),
       });
+      state.homeCache = null;
       renderHome(main);
     };
   });
@@ -449,6 +468,19 @@ async function renderHome(main) {
     try { await navigator.clipboard.writeText(url); btn.textContent = '✓ Link copied'; setTimeout(() => renderHome(main), 1200); }
     catch { prompt('Copy this share link:', url); }
   });
+  if (!state.homeCache.secondary) {
+    const cache = state.homeCache;
+    Promise.all([
+      api('/users/suggested').catch(() => []),
+      api('/recommendations').catch(() => null),
+      api('/devotionals/today').catch(() => null),
+      api('/church/videos').catch(() => null),
+    ]).then(data => {
+      if (state.homeCache !== cache) return;
+      cache.secondary = data;
+      if (state.tab === 'home' && document.getElementById('main') === main) renderHome(main);
+    });
+  }
 }
 
 // A tappable public profile for any member — social presence beyond the feed.
