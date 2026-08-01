@@ -5,3 +5,9 @@ node_modules/
 .github/workflows/
 webapp/data/*.db
 webapp/data/*.db-*
+
+# Rendered marketing video and frame exports (~359MB). Build outputs, not
+# source — the scripts that produce them live in tools/ and are tracked.
+# GitHub rejects files over 100MB, and binaries can never be removed from
+# history once pushed.
+marketing/

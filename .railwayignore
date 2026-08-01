@@ -1,0 +1,10 @@
+marketing/
+tools/
+ios/
+services/
+migrations/
+infra/
+integrations/
+docs/
+*.mp4
+*.webm

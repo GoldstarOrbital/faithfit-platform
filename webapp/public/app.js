@@ -844,6 +844,34 @@ async function renderExplore(main) {
   }
 }
 
+// --- Reel sound ------------------------------------------------------------
+// Sound is a preference, not a per-video chore. Once someone turns it on it
+// stays on for every reel after it, and it survives leaving the tab.
+//
+// The first reel of a first visit still starts muted, and that is not a choice
+// we get to make: browsers block autoplay with sound until the page has had a
+// real user gesture, and a video that silently refuses to start is worse than
+// one that starts quiet. After the first tap the preference carries.
+function reelsSoundOn() {
+  try { return localStorage.getItem('ff-reels-sound') === 'on'; } catch { return false; }
+}
+function setReelsSound(on) {
+  try { localStorage.setItem('ff-reels-sound', on ? 'on' : 'off'); } catch { /* private mode */ }
+}
+// Drive an already-playing embed without rebuilding it, so toggling sound does
+// not restart the video from the beginning.
+function reelCommand(iframe, func) {
+  try {
+    iframe.contentWindow.postMessage(
+      JSON.stringify({ event: 'command', func, args: [] }), '*');
+    return true;
+  } catch { return false; }
+}
+function reelSoundButton(on) {
+  return '<button type="button" class="reel-sound" data-reel-sound aria-pressed="' + (on ? 'true' : 'false') +
+         '" aria-label="' + (on ? 'Mute' : 'Unmute') + '">' + (on ? '🔊' : '🔇') + '</button>';
+}
+
 // Standalone short-form feed: Reels is intentionally separate from Videos so
 // it behaves like a scrollable social surface, not another category shelf.
 async function renderReelsTab(body) {
@@ -871,7 +899,7 @@ async function renderReelsTab(body) {
   if (!videos.length) { list.innerHTML = '<div class="card glass"><p class="muted">No reels in this filter yet. Fresh videos will appear here as the library refreshes.</p></div>'; return; }
   const labels = { food: 'Food + fitness', kids: 'Kids + family', fitness: 'Faith + movement', christian: 'Scripture + formation', motivational: 'Purpose + perseverance', veggietales: 'Kids + family', nickbare: 'Training + discipline', church: 'Your church' };
   list.innerHTML = videos.map(v => `<article class="reel-card" data-reel-card="${escapeHtml(v.video_id)}">
-    <div class="reel-frame video-thumb-wrap" data-reel-frame="${escapeHtml(v.video_id)}"><img loading="lazy" src="${escapeHtml(v.thumbnail_url || `https://i.ytimg.com/vi/${encodeURIComponent(v.video_id)}/hqdefault.jpg`)}" alt="${escapeHtml(v.title || 'Functioning Faith reel')}" /><span class="reel-play">▶</span><span class="reel-sound">Tap for sound</span></div>
+    <div class="reel-frame video-thumb-wrap" data-reel-frame="${escapeHtml(v.video_id)}"><img loading="lazy" src="${escapeHtml(v.thumbnail_url || `https://i.ytimg.com/vi/${encodeURIComponent(v.video_id)}/hqdefault.jpg`)}" alt="${escapeHtml(v.title || 'Functioning Faith reel')}" /><span class="reel-play">▶</span>${reelSoundButton(reelsSoundOn())}</div>
     <div class="reel-overlay"><span class="video-audience">${escapeHtml(labels[v.category] || 'Faith + movement')}</span><div class="reel-title">${escapeHtml(v.title || 'Short encouragement')}</div><div class="muted">${escapeHtml(v.channel_title || '')}</div></div>
   </article>`).join('');
   let activeCard = null;
@@ -879,7 +907,7 @@ async function renderReelsTab(body) {
     if (activeCard && activeCard !== card) {
       activeCard.classList.remove('is-active');
       const oldFrame = activeCard.querySelector('[data-reel-frame]');
-      if (oldFrame) oldFrame.innerHTML = `<img loading="lazy" src="${escapeHtml(oldFrame.dataset.thumbnail || `https://i.ytimg.com/vi/${encodeURIComponent(activeCard.dataset.reelCard)}/hqdefault.jpg`)}" alt="" /><span class="reel-play">▶</span><span class="reel-sound">Tap for sound</span>`;
+      if (oldFrame) oldFrame.innerHTML = `<img loading="lazy" src="${escapeHtml(oldFrame.dataset.thumbnail || `https://i.ytimg.com/vi/${encodeURIComponent(activeCard.dataset.reelCard)}/hqdefault.jpg`)}" alt="" /><span class="reel-play">▶</span>${reelSoundButton(reelsSoundOn())}`;
     }
     activeCard = card;
     card.classList.add('is-active');
@@ -887,8 +915,37 @@ async function renderReelsTab(body) {
     if (frame.querySelector('iframe')) return;
     const id = card.dataset.reelCard;
     frame.dataset.thumbnail = frame.querySelector('img')?.src || '';
-    frame.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?autoplay=1&mute=1&playsinline=1&controls=1&rel=0&modestbranding=1&enablejsapi=1" title="Functioning Faith reel" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe><span class="reel-sound">Tap for sound</span>`;
+    // The embed is built muted or unmuted to match the standing preference, so
+    // a reel someone scrolls to already sounds the way the last one did.
+    const on = reelsSoundOn();
+    frame.innerHTML = `<iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}?autoplay=1&mute=${on ? 0 : 1}&playsinline=1&controls=1&rel=0&modestbranding=1&enablejsapi=1" title="Functioning Faith reel" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>${reelSoundButton(on)}`;
   };
+
+  // One delegated handler for every sound button, present and future — the
+  // frames are rebuilt as reels scroll, so per-element handlers would be lost.
+  list.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-reel-sound]');
+    if (!btn) return;
+    // Don't let the tap fall through to the card and re-activate it.
+    e.stopPropagation();
+    e.preventDefault();
+
+    const on = !reelsSoundOn();
+    setReelsSound(on);
+
+    // Update the reel that is playing right now without restarting it.
+    const iframe = btn.parentElement && btn.parentElement.querySelector('iframe');
+    if (iframe) reelCommand(iframe, on ? 'unMute' : 'mute');
+
+    // And bring every button on screen into agreement, so the control never
+    // contradicts what is actually audible.
+    list.querySelectorAll('[data-reel-sound]').forEach(b => {
+      b.textContent = on ? '🔊' : '🔇';
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.setAttribute('aria-label', on ? 'Mute' : 'Unmute');
+    });
+  });
+
   const observer = new IntersectionObserver(entries => entries.forEach(entry => { if (entry.isIntersecting && entry.intersectionRatio >= 0.65) activate(entry.target); }), { root: list, threshold: [0.65] });
   list.querySelectorAll('[data-reel-card]').forEach(card => { observer.observe(card); card.onclick = () => activate(card); });
 }

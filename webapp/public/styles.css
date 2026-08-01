@@ -661,7 +661,7 @@ a:hover { color: var(--gold); }
 .journey-next-card{display:flex;align-items:center;gap:8px;margin-top:10px;padding:9px 11px;border-radius:12px;background:linear-gradient(100deg,rgba(70,192,127,.11),rgba(201,162,74,.12));border:1px solid rgba(70,192,127,.2)}
 .journey-next-card strong{font-size:.86rem}.journey-next-card span:last-child{margin-left:auto;font-size:.7rem;color:var(--muted)}.jw-next-kicker{font-size:.54rem;color:var(--forest);font-weight:850;letter-spacing:.08em}
 .journey-world-fallback .journey-map-wrap{margin:0}
-
+
 
 /* Developer webhooks panel */
 .wh-row{padding:10px 0;border-top:1px solid rgba(0,0,0,.08)}
@@ -909,7 +909,17 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
 .reel-frame img, .reel-frame iframe { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border:0; display:block; }
 .reel-frame:after { content:""; position:absolute; inset:0; pointer-events:none; background:linear-gradient(180deg,rgba(0,0,0,.12) 0%,transparent 38%,rgba(0,0,0,.82) 100%); }
 .reel-play { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:2.5rem; text-shadow:0 2px 12px rgba(0,0,0,.65); pointer-events:none; opacity:.88; }
-.reel-sound { position:absolute; right:14px; top:14px; z-index:2; padding:6px 9px; border:1px solid rgba(255,255,255,.22); border-radius:999px; color:#fff; background:rgba(0,0,0,.42); backdrop-filter:blur(8px); font-size:.65rem; font-weight:750; }
+/* A real two-way control now, not a one-way "tap for sound" label: it sits
+   above the player, is big enough to hit on a phone, and says which state it
+   is in rather than only what tapping would do. */
+.reel-sound { position:absolute; right:14px; top:14px; z-index:3; width:38px; height:38px;
+  display:flex; align-items:center; justify-content:center; padding:0; cursor:pointer;
+  border:1px solid rgba(255,255,255,.22); border-radius:999px; color:#fff;
+  background:rgba(0,0,0,.42); backdrop-filter:blur(8px); font-size:1rem; line-height:1;
+  -webkit-tap-highlight-color:transparent; transition:background .15s ease, transform .1s ease; }
+.reel-sound:hover { background:rgba(0,0,0,.62); }
+.reel-sound:active { transform:scale(.92); }
+.reel-sound:focus-visible { outline:2px solid #fff; outline-offset:2px; }
 .reel-overlay { position:absolute; z-index:2; left:16px; right:16px; bottom:18px; color:#fff; text-shadow:0 1px 8px rgba(0,0,0,.55); }
 .reel-overlay .muted { color:rgba(255,255,255,.75); margin-top:5px; }
 .reel-overlay .video-audience { color:#fff; background:rgba(70,192,127,.8); text-shadow:none; }
@@ -923,7 +933,7 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
 @media (min-width:700px) {
   #reels-list { max-width:440px; height:calc(100vh - 230px); margin:0 auto; box-shadow:0 16px 38px rgba(43,30,18,.22); }
 }
-
+
 
 /* Live HUD additions: gradient, live gaps to the real riders on this road,
    and the split panel shown when a timed segment closes. */
@@ -945,7 +955,7 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
 .live-split-time{font-size:1.7rem;font-weight:800;line-height:1.1;margin:2px 0;
   font-variant-numeric:tabular-nums}
 .live-split-note{font-size:.74rem;opacity:.85}
-
+
 
 /* Explore index: the whole catalogue at a glance, one tap into any section. */
 .explore-hero{margin:2px 0 14px}
@@ -977,7 +987,7 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
   .explore-grid{grid-template-columns:repeat(auto-fill,minmax(132px,1fr))}
   .explore-tile{padding:12px}
 }
-
+
 
 /* Live workout figures. Anything not actually measured reads '--'. */
 .live-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;width:100%;margin:12px 0 4px}
@@ -994,7 +1004,7 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
   border-radius:8px;font-variant-numeric:tabular-nums}
 .lm-split:nth-child(odd){background:rgba(0,0,0,.035)}
 .lm-split.best{font-weight:700;color:var(--emerald-2,#46c07f)}
-
+
 
 /* Creator overlay panel */
 .ov-url{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.74rem;word-break:break-all;
@@ -1003,7 +1013,7 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
 .ov-actions button{font-size:.78rem;padding:5px 9px}
 .ov-actions .danger{color:#a33}
 .ov-hint{font-size:.75rem;margin-top:8px;line-height:1.45}
-
+
 
 /* Search */
 .topbar-icon-btn{display:inline-flex;align-items:center;justify-content:center;
@@ -1372,7 +1382,7 @@ input[type=search], input[type=url], select, textarea {
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
-
+
 
 /* ---------------------------------------------------------------------------
    XP ring.
@@ -1434,7 +1444,7 @@ input[type=search], input[type=url], select, textarea {
 
 /* On the dark top bar and tab bar the gap must match that surface, not the page. */
 header.topbar .xp-ring::before, nav.tabbar .xp-ring::before { background: var(--walnut-1); }
-
+
 
 /* Direct messages */
 .dm-row { display:flex; align-items:center; gap:11px; width:100%; text-align:left; padding:10px 12px;
@@ -1493,7 +1503,7 @@ header.topbar .xp-ring::before, nav.tabbar .xp-ring::before { background: var(--
 .verse-dm-card .verse-ref { margin-top:5px; }
 .verse-dm-card .verse-text { margin-top:6px; font-family:var(--reading); line-height:1.45; }
 .verse-dm-actions button { min-height:32px; padding:6px 10px; font-size:.72rem; }
-
+
 
 /* Publishing a route is opt-in, and the control says why. */
 .share-route { margin-top: 12px; padding: 12px; border: 1px solid var(--line);
@@ -1537,7 +1547,7 @@ header.topbar .xp-ring::before, nav.tabbar .xp-ring::before { background: var(--
    drawn under the face instead of around it. */
 .story-ring .xp-ring::before { inset: 3px; }
 .story-ring .xp-ring > .story-avatar { width: 100%; height: 100%; }
-
+
 
 /* Your own avatar is the one place the badge is really read, so the ring and
    its level are scaled up to match. */
@@ -1547,7 +1557,7 @@ header.topbar .xp-ring::before, nav.tabbar .xp-ring::before { background: var(--
   min-width: 23px; height: 23px; font-size: .74rem;
   right: 0; bottom: 0; border-width: 2.5px;
 }
-
+
 
 /* Held at the start line until GPS is actually usable. */
 .live-gps-gate { display:flex; align-items:center; gap:9px; margin-top:10px; padding:10px 12px;
@@ -1558,7 +1568,7 @@ header.topbar .xp-ring::before, nav.tabbar .xp-ring::before { background: var(--
   animation: gpsSpin .9s linear infinite; }
 @keyframes gpsSpin { to { transform: rotate(360deg); } }
 button.primary:disabled { opacity:.55; cursor:not-allowed; filter:saturate(.6); }
-
+
 
 /* GPS acquisition bar: red while the fix is not usable, green the moment it is,
    then it removes itself. Sits under the top bar and pushes nothing around. */
@@ -1586,7 +1596,7 @@ button.primary:disabled { opacity:.55; cursor:not-allowed; filter:saturate(.6); 
   .gps-bar { transition: none; }
   .gps-bar::before { animation: none; }
 }
-
+
 
 /* Your own training log */
 .wlog-row { display:flex; align-items:center; gap:10px; width:100%; text-align:left; font:inherit;
@@ -1633,7 +1643,7 @@ button.primary:disabled { opacity:.55; cursor:not-allowed; filter:saturate(.6); 
   border-radius:999px; padding:4px 10px; }
 .wd-actions { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:16px; }
 .wd-actions .danger { color:#a33; }
-
+
 
 /* Reading a verse in another translation. */
 .yv-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:10px;
@@ -1646,7 +1656,7 @@ button.primary:disabled { opacity:.55; cursor:not-allowed; filter:saturate(.6); 
   white-space:nowrap; }
 .yv-open:hover { text-decoration:underline; }
 .yv-note { font-size:.72rem; margin-top:5px; min-height:1em; }
-
+
 
 /* ---------------------------------------------------------------------------
    The mark.
