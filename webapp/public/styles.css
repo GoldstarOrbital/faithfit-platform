@@ -212,6 +212,7 @@ button.ghost:hover { background: var(--parch-1); border-color: var(--gold); }
 .start-stop-btn { width: 110px; height: 110px; border-radius: 50%; border: 3px solid var(--parch-2); font-family:'Cinzel',serif; font-size: 1rem; font-weight: 600; color: var(--parch-2); cursor: pointer; box-shadow: 0 8px 22px rgba(43,30,18,0.3); }
 .start-stop-btn.start { background: linear-gradient(180deg, var(--forest-2), var(--forest)); }
 .start-stop-btn.stop { background: linear-gradient(180deg, #a5493a, var(--seal)); }
+.start-stop-btn.start-degraded { background: linear-gradient(180deg, #c88d32, #9d6721); border-color: #f3c568; }
 .start-stop-btn:disabled { opacity: .52; cursor: wait; filter: saturate(.55); box-shadow: none; }
 .gps-gate { margin: 10px 0; padding: 10px 14px; border-color: rgba(217,154,63,.35); background: rgba(217,154,63,.10); }
 

@@ -3,6 +3,7 @@ const state = {
   activeWorkout: null, hrTimer: null, elapsed: 0, hr: 0,
   gpsWatchId: null, gpsPoints: [], leafletMap: null, leafletLine: null,
   gpsReady: false, gpsAccuracyM: null, gpsGoodFixes: 0, gpsStatus: null,
+  gpsWaitedMs: 0, gpsCanOverride: false,
   // Live workout telemetry. Times and altitudes run parallel to gpsPoints so the
   // Leaflet polyline keeps its [lat,lng] shape.
   gpsTimes: [], gpsAlt: [], elevGainM: 0, altRef: null,
@@ -10,6 +11,8 @@ const state = {
   bleDevice: null, bleServer: null, bleConnected: false,
   breathePhase: 'idle',
 };
+
+let gpsStartedAt = null, gpsTicker = null;
 
 async function api(path, opts = {}) {
   const res = await fetch('/api' + path, {
@@ -2004,24 +2007,66 @@ function initMap(alreadyTracking) {
 }
 
 // ---- Real GPS tracking via Geolocation API ----
+const GPS_ACCURACY_M = 50;
+const GPS_MIN_FIXES = 2;
+const GPS_OVERRIDE_AFTER_MS = 15000;
+
+function assessGps() {
+  const waited = gpsStartedAt ? Date.now() - gpsStartedAt : 0;
+  const acc = state.gpsAccuracyM;
+  state.gpsWaitedMs = waited;
+  // After 15 seconds, let the rider begin with whatever real location data
+  // exists. This prevents the Train tab from trapping people forever indoors,
+  // under buildings, or after a denied/unsupported GPS request.
+  state.gpsCanOverride = waited >= GPS_OVERRIDE_AFTER_MS;
+  if (acc == null) {
+    state.gpsReady = false;
+    state.gpsStatus = state.gpsCanOverride
+      ? 'GPS unavailable — you can start anyway; route tracking may be limited.'
+      : 'Waiting for an accurate GPS fix...';
+    return;
+  }
+  if (acc > GPS_ACCURACY_M) {
+    state.gpsReady = false;
+    state.gpsStatus = state.gpsCanOverride
+      ? 'GPS is ±' + Math.round(acc) + ' m — you can start anyway.'
+      : 'Getting an accurate fix... currently +/-' + Math.round(acc) + ' m';
+    return;
+  }
+  if (state.gpsGoodFixes < GPS_MIN_FIXES) {
+    state.gpsReady = false;
+    state.gpsStatus = state.gpsCanOverride
+      ? 'GPS is still settling — you can start anyway.'
+      : 'Confirming your location... (' + state.gpsGoodFixes + '/' + GPS_MIN_FIXES + ' good fixes)';
+    return;
+  }
+  state.gpsReady = true;
+  state.gpsStatus = 'GPS ready - +/-' + Math.round(acc) + ' m';
+}
+
 function startGps() {
   const statusEl = () => document.getElementById('gps-status');
   if (state.gpsWatchId != null) return;
-  if (!navigator.geolocation) { state.gpsStatus = 'GPS is not supported in this browser.'; if (statusEl()) statusEl().textContent = state.gpsStatus; updateGpsGate(); return; }
+  if (!navigator.geolocation) {
+    state.gpsCanOverride = true;
+    state.gpsStatus = 'GPS is not supported in this browser — you can start anyway; route tracking is unavailable.';
+    if (statusEl()) statusEl().textContent = state.gpsStatus;
+    updateGpsGate();
+    return;
+  }
   state.gpsReady = false; state.gpsAccuracyM = null; state.gpsGoodFixes = 0;
+  state.gpsCanOverride = false; state.gpsWaitedMs = 0; gpsStartedAt = Date.now();
   state.gpsStatus = 'Requesting a high-accuracy GPS fix...';
   state.gpsPoints = [];
+  if (gpsTicker) clearInterval(gpsTicker);
+  gpsTicker = setInterval(() => { if (!state.activeWorkout) { assessGps(); updateGpsGate(); } }, 1000);
   state.gpsWatchId = navigator.geolocation.watchPosition(
     (pos) => {
       const accuracy = Number(pos.coords.accuracy);
       state.gpsAccuracyM = Number.isFinite(accuracy) ? accuracy : null;
-      if (state.gpsAccuracyM != null && state.gpsAccuracyM <= 25) state.gpsGoodFixes += 1;
-      else state.gpsGoodFixes = 0;
-      state.gpsReady = state.gpsGoodFixes >= 3;
-      state.gpsStatus = state.gpsReady ? 'GPS ready - +/-' + Math.round(state.gpsAccuracyM) + ' m'
-        : state.gpsAccuracyM == null ? 'Waiting for an accurate GPS fix...'
-        : state.gpsAccuracyM > 25 ? 'Getting an accurate fix... currently +/-' + Math.round(state.gpsAccuracyM) + ' m'
-        : 'Confirming your location... (' + state.gpsGoodFixes + '/3 good fixes)';
+      if (state.gpsAccuracyM != null && state.gpsAccuracyM <= GPS_ACCURACY_M) state.gpsGoodFixes += 1;
+      else state.gpsGoodFixes = Math.max(0, state.gpsGoodFixes - 1);
+      assessGps();
       const pt = [pos.coords.latitude, pos.coords.longitude];
       state.gpsPoints.push(pt);
       state.gpsTimes.push(Date.now());
@@ -2042,17 +2087,35 @@ function startGps() {
       if (!state.leafletMap && document.getElementById('map')) initMap(false);
       if (state.leafletMap) { state.leafletLine.addLatLng(pt); state.leafletMap.panTo(pt); }
     },
-    (err) => { if (statusEl()) statusEl().textContent = 'GPS permission denied or unavailable — logging without route.'; },
+    (err) => {
+      state.gpsAccuracyM = null;
+      state.gpsStatus = err && err.code === 1
+        ? 'Location permission denied — you can start anyway; route tracking is unavailable.'
+        : 'GPS is unavailable here — you can start anyway; route tracking may be limited.';
+      assessGps();
+      updateGpsGate();
+    },
     { enableHighAccuracy: true, maximumAge: 2000, timeout: 8000 }
   );
 }
 function updateGpsGate() {
   const button = document.getElementById('start-stop');
-  if (button && !state.activeWorkout) { button.disabled = !state.gpsReady; button.textContent = state.gpsReady ? 'Go' : 'Locating...'; }
+  if (button && !state.activeWorkout) {
+    const canStart = state.gpsReady || state.gpsCanOverride;
+    button.disabled = !canStart;
+    button.textContent = state.gpsReady ? 'Go' : state.gpsCanOverride ? 'Start anyway' : 'Locating...';
+    button.classList.toggle('start-degraded', !state.gpsReady && state.gpsCanOverride);
+  }
   const status = document.getElementById('gps-status');
-  if (status && state.gpsStatus) status.textContent = state.gpsStatus;
+  if (status && state.gpsStatus) status.innerHTML = escapeHtml(state.gpsStatus)
+    + (state.gpsCanOverride && !state.gpsReady ? '<span class="gps-gate-note">Your first stretch may be roughly drawn.</span>' : '');
 }
-function stopGps() { if (state.gpsWatchId != null) navigator.geolocation.clearWatch(state.gpsWatchId); state.gpsWatchId = null; state.gpsReady = false; state.gpsGoodFixes = 0; }
+function stopGps() {
+  if (state.gpsWatchId != null) navigator.geolocation.clearWatch(state.gpsWatchId);
+  if (gpsTicker) { clearInterval(gpsTicker); gpsTicker = null; }
+  gpsStartedAt = null; state.gpsWatchId = null; state.gpsReady = false;
+  state.gpsGoodFixes = 0; state.gpsCanOverride = false; state.gpsWaitedMs = 0;
+}
 
 function haversineKm(a, b) {
   const R = 6371, toRad = d => d * Math.PI / 180;
@@ -2200,7 +2263,7 @@ async function requestWorkoutCoach() {
 }
 
 async function startWorkout() {
-  if (!state.gpsReady) {
+  if (!state.gpsReady && !state.gpsCanOverride) {
     state.gpsStatus = 'Wait for GPS ready before you go.';
     updateGpsGate();
     return;
