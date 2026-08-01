@@ -105,10 +105,18 @@ async function ingest() {
     return { added: 0, skipped: 0 };
   }
   let added = 0, skipped = 0;
+  // Once the daily quota is gone, every further call is refused. Carrying on
+  // produced 25 consecutive 429s in one cycle — pointless requests, and a log
+  // that looks like 25 separate faults instead of one exhausted allowance.
+  // Stop the cycle; the next one is hours away, by which time the quota resets.
+  let exhausted = false;
+  const isQuota = (err) => /HTTP 429/.test(err && err.message || '');
 
   for (const [category, def] of Object.entries(CATEGORIES)) {
+    if (exhausted) break;
     // Channels first: a real publisher is steadier than a search.
     for (const q of (def.channels || [])) {
+      if (exhausted) break;
       try {
         const found = await youtube.searchChannels(q);
         if (!found.length) continue;
@@ -128,12 +136,14 @@ async function ingest() {
           added++;
         }
       } catch (err) {
+        if (isQuota(err)) { exhausted = true; break; }
         console.error(`[reels] channel "${q}" failed: ${err.message}`);
       }
     }
 
     // Then queries, for material spread across many uploaders.
     for (const q of (def.queries || [])) {
+      if (exhausted) break;
       const last = db.prepare('SELECT last_run_at FROM reel_query_runs WHERE query = ?').get(q);
       if (last && Date.parse(last.last_run_at + 'Z') > Date.now() - QUERY_REFRESH_DAYS * 86400000) {
         continue;                       // ran recently; the results are still on file
@@ -157,12 +167,18 @@ async function ingest() {
           added++;
         }
       } catch (err) {
+        if (isQuota(err)) { exhausted = true; break; }
         console.error(`[reels] query "${q}" failed: ${err.message}`);
       }
     }
   }
-  console.log('[reels] ingest complete: %d stored, %d screened out', added, skipped);
-  return { added, skipped };
+  if (exhausted) {
+    console.log('[reels] daily YouTube quota exhausted — stopped early with %d stored; ' +
+                'the rest resumes on the next cycle', added);
+  } else {
+    console.log('[reels] ingest complete: %d stored, %d screened out', added, skipped);
+  }
+  return { added, skipped, quotaExhausted: exhausted };
 }
 
 /**
