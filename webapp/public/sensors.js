@@ -174,8 +174,13 @@
       gpsFixCount: 0,
       gpsHasSpeed: false,
       gpsStatus: null,
+      // How long we have been trying, and whether the rider may start
+      // regardless. Nobody gets trapped behind a fix that is not coming.
+      gpsWaitedMs: 0,
+      gpsCanOverride: false,
     };
     let tickTimer = null, lastTickAt = null, gpsWatchId = null, lastGpsPos = null;
+    let gpsStartedAt = null, gpsTicker = null;
 
     function emit() {
       if (Number.isFinite(state.speedKmh) && state.speedKmh !== null && state.running) {
@@ -265,11 +270,29 @@
     }
 
     // What counts as good enough to start on.
-    const GPS_ACCURACY_M = 25;   // a typical phone settles here within a minute outdoors
-    const GPS_MIN_FIXES = 3;     // one good-looking fix can still be a fluke
+    //
+    // 50 m, not 25. A phone outdoors with a clear sky settles to 5-15 m, but
+    // between buildings, under cloud, or in the first half-minute of a cold
+    // start it will sit in the 30-60 m band for a long time — and indoors it
+    // may never do better. 25 m was a number that looked rigorous and in
+    // practice just meant "wait forever" for anyone not standing in a field.
+    // The real accuracy is always shown, so this is a threshold, not a claim.
+    const GPS_ACCURACY_M = 50;
+    const GPS_MIN_FIXES = 2;     // one good-looking fix can still be a fluke
+    // How long to try before offering to start anyway. Long enough that a
+    // normal fix arrives first; short enough that nobody stands in the cold
+    // wondering whether the app is broken.
+    const GPS_OVERRIDE_AFTER_MS = 15000;
 
     function gpsAssess() {
       const acc = state.gpsAccuracyM;
+      const waited = gpsStartedAt ? Date.now() - gpsStartedAt : 0;
+      // An override is offered once we have *something* real to report and have
+      // been trying a while. Never offered on zero fixes: starting a run with no
+      // position at all would record nothing.
+      state.gpsWaitedMs = waited;
+      state.gpsCanOverride = acc != null && waited >= GPS_OVERRIDE_AFTER_MS;
+
       if (acc == null) { state.gpsStatus = 'Waiting for a GPS fix…'; state.gpsReady = false; return; }
       if (acc > GPS_ACCURACY_M) {
         state.gpsStatus = 'Getting an accurate fix… currently ±' + Math.round(acc) + ' m';
@@ -279,10 +302,13 @@
         state.gpsStatus = 'Confirming the fix… (' + state.gpsFixCount + '/' + GPS_MIN_FIXES + ')';
         state.gpsReady = false; return;
       }
-      if (!state.gpsHasSpeed) {
-        state.gpsStatus = 'Waiting for a speed reading — take a few steps.';
-        state.gpsReady = false; return;
-      }
+      // Deliberately NOT waiting for a speed reading here.
+      //
+      // A speed of zero is what a phone reports when you are standing still,
+      // and many devices report null instead. Requiring one before letting
+      // someone start was circular: you cannot register movement until you
+      // start, and you could not start until you registered movement. People
+      // were told to "take a few steps" while stood on the start line.
       state.gpsStatus = 'GPS ready · ±' + Math.round(acc) + ' m';
       state.gpsReady = true;
     }
@@ -292,7 +318,18 @@
       lastGpsPos = null;
       state.gpsReady = false; state.gpsAccuracyM = null;
       state.gpsFixCount = 0; state.gpsHasSpeed = false;
+      state.gpsCanOverride = false; state.gpsWaitedMs = 0;
+      gpsStartedAt = Date.now();
       state.gpsStatus = 'Waiting for a GPS fix…';
+      // watchPosition only fires on a new fix. Without a ticker, someone whose
+      // phone has gone quiet sees a frozen "Waiting…" and no override is ever
+      // offered, because nothing re-evaluates the elapsed time.
+      if (gpsTicker) clearInterval(gpsTicker);
+      gpsTicker = setInterval(() => {
+        if (state.source !== 'gps' || state.gpsReady) return;
+        gpsAssess();
+        emit();
+      }, 1000);
       gpsWatchId = navigator.geolocation.watchPosition((pos) => {
         // Prefer the device's own speed when it reports one; otherwise derive
         // it from successive fixes.
@@ -310,8 +347,12 @@
         // Readiness is judged on the fix itself, not on how long we have waited.
         state.gpsAccuracyM = (pos.coords.accuracy != null && isFinite(pos.coords.accuracy))
           ? pos.coords.accuracy : null;
+        // Accuracy fluctuates sample to sample, so one poor reading steps the
+        // counter back rather than wiping it. Resetting to zero meant a phone
+        // that alternated good/bad could never accumulate a run and stayed
+        // stuck at "Confirming the fix…" indefinitely.
         if (state.gpsAccuracyM != null && state.gpsAccuracyM <= GPS_ACCURACY_M) state.gpsFixCount++;
-        else state.gpsFixCount = 0;          // a bad fix resets the run of good ones
+        else state.gpsFixCount = Math.max(0, state.gpsFixCount - 1);
         if (state.speedKmh != null && isFinite(state.speedKmh)) state.gpsHasSpeed = true;
         gpsAssess();
 
@@ -353,6 +394,8 @@
       state.running = false;
       if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
       if (gpsWatchId != null) { navigator.geolocation.clearWatch(gpsWatchId); gpsWatchId = null; }
+      if (gpsTicker) { clearInterval(gpsTicker); gpsTicker = null; }
+      gpsStartedAt = null;
       try { if (state.device && state.device.gatt.connected) state.device.gatt.disconnect(); } catch {}
       try { if (state.hrDevice && state.hrDevice.gatt.connected) state.hrDevice.gatt.disconnect(); } catch {}
       emit();

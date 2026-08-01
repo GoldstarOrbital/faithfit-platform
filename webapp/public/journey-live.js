@@ -574,14 +574,28 @@ async function renderJourneyLive(key) {
   function refreshStartGate(s) {
     const btn = el('live-start');
     if (!btn || s.running) return;
-    const gating = s.source === 'gps' && !s.gpsReady;
-    btn.disabled = gating;
-    btn.textContent = gating ? 'Waiting for GPS…' : 'Start';
+    const waiting = s.source === 'gps' && !s.gpsReady;
+    // Waiting is a reason to warn, not a reason to trap. Once we have a real
+    // position and have been trying a while, the rider decides — a poor fix
+    // still records a route, and standing at a trailhead unable to press Start
+    // is worse than a first kilometre that is roughly drawn.
+    const trapped = waiting && !s.gpsCanOverride;
+    btn.disabled = trapped;
+    btn.textContent = !waiting ? 'Start'
+      : (s.gpsCanOverride ? 'Start anyway · ±' + Math.round(s.gpsAccuracyM) + ' m'
+                          : 'Waiting for GPS…');
+    btn.classList.toggle('start-degraded', waiting && !!s.gpsCanOverride);
+
     const gate = el('live-gps-gate');
     if (gate) {
       gate.hidden = s.source !== 'gps' || s.gpsReady;
       if (!gate.hidden) {
-        gate.innerHTML = '<span class="gps-spinner"></span><span>' + escapeHtml(s.gpsStatus || 'Waiting for GPS…') + '</span>';
+        gate.innerHTML = '<span class="gps-spinner"></span><span>'
+          + escapeHtml(s.gpsStatus || 'Waiting for GPS…')
+          + (s.gpsCanOverride
+              ? ' <span class="gps-gate-note">You can start anyway — early distance may be off.</span>'
+              : '')
+          + '</span>';
       }
     }
     if (s.source === 'gps') showGpsBar(!!s.gpsReady, s.gpsStatus);
@@ -590,8 +604,14 @@ async function renderJourneyLive(key) {
   el('live-start').onclick = () => {
     if (!session.state.source) { note('Pick how you are moving first.'); return; }
     if (session.state.source === 'gps' && !session.state.gpsReady) {
-      note(session.state.gpsStatus || 'Waiting for an accurate GPS fix.');
-      return;
+      // Only block while there is still nothing to start on. Once an override
+      // is offered, pressing Start means what it says.
+      if (!session.state.gpsCanOverride) {
+        note(session.state.gpsStatus || 'Waiting for an accurate GPS fix.');
+        return;
+      }
+      note('Starting on a ±' + Math.round(session.state.gpsAccuracyM) +
+           ' m fix — your first stretch may be roughly drawn.');
     }
     session.start();
     if (!journeyLive.pushTimer) journeyLive.pushTimer = setInterval(pushProgress, 5000);

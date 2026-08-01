@@ -1771,3 +1771,7 @@ header.topbar .brand { gap: 0; }
   .profile-nav-heading > .muted { text-align:left; margin-top:4px; }
   .profile-nav { top:4px; }
 }
+
+/* Start is available on a poor fix, but it should not look like a clean one. */
+button.start-degraded { background: var(--hearth, #b8863b); }
+.gps-gate-note { display:block; margin-top:3px; font-size:.72rem; opacity:.85; }
