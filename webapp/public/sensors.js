@@ -178,6 +178,7 @@
       // regardless. Nobody gets trapped behind a fix that is not coming.
       gpsWaitedMs: 0,
       gpsCanOverride: false,
+      gpsFatal: false,
     };
     let tickTimer = null, lastTickAt = null, gpsWatchId = null, lastGpsPos = null;
     let gpsStartedAt = null, gpsTicker = null;
@@ -282,17 +283,23 @@
     // How long to try before offering to start anyway. Long enough that a
     // normal fix arrives first; short enough that nobody stands in the cold
     // wondering whether the app is broken.
-    const GPS_OVERRIDE_AFTER_MS = 15000;
+    const GPS_OVERRIDE_AFTER_MS = 8000;
 
     function gpsAssess() {
       const acc = state.gpsAccuracyM;
       const waited = gpsStartedAt ? Date.now() - gpsStartedAt : 0;
       // An override is offered once we have *something* real to report and have
-      // been trying a while. Never offered on zero fixes: starting a run with no
-      // position at all would record nothing.
+      // been trying a while — or immediately when GPS is settled-impossible
+      // here. Requiring a fix was right for a slow lock and wrong for a refused
+      // one: with permission denied no fix ever arrives, so the rider was
+      // trapped on this screen permanently.
       state.gpsWaitedMs = waited;
-      state.gpsCanOverride = acc != null && waited >= GPS_OVERRIDE_AFTER_MS;
+      state.gpsCanOverride = state.gpsFatal ||
+        (acc != null && waited >= GPS_OVERRIDE_AFTER_MS);
 
+      // The error handler's message explains the real cause; do not overwrite
+      // it with a description of a wait that cannot end.
+      if (state.gpsFatal) { state.gpsReady = false; return; }
       if (acc == null) { state.gpsStatus = 'Waiting for a GPS fix…'; state.gpsReady = false; return; }
       if (acc > GPS_ACCURACY_M) {
         state.gpsStatus = 'Getting an accurate fix… currently ±' + Math.round(acc) + ' m';
@@ -318,7 +325,7 @@
       lastGpsPos = null;
       state.gpsReady = false; state.gpsAccuracyM = null;
       state.gpsFixCount = 0; state.gpsHasSpeed = false;
-      state.gpsCanOverride = false; state.gpsWaitedMs = 0;
+      state.gpsCanOverride = false; state.gpsWaitedMs = 0; state.gpsFatal = false;
       gpsStartedAt = Date.now();
       state.gpsStatus = 'Waiting for a GPS fix…';
       // watchPosition only fires on a new fix. Without a ticker, someone whose
@@ -361,9 +368,15 @@
       }, (err) => {
         state.sourceLabel = 'GPS unavailable';
         state.gpsReady = false;
-        state.gpsStatus = (err && err.code === 1)
-          ? 'Location permission was declined, so GPS cannot be used.'
+        // Code 1 is PERMISSION_DENIED: settled, and waiting changes nothing.
+        // Codes 2 and 3 may still resolve on a later fix, so they keep the
+        // normal countdown and the watch stays up.
+        const denied = !!(err && err.code === 1);
+        if (denied) state.gpsFatal = true;
+        state.gpsStatus = denied
+          ? 'Location permission was declined — you can start anyway, but the route will not be recorded.'
           : 'GPS is not available here.';
+        gpsAssess();
         emit();
       // maximumAge 0: never start on a cached fix from somewhere the rider no
       // longer is.

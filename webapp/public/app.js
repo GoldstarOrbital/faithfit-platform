@@ -4,6 +4,9 @@ const state = {
   gpsWatchId: null, gpsPoints: [], leafletMap: null, leafletLine: null,
   gpsReady: false, gpsAccuracyM: null, gpsGoodFixes: 0, gpsStatus: null,
   gpsWaitedMs: 0, gpsCanOverride: false,
+  // Set when GPS can never work here (permission denied, unsupported), so the
+  // gate stops waiting for an answer that is not coming.
+  gpsFatal: false,
   // Live workout telemetry. Times and altitudes run parallel to gpsPoints so the
   // Leaflet polyline keeps its [lat,lng] shape.
   gpsTimes: [], gpsAlt: [], elevGainM: 0, altRef: null,
@@ -1924,8 +1927,8 @@ async function renderWorkout(main) {
         <div class="lm-cell"><div class="lm-value" id="lm-cal">--</div><div class="lm-label">kcal est.</div></div>
       </div>
       <div class="lm-splits" id="lm-splits"></div>
-      ${!state.activeWorkout ? '<div class="gps-gate card glass" id="gps-gate"><div class="muted" id="gps-status">Waiting for an accurate GPS lock before you go.</div></div>' : '<div id="gps-status" class="muted"></div>'}
-      <button class="start-stop-btn ${state.activeWorkout ? 'stop' : 'start'}" id="start-stop" ${!state.activeWorkout && !state.gpsReady ? 'disabled' : ''}>${state.activeWorkout ? 'Stop' : (state.gpsReady ? 'Go' : 'Locating...')}</button>
+      ${!state.activeWorkout ? '<div class="gps-gate card glass" id="gps-gate"><div class="muted" id="gps-status">' + escapeHtml(state.gpsStatus || 'Waiting for an accurate GPS lock before you go.') + '</div></div>' : '<div id="gps-status" class="muted"></div>'}
+      <button class="start-stop-btn ${state.activeWorkout ? 'stop' : 'start'}" id="start-stop" ${!state.activeWorkout && !(state.gpsReady || state.gpsCanOverride) ? 'disabled' : ''}>${state.activeWorkout ? 'Stop' : (state.gpsReady ? 'Go' : state.gpsCanOverride ? 'Start anyway' : 'Locating...')}</button>
       ${!state.activeWorkout ? '<div class="card glass" id="gloo-coach-card"><div class="muted">Your faith-aligned starting cue will appear here.</div><button class="ghost" id="gloo-coach" type="button">Get a starting cue</button></div>' : ''}
       <div id="map" style="width:100%;height:180px;border-radius:16px;overflow:hidden;display:none"></div>
       <div id="verse-preview" style="width:100%"></div>
@@ -2041,16 +2044,28 @@ function initMap(alreadyTracking) {
 // ---- Real GPS tracking via Geolocation API ----
 const GPS_ACCURACY_M = 50;
 const GPS_MIN_FIXES = 2;
-const GPS_OVERRIDE_AFTER_MS = 15000;
+// Eight seconds, not fifteen. This only ever applies when the fix is poor or
+// absent — a good fix unlocks the button as soon as it arrives. Fifteen
+// seconds of a dead "Locating..." button reads as a broken app.
+const GPS_OVERRIDE_AFTER_MS = 8000;
 
 function assessGps() {
   const waited = gpsStartedAt ? Date.now() - gpsStartedAt : 0;
   const acc = state.gpsAccuracyM;
   state.gpsWaitedMs = waited;
-  // After 15 seconds, let the rider begin with whatever real location data
-  // exists. This prevents the Train tab from trapping people forever indoors,
-  // under buildings, or after a denied/unsupported GPS request.
-  state.gpsCanOverride = waited >= GPS_OVERRIDE_AFTER_MS;
+  // Waiting out a timer only makes sense while an answer might still arrive.
+  // When the browser has already told us GPS will never work here — permission
+  // denied, or no geolocation at all — counting down eight seconds to reach a
+  // conclusion we already have just holds someone at the door for no reason.
+  state.gpsCanOverride = state.gpsFatal || waited >= GPS_OVERRIDE_AFTER_MS;
+
+  if (state.gpsFatal) {
+    // The error handler wrote a message that explains the actual cause. Do not
+    // replace it with "waiting for a fix" — that describes a wait that is not
+    // happening and cannot end.
+    state.gpsReady = false;
+    return;
+  }
   if (acc == null) {
     state.gpsReady = false;
     state.gpsStatus = state.gpsCanOverride
@@ -2080,6 +2095,7 @@ function startGps() {
   const statusEl = () => document.getElementById('gps-status');
   if (state.gpsWatchId != null) return;
   if (!navigator.geolocation) {
+    state.gpsFatal = true;
     state.gpsCanOverride = true;
     state.gpsStatus = 'GPS is not supported in this browser — you can start anyway; route tracking is unavailable.';
     if (statusEl()) statusEl().textContent = state.gpsStatus;
@@ -2087,6 +2103,7 @@ function startGps() {
     return;
   }
   state.gpsReady = false; state.gpsAccuracyM = null; state.gpsGoodFixes = 0;
+  state.gpsFatal = false;
   state.gpsCanOverride = false; state.gpsWaitedMs = 0; gpsStartedAt = Date.now();
   state.gpsStatus = 'Requesting a high-accuracy GPS fix...';
   state.gpsPoints = [];
@@ -2113,7 +2130,6 @@ function startGps() {
         if (alt - state.altRef > 2) { state.elevGainM += alt - state.altRef; state.altRef = alt; }
         else if (alt < state.altRef) state.altRef = alt;
       }
-      if (statusEl()) statusEl().textContent = `GPS locked · ${state.gpsPoints.length} points · ±${Math.round(pos.coords.accuracy)}m`;
       if (statusEl()) statusEl().textContent = state.gpsStatus;
       updateGpsGate();
       if (!state.leafletMap && document.getElementById('map')) initMap(false);
@@ -2121,7 +2137,12 @@ function startGps() {
     },
     (err) => {
       state.gpsAccuracyM = null;
-      state.gpsStatus = err && err.code === 1
+      // Code 1 is PERMISSION_DENIED: settled, and no amount of waiting changes
+      // it. Codes 2 and 3 (position unavailable, timeout) can still resolve on
+      // a later fix, so those keep the normal countdown and the watch stays up.
+      const denied = !!(err && err.code === 1);
+      if (denied) state.gpsFatal = true;
+      state.gpsStatus = denied
         ? 'Location permission denied — you can start anyway; route tracking is unavailable.'
         : 'GPS is unavailable here — you can start anyway; route tracking may be limited.';
       assessGps();
@@ -2147,6 +2168,7 @@ function stopGps() {
   if (gpsTicker) { clearInterval(gpsTicker); gpsTicker = null; }
   gpsStartedAt = null; state.gpsWatchId = null; state.gpsReady = false;
   state.gpsGoodFixes = 0; state.gpsCanOverride = false; state.gpsWaitedMs = 0;
+  state.gpsFatal = false;
 }
 
 function haversineKm(a, b) {
