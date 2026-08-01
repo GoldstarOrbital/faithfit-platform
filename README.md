@@ -213,6 +213,15 @@ node scripts/verify-bible.js            # word-for-word check against the source
 
 ## Deployment
 
+**Deploy by pushing to `main`. Do not run `railway up`.**
+
+Railway is connected to this repo and builds every push. Running `railway up`
+starts a *second*, competing deployment that cancels the GitHub-triggered one —
+which leaves that commit's status stuck on "Railway is deploying the service"
+forever, and is why the repo showed pending and failed checks. The commits are
+fine; the statuses were orphaned builds. One deploy path, and the checks go
+green on their own.
+
 Railway auto-deploys `webapp/` from `main` (Root Directory set to `webapp/`). A
 persistent volume is mounted at `/data` (`DATA_DIR=/data`) so the SQLite database
 survives redeploys — do not remove it. All data-loading migrations are additive and
