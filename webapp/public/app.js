@@ -418,16 +418,12 @@ async function renderHome(main) {
       ${p.verse_reference ? `<div class="verse-card verse-tappable" data-verse-ref="${escapeHtml(p.verse_reference)}"><div class="verse-ref">${p.verse_reference}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div><div class="verse-convo" data-convo-for="${escapeHtml(p.verse_reference)}">💬 Start the conversation</div></div>` : ''}
       <div class="action-row">
         <button class="action-btn ${p.liked_by_me ? 'liked' : ''}" data-like="${p.id}">${p.liked_by_me ? '❤️' : '🤍'} <span class="n">${p.like_count}</span> kudos</button>
-        <button class="action-btn" data-comment-toggle="${p.id}">💬 <span class="n">${p.comments.length}</span></button>
+        <button class="action-btn" data-comment-toggle="${p.id}">💬 <span class="n">${p.comment_count || 0}</span></button>
         <button class="action-btn" data-share="${p.id}" data-vis="${p.visibility || 'public'}">↗ Share</button>
         ${p.photo_data ? `<button class="action-btn" data-report="${p.id}">🚩 Report</button>` : ''}
       </div>
       <div class="comments" id="comments-${p.id}" style="display:none">
-        ${p.comments.map(c => `<div class="comment"><b>${c.author}</b>${escapeHtml(c.content)}</div>`).join('')}
-        <div class="comment-input-row">
-          <input type="text" placeholder="Add a comment…" id="comment-input-${p.id}" />
-          <button data-send-comment="${p.id}">Post</button>
-        </div>
+        <div class="comments-loading muted">Open to load the conversation.</div>
       </div>
     </div>
   `; }).join('') || '<p class="muted">No posts yet.</p>';
@@ -448,16 +444,24 @@ async function renderHome(main) {
   });
   postsEl.querySelectorAll('[data-comment-toggle]').forEach(btn => btn.onclick = () => {
     const el = document.getElementById(`comments-${btn.dataset.commentToggle}`);
-    el.style.display = el.style.display === 'none' ? 'flex' : 'none';
+    const opening = el.style.display === 'none';
+    el.style.display = opening ? 'flex' : 'none';
+    if (opening && el.dataset.loaded !== '1') {
+      el.innerHTML = '<div class="comments-loading muted">Loading conversation…</div>';
+      api(`/posts/${btn.dataset.commentToggle}/comments`).then(({ comments }) => {
+        if (!document.body.contains(el)) return;
+        el.innerHTML = comments.map(c => `<div class="comment"><b>${escapeHtml(c.author)}</b>${escapeHtml(c.content)}</div>`).join('') + `<div class="comment-input-row"><input type="text" placeholder="Add a comment…" id="comment-input-${btn.dataset.commentToggle}" /><button data-send-comment="${btn.dataset.commentToggle}">Post</button></div>`;
+        el.dataset.loaded = '1';
+        wireCommentSubmit(el);
+      }).catch(() => { el.innerHTML = '<div class="muted">Could not load conversation.</div>'; });
+    }
   });
-  postsEl.querySelectorAll('[data-send-comment]').forEach(btn => btn.onclick = async () => {
-    const id = btn.dataset.sendComment;
-    const input = document.getElementById(`comment-input-${id}`);
+  function wireCommentSubmit(root) { root.querySelectorAll('[data-send-comment]').forEach(btn => btn.onclick = async () => {
+    const id = btn.dataset.sendComment; const input = document.getElementById(`comment-input-${id}`);
     if (!input.value.trim()) return;
     await api(`/posts/${id}/comments`, { method: 'POST', body: { content: input.value } });
-    state.homeCache = null;
-    renderHome(main);
-  });
+    state.homeCache = null; renderHome(main);
+  }); }
   postsEl.querySelectorAll('[data-vis]').forEach(sel => {
     if (sel.tagName !== 'SELECT') return;
     sel.onchange = async () => {

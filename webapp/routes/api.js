@@ -615,7 +615,8 @@ router.get('/feed', (req, res) => {
            p.visibility, p.workout_id, p.photo_data, p.photo_category,
            p.show_route, p.route_privacy_m, w.gps_path,
            w.type workout_type, w.calories, w.avg_hr, w.start_time, w.end_time, w.distance_km,
-           v.reference verse_reference, v.text verse_text, v.youversion_id
+           v.reference verse_reference, v.text verse_text, v.youversion_id,
+           (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comment_count
     FROM posts p
     JOIN users u ON u.id = p.user_id
     LEFT JOIN workouts w ON w.id = p.workout_id
@@ -637,20 +638,34 @@ router.get('/feed', (req, res) => {
     p.has_route = !!route;
     const likeCount = db.prepare('SELECT COUNT(*) c FROM post_likes WHERE post_id = ?').get(p.id).c;
     const likedByMe = meId ? !!db.prepare('SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?').get(p.id, meId) : false;
-    const comments = db.prepare(`
-      SELECT c.id, c.content, c.created_at, u.display_name author
-      FROM post_comments c JOIN users u ON u.id = c.user_id
-      WHERE c.post_id = ? ORDER BY c.created_at ASC
-    `).all(p.id);
     let pace = null, distanceKm = p.distance_km ?? null;
     if (p.workout_type && p.start_time && p.end_time) {
       const mins = (new Date(p.end_time) - new Date(p.start_time)) / 60000;
       if (distanceKm == null) distanceKm = +(mins / 6).toFixed(1); // fallback estimate when no real GPS data
       pace = distanceKm > 0 ? (mins / distanceKm).toFixed(1) : null;
     }
-    return { ...p, like_count: likeCount, liked_by_me: likedByMe, comments, distance_km: distanceKm, pace_min_per_km: pace };
+    const commentCount = Number(p.comment_count || 0);
+    delete p.comment_count;
+    return { ...p, like_count: likeCount, liked_by_me: likedByMe, comment_count: commentCount, distance_km: distanceKm, pace_min_per_km: pace };
   });
   res.json(withSocial);
+});
+
+// Comments are fetched only when a member opens a thread. This keeps the feed
+// fast while retaining the same visibility rules as the post itself.
+router.get('/posts/:id/comments', requireAuth, (req, res) => {
+  const me = req.session.userId;
+  const post = db.prepare('SELECT id, user_id, visibility FROM posts WHERE id = ?').get(req.params.id);
+  if (!post) return res.status(404).json({ error: 'post_not_found' });
+  const visible = post.user_id === me || post.visibility === 'public' ||
+    (post.visibility === 'followers' && !!db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(me, post.user_id));
+  if (!visible) return res.status(404).json({ error: 'post_not_found' });
+  const comments = db.prepare(`
+    SELECT c.id, c.content, c.created_at, u.display_name author
+    FROM post_comments c JOIN users u ON u.id = c.user_id
+    WHERE c.post_id = ? ORDER BY c.created_at ASC
+  `).all(post.id);
+  res.json({ comments });
 });
 
 router.post('/posts/:id/like', requireAuth, (req, res) => {
