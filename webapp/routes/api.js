@@ -2038,6 +2038,32 @@ router.get('/leaderboard', requireAuth, (req, res) => {
   res.json(ranked);
 });
 
+// A quiet, in-app weekly recap: useful enough to invite a return, but never
+// pushed automatically and never shared without an explicit member action.
+router.get('/stats/recap', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const cutoff = new Date(Date.now() - 7 * 86400000).toISOString();
+  const workouts = db.prepare(`SELECT type, distance_km, duration_sec, start_time, end_time, calories FROM workouts WHERE user_id = ? AND end_time IS NOT NULL AND datetime(end_time) >= datetime(?)`).all(uid, cutoff);
+  const duration = w => Number(w.duration_sec) || (w.start_time && w.end_time ? Math.max(0, (new Date(w.end_time) - new Date(w.start_time)) / 1000) : 0);
+  const distance = +workouts.reduce((sum, w) => sum + (Number(w.distance_km) || 0), 0).toFixed(1);
+  const minutes = Math.round(workouts.reduce((sum, w) => sum + duration(w), 0) / 60);
+  const activeDays = new Set(workouts.map(w => String(w.end_time).slice(0, 10))).size;
+  const posts = db.prepare('SELECT COUNT(*) c FROM posts WHERE user_id = ? AND datetime(created_at) >= datetime(?)').get(uid, cutoff).c;
+  const kudos = db.prepare(`SELECT COUNT(*) c FROM post_likes l JOIN posts p ON p.id = l.post_id WHERE p.user_id = ? AND datetime(l.created_at) >= datetime(?)`).get(uid, cutoff).c;
+  const replies = db.prepare(`SELECT COUNT(*) c FROM post_comments c JOIN posts p ON p.id = c.post_id WHERE p.user_id = ? AND datetime(c.created_at) >= datetime(?)`).get(uid, cutoff).c;
+  const types = {};
+  for (const w of workouts) types[w.type] = (types[w.type] || 0) + 1;
+  const focus = Object.entries(types).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+  const highlights = [];
+  if (workouts.length) highlights.push(`${workouts.length} workout${workouts.length === 1 ? '' : 's'}`);
+  if (distance) highlights.push(`${distance} km`);
+  if (minutes) highlights.push(`${minutes} minutes moving`);
+  const shareText = highlights.length
+    ? `This week I showed up for ${highlights.join(', ')}${focus ? ` — mostly ${focus.toLowerCase()}` : ''}. Grateful for the people moving with me.`
+    : 'This week I made space for a fresh start. One small step at a time.';
+  res.json({ workouts: workouts.length, distance_km: distance, minutes, active_days: activeDays, posts, kudos, replies, focus, share_text: shareText });
+});
+
 // ---- gamification + notification event handlers (in-process, mirrors the Kafka consumers) ----
 subscribe('workout.completed', (event) => {
   const xp = xpForEvent('workout.completed');

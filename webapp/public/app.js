@@ -649,10 +649,10 @@ function trainingLog(performance) {
 async function renderStats(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
   main.innerHTML = `<div class="card glass" style="text-align:center">Loading your stats…</div>`;
-  let summary, trends, breakdown, challenges, performance, goals;
+  let summary, trends, breakdown, challenges, performance, goals, weeklyRecap;
   try {
-    [summary, trends, breakdown, challenges, performance, goals] = await Promise.all([
-      api('/stats/summary'), api('/stats/trends?weeks=12'), api('/stats/activity-breakdown'), api('/challenges'), api('/stats/performance'), api('/goals'),
+    [summary, trends, breakdown, challenges, performance, goals, weeklyRecap] = await Promise.all([
+      api('/stats/summary'), api('/stats/trends?weeks=12'), api('/stats/activity-breakdown'), api('/challenges'), api('/stats/performance'), api('/goals'), api('/stats/recap'),
     ]);
   } catch { main.innerHTML = '<div class="card glass">Could not load stats.</div>'; return; }
 
@@ -663,6 +663,12 @@ async function renderStats(main) {
 
   main.innerHTML = `
     <h2>Your Stats</h2>
+    <div class="card glass weekly-recap-card">
+      <div class="premium-card-head"><div><div class="stats-period-head">Your week in motion</div><div class="muted">A private recap of the last seven days.</div></div><span class="premium-badge">RECAP</span></div>
+      <div class="recap-grid"><div><b>${weeklyRecap.workouts}</b><span>workouts</span></div><div><b>${weeklyRecap.distance_km}</b><span>km</span></div><div><b>${weeklyRecap.minutes}</b><span>minutes</span></div><div><b>${weeklyRecap.active_days}</b><span>active days</span></div></div>
+      <p class="recap-copy">${weeklyRecap.kudos || weeklyRecap.replies ? `Your community sent ${weeklyRecap.kudos} kudos and ${weeklyRecap.replies} repl${weeklyRecap.replies === 1 ? 'y' : 'ies'} this week.` : 'Your next small step is welcome here.'}</p>
+      <div class="recap-actions"><button class="ghost" id="share-weekly-recap" type="button">Share recap</button><span id="weekly-recap-status" class="muted" aria-live="polite"></span></div>
+    </div>
     <div class="card glass streak-banner">
       <div><div class="streak-num">${summary.streak_days}</div><div class="muted">day streak 🔥</div></div>
       <div><div class="streak-num">${summary.active_days}</div><div class="muted">active days</div></div>
@@ -730,6 +736,13 @@ async function renderStats(main) {
       ${mine.length ? mine.map(c => challengeRow(c)).join('') : '<p class="muted">You haven\'t joined a challenge yet — see Explore › Challenges.</p>'}
     </div>
   `;
+
+  const recapButton = main.querySelector('#share-weekly-recap');
+  if (recapButton) recapButton.onclick = async () => {
+    const status = main.querySelector('#weekly-recap-status'); recapButton.disabled = true; recapButton.textContent = 'Sharing…';
+    try { await api('/posts', { method: 'POST', body: { content: weeklyRecap.share_text, visibility: 'public' }, throwOnError: true }); status.textContent = 'Shared to Community ✓'; recapButton.textContent = 'Shared'; }
+    catch { recapButton.disabled = false; recapButton.textContent = 'Share recap'; status.textContent = 'Could not share right now.'; }
+  };
 
   const goalForm = main.querySelector('#goal-form');
   main.querySelector('#goal-new').onclick = () => { goalForm.hidden = false; main.querySelector('#goal-title').focus(); };

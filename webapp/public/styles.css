@@ -1794,6 +1794,15 @@ button.start-degraded { background: var(--hearth, #b8863b); }
 .feed-more-btn { width:100%; margin:12px 0 24px; }
 .profile-safety { display:flex; gap:8px; margin:12px 0; flex-wrap:wrap; }
 .profile-safety button { font-size:.76rem; }
+.weekly-recap-card { border:1px solid rgba(217,154,63,.28); }
+.recap-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:14px 0 10px; }
+.recap-grid div { padding:9px 6px; border-radius:10px; background:rgba(78,58,37,.07); text-align:center; }
+.recap-grid b, .recap-grid span { display:block; }
+.recap-grid b { font-size:1.15rem; }
+.recap-grid span { color:var(--muted); font-size:.68rem; }
+.recap-copy { margin:8px 0; }
+.recap-actions { display:flex; align-items:center; gap:10px; }
+@media (max-width:420px) { .recap-grid { gap:4px; } .recap-grid b { font-size:1rem; } }
 .composer-footer select { flex:1; min-width:0; }
 .composer-footer button { white-space:nowrap; }
 #home-post-status { min-height:1.1em; margin-top:6px; font-size:.74rem; }
