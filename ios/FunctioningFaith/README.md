@@ -22,8 +22,11 @@ real feed/profile/workout request plumbing, production account deletion/sign-out
 Core Location route capture, and a production base URL. The feed decoder matches the
 paginated production API. Native Profile now exposes opt-in Scripture, community, and
 reminder notification categories and requests system permission only after a category
-is selected. OAuth provider buttons and Sign in with Apple remain a final
-entitlement/deep-link step.
+is selected. Newly registered members also receive a resumable three-step activation
+flow: a concise product promise, optional follows/groups from the live recommendation
+API, and explicit notification choices. Existing members are never forced back through
+it. OAuth provider buttons and Sign in with Apple remain a final entitlement/deep-link
+step.
 
 The project spec includes a unit-test target, iOS 17 deployment settings, the live
 permission copy, the privacy manifest, and the Sign in with Apple entitlement scaffold.

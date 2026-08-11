@@ -4,6 +4,7 @@ import SwiftUI
 struct FunctioningFaithApp: App {
     @StateObject private var session = NativeSession()
     @StateObject private var biometricLock = BiometricLock()
+    @AppStorage("onboarding.pendingUserID") private var pendingOnboardingUserID = ""
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -14,8 +15,9 @@ struct FunctioningFaithApp: App {
                 } else if session.isAuthenticated {
                     RootTabView()
                 } else {
-                    NativeAuthView { profile in
+                    NativeAuthView { profile, isNewAccount in
                         session.profile = profile
+                        if isNewAccount { pendingOnboardingUserID = profile.id.uuidString }
                     }
                 }
             }

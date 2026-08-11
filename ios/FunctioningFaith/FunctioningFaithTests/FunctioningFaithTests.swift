@@ -2,6 +2,23 @@ import XCTest
 @testable import FunctioningFaith
 
 final class FunctioningFaithTests: XCTestCase {
+    func testSocialOnboardingOnlyAppearsForTheNewlyRegisteredAccount() {
+        let registered = UUID()
+
+        XCTAssertTrue(SocialOnboardingGate.shouldPresent(
+            pendingUserID: registered.uuidString.lowercased(),
+            profileID: registered
+        ))
+        XCTAssertFalse(SocialOnboardingGate.shouldPresent(
+            pendingUserID: registered.uuidString,
+            profileID: UUID()
+        ))
+        XCTAssertFalse(SocialOnboardingGate.shouldPresent(
+            pendingUserID: "",
+            profileID: registered
+        ))
+    }
+
     func testMockFeedIsNonEmpty() async throws {
         let client = APIClient.shared
         client.useMock = true

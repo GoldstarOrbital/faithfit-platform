@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootTabView: View {
     @EnvironmentObject private var session: NativeSession
+    @AppStorage("onboarding.pendingUserID") private var pendingOnboardingUserID = ""
 
     var body: some View {
         TabView {
@@ -17,6 +18,18 @@ struct RootTabView: View {
             NavigationStack { ProfileView() }
                 .tabItem { Label("Profile", systemImage: "person.crop.circle.fill") }
         }
+        .fullScreenCover(isPresented: onboardingIsPresented) {
+            SocialOnboardingView {
+                pendingOnboardingUserID = ""
+            }
+        }
+    }
+
+    private var onboardingIsPresented: Binding<Bool> {
+        Binding(
+            get: { SocialOnboardingGate.shouldPresent(pendingUserID: pendingOnboardingUserID, profileID: session.profile?.id) },
+            set: { if !$0 { pendingOnboardingUserID = "" } }
+        )
     }
 }
 

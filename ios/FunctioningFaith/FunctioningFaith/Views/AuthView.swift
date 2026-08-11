@@ -25,7 +25,7 @@ final class NativeSession: ObservableObject {
 }
 
 struct NativeAuthView: View {
-    let onAuthenticated: (UserProfile) -> Void
+    let onAuthenticated: (UserProfile, Bool) -> Void
     @State private var isRegistering = false
     @State private var name = ""
     @State private var email = ""
@@ -85,7 +85,7 @@ struct NativeAuthView: View {
                 let profile = isRegistering
                     ? try await APIClient.shared.registerForAppStore(name: name, email: email, password: password, dateOfBirth: dateOfBirth, acceptedTerms: acceptedTerms)
                     : try await APIClient.shared.login(email: email, password: password)
-                await MainActor.run { isSubmitting = false; onAuthenticated(profile) }
+                await MainActor.run { isSubmitting = false; onAuthenticated(profile, isRegistering) }
             } catch {
                 await MainActor.run { isSubmitting = false; errorMessage = error.localizedDescription }
             }
@@ -114,4 +114,4 @@ struct NativeAuthView: View {
     }
 }
 
-#Preview { NativeAuthView { _ in } }
+#Preview { NativeAuthView { _, _ in } }
