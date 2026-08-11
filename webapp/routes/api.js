@@ -66,6 +66,7 @@ const ACTIVITY_TYPES = [
 const ACTIVITY_SET = new Set(ACTIVITY_TYPES.map(a => a.type));
 
 const router = express.Router();
+const postRateWindow = new Map();
 
 // ---- auth: real email + password accounts (scrypt-hashed). ----
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -1859,6 +1860,10 @@ router.get('/recommendations', (req, res) => {
 // ---- account deletion and transparent data export ----------------------
 router.delete('/me', requireAuth, (req, res) => {
   const uid = req.session.userId;
+  const now = Date.now();
+  const recent = (postRateWindow.get(uid) || []).filter(t => now - t < 60_000);
+  if (recent.length >= 6) return res.status(429).json({ error: 'posting_too_fast', hint: 'Give the community a moment before sharing again.' });
+  recent.push(now); postRateWindow.set(uid, recent);
   if (!db.prepare('SELECT id FROM users WHERE id = ?').get(uid)) return res.status(404).json({ error: 'account_not_found' });
   const userTables = [
     'user_consents', 'workouts', 'biometric_samples', 'scripture_triggers', 'user_xp',

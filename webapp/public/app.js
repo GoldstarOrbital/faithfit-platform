@@ -322,6 +322,12 @@ async function renderHome(main) {
       <button class="home-action home-action-primary" data-home-tab="workout"><span>＋</span><b>Log activity</b><small>Keep your streak alive</small></button>
       <button class="home-action" data-home-tab="explore" data-home-explore="journeys"><span>↗</span><b>Explore routes</b><small>Ride Bible &amp; fantasy worlds</small></button>
     </div>
+    <div class="card glass home-composer">
+      <div class="composer-heading"><div><div class="foryou-head">Share with your people</div><div class="muted">A thought, a win, or a verse from today.</div></div><span class="composer-spark">✦</span></div>
+      <textarea id="home-post-content" class="input" maxlength="1000" rows="3" placeholder="What is moving you today?"></textarea>
+      <div class="composer-footer"><select id="home-post-visibility" class="input" aria-label="Who can see this update"><option value="public">🌍 Everyone</option><option value="followers">👥 Followers</option><option value="private">🔒 Only me</option></select><button class="primary" id="home-post-submit" type="button">Share update</button></div>
+      <div id="home-post-status" class="muted" aria-live="polite"></div>
+    </div>
     ${rec && rec.verse ? `
     <div class="card glass mission-card">
       <div class="mission-kicker"><span>✦ SCRIPTURE IN MOTION</span><span class="mission-live">TODAY</span></div>
@@ -456,6 +462,20 @@ async function renderHome(main) {
       }).catch(() => { el.innerHTML = '<div class="muted">Could not load conversation.</div>'; });
     }
   });
+  const composerSubmit = main.querySelector('#home-post-submit');
+  if (composerSubmit) composerSubmit.onclick = async () => {
+    const content = main.querySelector('#home-post-content').value.trim();
+    const status = main.querySelector('#home-post-status');
+    if (!content) { status.textContent = 'Write something first, even if it is small.'; return; }
+    composerSubmit.disabled = true; composerSubmit.textContent = 'Sharing…'; status.textContent = '';
+    try {
+      await api('/posts', { method: 'POST', body: { content, visibility: main.querySelector('#home-post-visibility').value }, throwOnError: true });
+      state.homeCache = null; renderHome(main);
+    } catch (err) {
+      composerSubmit.disabled = false; composerSubmit.textContent = 'Share update';
+      status.textContent = err.status === 429 ? 'You have shared a few updates recently — try again in a minute.' : 'Could not share this update.';
+    }
+  };
   function wireCommentSubmit(root) { root.querySelectorAll('[data-send-comment]').forEach(btn => btn.onclick = async () => {
     const id = btn.dataset.sendComment; const input = document.getElementById(`comment-input-${id}`);
     if (!input.value.trim()) return;

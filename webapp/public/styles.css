@@ -1784,3 +1784,10 @@ button.start-degraded { background: var(--hearth, #b8863b); }
 .legal-page p { line-height: 1.65; }
 .settings-danger-zone { margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(92,57,31,.18); display: grid; gap: 7px; }
 .settings-danger-zone .danger { justify-self: start; color: #9b4037; border-color: rgba(155,64,55,.35); }
+.home-composer { margin: 14px 0; }
+.composer-heading, .composer-footer { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.composer-spark { color: var(--hearth, #d99a3f); font-size:1.35rem; }
+.home-composer textarea { width:100%; resize:vertical; margin:10px 0 8px; }
+.composer-footer select { flex:1; min-width:0; }
+.composer-footer button { white-space:nowrap; }
+#home-post-status { min-height:1.1em; margin-top:6px; font-size:.74rem; }
