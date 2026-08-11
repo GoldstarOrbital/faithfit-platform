@@ -202,8 +202,12 @@ struct FeedPostRow: View {
                 }
                 .tint(.secondary)
 
-                ShareLink(item: post.content) {
-                    Label("Share", systemImage: "square.and.arrow.up")
+                if post.visibility == "public", let url = URL(string: "/w/\(post.id.uuidString)", relativeTo: APIClient.shared.baseURL)?.absoluteURL {
+                    ShareLink(item: url, subject: Text("Functioning Faith"), message: Text(post.content)) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                } else {
+                    ShareLink(item: post.content) { Label("Share", systemImage: "square.and.arrow.up") }
                 }
                 .tint(.secondary)
                 Spacer()

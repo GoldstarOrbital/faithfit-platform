@@ -199,6 +199,15 @@ async function renderSignIn() {
   try { const loaded=await Promise.all([api('/auth/providers'),api('/auth/security-config')]);providers=loaded[0].providers;authSecurity=loaded[1]||{}; } catch {}
 
   const params = new URLSearchParams(location.search);
+  // A public share is an invitation, not a forced redirect. When somebody
+  // chooses the explicit join CTA, open the account form once and then remove
+  // the acquisition parameter so they can still switch back to sign-in.
+  if (params.get('join') === '1') {
+    signInMode = 'register';
+    params.delete('join'); params.delete('from');
+    const clean = params.toString();
+    history.replaceState(null, '', location.pathname + (clean ? `?${clean}` : ''));
+  }
   if(params.get('reset_token')) return renderPasswordReset(params.get('reset_token'));
   if (params.get('mfa_required') === '1') {
     history.replaceState(null, '', location.pathname);

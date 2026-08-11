@@ -1,7 +1,9 @@
 const express = require('express');
 const compression = require('compression');
 const path = require('path');
+const fs = require('fs');
 const cookieSession = require('cookie-session');
+const db = require('./lib/db');
 const { seed } = require('./lib/seed');
 const apiRoutes = require('./routes/api');
 const { startPodcastRefresh } = require('./lib/podcasts');
@@ -107,9 +109,57 @@ app.use('/api', apiRoutes);
 // /api may change with the app, /v1 may not.
 app.use('/v1', publicApi);
 
-// Public, unauthenticated share page for a public workout (like a Strava activity
-// link). Serves a standalone page that fetches /api/public/post/:id client-side.
-app.get('/w/:id', (req, res) => res.sendFile(path.join(__dirname, 'public', 'share.html')));
+// Public, unauthenticated share pages are acquisition surfaces as well as a
+// member feature. Render their metadata on the server so social crawlers get a
+// truthful preview without receiving private profiles, routes, health data, or
+// raw photos. The interactive body still fetches the public payload after load.
+const shareTemplate = fs.readFileSync(path.join(__dirname, 'public', 'share.html'), 'utf8');
+const escapeMeta = value => String(value || '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
+function publicShareMeta(id) {
+  const row = db.prepare(`SELECT p.id,p.content,p.created_at,u.display_name author,w.type workout_type,
+      v.reference verse_reference,v.text verse_text
+    FROM posts p JOIN users u ON u.id=p.user_id
+    LEFT JOIN workouts w ON w.id=p.workout_id LEFT JOIN scripture_verses v ON v.id=p.verse_id
+    WHERE p.id=? AND p.visibility='public'`).get(id);
+  if (!row) return null;
+  const activity = row.workout_type || 'faith + fitness update';
+  const title = `${row.author}'s ${activity} | Functioning Faith`;
+  const summary = String(row.content || row.verse_text || `A shared ${activity.toLowerCase()} from the Functioning Faith community.`)
+    .replace(/\s+/g, ' ').trim().slice(0, 180);
+  return { ...row, title, summary };
+}
+function publicOrigin(req) {
+  return String(process.env.PUBLIC_APP_URL || 'https://faithfit-demo-production.up.railway.app').replace(/\/$/, '');
+}
+function renderedSharePage(req, meta) {
+  const origin = publicOrigin(req), url = `${origin}/w/${encodeURIComponent(meta.id)}`;
+  return shareTemplate
+    .replaceAll('{{SHARE_TITLE}}', escapeMeta(meta.title))
+    .replaceAll('{{SHARE_DESCRIPTION}}', escapeMeta(meta.summary))
+    .replaceAll('{{SHARE_URL}}', escapeMeta(url))
+    .replaceAll('{{SHARE_CARD_URL}}', escapeMeta(`${url}/card.svg`));
+}
+app.get('/w/:id/card.svg', (req, res) => {
+  const meta = publicShareMeta(req.params.id);
+  if (!meta) return res.status(404).type('text/plain').send('Not found');
+  const title = escapeMeta(meta.workout_type ? `${meta.author} completed a ${meta.workout_type}` : `${meta.author} shared a faith + fitness moment`);
+  const copy = escapeMeta(meta.summary.slice(0, 116));
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.type('image/svg+xml').send(`<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-label="${title}">
+    <rect width="1200" height="630" fill="#f6efdf"/><path d="M0 470 C260 380 380 570 620 465 S930 365 1200 450 V630 H0Z" fill="#e7c477" opacity=".48"/>
+    <circle cx="106" cy="110" r="51" fill="none" stroke="#2b1e14" stroke-width="13" stroke-dasharray="145 176" transform="rotate(96 106 110)"/><path d="M119 69V151M89 103H139" stroke="#d9ab55" stroke-width="13" stroke-linecap="round"/>
+    <text x="180" y="125" font-family="Arial,Helvetica,sans-serif" font-size="48" font-weight="700" fill="#2b1e14">Functioning Faith</text>
+    <text x="90" y="270" font-family="Arial,Helvetica,sans-serif" font-size="60" font-weight="700" fill="#2b1e14">${title}</text>
+    <foreignObject x="90" y="315" width="1020" height="170"><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:Arial,Helvetica,sans-serif;font-size:34px;line-height:1.35;color:#574535">${copy}</div></foreignObject>
+    <text x="90" y="560" font-family="Arial,Helvetica,sans-serif" font-size="30" fill="#574535">Faith and fitness, together</text>
+  </svg>`);
+});
+app.get('/w/:id', (req, res) => {
+  const meta = publicShareMeta(req.params.id);
+  if (!meta) return res.status(404).type('html').send('<!doctype html><title>Not available | Functioning Faith</title><main><h1>Not available</h1><p>This share is private or no longer available.</p></main>');
+  res.setHeader('Cache-Control', 'public, max-age=300');
+  res.type('html').send(renderedSharePage(req, meta));
+});
 // Keep the human-friendly docs URL aligned with the links inside the app.
 app.get('/developers', (req, res) => res.sendFile(path.join(__dirname, 'public', 'developers.html')));
 

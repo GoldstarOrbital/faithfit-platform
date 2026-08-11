@@ -26,6 +26,7 @@ struct FeedPost: Codable, Identifiable {
     let createdAt: Date
     let photoData: String?
     let photoCategory: String?
+    let visibility: String
     var likeCount: Int = 0
     var likedByMe: Bool = false
     var savedByMe: Bool = false
@@ -41,6 +42,7 @@ struct FeedPost: Codable, Identifiable {
         createdAt: Date,
         photoData: String? = nil,
         photoCategory: String? = nil,
+        visibility: String = "public",
         likeCount: Int = 0,
         likedByMe: Bool = false,
         savedByMe: Bool = false,
@@ -55,6 +57,7 @@ struct FeedPost: Codable, Identifiable {
         self.createdAt = createdAt
         self.photoData = photoData
         self.photoCategory = photoCategory
+        self.visibility = visibility
         self.likeCount = likeCount
         self.likedByMe = likedByMe
         self.savedByMe = savedByMe

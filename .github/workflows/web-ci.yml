@@ -40,9 +40,12 @@ jobs:
           node --check public/sw.js
           node --check scripts/verify-native-auth.js
           node --check scripts/verify-group-pulse.js
+          node --check scripts/verify-public-share.js
       - name: Verify native authentication contract
         run: npm run verify:native-auth
       - name: Verify private group pulse contract
         run: npm run verify:group-pulse
+      - name: Verify public sharing acquisition contract
+        run: npm run verify:public-share
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
