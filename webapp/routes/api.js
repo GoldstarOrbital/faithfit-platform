@@ -1308,14 +1308,29 @@ router.post('/users/:id/follow', requireAuth, (req, res) => {
 router.get('/users/suggested', requireAuth, (req, res) => {
   const me = req.session.userId;
   const rows = db.prepare(`
+    WITH following AS (SELECT followee_id FROM followers WHERE follower_id = @me)
     SELECT u.id, u.display_name, u.bio_verse_ref,
-           (SELECT COUNT(*) FROM followers f WHERE f.followee_id = u.id) AS followers_count
+           (SELECT COUNT(*) FROM followers f WHERE f.followee_id = u.id) AS followers_count,
+           (SELECT COUNT(*) FROM followers mutual
+             WHERE mutual.followee_id = u.id
+               AND mutual.follower_id IN (SELECT followee_id FROM following)) AS mutual_count,
+           CASE WHEN @church IS NOT NULL AND @church != '' AND u.church = @church THEN 1 ELSE 0 END AS shared_church,
+           CASE WHEN @group_name IS NOT NULL AND @group_name != '' AND u.fitness_group = @group_name THEN 1 ELSE 0 END AS shared_group
     FROM users u
     WHERE u.id != @me
-      AND u.id NOT IN (SELECT followee_id FROM followers WHERE follower_id = @me)
-    ORDER BY followers_count DESC, u.display_name
+      AND u.id NOT IN (SELECT followee_id FROM following)
+    ORDER BY shared_church DESC, shared_group DESC, mutual_count DESC, followers_count DESC, u.display_name
     LIMIT 12
-  `).all({ me });
+  `).all({
+    me,
+    church: db.prepare('SELECT church FROM users WHERE id = ?').get(me)?.church || null,
+    group_name: db.prepare('SELECT fitness_group FROM users WHERE id = ?').get(me)?.fitness_group || null,
+  }).map(row => ({
+    ...row,
+    reason: row.shared_church ? 'From your church' : row.shared_group ? 'In your fitness group' : row.mutual_count ? `${row.mutual_count} mutual connection${row.mutual_count === 1 ? '' : 's'}` : 'Popular in the community',
+    shared_church: undefined,
+    shared_group: undefined,
+  }));
   res.json(rows);
 });
 

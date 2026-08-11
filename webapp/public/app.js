@@ -361,7 +361,7 @@ async function renderHome(main) {
           <div class="suggest-item" data-user="${u.id}">
             ${avatarHtml(u, 'avatar-sm suggest-avatar')}
             <div class="suggest-name">${escapeHtml(u.display_name)}</div>
-            <div class="suggest-sub">${u.followers_count} follower${u.followers_count===1?'':'s'}</div>
+            <div class="suggest-sub">${escapeHtml(u.reason || `${u.followers_count} follower${u.followers_count===1?'':'s'}`)}</div>
             <button class="follow-btn" data-follow="${u.id}">Follow</button>
           </div>`).join('')}
       </div>
