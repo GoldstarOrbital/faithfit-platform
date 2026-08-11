@@ -19,8 +19,13 @@ or notifications that are difficult to turn off.
 
 ## Before submitting native apps
 
-- [ ] Create the Xcode project around `ios/FunctioningFaith` and replace the mock
-      API mode with the production API client.
+- [x] Native source consumes the current paginated feed contract and uses the
+      production API base URL.
+- [x] Native live workouts call the real start/stop endpoints and record Core
+      Location routes when permission is granted; heart rate is never fabricated.
+- [x] Native Profile includes sign-out and permanent account deletion controls.
+- [ ] Create the Xcode project around `ios/FunctioningFaith`, add the source files,
+      and verify the Release configuration uses the production API client.
 - [ ] Add Sign in with Apple capability and the production OAuth redirect URI.
 - [ ] Add `NSLocationWhenInUseUsageDescription` explaining live workout routes.
 - [ ] Add Bluetooth usage text explaining optional heart-rate/sensor pairing.
