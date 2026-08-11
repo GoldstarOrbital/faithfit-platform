@@ -200,6 +200,42 @@ struct GroupEvent: Codable, Identifiable {
     }
 }
 
+struct GroupPulseCheckin: Codable, Identifiable {
+    let id: String
+    let groupID: String
+    let userID: String
+    let day: String
+    let kind: String
+    let note: String?
+    let author: String
+    let verseReference: String?
+    let verseText: String?
+    var encouragementCount: Int
+    var encouragedByMe: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, day, kind, note, author
+        case groupID = "group_id"
+        case userID = "user_id"
+        case verseReference = "verse_reference"
+        case verseText = "verse_text"
+        case encouragementCount = "encouragement_count"
+        case encouragedByMe = "encouraged_by_me"
+    }
+}
+
+struct GroupPulse: Codable {
+    let day: String
+    let todayCount: Int
+    let mine: GroupPulseCheckin?
+    var checkins: [GroupPulseCheckin]
+
+    enum CodingKeys: String, CodingKey {
+        case day, mine, checkins
+        case todayCount = "today_count"
+    }
+}
+
 struct NativeGroupDetail {
     let group: ExploreGroup
     var memberCount: Int

@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "node server.js",
-    "verify:native-auth": "node scripts/verify-native-auth.js"
+    "verify:native-auth": "node scripts/verify-native-auth.js",
+    "verify:group-pulse": "node scripts/verify-group-pulse.js"
   },
   "dependencies": {
     "compression": "^1.8.1",

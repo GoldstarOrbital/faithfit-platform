@@ -2098,6 +2098,80 @@ router.post('/groups/:id/leave', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+const GROUP_PULSE_KINDS = new Set(['moved', 'prayed', 'rested']);
+const GROUP_PULSE_THEMES = { moved: 'strength', prayed: 'prayer', rested: 'peace' };
+function groupPulseDay(value) {
+  const today = new Date().toISOString().slice(0, 10);
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) ? String(value) : today;
+  const distance = Math.abs(Date.parse(`${day}T12:00:00Z`) - Date.parse(`${today}T12:00:00Z`));
+  return Number.isFinite(distance) && distance <= 86400000 ? day : today;
+}
+function groupPulseVerse(kind) {
+  const theme = GROUP_PULSE_THEMES[kind] || 'encouragement';
+  return db.prepare(`SELECT id FROM scripture_verses
+    WHERE lower(COALESCE(themes,'')) LIKE ? ORDER BY reference LIMIT 1`).get(`%${theme}%`)?.id
+    || db.prepare('SELECT id FROM scripture_verses ORDER BY reference LIMIT 1').get()?.id
+    || null;
+}
+
+// Group Pulse is deliberately finite: one editable check-in per member/day,
+// no leaderboard, and no streak-loss language. It builds reciprocal support
+// without turning private spiritual or recovery rhythms into a competition.
+router.get('/groups/:id/pulse', requireAuth, (req, res) => {
+  const group = db.prepare('SELECT id FROM groups WHERE id=?').get(req.params.id);
+  if (!group) return res.status(404).json({ error: 'not_found' });
+  if (!isGroupMember(group.id, req.session.userId)) return res.status(403).json({ error: 'not_a_member' });
+  const rows = db.prepare(`SELECT c.id,c.group_id,c.user_id,c.day,c.kind,c.note,c.created_at,c.updated_at,
+      u.display_name author,v.reference verse_reference,v.text verse_text,
+      (SELECT COUNT(*) FROM group_pulse_encouragements e WHERE e.checkin_id=c.id) encouragement_count,
+      EXISTS(SELECT 1 FROM group_pulse_encouragements e WHERE e.checkin_id=c.id AND e.user_id=@me) encouraged_by_me
+    FROM group_pulse_checkins c JOIN users u ON u.id=c.user_id
+    LEFT JOIN scripture_verses v ON v.id=c.verse_id
+    WHERE c.group_id=@group AND c.day>=date('now','-6 days')
+    ORDER BY c.day DESC,c.updated_at DESC LIMIT 100`).all({ group: group.id, me: req.session.userId });
+  const checkins = rows.map(row => ({ ...row, encouraged_by_me: !!row.encouraged_by_me }));
+  const today = groupPulseDay(req.query?.day);
+  const mine = checkins.find(row => row.user_id === req.session.userId && row.day === today) || null;
+  const todayCount = db.prepare('SELECT COUNT(*) c FROM group_pulse_checkins WHERE group_id=? AND day=?').get(group.id, today).c;
+  res.json({ day: today, today_count: todayCount, mine, checkins });
+});
+
+router.post('/groups/:id/pulse', requireAuth, requireCommunityAccess, (req, res) => {
+  const group = db.prepare('SELECT id FROM groups WHERE id=?').get(req.params.id);
+  if (!group) return res.status(404).json({ error: 'not_found' });
+  if (!isGroupMember(group.id, req.session.userId)) return res.status(403).json({ error: 'not_a_member' });
+  const kind = String(req.body?.kind || '').toLowerCase();
+  if (!GROUP_PULSE_KINDS.has(kind)) return res.status(400).json({ error: 'invalid_pulse_kind' });
+  const note = String(req.body?.note || '').trim().replace(/\s+/g, ' ').slice(0, 160) || null;
+  const day = groupPulseDay(req.body?.day);
+  const existing = db.prepare('SELECT id FROM group_pulse_checkins WHERE group_id=? AND user_id=? AND day=?')
+    .get(group.id, req.session.userId, day);
+  const id = existing?.id || randomUUID();
+  db.prepare(`INSERT INTO group_pulse_checkins(id,group_id,user_id,day,kind,note,verse_id)
+    VALUES(?,?,?,?,?,?,?) ON CONFLICT(group_id,user_id,day) DO UPDATE SET
+      kind=excluded.kind,note=excluded.note,verse_id=excluded.verse_id,updated_at=datetime('now')`)
+    .run(id, group.id, req.session.userId, day, kind, note, groupPulseVerse(kind));
+  const row = db.prepare(`SELECT c.id,c.group_id,c.user_id,c.day,c.kind,c.note,c.created_at,c.updated_at,
+      u.display_name author,v.reference verse_reference,v.text verse_text,0 encouragement_count,0 encouraged_by_me
+    FROM group_pulse_checkins c JOIN users u ON u.id=c.user_id LEFT JOIN scripture_verses v ON v.id=c.verse_id
+    WHERE c.id=?`).get(id);
+  res.status(existing ? 200 : 201).json({ ...row, encouraged_by_me: false });
+});
+
+router.post('/groups/:id/pulse/:checkinId/encourage', requireAuth, requireCommunityAccess, (req, res) => {
+  if (!isGroupMember(req.params.id, req.session.userId)) return res.status(403).json({ error: 'not_a_member' });
+  const checkin = db.prepare('SELECT id,user_id FROM group_pulse_checkins WHERE id=? AND group_id=?')
+    .get(req.params.checkinId, req.params.id);
+  if (!checkin) return res.status(404).json({ error: 'not_found' });
+  if (checkin.user_id === req.session.userId) return res.status(400).json({ error: 'cannot_encourage_self' });
+  const added = db.prepare('INSERT OR IGNORE INTO group_pulse_encouragements(checkin_id,user_id) VALUES(?,?)')
+    .run(checkin.id, req.session.userId).changes === 1;
+  if (added) notify(checkin.user_id, 'group_pulse', `${displayName(req.session.userId)} encouraged your group check-in.`,
+    { group_id: req.params.id, checkin_id: checkin.id });
+  const count = db.prepare('SELECT COUNT(*) c FROM group_pulse_encouragements WHERE checkin_id=?').get(checkin.id).c;
+  res.json({ encouraged: true, encouragement_count: count });
+});
+
 router.get('/groups/:id/messages', requireAuth, (req, res) => {
   const group = db.prepare('SELECT id FROM groups WHERE id = ?').get(req.params.id);
   if (!group) return res.status(404).json({ error: 'not_found' });
@@ -2449,7 +2523,8 @@ router.delete('/me', requireAuth, (req, res) => {
     'user_badges', 'user_quests', 'notifications', 'post_comments', 'comment_likes', 'post_likes', 'post_saves',
     'stories',
     'breathing_sessions', 'user_challenges', 'user_identities', 'user_connectors',
-    'imported_activities', 'group_messages', 'event_rsvps', 'user_journeys',
+    'imported_activities', 'group_messages', 'event_rsvps', 'group_pulse_checkins',
+    'group_pulse_encouragements', 'user_journeys',
     'verse_reflections', 'verse_reflection_likes', 'training_goals', 'webhooks',
     'journey_segment_times', 'gloo_calls', 'api_keys', 'push_subscriptions',
     'push_log', 'user_reminders', 'motivation_seen', 'wearable_metrics',
@@ -2496,6 +2571,11 @@ router.delete('/me', requireAuth, (req, res) => {
     db.prepare('DELETE FROM workout_partners WHERE tagged_by = ? OR partner_user_id = ?').run(uid, uid);
     db.prepare('DELETE FROM workout_invites WHERE sender_id = ? OR recipient_id = ?').run(uid, uid);
     db.prepare('DELETE FROM group_invites WHERE created_by = ?').run(uid);
+    const pulseIds = db.prepare('SELECT id FROM group_pulse_checkins WHERE user_id=?').all(uid).map(row => row.id);
+    if (pulseIds.length) {
+      const marks = pulseIds.map(() => '?').join(',');
+      db.prepare(`DELETE FROM group_pulse_encouragements WHERE checkin_id IN (${marks})`).run(...pulseIds);
+    }
     db.prepare('DELETE FROM group_members WHERE user_id = ?').run(uid);
     db.prepare('DELETE FROM story_views WHERE viewer_id = ?').run(uid);
     db.prepare('DELETE FROM story_reactions WHERE user_id = ?').run(uid);
@@ -2543,6 +2623,8 @@ router.get('/me/export', requireAuth, (req, res) => {
     connectors: db.prepare('SELECT provider,provider_user_id,scope,connected_at,last_synced_at FROM user_connectors WHERE user_id=?').all(uid),
     groups: db.prepare('SELECT group_id,role FROM group_members WHERE user_id=?').all(uid),
     group_messages: db.prepare('SELECT group_id,content,created_at FROM group_messages WHERE user_id=?').all(uid),
+    group_pulse_checkins: db.prepare('SELECT group_id,day,kind,note,verse_id,created_at,updated_at FROM group_pulse_checkins WHERE user_id=?').all(uid),
+    group_pulse_encouragements: db.prepare('SELECT checkin_id,created_at FROM group_pulse_encouragements WHERE user_id=?').all(uid),
     direct_messages: db.prepare(`SELECT m.thread_id,m.sender_id,m.body,m.kind,m.metadata,m.created_at,m.read_at FROM dm_messages m JOIN dm_threads t ON t.id=m.thread_id WHERE t.user_a=? OR t.user_b=? ORDER BY m.created_at`).all(uid,uid),
     stories: db.prepare('SELECT * FROM stories WHERE user_id=?').all(uid),
     reminders: db.prepare('SELECT * FROM user_reminders WHERE user_id=?').all(uid),

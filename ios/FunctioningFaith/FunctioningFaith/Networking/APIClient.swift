@@ -123,6 +123,35 @@ final class APIClient {
         return try await request("/api/groups/\(encoded)/messages", method: "POST", body: GroupMessageBody(content: content))
     }
 
+    func fetchGroupPulse(groupID: String) async throws -> GroupPulse {
+        if useMock { return MockData.groupPulse }
+        guard let encoded = groupID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw APIError.invalidResponse
+        }
+        return try await request("/api/groups/\(encoded)/pulse")
+    }
+
+    func updateGroupPulse(groupID: String, kind: String, note: String, day: String) async throws -> GroupPulseCheckin {
+        if useMock { return MockData.groupPulse.checkins[0] }
+        guard let encoded = groupID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw APIError.invalidResponse
+        }
+        return try await request(
+            "/api/groups/\(encoded)/pulse",
+            method: "POST",
+            body: GroupPulseBody(kind: kind, note: note, day: day)
+        )
+    }
+
+    func encourageGroupPulse(groupID: String, checkinID: String) async throws -> PulseEncouragementResponse {
+        if useMock { return PulseEncouragementResponse(encouraged: true, encouragementCount: 2) }
+        guard let group = groupID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+              let checkin = checkinID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw APIError.invalidResponse
+        }
+        return try await request("/api/groups/\(group)/pulse/\(checkin)/encourage", method: "POST", body: EmptyBody())
+    }
+
     func login(email: String, password: String) async throws -> NativeLoginOutcome {
         if useMock { return .authenticated(NativeSessionState(profile: MockData.profile, accountSetupRequired: false)) }
         let response: AuthResponse = try await request("/api/auth/login", method: "POST", body: Credentials(email: email, password: password))
@@ -284,6 +313,7 @@ private struct NativeAppleAuthBody: Encodable {
 }
 private struct Registration: Encodable { let displayName: String; let email: String; let password: String; enum CodingKeys: String, CodingKey { case displayName = "display_name"; case email, password } }
 private struct WorkoutStart: Encodable { let type: String }
+private struct GroupPulseBody: Encodable { let kind: String; let note: String; let day: String }
 private struct WorkoutStop: Encodable { let gpsPoints: [[Double]]; enum CodingKeys: String, CodingKey { case gpsPoints = "gps_path" } }
 private struct AuthResponse: Decodable {
     let ok: Bool?
@@ -305,6 +335,12 @@ private struct NativeAppleAuthResponse: Decodable {
 }
 private struct WorkoutStartResponse: Decodable { let id: UUID }
 private struct WorkoutStopResponse: Decodable { let id: UUID }
+
+struct PulseEncouragementResponse: Decodable {
+    let encouraged: Bool
+    let encouragementCount: Int
+    enum CodingKeys: String, CodingKey { case encouraged; case encouragementCount = "encouragement_count" }
+}
 
 struct PostReactionResponse: Decodable {
     let liked: Bool
@@ -537,6 +573,12 @@ enum MockData {
         isAdmin: false,
         messages: [GroupMessage(id: "message-preview", content: "See everyone at sunrise!", createdAt: "2026-08-11 06:00:00", authorID: "preview-author", author: "Sam T.")],
         events: [GroupEvent(id: "event-preview", title: "Saturday 5K", description: "Easy community run.", activityType: "Run", eventTime: "2026-08-15 07:00:00", locationName: "River Trail", goingCount: 8, interestedCount: 3, myRSVP: "going")]
+    )
+    static let groupPulse = GroupPulse(
+        day: "2026-08-11",
+        todayCount: 2,
+        mine: nil,
+        checkins: [GroupPulseCheckin(id: "pulse-preview", groupID: "group-preview", userID: "preview-author", day: "2026-08-11", kind: "moved", note: "Easy miles before work.", author: "Sam T.", verseReference: "Isaiah 40:31", verseText: "Those who wait for Yahweh will renew their strength.", encouragementCount: 1, encouragedByMe: false)]
     )
     static func activeWorkout(type: String) -> WorkoutSummary { WorkoutSummary(id: UUID(), type: type, startTime: .now, endTime: nil, calories: nil, avgHR: nil) }
 }

@@ -1437,6 +1437,7 @@ async function renderGroupDetail(groupId) {
   let data;
   try { data = await api(`/groups/${groupId}`); } catch { main.innerHTML = '<div class="card glass">Could not load group.</div>'; return; }
   const g = data.group;
+  const pulse = data.is_member ? await api(`/groups/${groupId}/pulse`).catch(() => ({ checkins: [], mine: null, today_count: 0 })) : null;
   let lastTs = data.messages.length ? data.messages[data.messages.length - 1].created_at : null;
 
   const activityOpts = async () => {
@@ -1460,6 +1461,16 @@ async function renderGroupDetail(groupId) {
       </div>
     </div>`).join('') || '<p class="muted">No upcoming meetups yet.</p>';
 
+  const pulseLabels = { moved: ['Moved', 'figure'], prayed: ['Prayed', 'prayer'], rested: ['Recovered', 'rest'] };
+  const pulseIcons = { moved: '🏃', prayed: '🙏', rested: '🌿' };
+  const renderPulse = checkins => checkins.slice(0, 18).map(c => `
+    <div class="comment group-pulse-item" data-pulse="${c.id}">
+      <div class="group-pulse-head"><b>${pulseIcons[c.kind] || '•'} ${escapeHtml(c.author)}</b><span class="muted">${c.day === pulse.day ? 'Today' : escapeHtml(c.day)}</span></div>
+      <div>${escapeHtml(pulseLabels[c.kind]?.[0] || c.kind)}${c.note ? ` · ${escapeHtml(c.note)}` : ''}</div>
+      ${c.verse_reference ? `<div class="challenge-ref">${escapeHtml(c.verse_reference)}${c.verse_text ? ` — ${escapeHtml(c.verse_text)}` : ''}</div>` : ''}
+      ${c.user_id !== me?.user?.id ? `<button class="ghost pulse-encourage ${c.encouraged_by_me ? 'following' : ''}" data-pulse-encourage="${c.id}" ${c.encouraged_by_me ? 'disabled' : ''}>${c.encouraged_by_me ? 'Encouraged ✓' : 'Encourage'} · <span>${c.encouragement_count || 0}</span></button>` : `<span class="muted">${c.encouragement_count || 0} encouragement${c.encouragement_count === 1 ? '' : 's'}</span>`}
+    </div>`).join('') || '<p class="muted">No check-ins yet. Be the first to share today’s rhythm.</p>';
+
   main.innerHTML = `
     <button class="ghost back-btn" id="group-back">← Back</button>
     <div class="card glass">
@@ -1471,6 +1482,14 @@ async function renderGroupDetail(groupId) {
       <button class="follow-btn ${data.is_member ? 'following' : ''}" id="group-join-leave">${data.is_member ? 'Leave group' : 'Join group'}</button>
       ${data.is_admin ? `<div style="display:flex;gap:8px;margin-top:10px"><button class="ghost" id="group-invite-btn">Invite members</button><button class="ghost" id="group-sync-btn">✦ Sync with Gloo</button></div><div id="group-invite-box" style="display:none;margin-top:10px"></div><div id="group-sync-status" class="muted" style="margin-top:6px"></div>` : ''}
     </div>
+    ${data.is_member ? `<div class="card glass group-pulse-card">
+      <span class="eyebrow">A finite daily ritual</span><h2>Group Pulse</h2>
+      <p class="muted">Share where you are today. No rankings, no missed-day penalty—just a simple way to show up for one another.</p>
+      <div class="pulse-options">${Object.entries(pulseLabels).map(([key,label]) => `<button class="ghost ${pulse.mine?.kind === key ? 'following' : ''}" data-pulse-kind="${key}">${pulseIcons[key]} ${label[0]}</button>`).join('')}</div>
+      <input class="input" id="pulse-note" maxlength="160" placeholder="Optional: what would support look like today?" value="${escapeHtml(pulse.mine?.note || '')}">
+      <div class="action-row"><button class="primary" id="pulse-share" disabled>${pulse.mine ? 'Update today’s check-in' : 'Share today’s check-in'}</button><span class="muted" id="pulse-status">${pulse.today_count || 0} checked in today</span></div>
+      <div id="group-pulse-list">${renderPulse(pulse.checkins || [])}</div>
+    </div>` : ''}
     <div class="card glass">
       <h2>Upcoming meetups</h2>
       <div id="group-events">${renderEvents(data.events)}</div>
@@ -1537,6 +1556,32 @@ async function renderGroupDetail(groupId) {
   wireRsvp();
 
   if (data.is_member) {
+    let selectedPulseKind = pulse.mine?.kind || null;
+    document.querySelectorAll('[data-pulse-kind]').forEach(btn => btn.onclick = () => {
+      selectedPulseKind = btn.dataset.pulseKind;
+      document.querySelectorAll('[data-pulse-kind]').forEach(item => item.classList.toggle('following', item === btn));
+      document.getElementById('pulse-share').disabled = false;
+    });
+    document.getElementById('pulse-note').addEventListener('input', () => {
+      document.getElementById('pulse-share').disabled = !selectedPulseKind;
+    });
+    document.getElementById('pulse-share').onclick = async () => {
+      if (!selectedPulseKind) return;
+      const button = document.getElementById('pulse-share');
+      button.disabled = true;
+      const result = await api(`/groups/${groupId}/pulse`, { method: 'POST', body: {
+        kind: selectedPulseKind, note: document.getElementById('pulse-note').value,
+        day: new Date().toLocaleDateString('en-CA')
+      }});
+      if (result.error) { document.getElementById('pulse-status').textContent = result.hint || result.error; button.disabled = false; return; }
+      renderGroupDetail(groupId);
+    };
+    document.querySelectorAll('[data-pulse-encourage]').forEach(btn => btn.onclick = async () => {
+      const result = await api(`/groups/${groupId}/pulse/${btn.dataset.pulseEncourage}/encourage`, { method: 'POST' });
+      if (result.error) return;
+      btn.disabled = true; btn.classList.add('following'); btn.innerHTML = `Encouraged ✓ · <span>${result.encouragement_count}</span>`;
+    });
+
     const messagesEl = document.getElementById('group-messages');
     const sendMsg = async () => {
       const input = document.getElementById('group-msg-input');
@@ -3005,6 +3050,7 @@ const NOTIF_ICONS = {
   workout_partner_confirmed: '⚡',
   event_rsvp: '📍',
   group_message: '💭',
+  group_pulse: '🤝',
   devotional: '🎬',
   streak: '🔥',
   effort: '💪',

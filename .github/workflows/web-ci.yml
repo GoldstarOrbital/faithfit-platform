@@ -37,8 +37,12 @@ jobs:
           node --check lib/account-security.js
           node --check lib/oauth.js
           node --check public/app.js
+          node --check public/sw.js
           node --check scripts/verify-native-auth.js
+          node --check scripts/verify-group-pulse.js
       - name: Verify native authentication contract
         run: npm run verify:native-auth
+      - name: Verify private group pulse contract
+        run: npm run verify:group-pulse
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high

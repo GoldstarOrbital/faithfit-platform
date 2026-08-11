@@ -1861,3 +1861,11 @@ button.start-degraded { background: var(--hearth, #b8863b); }
 #developer-verification-card input, #developer-verification-card textarea, #pending-church-card input { width:100%; margin-top:8px; }
 .verified-mark { display:inline-grid; place-items:center; width:17px; height:17px; margin-left:4px; border-radius:50%; background:#2f6f5d; color:white; font-size:.68rem; font-weight:800; vertical-align:1px; }
 .dm-link-warning { margin-top:5px; padding:7px 9px; border-radius:10px; background:#fff0cf; color:#6b4300; font-size:.7rem; line-height:1.35; }
+.group-pulse-card { overflow:hidden; }
+.pulse-options { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:14px 0 10px; }
+.pulse-options button { min-height:44px; }
+.group-pulse-card > .action-row { align-items:center; justify-content:space-between; }
+.group-pulse-item { display:grid; gap:5px; margin-top:10px; padding:12px; border:1px solid rgba(45,32,19,.12); border-radius:14px; background:rgba(255,255,255,.32); }
+.group-pulse-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.pulse-encourage { justify-self:start; margin-top:3px; padding:7px 10px; }
+@media (max-width:430px) { .pulse-options { grid-template-columns:1fr; } .group-pulse-card > .action-row { align-items:flex-start; flex-direction:column; } }

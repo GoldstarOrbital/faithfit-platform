@@ -564,6 +564,29 @@ CREATE TABLE IF NOT EXISTS event_rsvps (
   status TEXT NOT NULL,
   PRIMARY KEY (event_id, user_id)
 );
+
+-- A finite, non-ranked daily ritual for small-group belonging. Members may
+-- update today's pulse instead of being punished for getting it "wrong".
+CREATE TABLE IF NOT EXISTS group_pulse_checkins (
+  id TEXT PRIMARY KEY,
+  group_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  day TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  note TEXT,
+  verse_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (group_id, user_id, day)
+);
+CREATE INDEX IF NOT EXISTS idx_group_pulse_group_day ON group_pulse_checkins(group_id, day DESC);
+CREATE TABLE IF NOT EXISTS group_pulse_encouragements (
+  checkin_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (checkin_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_group_pulse_encouragement_checkin ON group_pulse_encouragements(checkin_id);
 `);
 
 // --- migration: profile pictures, bio link, post photos + reports, workout partners (additive) ---

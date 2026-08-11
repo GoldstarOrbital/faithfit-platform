@@ -67,4 +67,14 @@ final class FunctioningFaithTests: XCTestCase {
         XCTAssertEqual(decoded.photoData, original.photoData)
         XCTAssertEqual(decoded.photoCategory, "group")
     }
+
+    func testGroupPulseDecodesPrivacyScopedContract() throws {
+        let json = #"{"day":"2026-08-11","today_count":1,"mine":null,"checkins":[{"id":"pulse-1","group_id":"group-1","user_id":"user-1","day":"2026-08-11","kind":"moved","note":"Easy miles.","author":"Sam","verse_reference":"Isaiah 40:31","verse_text":"Renew their strength.","encouragement_count":2,"encouraged_by_me":true}]}"#
+        let pulse = try JSONDecoder().decode(GroupPulse.self, from: Data(json.utf8))
+
+        XCTAssertEqual(pulse.todayCount, 1)
+        XCTAssertEqual(pulse.checkins.first?.kind, "moved")
+        XCTAssertEqual(pulse.checkins.first?.encouragementCount, 2)
+        XCTAssertEqual(pulse.checkins.first?.encouragedByMe, true)
+    }
 }
