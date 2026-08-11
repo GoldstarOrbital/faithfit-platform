@@ -64,7 +64,20 @@ function normaliseTradition(t) {
 
 function clientId() { return process.env.GLOO_CLIENT_ID || null; }
 function clientSecret() { return process.env.GLOO_CLIENT_SECRET || null; }
-function isConfigured() { return !!(clientId() && clientSecret()); }
+
+/**
+ * A Gloo Studio API key (`sk_…`), used directly as the bearer token.
+ *
+ * Preferred over the OAuth client-credentials pair when present, because it
+ * removes a moving part: no token endpoint round trip, no hour-long expiry to
+ * track, and no window where a cached token is silently stale. Verified
+ * against the live API — the key authenticates /ai/v2/chat/completions on its
+ * own and returns a normal completion.
+ *
+ * The OAuth path stays for deployments configured that way; either works.
+ */
+function apiKey() { return process.env.GLOO_API_KEY || null; }
+function isConfigured() { return !!(apiKey() || (clientId() && clientSecret())); }
 
 function init() {
   db.exec(`
@@ -112,6 +125,9 @@ let tokenInFlight = null;  // dedupes concurrent refreshes
 
 async function accessToken() {
   if (!isConfigured()) return null;
+  // A Studio API key IS the bearer token — nothing to exchange, nothing to
+  // expire. Checked before the cache so it cannot be shadowed by a stale one.
+  if (apiKey()) return apiKey();
   if (token && token.expiresAt > Date.now() + 60000) return token.value;
   if (tokenInFlight) return tokenInFlight;
 
@@ -436,10 +452,11 @@ async function verifyRefs(text, resolve, meta) {
 function start() {
   init();
   if (!isConfigured()) {
-    console.log('[gloo] no GLOO_CLIENT_ID/GLOO_CLIENT_SECRET — ' +
+    console.log('[gloo] no GLOO_API_KEY (or GLOO_CLIENT_ID/GLOO_CLIENT_SECRET) — ' +
                 'authored scripture only, no companion, no generated reflection');
     return;
   }
+  console.log('[gloo] auth: %s', apiKey() ? 'studio API key' : 'oauth client credentials');
   // Prove the credentials at boot rather than at a member's first question.
   accessToken().then((t) => {
     console.log(t ? '[gloo] authenticated, values-aligned inference available'
