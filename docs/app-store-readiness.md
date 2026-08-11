@@ -24,9 +24,10 @@ or notifications that are difficult to turn off.
 - [x] Native live workouts call the real start/stop endpoints and record Core
       Location routes when permission is granted; heart rate is never fabricated.
 - [x] Native Profile includes sign-out and permanent account deletion controls.
-- [ ] Create the Xcode project around `ios/FunctioningFaith`, add the source files,
-      and verify the Release configuration uses the production API client.
-- [ ] Add Sign in with Apple capability and the production OAuth redirect URI.
+- [x] Add a reproducible XcodeGen project spec around `ios/FunctioningFaith`, with
+      a unit-test target and Release settings that use the production API client.
+- [ ] Enable Sign in with Apple for the final App ID and verify the production OAuth
+      redirect URI on a signed device build.
 - [ ] Add `NSLocationWhenInUseUsageDescription` explaining live workout routes.
 - [ ] Add Bluetooth usage text explaining optional heart-rate/sensor pairing.
 - [x] Request notification permission only after the member chooses a category;

@@ -11,8 +11,10 @@ wired to a mock API client so it runs standalone in the simulator without a live
 - `Functioning Faith/Tests` - unit/UI test stubs
 
 ## Running
-Open in Xcode (add these files to a new SwiftUI App project targeting iOS 17+), select a
-simulator, and run. `APIClient.useMock = true` by default for previews and local review.
+Install XcodeGen on macOS, then run xcodegen generate --spec project.yml from this
+directory. Open the generated FunctioningFaith.xcodeproj, select a simulator, and run.
+Set the Development Team and bundle identifier in Signing & Capabilities before
+archiving. `APIClient.useMock = true` by default for previews and local review.
 Before TestFlight, add Sign in with Apple and switch the release configuration to live
 networking with the production base URL.
 The shell now includes email/password sign-in and registration, a restore-session path,
@@ -22,6 +24,11 @@ paginated production API. Native Profile now exposes opt-in Scripture, community
 reminder notification categories and requests system permission only after a category
 is selected. OAuth provider buttons and Sign in with Apple remain a final
 entitlement/deep-link step.
+
+The project spec includes a unit-test target, iOS 17 deployment settings, the live
+permission copy, the privacy manifest, and the Sign in with Apple entitlement scaffold.
+The Apple capability still needs to be enabled for the final App ID in the Apple
+Developer portal and verified on a signed device build.
 
 ## Store metadata included
 
