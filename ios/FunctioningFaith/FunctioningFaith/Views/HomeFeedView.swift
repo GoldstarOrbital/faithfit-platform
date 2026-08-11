@@ -3,11 +3,23 @@ import SwiftUI
 struct HomeFeedView: View {
     @State private var posts: [FeedPost] = []
     @State private var isLoading = true
+    @State private var blockCandidate: (id: UUID, name: String)?
+    @State private var showBlockConfirmation = false
 
     var body: some View {
         List {
             ForEach(posts) { post in
-                FeedPostRow(post: post, onLike: { toggleLike(post) }, onSave: { toggleSave(post) })
+                FeedPostRow(
+                    post: post,
+                    onLike: { toggleLike(post) },
+                    onSave: { toggleSave(post) },
+                    onReport: { report(post) },
+                    onBlock: {
+                        guard let authorID = post.authorID else { return }
+                        blockCandidate = (authorID, post.authorName)
+                        showBlockConfirmation = true
+                    }
+                )
                     .swipeActions(edge: .trailing) {
                         Button { toggleLike(post) } label: { Label(post.likedByMe ? "Unlike" : "Like", systemImage: post.likedByMe ? "heart.slash" : "heart.fill") }
                             .tint(.pink)
@@ -20,6 +32,19 @@ struct HomeFeedView: View {
         .refreshable { await loadFeed() }
         .navigationTitle("Home")
         .task { await loadFeed() }
+        .confirmationDialog(
+            "Block this member?",
+            isPresented: $showBlockConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Block \(blockCandidate?.name ?? "member")", role: .destructive) {
+                guard let candidate = blockCandidate else { return }
+                block(candidate.id)
+            }
+            Button("Cancel", role: .cancel) { blockCandidate = nil }
+        } message: {
+            Text("Their posts and messages will no longer appear to you. You can manage blocks from their profile later.")
+        }
         .overlay {
             if isLoading && posts.isEmpty { ProgressView() }
         }
@@ -47,12 +72,28 @@ struct HomeFeedView: View {
             posts[index].savedByMe = response.saved
         }
     }
+
+    private func report(_ post: FeedPost) {
+        Task {
+            try? await APIClient.shared.reportPost(id: post.id, reason: "Reported from the native feed")
+        }
+    }
+
+    private func block(_ id: UUID) {
+        Task {
+            guard (try? await APIClient.shared.blockUser(id: id)) != nil else { return }
+            posts.removeAll { $0.authorID == id }
+            blockCandidate = nil
+        }
+    }
 }
 
 struct FeedPostRow: View {
     let post: FeedPost
     let onLike: () -> Void
     let onSave: () -> Void
+    let onReport: () -> Void
+    let onBlock: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -95,6 +136,12 @@ struct FeedPostRow: View {
         }
         .padding(.vertical, 6)
         .accessibilityElement(children: .contain)
+        .contextMenu {
+            Button("Report post", role: .destructive, action: onReport)
+            if post.authorID != nil {
+                Button("Block \(post.authorName)", role: .destructive, action: onBlock)
+            }
+        }
     }
 }
 

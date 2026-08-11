@@ -18,6 +18,7 @@ struct VerseSnippet: Codable, Identifiable {
 
 struct FeedPost: Codable, Identifiable {
     let id: UUID
+    let authorID: UUID? = nil
     let authorName: String
     let content: String
     let workout: WorkoutSummary?
