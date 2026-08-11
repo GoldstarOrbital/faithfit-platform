@@ -36,11 +36,20 @@ final class APIClient {
     }
 
     func fetchFeed() async throws -> [FeedPost] {
-        if useMock { return MockData.feed }
-        // The web API returns a paginated envelope. Decoding the old bare array
-        // made the native Home tab silently empty against the production API.
-        let response: FeedResponse = try await request("/api/feed?limit=20")
-        return response.posts.map(\.model)
+        let page = try await fetchFeedPage()
+        return page.posts
+    }
+
+    func fetchFeedPage(before: String? = nil) async throws -> FeedPage {
+        if useMock { return FeedPage(posts: MockData.feed, nextCursor: nil) }
+        // The production feed is a cursor-paginated envelope. Keep the cursor
+        // on the client so native scrolling never reloads already-rendered rows.
+        var path = "/api/feed?limit=20"
+        if let before, let encoded = before.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            path += "&before=\(encoded)"
+        }
+        let response: FeedResponse = try await request(path)
+        return FeedPage(posts: response.posts.map(\.model), nextCursor: response.nextCursor)
     }
 
     func fetchProfile() async throws -> UserProfile {
@@ -179,6 +188,11 @@ private struct FeedResponse: Decodable {
     let posts: [FeedDTO]
     let nextCursor: String?
     enum CodingKeys: String, CodingKey { case posts; case nextCursor = "next_cursor" }
+}
+
+struct FeedPage {
+    let posts: [FeedPost]
+    let nextCursor: String?
 }
 
 private struct FeedDTO: Decodable {

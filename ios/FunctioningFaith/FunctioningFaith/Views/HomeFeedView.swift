@@ -3,6 +3,8 @@ import SwiftUI
 struct HomeFeedView: View {
     @State private var posts: [FeedPost] = []
     @State private var isLoading = true
+    @State private var isLoadingMore = false
+    @State private var nextCursor: String?
     @State private var blockCandidate: (id: UUID, name: String)?
     @State private var showBlockConfirmation = false
 
@@ -20,12 +22,21 @@ struct HomeFeedView: View {
                         showBlockConfirmation = true
                     }
                 )
+                    .onAppear { loadNextPageIfNeeded(post) }
                     .swipeActions(edge: .trailing) {
                         Button { toggleLike(post) } label: { Label(post.likedByMe ? "Unlike" : "Like", systemImage: post.likedByMe ? "heart.slash" : "heart.fill") }
                             .tint(.pink)
                         Button { toggleSave(post) } label: { Label(post.savedByMe ? "Unsave" : "Save", systemImage: post.savedByMe ? "bookmark.slash" : "bookmark.fill") }
                             .tint(.blue)
                     }
+            }
+            if isLoadingMore {
+                HStack {
+                    Spacer()
+                    ProgressView("Loading more")
+                    Spacer()
+                }
+                .listRowSeparator(.hidden)
             }
         }
         .listStyle(.plain)
@@ -53,7 +64,24 @@ struct HomeFeedView: View {
     private func loadFeed() async {
         isLoading = true
         defer { isLoading = false }
-        posts = (try? await APIClient.shared.fetchFeed()) ?? []
+        guard let page = try? await APIClient.shared.fetchFeedPage() else { return }
+        posts = page.posts
+        nextCursor = page.nextCursor
+    }
+
+    private func loadNextPageIfNeeded(_ post: FeedPost) {
+        guard post.id == posts.last?.id, nextCursor != nil, !isLoadingMore else { return }
+        Task { await loadMore() }
+    }
+
+    private func loadMore() async {
+        guard let cursor = nextCursor, !isLoadingMore else { return }
+        isLoadingMore = true
+        defer { isLoadingMore = false }
+        guard let page = try? await APIClient.shared.fetchFeedPage(before: cursor) else { return }
+        let existing = Set(posts.map(\.id))
+        posts.append(contentsOf: page.posts.filter { !existing.contains($0.id) })
+        nextCursor = page.nextCursor
     }
 
     private func toggleLike(_ post: FeedPost) {
