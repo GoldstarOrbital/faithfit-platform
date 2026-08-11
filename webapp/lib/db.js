@@ -89,6 +89,28 @@ CREATE TABLE IF NOT EXISTS followers (
   PRIMARY KEY (follower_id, followee_id)
 );
 
+-- Short-lived community moments. Expiry is stored server-side so a client
+-- clock cannot keep a story visible after its promised 24 hours.
+CREATE TABLE IF NOT EXISTS stories (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  content TEXT,
+  photo_data TEXT,
+  photo_category TEXT,
+  visibility TEXT NOT NULL DEFAULT 'public',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_stories_expiry ON stories(expires_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_stories_user ON stories(user_id, expires_at);
+
+CREATE TABLE IF NOT EXISTS story_views (
+  story_id TEXT NOT NULL,
+  viewer_id TEXT NOT NULL,
+  viewed_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (story_id, viewer_id)
+);
+
 CREATE TABLE IF NOT EXISTS user_xp (
   user_id TEXT PRIMARY KEY,
   xp INTEGER DEFAULT 0,

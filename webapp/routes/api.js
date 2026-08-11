@@ -1184,6 +1184,68 @@ function publishedRoute(post) {
   return trimRoute(pts, post.route_privacy_m);
 }
 
+function storyVisible(story, viewerId) {
+  if (!story || !viewerId) return false;
+  if (story.user_id === viewerId || story.visibility === 'public') return true;
+  return story.visibility === 'followers' && !!db.prepare(
+    'SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?'
+  ).get(viewerId, story.user_id);
+}
+
+router.get('/stories', requireAuth, (req, res) => {
+  const me = req.session.userId;
+  const rows = db.prepare(`
+    SELECT s.id, s.user_id, s.content, s.photo_data, s.photo_category,
+           s.visibility, s.created_at, s.expires_at, u.display_name author,
+           CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS author_has_avatar,
+           CASE WHEN sv.story_id IS NULL THEN 0 ELSE 1 END AS viewed
+      FROM stories s JOIN users u ON u.id = s.user_id
+      LEFT JOIN story_views sv ON sv.story_id = s.id AND sv.viewer_id = @me
+     WHERE s.expires_at > datetime('now')
+       AND (s.visibility = 'public' OR s.user_id = @me OR (s.visibility = 'followers' AND EXISTS (
+            SELECT 1 FROM followers f WHERE f.follower_id = @me AND f.followee_id = s.user_id)))
+       AND NOT EXISTS (SELECT 1 FROM dm_blocks b
+                       WHERE (b.blocker_id = @me AND b.blocked_id = s.user_id)
+                          OR (b.blocker_id = s.user_id AND b.blocked_id = @me))
+     ORDER BY s.created_at DESC LIMIT 80
+  `).all({ me });
+  res.json({ stories: rows });
+});
+
+router.post('/stories', requireAuth, (req, res) => {
+  const { content, photo_data, photo_category, visibility } = req.body || {};
+  const text = String(content || '').trim().slice(0, 280);
+  let photoData = null;
+  if (photo_data) {
+    const check = validateDataUrlImage(photo_data);
+    if (!check.ok) return res.status(400).json({ error: check.error, hint: check.hint });
+    if (!PHOTO_CATEGORIES.includes(photo_category)) return res.status(400).json({ error: 'invalid_photo_category', hint: 'Moment photos must be nature, animals, or groups of people.' });
+    photoData = photo_data;
+  }
+  if (!text && !photoData) return res.status(400).json({ error: 'moment_empty', hint: 'Add a short thought or a photo.' });
+  const vis = VISIBILITIES.includes(visibility) ? visibility : 'public';
+  const id = randomUUID();
+  db.prepare(`INSERT INTO stories (id, user_id, content, photo_data, photo_category, visibility, expires_at)
+              VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+24 hours'))`)
+    .run(id, req.session.userId, text || null, photoData, photoData ? photo_category : null, vis);
+  res.status(201).json({ id, visibility: vis, expires_in_hours: 24 });
+});
+
+router.post('/stories/:id/view', requireAuth, (req, res) => {
+  const story = db.prepare('SELECT * FROM stories WHERE id = ? AND expires_at > datetime(\'now\')').get(req.params.id);
+  if (!story || !storyVisible(story, req.session.userId) || dms.isBlockedEitherWay(req.session.userId, story.user_id)) return res.status(404).json({ error: 'story_not_found' });
+  db.prepare('INSERT INTO story_views (story_id, viewer_id) VALUES (?, ?) ON CONFLICT(story_id, viewer_id) DO UPDATE SET viewed_at = datetime(\'now\')')
+    .run(story.id, req.session.userId);
+  res.json({ ok: true });
+});
+
+router.delete('/stories/:id', requireAuth, (req, res) => {
+  const result = db.prepare('DELETE FROM stories WHERE id = ? AND user_id = ?').run(req.params.id, req.session.userId);
+  if (!result.changes) return res.status(404).json({ error: 'story_not_found' });
+  db.prepare('DELETE FROM story_views WHERE story_id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
 router.post('/posts', requireAuth, (req, res) => {
   const { content, workout_id, verse_id, visibility, photo_data, photo_category,
           show_route, route_privacy_m } = req.body || {};

@@ -133,6 +133,22 @@ main { flex: 1; padding: 16px 16px 18px; overflow-y: auto; -webkit-overflow-scro
 .story { cursor: pointer; }
 .story-avatar { width:100%; height:100%; border-radius:50%; background: var(--parch-2); color: var(--walnut-0); display:flex; align-items:center; justify-content:center; font-weight:700; font-family:'Cinzel',serif; border: 2px solid var(--parch-1); }
 .story-label { font-size:0.7rem; color: var(--muted); max-width:64px; text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.story { border:0; background:transparent; padding:0; }
+.story-create .story-ring { display:flex; align-items:center; justify-content:center; border:2px dashed rgba(70,192,127,.5); background:rgba(70,192,127,.08); }
+.story-plus { font-size:1.65rem; color:var(--forest); line-height:1; }
+.story-unread .story-ring { box-shadow:0 0 0 2px var(--forest), 0 4px 14px rgba(43,30,18,.15); }
+.moment-launch { margin-top:8px; font-size:.76rem; }
+.moment-layer { position:fixed; inset:0; z-index:1000; display:flex; align-items:center; justify-content:center; padding:18px; }
+.moment-backdrop { position:absolute; inset:0; background:rgba(15,11,8,.76); backdrop-filter:blur(8px); }
+.moment-viewer, .moment-composer { position:relative; z-index:1; width:min(100%,460px); max-height:min(88vh,720px); overflow:auto; padding:18px; border:1px solid rgba(255,255,255,.18); border-radius:24px; color:var(--ink); background:var(--parch-1); box-shadow:0 24px 70px rgba(0,0,0,.35); }
+.moment-composer { width:min(100%,520px); }
+.moment-viewer-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:14px; }
+.moment-viewer-head .ghost { padding:7px 10px; }
+.moment-photo { display:block; width:100%; max-height:52vh; object-fit:cover; border-radius:16px; margin:8px 0 14px; }
+.moment-copy { font-size:1.08rem; line-height:1.5; white-space:pre-wrap; }
+.moment-photo-preview img { display:block; width:100%; max-height:230px; object-fit:cover; border-radius:14px; margin:10px 0; }
+.moment-radio { display:block; margin:5px 0; font-size:.82rem; }
+.moment-viewer-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
 
 /* ---- Feed post ---- */
 .post-head { display:flex; align-items:center; gap:10px; margin-bottom: 10px; }
