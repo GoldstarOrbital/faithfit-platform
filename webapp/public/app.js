@@ -678,8 +678,8 @@ async function renderUserProfile(userId) {
           </div>
           <div class="profile-stats">
             <div><div class="v">${data.stats.workouts}</div><div class="l">Workouts</div></div>
-            <div><div class="v" id="pf-followers">${data.stats.followers}</div><div class="l">Followers</div></div>
-            <div><div class="v">${data.stats.following}</div><div class="l">Following</div></div>
+            <button class="profile-stat-button" data-member-list="followers"><div class="v" id="pf-followers">${data.stats.followers}</div><div class="l">Followers</div></button>
+            <button class="profile-stat-button" data-member-list="following"><div class="v">${data.stats.following}</div><div class="l">Following</div></button>
           </div>
         </div>
       </div>
@@ -707,6 +707,7 @@ async function renderUserProfile(userId) {
     </div>`).join('');
 
   document.getElementById('profile-back').onclick = () => { state.tab = 'home'; render(); };
+  main.querySelectorAll('[data-member-list]').forEach(btn => btn.onclick = () => renderMemberList(main, userId, btn.dataset.memberList, u.display_name));
   wireVerseCards(main);
   const mb = document.getElementById('profile-message');
   if (mb) mb.onclick = () => openDmWith(userId);
@@ -1105,6 +1106,24 @@ function reelCommand(iframe, func) {
 function reelSoundButton(on) {
   return '<button type="button" class="reel-sound" data-reel-sound aria-pressed="' + (on ? 'true' : 'false') +
          '" aria-label="' + (on ? 'Mute' : 'Unmute') + '">' + (on ? '🔊' : '🔇') + '</button>';
+}
+
+async function renderMemberList(main, userId, kind, displayName) {
+  main.innerHTML = `<button class="ghost back-btn" id="member-list-back">← Back to ${escapeHtml(displayName)}'s profile</button><div class="card glass"><span class="eyebrow">Community</span><h2>${kind === 'followers' ? 'Followers' : 'Following'}</h2><p class="muted">People connected to ${escapeHtml(displayName)}.</p></div><div id="member-list" class="member-list"><div class="card glass muted">Loading…</div></div>`;
+  let data;
+  try { data = await api(`/users/${encodeURIComponent(userId)}/${kind}`); } catch { data = { members: [] }; }
+  const list = main.querySelector('#member-list');
+  list.innerHTML = data.members.length ? data.members.map(member => `<div class="member-list-row" data-member-id="${escapeHtml(member.id)}">
+    ${avatarHtml(member, 'avatar-sm')}<div class="member-list-copy"><b>${escapeHtml(member.display_name)}</b>${member.bio_verse_ref ? `<span class="muted">${escapeHtml(member.bio_verse_ref)}</span>` : ''}</div>
+    <button class="follow-btn ${member.is_following ? 'following' : ''}" data-member-follow="${escapeHtml(member.id)}">${member.is_following ? 'Following' : 'Follow'}</button>
+  </div>`).join('') : '<div class="card glass"><p class="muted">No members to show here yet.</p></div>';
+  hydrateAvatars(list);
+  main.querySelector('#member-list-back').onclick = () => renderUserProfile(userId);
+  list.querySelectorAll('[data-member-id]').forEach(row => row.onclick = e => { if (!e.target.closest('[data-member-follow]')) renderUserProfile(row.dataset.memberId); });
+  list.querySelectorAll('[data-member-follow]').forEach(btn => btn.onclick = async e => {
+    e.stopPropagation(); const result = await api(`/users/${encodeURIComponent(btn.dataset.memberFollow)}/follow`, { method: 'POST' });
+    btn.textContent = result.following ? 'Following' : 'Follow'; btn.classList.toggle('following', result.following);
+  });
 }
 function reelActionButton(kind, active, count) {
   const icon = kind === 'like' ? '♥' : '🔖';

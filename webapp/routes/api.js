@@ -1463,6 +1463,27 @@ router.get('/users/suggested', requireAuth, (req, res) => {
   res.json(rows);
 });
 
+function socialList(req, res, userId, kind) {
+  if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(userId)) return res.status(404).json({ error: 'user_not_found' });
+  const idColumn = kind === 'followers' ? 'f.follower_id' : 'f.followee_id';
+  const targetColumn = kind === 'followers' ? 'f.followee_id' : 'f.follower_id';
+  const rows = db.prepare(`
+    SELECT u.id, u.display_name, u.bio_verse_ref,
+           CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar,
+           CASE WHEN mine.follower_id IS NULL THEN 0 ELSE 1 END AS is_following
+      FROM followers f JOIN users u ON u.id = ${idColumn}
+      LEFT JOIN followers mine ON mine.follower_id = @me AND mine.followee_id = u.id
+     WHERE ${targetColumn} = @target
+       AND NOT EXISTS (SELECT 1 FROM dm_blocks b
+                       WHERE (b.blocker_id = @me AND b.blocked_id = u.id)
+                          OR (b.blocker_id = u.id AND b.blocked_id = @me))
+     ORDER BY u.display_name LIMIT 100
+  `).all({ me: req.session.userId, target: userId });
+  res.json({ kind, members: rows });
+}
+router.get('/users/:id/followers', requireAuth, (req, res) => socialList(req, res, req.params.id, 'followers'));
+router.get('/users/:id/following', requireAuth, (req, res) => socialList(req, res, req.params.id, 'following'));
+
 // Public-facing profile for any user. Never exposes private fields (job/church/
 // gym/age/email). Posts respect the viewer's visibility (public to all; followers
 // if the viewer follows; everything if it's the viewer's own profile).
