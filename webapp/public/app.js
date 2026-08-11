@@ -18,7 +18,29 @@ const state = {
 
 let gpsStartedAt = null, gpsTicker = null;
 
+// A tab switch and the notification/profile bootstrap can ask for the same
+// read in the same event loop turn. Share that request instead of opening two
+// sockets. This is deliberately in-flight only: private member data is never
+// held in a client-side stale cache, and POST/DELETE mutations are untouched.
+const _apiInFlight = new Map();
+
 async function api(path, opts = {}) {
+  const method = (opts.method || 'GET').toUpperCase();
+  if (method === 'GET') {
+    const existing = _apiInFlight.get(path);
+    if (existing) return existing;
+    const request = apiRequest(path, opts);
+    _apiInFlight.set(path, request);
+    try {
+      return await request;
+    } finally {
+      if (_apiInFlight.get(path) === request) _apiInFlight.delete(path);
+    }
+  }
+  return apiRequest(path, opts);
+}
+
+async function apiRequest(path, opts = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), opts.timeoutMs || 12000);
   let res;
