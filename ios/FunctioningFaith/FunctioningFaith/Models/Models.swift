@@ -18,16 +18,48 @@ struct VerseSnippet: Codable, Identifiable {
 
 struct FeedPost: Codable, Identifiable {
     let id: UUID
-    let authorID: UUID? = nil
+    let authorID: UUID?
     let authorName: String
     let content: String
     let workout: WorkoutSummary?
     let verse: VerseSnippet?
     let createdAt: Date
+    let photoData: String?
+    let photoCategory: String?
     var likeCount: Int = 0
     var likedByMe: Bool = false
     var savedByMe: Bool = false
     var commentCount: Int = 0
+
+    init(
+        id: UUID,
+        authorID: UUID? = nil,
+        authorName: String,
+        content: String,
+        workout: WorkoutSummary?,
+        verse: VerseSnippet?,
+        createdAt: Date,
+        photoData: String? = nil,
+        photoCategory: String? = nil,
+        likeCount: Int = 0,
+        likedByMe: Bool = false,
+        savedByMe: Bool = false,
+        commentCount: Int = 0
+    ) {
+        self.id = id
+        self.authorID = authorID
+        self.authorName = authorName
+        self.content = content
+        self.workout = workout
+        self.verse = verse
+        self.createdAt = createdAt
+        self.photoData = photoData
+        self.photoCategory = photoCategory
+        self.likeCount = likeCount
+        self.likedByMe = likedByMe
+        self.savedByMe = savedByMe
+        self.commentCount = commentCount
+    }
 }
 
 struct FeedComment: Codable, Identifiable {

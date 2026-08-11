@@ -1,0 +1,52 @@
+name: iOS CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ios/FunctioningFaith/**"
+      - ".github/workflows/ios-ci.yml"
+  pull_request:
+    paths:
+      - "ios/FunctioningFaith/**"
+      - ".github/workflows/ios-ci.yml"
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios/FunctioningFaith
+        run: xcodegen generate --spec project.yml
+
+      - name: Build for iOS Simulator
+        working-directory: ios/FunctioningFaith
+        run: >-
+          xcodebuild
+          -project FunctioningFaith.xcodeproj
+          -scheme FunctioningFaith
+          -configuration Debug
+          -destination 'generic/platform=iOS Simulator'
+          CODE_SIGNING_ALLOWED=NO
+          build
+
+      - name: Run unit tests
+        working-directory: ios/FunctioningFaith
+        run: >-
+          xcodebuild
+          -project FunctioningFaith.xcodeproj
+          -scheme FunctioningFaith
+          -configuration Debug
+          -destination 'platform=iOS Simulator,OS=latest,name=iPhone 16 Pro'
+          CODE_SIGNING_ALLOWED=NO
+          test

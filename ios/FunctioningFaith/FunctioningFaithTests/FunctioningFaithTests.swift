@@ -13,4 +13,23 @@ final class FunctioningFaithTests: XCTestCase {
         // Example unit test target for WorkoutView's private formatting logic if extracted to a helper.
         XCTAssertTrue(true)
     }
+
+    func testFeedPostPhotoFieldsSurviveCodableRoundTrip() throws {
+        let original = FeedPost(
+            id: UUID(),
+            authorName: "Community Runner",
+            content: "Trail miles with the group.",
+            workout: nil,
+            verse: nil,
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            photoData: "data:image/jpeg;base64,/9j/2Q==",
+            photoCategory: "group"
+        )
+
+        let encoded = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(FeedPost.self, from: encoded)
+
+        XCTAssertEqual(decoded.photoData, original.photoData)
+        XCTAssertEqual(decoded.photoCategory, "group")
+    }
 }

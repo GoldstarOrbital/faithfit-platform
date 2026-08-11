@@ -2,13 +2,13 @@ import Foundation
 
 enum APIError: LocalizedError {
     case invalidResponse
-    case requestFailed(Int)
+    case requestFailed(Int, String?)
     case notSignedIn
 
     var errorDescription: String? {
         switch self {
         case .invalidResponse: return "The server returned an invalid response."
-        case .requestFailed(let code): return "The request failed (\(code))."
+        case .requestFailed(let code, let message): return message ?? "The request failed (\(code))."
         case .notSignedIn: return "Please sign in to continue."
         }
     }
@@ -175,6 +175,15 @@ final class APIClient {
         return try await request("/api/comments/\(id.uuidString)/like", method: "POST", body: EmptyBody())
     }
 
+    func createPost(content: String, visibility: String, photoData: String?, photoCategory: String?) async throws -> CreatedPostResponse {
+        if useMock { return CreatedPostResponse(id: UUID(), visibility: visibility, shareURL: nil) }
+        return try await request(
+            "/api/posts",
+            method: "POST",
+            body: CreatePostBody(content: content, visibility: visibility, photoData: photoData, photoCategory: photoCategory)
+        )
+    }
+
     func reportPost(id: UUID, reason: String) async throws {
         if useMock { return }
         let _: ActionResponse = try await request("/api/posts/\(id.uuidString)/report", method: "POST", body: ReportBody(reason: reason))
@@ -201,12 +210,17 @@ final class APIClient {
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
         if http.statusCode == 401 { throw APIError.notSignedIn }
-        guard (200..<300).contains(http.statusCode) else { throw APIError.requestFailed(http.statusCode) }
+        guard (200..<300).contains(http.statusCode) else {
+            let details = try? decoder.decode(APIErrorResponse.self, from: data)
+            let message = details?.hint ?? details?.error?.replacingOccurrences(of: "_", with: " ").capitalized
+            throw APIError.requestFailed(http.statusCode, message)
+        }
         return try decoder.decode(T.self, from: data)
     }
 }
 
 private struct EmptyBody: Encodable {}
+private struct APIErrorResponse: Decodable { let error: String?; let hint: String? }
 private struct Credentials: Encodable { let email: String; let password: String }
 private struct Registration: Encodable { let displayName: String; let email: String; let password: String; enum CodingKeys: String, CodingKey { case displayName = "display_name"; case email, password } }
 private struct WorkoutStart: Encodable { let type: String }
@@ -249,6 +263,17 @@ struct CommentReactionResponse: Decodable {
     }
 }
 
+struct CreatedPostResponse: Decodable {
+    let id: UUID
+    let visibility: String
+    let shareURL: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, visibility
+        case shareURL = "share_url"
+    }
+}
+
 private struct ActionResponse: Decodable {
     let ok: Bool
 }
@@ -263,6 +288,19 @@ private struct GroupMessageBody: Encodable {
 
 private struct CommentBody: Encodable {
     let content: String
+}
+
+private struct CreatePostBody: Encodable {
+    let content: String
+    let visibility: String
+    let photoData: String?
+    let photoCategory: String?
+
+    enum CodingKeys: String, CodingKey {
+        case content, visibility
+        case photoData = "photo_data"
+        case photoCategory = "photo_category"
+    }
 }
 
 private struct FeedResponse: Decodable {
@@ -357,12 +395,13 @@ private struct FeedDTO: Decodable {
     let workoutID: UUID?; let workoutType: String?; let startTime: String?; let endTime: String?
     let calories: Int?; let avgHR: Int?; let verseReference: String?; let verseText: String?; let youVersionID: String?
     let likeCount: Int?; let likedByMe: Bool?; let savedByMe: Bool?; let commentCount: Int?
+    let photoData: String?; let photoCategory: String?
 
-    enum CodingKeys: String, CodingKey { case id; case authorID = "author_id"; case content, author; case createdAt = "created_at"; case workoutID = "workout_id"; case workoutType = "workout_type"; case startTime = "start_time"; case endTime = "end_time"; case calories; case avgHR = "avg_hr"; case verseReference = "verse_reference"; case verseText = "verse_text"; case youVersionID = "youversion_id"; case likeCount = "like_count"; case likedByMe = "liked_by_me"; case savedByMe = "saved_by_me"; case commentCount = "comment_count" }
+    enum CodingKeys: String, CodingKey { case id; case authorID = "author_id"; case content, author; case createdAt = "created_at"; case workoutID = "workout_id"; case workoutType = "workout_type"; case startTime = "start_time"; case endTime = "end_time"; case calories; case avgHR = "avg_hr"; case verseReference = "verse_reference"; case verseText = "verse_text"; case youVersionID = "youversion_id"; case likeCount = "like_count"; case likedByMe = "liked_by_me"; case savedByMe = "saved_by_me"; case commentCount = "comment_count"; case photoData = "photo_data"; case photoCategory = "photo_category" }
     var model: FeedPost {
         let workout = workoutType.map { WorkoutSummary(id: workoutID ?? UUID(), type: $0, startTime: DateParser.parse(startTime) ?? .now, endTime: DateParser.parse(endTime), calories: calories, avgHR: avgHR) }
         let verse = verseReference.map { VerseSnippet(id: youVersionID ?? $0, reference: $0, snippet: verseText ?? "", deepLink: "https://www.bible.com/bible?query=\($0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0)") }
-        return FeedPost(id: id, authorID: authorID, authorName: author, content: content ?? "", workout: workout, verse: verse, createdAt: DateParser.parse(createdAt) ?? .now, likeCount: likeCount ?? 0, likedByMe: likedByMe ?? false, savedByMe: savedByMe ?? false, commentCount: commentCount ?? 0)
+        return FeedPost(id: id, authorID: authorID, authorName: author, content: content ?? "", workout: workout, verse: verse, createdAt: DateParser.parse(createdAt) ?? .now, photoData: photoData, photoCategory: photoCategory, likeCount: likeCount ?? 0, likedByMe: likedByMe ?? false, savedByMe: savedByMe ?? false, commentCount: commentCount ?? 0)
     }
 }
 

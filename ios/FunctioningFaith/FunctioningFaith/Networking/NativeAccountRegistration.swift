@@ -45,7 +45,7 @@ extension APIClient {
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
         guard (200..<300).contains(http.statusCode) else {
             if http.statusCode == 403 { throw NativeRegistrationError.minimumAge }
-            throw APIError.requestFailed(http.statusCode)
+            throw APIError.requestFailed(http.statusCode, nil)
         }
         return try await fetchProfile()
     }

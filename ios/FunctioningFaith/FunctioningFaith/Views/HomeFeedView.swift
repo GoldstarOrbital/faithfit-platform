@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct HomeFeedView: View {
     @State private var posts: [FeedPost] = []
@@ -6,6 +9,7 @@ struct HomeFeedView: View {
     @State private var isLoadingMore = false
     @State private var nextCursor: String?
     @State private var selectedPost: FeedPost?
+    @State private var showComposer = false
     @State private var blockCandidate: (id: UUID, name: String)?
     @State private var showBlockConfirmation = false
 
@@ -44,7 +48,25 @@ struct HomeFeedView: View {
         .listStyle(.plain)
         .refreshable { await loadFeed() }
         .navigationTitle("Home")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showComposer = true
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                }
+                .accessibilityLabel("Create post")
+            }
+        }
         .task { await loadFeed() }
+        .sheet(isPresented: $showComposer) {
+            NavigationStack {
+                PostComposerView {
+                    showComposer = false
+                    Task { await loadFeed() }
+                }
+            }
+        }
         .sheet(item: $selectedPost) { post in
             NavigationStack {
                 CommentThreadView(post: post) {
@@ -153,6 +175,17 @@ struct FeedPostRow: View {
                 VerseSnippetCard(verse: verse)
             }
 
+            #if canImport(UIKit)
+            if let dataURL = post.photoData, let image = imageFromDataURL(dataURL) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity, minHeight: 190, maxHeight: 360)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .accessibilityLabel(post.photoCategory.map { "Post photo: \($0)" } ?? "Post photo")
+            }
+            #endif
+
             HStack(spacing: 18) {
                 Button(action: onLike) {
                     Label("\(post.likeCount)", systemImage: post.likedByMe ? "heart.fill" : "heart")
@@ -189,6 +222,26 @@ struct FeedPostRow: View {
         }
     }
 }
+
+#if canImport(UIKit)
+private let postImageCache: NSCache<NSString, UIImage> = {
+    let cache = NSCache<NSString, UIImage>()
+    cache.countLimit = 40
+    cache.totalCostLimit = 32 * 1024 * 1024
+    return cache
+}()
+
+private func imageFromDataURL(_ value: String) -> UIImage? {
+    let key = value as NSString
+    if let cached = postImageCache.object(forKey: key) { return cached }
+    guard let comma = value.firstIndex(of: ",") else { return nil }
+    let encoded = String(value[value.index(after: comma)...])
+    guard let data = Data(base64Encoded: encoded) else { return nil }
+    guard let image = UIImage(data: data) else { return nil }
+    postImageCache.setObject(image, forKey: key, cost: data.count)
+    return image
+}
+#endif
 
 struct WorkoutCard: View {
     let workout: WorkoutSummary
