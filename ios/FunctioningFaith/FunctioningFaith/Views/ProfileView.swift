@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ProfileView: View {
     @EnvironmentObject private var session: NativeSession
+    @EnvironmentObject private var biometricLock: BiometricLock
+    @AppStorage("security.biometricLock") private var biometricLockEnabled = false
     @AppStorage("notifications.scripture") private var scriptureNotifications = false
     @AppStorage("notifications.community") private var communityNotifications = false
     @AppStorage("notifications.reminders") private var reminderNotifications = false
@@ -30,6 +32,17 @@ struct ProfileView: View {
                 Toggle("Share biometrics for workout tracking", isOn: $biometricConsent)
                 Toggle("Personalize scripture with my biometrics", isOn: $scripturePersonalization)
                     .disabled(!biometricConsent)
+            }
+            Section("Sign-in security") {
+                Toggle("Require Face ID, Touch ID, or device passcode", isOn: $biometricLockEnabled)
+                    .onChange(of: biometricLockEnabled) { oldValue, enabled in
+                        guard enabled && !oldValue else { return }
+                        Task {
+                            if !(await biometricLock.requestEnable()) { biometricLockEnabled = false }
+                        }
+                    }
+                Text("This protects the signed-in app on this device. Account-level two-factor authentication and device sessions are managed by the server.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 notificationToggle(.scripture, isOn: $scriptureNotifications)
@@ -93,4 +106,4 @@ struct ProfileView: View {
     @State private var deleteError: String?
 }
 
-#Preview { NavigationStack { ProfileView() }.environmentObject(NativeSession()) }
+#Preview { NavigationStack { ProfileView() }.environmentObject(NativeSession()).environmentObject(BiometricLock()) }
