@@ -66,7 +66,13 @@ struct ProfileView: View {
             }
         }
         .navigationTitle("Profile")
-        .task { profile = session.profile ?? (try? await APIClient.shared.fetchProfile()) }
+        .task {
+            if let current = session.profile {
+                profile = current
+            } else {
+                profile = try? await APIClient.shared.fetchProfile()
+            }
+        }
         .confirmationDialog("Delete your Functioning Faith account?", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete permanently", role: .destructive) {
                 Task {

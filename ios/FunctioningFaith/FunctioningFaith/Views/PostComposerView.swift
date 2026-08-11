@@ -20,60 +20,9 @@ struct PostComposerView: View {
 
     var body: some View {
         Form {
-            Section("Share encouragement or progress") {
-                TextField("What is moving you today?", text: $content, axis: .vertical)
-                    .lineLimit(4...10)
-                    .onChange(of: content) { _, value in
-                        if value.count > 1000 { content = String(value.prefix(1000)) }
-                    }
-                Text("\(content.count)/1000")
-                    .font(.caption2).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-
-            Section("Photo") {
-                PhotosPicker(selection: $pickerItem, matching: .images) {
-                    Label(uploadData == nil ? "Add fitness photo" : "Change photo", systemImage: "photo")
-                }
-                .onChange(of: pickerItem) { _, item in
-                    Task { await prepare(item) }
-                }
-
-                if isPreparingPhoto {
-                    ProgressView("Preparing photo…")
-                }
-                if let previewImage {
-                    previewImage
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxHeight: 280)
-                        .clipShape(RoundedRectangle(cornerRadius: 14))
-                    Picker("Photo type", selection: $category) {
-                        ForEach(PostPhotoCategory.allCases) { item in
-                            Text(item.label).tag(item)
-                        }
-                    }
-                    Button("Remove photo", role: .destructive) {
-                        pickerItem = nil
-                        previewImage = nil
-                        uploadData = nil
-                        photoPolicyAccepted = false
-                    }
-                    Text("Choose the closest category. Community posts may show workouts or gear, nature, animals, or groups—use your profile photo for a solo portrait.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Toggle("I have permission from identifiable people, and this photo serves the community rather than personal promotion.", isOn: $photoPolicyAccepted)
-                        .font(.caption)
-                }
-            }
-
-            Section("Audience") {
-                Picker("Who can see this?", selection: $audience) {
-                    ForEach(PostAudience.allCases) { item in
-                        Label(item.label, systemImage: item.icon).tag(item)
-                    }
-                }
-                .pickerStyle(.inline)
-            }
+            postTextSection
+            photoSection
+            audienceSection
         }
         .navigationTitle("New post")
         .navigationBarTitleDisplayMode(.inline)
@@ -95,6 +44,65 @@ struct PostComposerView: View {
         } message: {
             Text(errorMessage ?? "Please try again.")
         }
+    }
+
+    private var postTextSection: some View {
+        Section("Share encouragement or progress") {
+            TextField("What is moving you today?", text: $content, axis: .vertical)
+                .lineLimit(4...10)
+                .onChange(of: content) { _, value in
+                    if value.count > 1000 { content = String(value.prefix(1000)) }
+                }
+            Text("\(content.count)/1000")
+                .font(.caption2).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
+    private var photoSection: some View {
+        Section("Photo") {
+            PhotosPicker(selection: $pickerItem, matching: .images) {
+                Label(uploadData == nil ? "Add fitness photo" : "Change photo", systemImage: "photo")
+            }
+            .onChange(of: pickerItem) { _, item in
+                Task { await prepare(item) }
+            }
+
+            if isPreparingPhoto { ProgressView("Preparing photo…") }
+            if let previewImage {
+                previewImage
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxHeight: 280)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                Picker("Photo type", selection: $category) {
+                    ForEach(PostPhotoCategory.allCases) { item in Text(item.label).tag(item) }
+                }
+                Button("Remove photo", role: .destructive, action: removePhoto)
+                Text("Choose the closest category. Community posts may show workouts or gear, nature, animals, or groups—use your profile photo for a solo portrait.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Toggle("I have permission from identifiable people, and this photo serves the community rather than personal promotion.", isOn: $photoPolicyAccepted)
+                    .font(.caption)
+            }
+        }
+    }
+
+    private var audienceSection: some View {
+        Section("Audience") {
+            Picker("Who can see this?", selection: $audience) {
+                ForEach(PostAudience.allCases) { item in
+                    Label(item.label, systemImage: item.icon).tag(item)
+                }
+            }
+            .pickerStyle(.inline)
+        }
+    }
+
+    private func removePhoto() {
+        pickerItem = nil
+        previewImage = nil
+        uploadData = nil
+        photoPolicyAccepted = false
     }
 
     private var canPublish: Bool {

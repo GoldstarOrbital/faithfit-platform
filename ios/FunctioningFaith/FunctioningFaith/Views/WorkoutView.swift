@@ -21,7 +21,7 @@ struct WorkoutView: View {
             Text("BPM").font(.caption).foregroundStyle(.secondary)
             Text(tracker.statusText)
                 .font(.caption)
-                .foregroundStyle(tracker.points.isEmpty ? .secondary : .green)
+                .foregroundStyle(tracker.points.isEmpty ? Color.secondary : Color.green)
                 .multilineTextAlignment(.center)
 
             Text(elapsedString)
