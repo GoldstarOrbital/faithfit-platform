@@ -39,10 +39,11 @@ const CATEGORIES = {
   verse_reply: 'When someone replies to your reflection.',
   social: 'Follows, likes and comments.',
   reminders: 'Streaks and challenges you have joined.',
+  security: 'New devices and sensitive account changes.',
 };
 // Encouragement is intentionally included: it is event-driven at meaningful
 // effort transitions, never a heartbeat or a five-second workout stream.
-const DEFAULT_CATEGORIES = ['daily_verse', 'verse_reply', 'reminders'];
+const DEFAULT_CATEGORIES = ['daily_verse', 'verse_reply', 'reminders', 'security'];
 
 function publicKey() { return process.env.VAPID_PUBLIC_KEY || null; }
 function isConfigured() {

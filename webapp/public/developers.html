@@ -80,7 +80,10 @@ Base URL <code>/v1</code> · <a href="/v1">machine-readable index</a></p>
   </ul>
 </div>
 
-<h2>Getting a key</h2>
+<h2>Developer verification checklist</h2>
+<div class="promise"><ol><li>Link a Google, Apple, or other configured identity with a provider-verified <code>.edu</code> email.</li><li>Select your church. If it is missing, submit it; user-submitted churches remain <b>pending</b> until representative or manual verification.</li><li>Provide a public church contact and a specific community-serving project purpose.</li><li>Accept the current Developer Terms, rights standard, no-vanity standard, and accountability policy.</li><li>Wait for human review. Selecting a church never proves authority to represent it.</li></ol><p class="muted">Reports are allegations, not findings. Credentials may be revoked and a verified church contact notified only after a reviewer confirms a serious violation, records evidence, and gives the member notice. Unreviewed reports and automated scores are never sent to a church.</p></div>
+
+<h2>Getting a key after verification</h2>
 <p>Sign in to Functioning Faith, open <b>Profile → Integrations</b>, and use the <b>API keys</b> panel. Give the key a name and select <b>Create key</b>. It is shown
 once and stored only as a hash — if you lose it, rotate it. Send it as a bearer token:</p>
 <pre><code>curl https://faithfit-demo-production.up.railway.app/v1/scripture/Hebrews%2012:1 \

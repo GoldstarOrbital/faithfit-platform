@@ -22,6 +22,9 @@
 const { randomUUID, createHmac, randomBytes } = require('crypto');
 const db = require('./db');
 const { subscribe } = require('./events');
+const accountSecurity = require('./account-security');
+const { resolvePublic } = require('./church-website');
+const https = require('https');
 
 // Topics a developer may subscribe to. Anything not listed is never delivered,
 // so adding an internal event to the bus cannot accidentally leak it.
@@ -129,7 +132,7 @@ function shape(row, opts) {
     last_delivered_at: row.last_delivered_at,
     created_at: row.created_at,
     // The secret is returned exactly once, when the hook is created or rotated.
-    ...(opts && opts.secret ? { secret: row.secret } : {}),
+    ...(opts && opts.secret ? { secret: accountSecurity.unprotectSecret(row.secret) } : {}),
   };
 }
 
@@ -151,7 +154,7 @@ function create(userId, { url, events, description }) {
     secret: 'whsec_' + randomBytes(24).toString('hex'),
   };
   db.prepare('INSERT INTO webhooks (id, user_id, url, secret, events, description) VALUES (?,?,?,?,?,?)')
-    .run(row.id, userId, checked.url, row.secret, JSON.stringify(picked), String(description || '').slice(0, 200));
+    .run(row.id, userId, checked.url, accountSecurity.protectSecret(row.secret), JSON.stringify(picked), String(description || '').slice(0, 200));
   const saved = db.prepare('SELECT * FROM webhooks WHERE id = ?').get(row.id);
   return { webhook: shape(saved, { secret: true }) };
 }
@@ -188,7 +191,7 @@ function rotate(userId, id) {
   const row = db.prepare('SELECT * FROM webhooks WHERE id = ? AND user_id = ?').get(id, userId);
   if (!row) return { error: 'not_found' };
   const secret = 'whsec_' + randomBytes(24).toString('hex');
-  db.prepare('UPDATE webhooks SET secret = ? WHERE id = ?').run(secret, id);
+  db.prepare('UPDATE webhooks SET secret = ? WHERE id = ?').run(accountSecurity.protectSecret(secret), id);
   return { webhook: shape(db.prepare('SELECT * FROM webhooks WHERE id = ?').get(id), { secret: true }) };
 }
 
@@ -243,23 +246,15 @@ async function send(hook, topic, event) {
   const body = JSON.stringify({ id: event.event_id, type: topic, created_at: event.occurred_at, data: event });
   const ts = String(Math.floor(Date.now() / 1000));
   const started = Date.now();
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(checked.url, {
-      method: 'POST',
-      signal: ac.signal,
-      redirect: 'error', // a redirect could hop to private space after validation
-      headers: {
+    const res = await postPinned(checked.url, {
         'content-type': 'application/json',
         'user-agent': 'Functioning Faith-Webhooks/1.0',
         'x-functioning-faith-event': topic,
         'x-functioning-faith-delivery': event.event_id,
         'x-functioning-faith-timestamp': ts,
-        'x-functioning-faith-signature': 't=' + ts + ',v1=' + sign(hook.secret, ts, body),
-      },
-      body,
-    });
+        'x-functioning-faith-signature': 't=' + ts + ',v1=' + sign(accountSecurity.unprotectSecret(hook.secret), ts, body),
+      }, body);
     recordDelivery(hook, topic, {
       ok: res.status >= 200 && res.status < 300,
       status: res.status,
@@ -269,12 +264,19 @@ async function send(hook, topic, event) {
   } catch (e) {
     recordDelivery(hook, topic, {
       ok: false,
-      error: e && e.name === 'AbortError' ? 'timeout' : (e && e.message) || 'network_error',
+      error: (e && e.message) || 'network_error',
       duration_ms: Date.now() - started,
     });
-  } finally {
-    clearTimeout(timer);
   }
+}
+
+async function postPinned(rawUrl, headers, body) {
+  const url=new URL(rawUrl); const target=await resolvePublic(url.hostname);
+  return new Promise((resolve,reject)=>{
+    const req=https.request({protocol:'https:',hostname:url.hostname,port:url.port||443,path:url.pathname+url.search,method:'POST',servername:url.hostname,headers:{...headers,'content-length':Buffer.byteLength(body)},
+      lookup:(_host,_opts,cb)=>cb(null,target.address,target.family)},res=>{res.resume();res.on('end',()=>resolve({status:res.statusCode,ok:res.statusCode>=200&&res.statusCode<300}));});
+    req.setTimeout(TIMEOUT_MS,()=>req.destroy(new Error('timeout')));req.on('error',reject);req.end(body);
+  });
 }
 
 function dispatch(topic, event) {
@@ -291,9 +293,20 @@ function dispatch(topic, event) {
   }
 }
 
+async function testDelivery(userId, id) {
+  const hook = db.prepare('SELECT * FROM webhooks WHERE id=? AND user_id=?').get(id,userId);
+  if (!hook) return { error: 'not_found' };
+  const now = new Date().toISOString();
+  await send(hook, 'workout.completed', {
+    event_id: randomUUID(), occurred_at: now, user_id: userId,
+    workout_id: null, calories: 0, avg_hr: null, max_hr: null, test: true,
+  });
+  return { ok: true };
+}
+
 function start() {
   init();
   subscribe('*', dispatch);
 }
 
-module.exports = { start, init, list, create, update, remove, rotate, deliveries, TOPICS, validateUrl, isPrivateHost, sign };
+module.exports = { start, init, list, create, update, remove, rotate, deliveries, testDelivery, TOPICS, validateUrl, isPrivateHost, sign };

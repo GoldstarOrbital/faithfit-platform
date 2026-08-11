@@ -5,13 +5,13 @@
  */
 'use strict';
 
-const SHELL_CACHE = 'functioning-faith-shell-v12';
+const SHELL_CACHE = 'functioning-faith-shell-v13';
 const SHELL = [
   '/',
-  '/styles.css?v=logo-v2',
+  '/styles.css?v=security-v1',
   '/sensors.js?v=rider-v1',
   '/journey3d.js?v=rider-v1',
-  '/app.js?v=hackathon-v10',
+  '/app.js?v=security-v1',
   '/journey-live.js?v=rider-v1',
 ];
 

@@ -11,12 +11,15 @@
 // render the SAME iframe pointed at the SAME official/nocookie player.
 
 const FETCH_TIMEOUT_MS = 15000;
+const https = require('https');
+const dns = require('dns').promises;
+const net = require('net');
 const MAX_HTML_BYTES = 3 * 1024 * 1024; // 3MB cap — enough for any normal page
 
 function isHttpUrl(str) {
   try {
     const u = new URL(str);
-    return u.protocol === 'http:' || u.protocol === 'https:';
+    return u.protocol === 'https:' && !u.username && !u.password;
   } catch {
     return false;
   }
@@ -57,35 +60,59 @@ function extractEmbeds(html) {
 // fine but simply has no recognizable video embeds.
 async function fetchChurchWebsiteEmbeds(websiteUrl) {
   if (!isHttpUrl(websiteUrl)) throw new Error('invalid_url');
-  const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(websiteUrl, {
-      signal: ctrl.signal,
-      headers: { 'User-Agent': 'functioning-faith-church-website/1.0 (+https://faithfit-demo-production.up.railway.app)' },
-      redirect: 'follow',
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const reader = res.body ? res.body.getReader() : null;
-    let html;
-    if (reader) {
-      const chunks = [];
-      let total = 0;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        total += value.length;
-        if (total > MAX_HTML_BYTES) break;
-        chunks.push(value);
-      }
-      html = Buffer.concat(chunks.map(c => Buffer.from(c))).toString('utf8');
-    } else {
-      html = await res.text();
-    }
-    return extractEmbeds(html);
-  } finally {
-    clearTimeout(to);
-  }
+  const html = await fetchPinnedHtml(new URL(websiteUrl), 0);
+  return extractEmbeds(html);
 }
 
-module.exports = { fetchChurchWebsiteEmbeds, extractEmbeds, isHttpUrl };
+function publicAddress(address) {
+  const family = net.isIP(address);
+  if (!family) return false;
+  if (family === 4) {
+    const [a, b] = address.split('.').map(Number);
+    return !(a === 0 || a === 10 || a === 127 || a >= 224 ||
+      (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127));
+  }
+  const h = address.toLowerCase();
+  return !(h === '::' || h === '::1' || h.startsWith('fc') || h.startsWith('fd') ||
+    /^fe[89ab]/.test(h) || h.startsWith('::ffff:'));
+}
+
+async function resolvePublic(hostname) {
+  const rows = await dns.lookup(hostname, { all: true, verbatim: true });
+  if (!rows.length || rows.some(row => !publicAddress(row.address))) throw new Error('private_address_not_allowed');
+  return rows[0];
+}
+
+async function fetchPinnedHtml(url, redirects) {
+  if (!isHttpUrl(url.toString())) throw new Error('invalid_url');
+  if (redirects > 3) throw new Error('too_many_redirects');
+  const target = await resolvePublic(url.hostname);
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      protocol: 'https:', hostname: url.hostname, port: url.port || 443,
+      path: url.pathname + url.search, method: 'GET', servername: url.hostname,
+      headers: { 'User-Agent': 'functioning-faith-church-website/1.0 (+https://faithfit-demo-production.up.railway.app)', Accept: 'text/html,application/xhtml+xml' },
+      lookup: (_host, _opts, cb) => cb(null, target.address, target.family),
+    }, res => {
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+        res.resume();
+        let next;
+        try { next = new URL(res.headers.location, url); } catch { return reject(new Error('invalid_redirect')); }
+        return fetchPinnedHtml(next, redirects + 1).then(resolve, reject);
+      }
+      if (res.statusCode < 200 || res.statusCode >= 300) { res.resume(); return reject(new Error(`HTTP ${res.statusCode}`)); }
+      const type = String(res.headers['content-type'] || '');
+      if (type && !/text\/html|application\/xhtml\+xml/i.test(type)) { res.resume(); return reject(new Error('unsupported_content_type')); }
+      const chunks = []; let total = 0;
+      res.on('data', chunk => { total += chunk.length; if (total > MAX_HTML_BYTES) return req.destroy(new Error('response_too_large')); chunks.push(chunk); });
+      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      res.on('error', reject);
+    });
+    req.setTimeout(FETCH_TIMEOUT_MS, () => req.destroy(new Error('timeout')));
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+module.exports = { fetchChurchWebsiteEmbeds, extractEmbeds, isHttpUrl, publicAddress, resolvePublic };

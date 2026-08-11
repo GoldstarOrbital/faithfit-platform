@@ -113,6 +113,53 @@ const CATEGORIES = {
       'Highway to Heaven Mark and Jonathan moment',
     ],
   },
+
+  fitness: {
+    label: 'Faith + fitness',
+    weight: 3,
+    channels: [
+      'Nick Bare Fitness official',
+      'Fellowship of Christian Athletes official',
+      'Faith RXD official',
+    ],
+    queries: [
+      'Christian athlete faith fitness short',
+      'Bible workout discipline short',
+      'Christian running testimony short',
+      'faith and fitness encouragement short',
+    ],
+  },
+
+  food: {
+    label: 'Fuel + meals',
+    weight: 2,
+    channels: [
+      'Clean and Delicious official',
+      'Downshiftology official',
+      'Pick Up Limes official',
+    ],
+    queries: [
+      'healthy high protein meal prep short',
+      'whole food athlete meal short',
+      'healthy family dinner recipe short',
+      'vegetable meal prep fitness short',
+    ],
+  },
+
+  kids: {
+    label: 'Kids + family faith',
+    weight: 2,
+    channels: [
+      'VeggieTales Official',
+      'Minno Kids official',
+      'Saddleback Kids official',
+    ],
+    queries: [
+      'VeggieTales Bible story official short',
+      'Christian kids movement break short',
+      'Bible story for kids official short',
+    ],
+  },
 };
 
 // --- Seeds ------------------------------------------------------------------

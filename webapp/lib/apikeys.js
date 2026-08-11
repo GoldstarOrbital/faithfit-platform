@@ -69,7 +69,7 @@ function hash(key) {
 function normaliseScopes(list) {
   if (!Array.isArray(list) || !list.length) return DEFAULT_SCOPES.slice();
   const out = list.map(s => String(s).trim()).filter(s => SCOPES[s]);
-  return out.length ? [...new Set(out)] : DEFAULT_SCOPES.slice();
+  return out.length ? [...new Set(out)] : null;
 }
 
 function shape(row) {
@@ -94,10 +94,13 @@ function list(userId) {
  * the caller's hands — it is not stored and cannot be shown again.
  */
 function create(userId, { name, scopes } = {}) {
+  const active = db.prepare('SELECT COUNT(*) c FROM api_keys WHERE user_id=? AND revoked_at IS NULL').get(userId).c;
+  if (active >= 3) throw Object.assign(new Error('A developer may have at most three active keys.'), { code: 'active_key_limit' });
   const secret = crypto.randomBytes(24).toString('base64url');
   const key = PREFIX + secret;
   const id = crypto.randomUUID();
   const scoped = normaliseScopes(scopes);
+  if (!scoped) throw Object.assign(new Error('Choose at least one valid scope.'), { code: 'invalid_scopes' });
   db.prepare(`INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, scopes)
               VALUES (?,?,?,?,?,?)`)
     .run(id, userId, (name || 'Untitled key').slice(0, 80), hash(key),
@@ -157,8 +160,10 @@ function consume(keyId, bucket) {
   db.prepare(`INSERT INTO api_key_usage (key_id, bucket, hour, calls) VALUES (?,?,?,1)
               ON CONFLICT(key_id, bucket, hour) DO UPDATE SET calls = calls + 1`)
     .run(keyId, bucket, hour);
-  const row = db.prepare('SELECT calls FROM api_key_usage WHERE key_id = ? AND bucket = ? AND hour = ?')
-    .get(keyId, bucket, hour);
+  const owner = db.prepare('SELECT user_id FROM api_keys WHERE id=?').get(keyId);
+  const row = owner ? db.prepare(`SELECT COALESCE(SUM(u.calls),0) calls FROM api_key_usage u
+    JOIN api_keys k ON k.id=u.key_id WHERE k.user_id=? AND u.bucket=? AND u.hour=?`).get(owner.user_id,bucket,hour)
+    : db.prepare('SELECT calls FROM api_key_usage WHERE key_id=? AND bucket=? AND hour=?').get(keyId,bucket,hour);
   // Yesterday's rows are of no use to anyone.
   try { db.prepare('DELETE FROM api_key_usage WHERE hour < ?').run(
     new Date(Date.now() - 36e5 * 26).toISOString().slice(0, 13)); } catch {}

@@ -8,12 +8,21 @@ const db = require('./db');
 
 const API_BASE = 'https://www.googleapis.com/youtube/v3';
 const TIMEOUT_MS = 15000;
+const DAILY_QUOTA_BUDGET = Math.max(1000, Number(process.env.YOUTUBE_DAILY_QUOTA_BUDGET) || 8000);
+db.exec(`CREATE TABLE IF NOT EXISTS youtube_quota_usage(day TEXT PRIMARY KEY,cost INTEGER NOT NULL DEFAULT 0)`);
 
 function isConfigured() {
   return !!process.env.YOUTUBE_API_KEY;
 }
 
 async function ytFetch(pathAndQuery) {
+  const cost=pathAndQuery.startsWith('search?')?100:1;
+  const day=new Date().toISOString().slice(0,10);
+  db.prepare('INSERT OR IGNORE INTO youtube_quota_usage(day,cost) VALUES(?,0)').run(day);
+  const used=db.prepare('SELECT cost FROM youtube_quota_usage WHERE day=?').get(day).cost;
+  if(used+cost>DAILY_QUOTA_BUDGET)throw new Error('YouTube daily quota circuit breaker is open');
+  db.prepare('UPDATE youtube_quota_usage SET cost=cost+? WHERE day=?').run(cost,day);
+  db.prepare('DELETE FROM youtube_quota_usage WHERE day<?').run(new Date(Date.now()-3*86400000).toISOString().slice(0,10));
   const key = process.env.YOUTUBE_API_KEY;
   const sep = pathAndQuery.includes('?') ? '&' : '?';
   const url = `${API_BASE}/${pathAndQuery}${sep}key=${encodeURIComponent(key)}`;

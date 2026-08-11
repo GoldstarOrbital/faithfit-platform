@@ -577,6 +577,8 @@ addCol3('bio_link_label', 'bio_link_label TEXT');
 const postCols2 = db.prepare("PRAGMA table_info(posts)").all().map(c => c.name);
 if (!postCols2.includes('photo_data')) db.exec("ALTER TABLE posts ADD COLUMN photo_data TEXT");
 if (!postCols2.includes('photo_category')) db.exec("ALTER TABLE posts ADD COLUMN photo_category TEXT");
+if (!postCols2.includes('verse_match_source')) db.exec("ALTER TABLE posts ADD COLUMN verse_match_source TEXT");
+if (!postCols2.includes('verse_match_reason')) db.exec("ALTER TABLE posts ADD COLUMN verse_match_reason TEXT");
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS post_reports (

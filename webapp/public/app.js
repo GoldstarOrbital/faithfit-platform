@@ -84,6 +84,7 @@ function setTab(tab) {
 async function render() {
   const main = document.getElementById('main');
   if (!state.me) return renderSignIn();
+  if (!state.me.user.terms_accepted_at || !state.me.user.date_of_birth) return renderAccountSetup(main);
   if (state.tab === 'home') return renderHome(main);
   if (state.tab === 'workout') return renderWorkout(main);
   if (state.tab === 'stats') return renderStats(main);
@@ -194,10 +195,15 @@ async function renderSignIn() {
   const main = document.getElementById('main');
   document.querySelectorAll('nav button').forEach(b => b.style.display = 'none');
 
-  let providers = [];
-  try { providers = (await api('/auth/providers')).providers; } catch {}
+  let providers = [], authSecurity={};
+  try { const loaded=await Promise.all([api('/auth/providers'),api('/auth/security-config')]);providers=loaded[0].providers;authSecurity=loaded[1]||{}; } catch {}
 
   const params = new URLSearchParams(location.search);
+  if(params.get('reset_token')) return renderPasswordReset(params.get('reset_token'));
+  if (params.get('mfa_required') === '1') {
+    history.replaceState(null, '', location.pathname);
+    return renderMfaChallenge();
+  }
   const oauthError = params.get('oauth_error');
   if (oauthError) history.replaceState(null, '', location.pathname);
 
@@ -216,14 +222,19 @@ async function renderSignIn() {
       <form id="auth-form" autocomplete="on">
         ${isRegister ? `
         <label class="field-label">Name</label>
-        <input class="input" name="display_name" type="text" placeholder="Your name" autocomplete="name" required />` : ''}
+        <input class="input" name="display_name" type="text" placeholder="Your name" autocomplete="name" required />
+        <label class="field-label">Date of birth</label>
+        <input class="input" name="date_of_birth" type="date" autocomplete="bday" required />` : ''}
         <label class="field-label">Email</label>
         <input class="input" name="email" type="email" placeholder="you@example.com" autocomplete="email" required />
         <label class="field-label">Password</label>
-        <input class="input" name="password" type="password" placeholder="${isRegister ? 'At least 8 characters' : 'Your password'}" autocomplete="${isRegister ? 'new-password' : 'current-password'}" minlength="8" required />
+        <input class="input" name="password" type="password" placeholder="${isRegister ? '12+ characters with a strong mix' : 'Your password'}" autocomplete="${isRegister ? 'new-password' : 'current-password'}" minlength="${isRegister ? '12' : '1'}" required />
+        ${isRegister ? `<label class="terms-check"><input name="terms_accepted" type="checkbox" value="true" required><span>I am at least 13 and agree to the <a href="/terms.html" target="_blank" rel="noopener">Terms</a>, Community Standards, and <a href="/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</span></label>` : ''}
+        ${authSecurity.turnstile_site_key?`<div class="cf-turnstile" data-sitekey="${escapeHtml(authSecurity.turnstile_site_key)}"></div>`:''}
         <p class="form-error" id="auth-error" hidden></p>
         <button class="primary" type="submit" style="width:100%;margin-top:12px">${isRegister ? 'Create account' : 'Sign in'}</button>
       </form>
+      ${!isRegister?'<button class="ghost" id="forgot-password" style="width:100%;margin-top:8px">Forgot password?</button>':''}
       <p class="muted" style="margin-top:14px;text-align:center">
         ${isRegister ? 'Already have an account?' : "Don't have an account yet?"}
         <a href="#" id="auth-toggle">${isRegister ? 'Sign in' : 'Create one'}</a>
@@ -236,19 +247,25 @@ async function renderSignIn() {
     </div>`;
 
   const errEl = main.querySelector('#auth-error');
+  if(authSecurity.turnstile_site_key&&!document.querySelector('script[data-turnstile]')){const s=document.createElement('script');s.src='https://challenges.cloudflare.com/turnstile/v0/api.js';s.async=true;s.defer=true;s.dataset.turnstile='1';document.head.appendChild(s);}
   const showErr = (msg) => { errEl.textContent = msg; errEl.hidden = false; };
 
   main.querySelector('#auth-toggle').onclick = (e) => { e.preventDefault(); signInMode = isRegister ? 'login' : 'register'; renderSignIn(); };
+  const forgot=main.querySelector('#forgot-password');if(forgot)forgot.onclick=async()=>{const email=prompt('Enter your account email.');if(!email)return;await api('/auth/recovery/request',{method:'POST',body:{email}});showErr('If recovery email is configured and that account exists, a reset link is on its way.');};
 
   main.querySelector('#auth-form').onsubmit = async (e) => {
     e.preventDefault();
     errEl.hidden = true;
     const fd = new FormData(e.target);
     const body = Object.fromEntries(fd.entries());
+    body.captcha_token=body['cf-turnstile-response']||'';delete body['cf-turnstile-response'];
+    if (isRegister) body.terms_accepted = body.terms_accepted === 'true';
     const endpoint = isRegister ? '/auth/register' : '/auth/login';
     const res = await fetch('/api' + endpoint, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 202 && data.mfa_required) return renderMfaChallenge();
     if (res.ok) {
       await loadMe();
       // New accounts go through the church onboarding step first, so a member's
@@ -257,10 +274,14 @@ async function renderSignIn() {
       if (new URLSearchParams(location.search).get('open')) return openNotificationDestination(location.href);
       return render();
     }
-    const data = await res.json().catch(() => ({}));
     const messages = {
       invalid_email: 'Please enter a valid email address.',
-      weak_password: 'Password must be at least 8 characters.',
+      weak_password: data.hint || 'Use at least 12 characters and a mix of letters, numbers, or symbols.',
+      date_of_birth_required: 'Enter a valid date of birth.',
+      minimum_age: 'Accounts are currently available to people age 13 and older.',
+      terms_required: 'Please accept the Terms and Community Standards.',
+      too_many_attempts: 'Too many sign-in attempts. Please wait and try again.',
+      captcha_required: 'Please complete the anti-bot check and try again.',
       missing_display_name: 'Please enter your name.',
       email_taken: 'An account with that email already exists.',
       invalid_credentials: 'Email or password is incorrect.',
@@ -283,6 +304,23 @@ async function renderSignIn() {
     });
   };
 }
+
+function renderAccountSetup(main) {
+  document.querySelectorAll('nav button').forEach(b=>b.style.display='none');
+  main.innerHTML=`<div class="card glass"><span class="eyebrow">Account safety</span><h2>One quick step</h2><p class="muted">Confirm your age and review the current community rules before posting, messaging, or joining groups.</p><form id="account-setup-form"><label class="field-label">Date of birth</label><input class="input" type="date" name="date_of_birth" required><label class="terms-check"><input type="checkbox" name="terms_accepted" value="true" required><span>I am at least 13 and agree to the <a href="/terms.html" target="_blank" rel="noopener">Terms and Community Standards</a> and acknowledge the <a href="/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</span></label><p class="form-error" id="setup-error" hidden></p><button class="primary" style="width:100%;margin-top:12px">Continue</button></form><button class="ghost" id="setup-signout" style="width:100%;margin-top:8px">Sign out</button></div>`;
+  main.querySelector('#setup-signout').onclick=async()=>{await api('/auth/logout',{method:'POST'});state.me=null;renderSignIn();};
+  main.querySelector('#account-setup-form').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);const result=await api('/account/setup',{method:'POST',body:{date_of_birth:fd.get('date_of_birth'),terms_accepted:fd.get('terms_accepted')==='true'}});if(result.error){const el=main.querySelector('#setup-error');el.textContent=result.error==='minimum_age'?'Accounts are currently available to people age 13 and older.':'Please check your date of birth and acceptance.';el.hidden=false;return;}await loadMe();document.querySelectorAll('nav button').forEach(b=>b.style.display='');render();};
+}
+
+async function renderMfaChallenge() {
+  const main=document.getElementById('main');
+  document.querySelectorAll('nav button').forEach(b=>b.style.display='none');
+  main.innerHTML=`<div class="card glass"><h2>Two-factor authentication</h2><p class="muted">Enter the 6-digit code from your authenticator app or one backup code.</p><form id="mfa-form"><label class="field-label">Security code</label><input class="input" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="14" required><p class="form-error" id="mfa-error" hidden></p><button class="primary" style="width:100%;margin-top:12px">Verify</button></form><button class="ghost" id="mfa-cancel" style="width:100%;margin-top:8px">Cancel</button></div>`;
+  main.querySelector('#mfa-cancel').onclick=()=>{signInMode='login';renderSignIn();};
+  main.querySelector('#mfa-form').onsubmit=async e=>{e.preventDefault();const code=new FormData(e.target).get('code');const res=await fetch('/api/auth/mfa/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})});if(res.ok){await loadMe();return render();}const err=main.querySelector('#mfa-error');err.textContent='That code was not accepted. Check the time on your device or use a backup code.';err.hidden=false;};
+}
+
+function renderPasswordReset(token){const main=document.getElementById('main');document.querySelectorAll('nav button').forEach(b=>b.style.display='none');main.innerHTML=`<div class="card glass"><h2>Choose a new password</h2><p class="muted">Use at least 12 characters and a strong mix.</p><form id="reset-form"><input class="input" name="password" type="password" minlength="12" autocomplete="new-password" required><p class="form-error" id="reset-error" hidden></p><button class="primary" style="width:100%;margin-top:12px">Reset password</button></form></div>`;main.querySelector('#reset-form').onsubmit=async e=>{e.preventDefault();const password=new FormData(e.target).get('password');const r=await api('/auth/recovery/complete',{method:'POST',body:{token,password}});if(r.error){const el=main.querySelector('#reset-error');el.textContent=r.hint||'That reset link is invalid or expired.';el.hidden=false;return;}history.replaceState(null,'',location.pathname);await loadMe();render();};}
 
 // The route actually recorded, drawn to fit the banner.
 //
@@ -516,7 +554,7 @@ async function renderHome(main) {
       <div class="post-head">
         <div class="post-user" data-user="${p.author_id}">${avatarHtml({ id: p.author_id, display_name: p.author, has_avatar: p.author_has_avatar }, 'avatar-sm')}</div>
         <div style="flex:1">
-          <div class="post-author post-user" data-user="${p.author_id}">${p.author}</div>
+          <div class="post-author post-user" data-user="${escapeHtml(p.author_id)}">${escapeHtml(p.author)}${p.author_verified_developer?' <span class="verified-mark" title="Verified developer" aria-label="Verified developer">✓</span>':''}</div>
           <div class="post-time">${timeAgo(p.created_at)} ago${p.visibility && p.visibility !== 'public' ? ' · ' + visLabel[p.visibility] : ''}</div>
         </div>
         ${isMine ? `<select class="vis-select" data-vis="${p.id}" title="Who can see this">
@@ -525,14 +563,14 @@ async function renderHome(main) {
       </div>
       <div class="post-content">${escapeHtml(p.content || '')}</div>
       ${p.workout_type ? `
-        ${p.route ? `<div class="route-banner">${realRouteSvg(p.route)}<span class="badge-overlay">${p.workout_type}</span></div>` : ''}
+        ${p.route ? `<div class="route-banner">${realRouteSvg(p.route)}<span class="badge-overlay">${escapeHtml(p.workout_type)}</span></div>` : ''}
         <div class="stat-row">
           <div class="stat"><div class="v">${p.distance_km ?? '—'}</div><div class="l">km</div></div>
           <div class="stat"><div class="v">${p.pace_min_per_km ?? '—'}</div><div class="l">min/km</div></div>
           <div class="stat"><div class="v">${p.calories ?? '—'}</div><div class="l">kcal</div></div>
           <div class="stat"><div class="v">${p.avg_hr ?? '—'}</div><div class="l">avg hr</div></div>
         </div>` : ''}
-      ${p.photo_data ? `<div class="post-photo"><img src="${p.photo_data}" alt="${escapeHtml(p.photo_category || 'photo')}" style="width:100%;border-radius:10px;margin-top:8px;display:block" /><div class="muted" style="font-size:0.72rem;margin-top:4px">${{nature:'🌿 Nature',animal:'🐾 Animal',group:'👥 Group of people'}[p.photo_category] || ''}</div></div>` : ''}
+      ${p.photo_data ? `<div class="post-photo"><img src="${escapeHtml(p.photo_data)}" alt="${escapeHtml(p.photo_category || 'photo')}" style="width:100%;border-radius:10px;margin-top:8px;display:block" /><div class="muted" style="font-size:0.72rem;margin-top:4px">${{nature:'🌿 Nature',animal:'🐾 Animal',group:'👥 Group of people'}[p.photo_category] || ''}</div></div>` : ''}
       ${p.verse_reference ? `<div class="verse-card verse-tappable" data-verse-ref="${escapeHtml(p.verse_reference)}"><div class="verse-ref">${p.verse_reference}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div><div class="verse-convo" data-convo-for="${escapeHtml(p.verse_reference)}">💬 Start the conversation</div></div>` : ''}
       <div class="action-row">
         <button class="action-btn ${p.liked_by_me ? 'liked' : ''}" data-like="${p.id}">${p.liked_by_me ? '❤️' : '🤍'} <span class="n">${p.like_count}</span> kudos</button>
@@ -703,7 +741,7 @@ async function renderUserProfile(userId) {
     <div class="card glass">
       <div class="post-time" style="margin-bottom:8px">${timeAgo(p.created_at)} ago</div>
       ${p.content ? `<div class="post-content">${escapeHtml(p.content)}</div>` : ''}
-      ${p.photo_data ? `<img src="${p.photo_data}" alt="${escapeHtml(p.photo_category || 'photo')}" style="width:100%;border-radius:10px;margin-top:8px;display:block" />` : ''}
+      ${p.photo_data ? `<img src="${escapeHtml(p.photo_data)}" alt="${escapeHtml(p.photo_category || 'photo')}" style="width:100%;border-radius:10px;margin-top:8px;display:block" />` : ''}
       ${p.workout_type ? `${p.route ? `<div class="route-banner">${realRouteSvg(p.route)}<span class="badge-overlay">${p.workout_type}</span></div>` : ''}
         <div class="stat-row">
           <div class="stat"><div class="v">${p.distance_km ?? '—'}</div><div class="l">km</div></div>
@@ -1581,11 +1619,14 @@ async function renderProfile(main) {
   state.me = me;
 
   let connections = { identities: [], connectors: [] }, providers = [], stravaConfigured = false, wearableProviders = [];
+  let securitySessions={sessions:[]}, privacySettings={}, mfaStatus={enabled:false}, developerStatus={status:'not_applied'}, securityCapabilities={};
   try {
-    const [connRes, provRes, stravaRes, wearableRes] = await Promise.all([
+    const [connRes, provRes, stravaRes, wearableRes, sessionRes, privacyRes, mfaRes, devRes, capRes] = await Promise.all([
       api('/auth/connections'), api('/auth/providers'), api('/connectors/strava/configured'), api('/connectors/configured'),
+      api('/security/sessions'),api('/privacy'),api('/security/mfa'),api('/developer/verification'),api('/security/capabilities'),
     ]);
     connections = connRes; providers = provRes.providers || []; stravaConfigured = !!stravaRes.configured; wearableProviders = wearableRes.providers || [];
+    securitySessions=sessionRes;privacySettings=privacyRes;mfaStatus=mfaRes;developerStatus=devRes;securityCapabilities=capRes;
   } catch (e) { console.error('connections load failed', e); }
 
   const linkedProviders = new Map(connections.identities.map(i => [i.provider, i]));
@@ -1623,9 +1664,9 @@ async function renderProfile(main) {
   main.innerHTML = `
     <div class="card glass profile-panel" data-profile-group="overview">
       <div class="profile-header">
-        <span class="xp-ring xp-ring-lg" data-xp-user="${me.user.id}"><div class="avatar" id="p-avatar" style="${me.user.avatar_data ? `background-image:url(${me.user.avatar_data});background-size:cover;background-position:center` : ''}">${me.user.avatar_data ? '' : initials(me.user.display_name)}</div></span>
+        <span class="xp-ring xp-ring-lg" data-xp-user="${escapeHtml(me.user.id)}"><div class="avatar" id="p-avatar" style="${me.user.avatar_data ? `background-image:url(${escapeHtml(me.user.avatar_data)});background-size:cover;background-position:center` : ''}">${me.user.avatar_data ? '' : initials(me.user.display_name)}</div></span>
         <div>
-          <div style="font-weight:700;font-size:1.05rem">${me.user.display_name}</div>
+          <div style="font-weight:700;font-size:1.05rem">${escapeHtml(me.user.display_name)}</div>
           <div class="muted">Level ${me.xp?.level ?? 1} · ${me.xp?.xp ?? 0} XP</div>
           <div class="profile-stats">
             <div><div class="v">${me.stats.workouts}</div><div class="l">Workouts</div></div>
@@ -1658,9 +1699,9 @@ async function renderProfile(main) {
       <label class="field-label">Bio verse</label>
       <select id="p-verse"><option value="">— Select a verse —</option></select>
       <label class="field-label">Job</label>
-      <input id="p-job" type="text" maxlength="80" placeholder="e.g. Nurse" value="${me.user.job || ''}">
+      <input id="p-job" type="text" maxlength="80" placeholder="e.g. Nurse" value="${escapeHtml(me.user.job || '')}">
       <label class="field-label">Church</label>
-      <input id="p-church" type="text" maxlength="80" placeholder="e.g. Grace Community Church" value="${me.user.church || ''}">
+      <input id="p-church" type="text" maxlength="80" placeholder="e.g. Grace Community Church" value="${escapeHtml(me.user.church || '')}">
       <label class="field-label">Tradition (optional)</label>
       <select id="p-tradition">
         <option value=""${!me.user.tradition ? ' selected' : ''}>— Prefer not to say —</option>
@@ -1674,11 +1715,11 @@ async function renderProfile(main) {
         answers your questions. Left blank, nothing is assumed.
       </div>
       <label class="field-label">Fitness group</label>
-      <input id="p-group" type="text" maxlength="80" placeholder="e.g. Sunrise 5K Fellowship" value="${me.user.fitness_group || ''}">
+      <input id="p-group" type="text" maxlength="80" placeholder="e.g. Sunrise 5K Fellowship" value="${escapeHtml(me.user.fitness_group || '')}">
       <label class="field-label">Gym</label>
-      <input id="p-gym" type="text" maxlength="80" placeholder="e.g. Anytime Fitness" value="${me.user.gym || ''}">
+      <input id="p-gym" type="text" maxlength="80" placeholder="e.g. Anytime Fitness" value="${escapeHtml(me.user.gym || '')}">
       <label class="field-label">Bio link (LinkedIn or fundraiser only)</label>
-      <input id="p-bio-link" type="url" placeholder="https://www.linkedin.com/in/you or a GoFundMe/JustGiving/Classy/Fundly/GiveSendGo link" value="${me.user.bio_link_url || ''}">
+      <input id="p-bio-link" type="url" placeholder="https://www.linkedin.com/in/you or a GoFundMe/JustGiving/Classy/Fundly/GiveSendGo link" value="${escapeHtml(me.user.bio_link_url || '')}">
       <div class="toggle-row">
         <span>Show my age (optional)</span>
         <label class="switch"><input type="checkbox" id="p-showage" ${me.user.show_age ? 'checked' : ''}><span class="slider"></span></label>
@@ -1731,6 +1772,25 @@ async function renderProfile(main) {
       <select id="p-defvis">
         ${[['public','🌍 Public'],['followers','👥 Followers'],['private','🔒 Only me']].map(([v,l]) => `<option value="${v}" ${((me.user.default_visibility||'public')===v)?'selected':''}>${l}</option>`).join('')}
       </select>
+    </div>
+    <div class="card glass profile-panel" data-profile-group="settings" id="account-security-card">
+      <h2>Security & audience</h2>
+      <p class="muted">Control who can reach you and review every signed-in device.</p>
+      <label class="field-label">Who can see my profile</label><select id="privacy-profile">${['public','followers','private'].map(v=>`<option value="${v}" ${privacySettings.profile_visibility===v?'selected':''}>${v}</option>`).join('')}</select>
+      <label class="field-label">Who can see followers/following</label><select id="privacy-followers">${['public','followers','private'].map(v=>`<option value="${v}" ${privacySettings.follower_list_visibility===v?'selected':''}>${v}</option>`).join('')}</select>
+      <label class="field-label">Who can message me</label><select id="privacy-messages">${['everyone','followers','nobody'].map(v=>`<option value="${v}" ${privacySettings.message_permission===v?'selected':''}>${v}</option>`).join('')}</select>
+      <label class="field-label">Who can comment</label><select id="privacy-comments">${['everyone','followers','nobody'].map(v=>`<option value="${v}" ${privacySettings.comment_permission===v?'selected':''}>${v}</option>`).join('')}</select>
+      <button class="primary" id="privacy-save" style="width:100%;margin-top:10px">Save audience controls</button><div id="privacy-status" class="muted"></div>
+      <div class="settings-subsection"><strong>Two-factor authentication</strong><div class="muted">Authenticator-app codes and one-time backup codes.</div><button class="ghost" id="mfa-action" style="margin-top:8px">${mfaStatus.enabled?'Disable 2FA':'Set up 2FA'}</button><div id="mfa-status" class="muted"></div></div>
+      <div class="settings-subsection"><strong>Active sessions</strong><div id="session-list">${securitySessions.sessions.map(s=>`<div class="integration-row"><div><strong>${escapeHtml(s.device_name)}</strong><div class="muted">${escapeHtml(s.auth_method)} · active ${timeAgo(s.last_seen_at)} ago${s.current?' · this device':''}</div></div>${s.current?'':`<button class="ghost" data-revoke-session="${escapeHtml(s.id)}">Log out</button>`}</div>`).join('')||'<div class="muted">No active sessions.</div>'}</div><button class="ghost" id="logout-others" style="width:100%;margin-top:8px">Log out other devices</button></div>
+      <div class="muted" style="margin-top:10px">Passkeys/biometric login: ${securityCapabilities.passkeys_biometric?'available':'not enabled'} · SMS 2FA: ${securityCapabilities.sms_mfa?'available':'not enabled'} · DMs use HTTPS and access controls; end-to-end encryption is ${securityCapabilities.end_to_end_encrypted_dms?'enabled':'not claimed'}.</div>
+    </div>
+    <div class="card glass profile-panel" data-profile-group="integrations" id="developer-verification-card">
+      <h2>Verified developer</h2><p class="muted">Status: <strong>${escapeHtml(developerStatus.status||'not_applied')}</strong>. Developer keys and webhooks require a verified .edu identity, verified church relationship, review, and the current accountability terms.</p>
+      ${developerStatus.status==='verified'?'<div class="badge-pill">✓ Verified developer</div>':`<details><summary>Developer checklist & application</summary><ol class="developer-checklist"><li>Link a provider-verified .edu email.</li><li>Select a church or submit a missing church for review.</li><li>Provide the church's public contact email.</li><li>Describe a community-serving project.</li><li>Accept rights, conduct, and accountability terms.</li></ol><input id="dev-edu" type="email" placeholder="you@school.edu"><input id="dev-church-id" type="text" placeholder="Church record ID"><input id="dev-church-email" type="email" placeholder="Public church contact email"><input id="dev-project" type="text" placeholder="Project name"><textarea id="dev-purpose" placeholder="How will this serve the community? (30+ characters)"></textarea><label class="terms-check"><input id="dev-attest" type="checkbox"><span>I accept the Developer Terms, content standard, rights responsibility, due-process enforcement, and church accountability notice policy.</span></label><button class="primary" id="dev-apply" style="width:100%;margin-top:8px">Submit for verification</button><div id="dev-status" class="muted"></div></details>`}
+    </div>
+    <div class="card glass profile-panel" data-profile-group="integrations" id="pending-church-card">
+      <h2>Church missing?</h2><p class="muted">Submit a pending church record for developer review. This does not verify that you represent it.</p><input id="dev-new-church-name" placeholder="Church name"><input id="dev-new-church-address" placeholder="Street address, city, state"><input id="dev-new-church-email" type="email" placeholder="Public church contact email"><input id="dev-new-church-site" type="url" placeholder="https://church.example"><button class="ghost" id="dev-new-church" style="width:100%;margin-top:8px">Submit pending church</button><div id="dev-new-church-status" class="muted"></div>
     </div>
     <div class="card glass profile-panel" data-profile-group="settings">
       <h2>Your data</h2>
@@ -1797,6 +1857,23 @@ async function renderProfile(main) {
   profileNav.querySelectorAll('[data-profile-view]').forEach(tab => {
     tab.onclick = () => showProfileView(tab.dataset.profileView);
   });
+  const privacySave=document.getElementById('privacy-save');
+  if(privacySave) privacySave.onclick=async()=>{const r=await api('/privacy',{method:'PATCH',body:{profile_visibility:document.getElementById('privacy-profile').value,follower_list_visibility:document.getElementById('privacy-followers').value,message_permission:document.getElementById('privacy-messages').value,comment_permission:document.getElementById('privacy-comments').value}});document.getElementById('privacy-status').textContent=r.error?'Could not save these choices.':'Audience controls saved.';};
+  main.querySelectorAll('[data-revoke-session]').forEach(btn=>btn.onclick=async()=>{await api('/security/sessions/'+encodeURIComponent(btn.dataset.revokeSession),{method:'DELETE'});btn.closest('.integration-row')?.remove();});
+  const logoutOthers=document.getElementById('logout-others'); if(logoutOthers) logoutOthers.onclick=async()=>{const r=await api('/security/sessions/logout-others',{method:'POST'});logoutOthers.textContent=`Logged out ${r.revoked||0} other device${r.revoked===1?'':'s'}`;};
+  const mfaAction=document.getElementById('mfa-action');
+  if(mfaAction) mfaAction.onclick=async()=>{
+    const password=prompt('For security, enter your current Functioning Faith password. OAuth-only accounts can make this change for ten minutes after signing in.');
+    if(password){const reauth=await api('/security/reauthenticate',{method:'POST',body:{password}});if(reauth.error){document.getElementById('mfa-status').textContent='Reauthentication failed.';return;}}
+    if(mfaStatus.enabled){const code=prompt('Enter your authenticator code or a backup code to disable 2FA.');if(!code)return;const r=await api('/security/mfa/disable',{method:'POST',body:{code}});document.getElementById('mfa-status').textContent=r.error?'Could not disable 2FA.':'2FA disabled. Reload Settings to confirm.';return;}
+    const setup=await api('/security/mfa/setup',{method:'POST'});if(setup.error){document.getElementById('mfa-status').textContent=setup.error==='recent_reauthentication_required'?'Sign in again, then return here within ten minutes.':'2FA setup is unavailable.';return;}
+    document.getElementById('mfa-status').innerHTML=`Add this secret to your authenticator: <code>${escapeHtml(setup.secret)}</code>`;
+    const code=prompt('Enter the 6-digit code from your authenticator app to finish setup.');if(!code)return;const enabled=await api('/security/mfa/enable',{method:'POST',body:{code}});document.getElementById('mfa-status').innerHTML=enabled.error?'That code was not accepted.':`2FA enabled. Save these one-time backup codes now:<br><code>${(enabled.backup_codes||[]).map(escapeHtml).join(' · ')}</code>`;
+  };
+  const devApply=document.getElementById('dev-apply');
+  if(devApply) devApply.onclick=async()=>{const accepted=document.getElementById('dev-attest').checked;const r=await api('/developer/apply',{method:'POST',body:{edu_email:document.getElementById('dev-edu').value,church_id:document.getElementById('dev-church-id').value,church_contact_email:document.getElementById('dev-church-email').value,project_name:document.getElementById('dev-project').value,project_purpose:document.getElementById('dev-purpose').value,terms_accepted:accepted,accountability_accepted:accepted,content_standard_accepted:accepted}});document.getElementById('dev-status').textContent=r.error?(r.hint||r.error):`Application status: ${r.status}`;};
+  const newChurch=document.getElementById('dev-new-church');
+  if(newChurch)newChurch.onclick=async()=>{const r=await api('/developer/churches',{method:'POST',body:{name:document.getElementById('dev-new-church-name').value,address:document.getElementById('dev-new-church-address').value,contact_email:document.getElementById('dev-new-church-email').value,website_url:document.getElementById('dev-new-church-site').value}});const status=document.getElementById('dev-new-church-status');if(r.error){status.textContent=r.hint||r.error;return;}status.textContent=`Pending church submitted. Record ID: ${r.church.id}`;const idField=document.getElementById('dev-church-id');if(idField)idField.value=r.church.id;};
   showProfileView('overview');
   document.getElementById('saved-posts-open').onclick = () => renderSavedPosts(main);
   // The profile screen builds its avatar inline rather than through
@@ -3993,7 +4070,17 @@ async function renderApiKeys() {
   if (!box) return;
 
   let keys = [];
-  try { keys = (await api('/dev/keys')).keys || []; }
+  try {
+    const response = await api('/dev/keys');
+    if (response.error === 'developer_verification_required') {
+      box.innerHTML = '<div class="muted">Complete verified-developer review before creating API keys.</div>';
+      const add = document.getElementById('ak-add');
+      if (add) add.disabled = true;
+      return;
+    }
+    if (response.error) throw new Error(response.error);
+    keys = response.keys || [];
+  }
   catch (e) { box.innerHTML = '<div class="muted">Could not load your keys. ' + escapeHtml(e.message || 'Try again.') + '</div>'; return; }
 
   const live = keys.filter(k => !k.revoked);
@@ -4215,7 +4302,17 @@ async function renderWebhooks() {
   const note = (m) => { const n = document.getElementById('wh-note'); if (n) n.textContent = m; };
 
   let hooks = [];
-  try { hooks = (await api('/webhooks')).webhooks || []; }
+  try {
+    const response = await api('/webhooks');
+    if (response.error === 'developer_verification_required') {
+      box.innerHTML = '<div class="muted">Complete verified-developer review before registering webhook endpoints.</div>';
+      const add = document.getElementById('wh-add');
+      if (add) add.disabled = true;
+      return;
+    }
+    if (response.error) throw new Error(response.error);
+    hooks = response.webhooks || [];
+  }
   catch { box.innerHTML = '<div class="muted">Could not load your endpoints.</div>'; return; }
 
   box.innerHTML = hooks.length ? hooks.map(h => {
@@ -4895,6 +4992,7 @@ async function renderThread(threadId) {
       : (m.kind === 'verse' && m.metadata) ? renderVerseMessage(m)
       : '<div class="dm-msg' + (m.from_me ? ' mine' : '') + '">'
       + '<div class="dm-bubble">' + escapeHtml(m.body) + '</div>'
+      + (m.metadata && m.metadata.link_warning ? '<div class="dm-link-warning">⚠ ' + escapeHtml(m.metadata.link_warning) + '</div>' : '')
       + '<div class="dm-meta">' + dmTime(m.created_at) + (m.from_me && m.read ? ' · read' : '') + '</div></div>').join('');
     if (msgs.length) lastId = msgs[msgs.length - 1].id;
     scroll.scrollTop = scroll.scrollHeight;

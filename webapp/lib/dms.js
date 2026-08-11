@@ -70,13 +70,24 @@ function isBlockedEitherWay(x, y) {
 /** The thread for two people, created if this is their first message. */
 function openThread(me, otherId) {
   if (!otherId || otherId === me) return { error: 'invalid_recipient' };
-  const other = db.prepare('SELECT id, display_name FROM users WHERE id = ?').get(otherId);
+  const other = db.prepare('SELECT id,display_name,message_permission,date_of_birth FROM users WHERE id=?').get(otherId);
   if (!other) return { error: 'no_such_user' };
   if (isBlockedEitherWay(me, otherId)) return { error: 'blocked' };
 
   const { a, b } = pair(me, otherId);
   let row = db.prepare('SELECT * FROM dm_threads WHERE user_a = ? AND user_b = ?').get(a, b);
   if (!row) {
+    const connected = !!db.prepare(`SELECT 1 FROM followers WHERE
+      (follower_id=? AND followee_id=?) OR (follower_id=? AND followee_id=?) LIMIT 1`).get(me,otherId,otherId,me);
+    const mutual = !!db.prepare(`SELECT 1 WHERE EXISTS(SELECT 1 FROM followers WHERE follower_id=? AND followee_id=?)
+      AND EXISTS(SELECT 1 FROM followers WHERE follower_id=? AND followee_id=?)`).get(me,otherId,otherId,me);
+    const meDob = db.prepare('SELECT date_of_birth FROM users WHERE id=?').get(me)?.date_of_birth;
+    const age = dob => { if(!dob) return null; const d=new Date(dob+'T00:00:00Z'),n=new Date(); let x=n.getUTCFullYear()-d.getUTCFullYear(); if(n.getUTCMonth()<d.getUTCMonth()||(n.getUTCMonth()===d.getUTCMonth()&&n.getUTCDate()<d.getUTCDate()))x--; return x; };
+    const minor = [age(meDob), age(other.date_of_birth)].some(x => x != null && x < 18);
+    if (other.message_permission === 'nobody') return { error: 'messages_closed' };
+    if (other.message_permission !== 'everyone' && !connected) return { error: 'message_permission' };
+    if (minor && !mutual) return { error: 'minor_message_protection' };
+    if (db.prepare("SELECT 1 FROM account_relationship_controls WHERE actor_id=? AND subject_id=? AND control='restrict'").get(otherId,me)) return { error: 'restricted' };
     try {
       db.prepare('INSERT INTO dm_threads (id, user_a, user_b) VALUES (?, ?, ?)').run(randomUUID(), a, b);
     } catch (e) {
@@ -163,6 +174,7 @@ function send(me, threadId, body, options = {}) {
   if (!t) return { error: 'not_found' };
   const otherId = otherOf(t, me);
   if (isBlockedEitherWay(me, otherId)) return { error: 'blocked' };
+  if (db.prepare("SELECT 1 FROM account_relationship_controls WHERE actor_id=? AND subject_id=? AND control='restrict'").get(otherId,me)) return { error:'restricted' };
 
   const text = String(body == null ? '' : body).trim().slice(0, MAX_LEN);
   if (!text) return { error: 'empty_message' };

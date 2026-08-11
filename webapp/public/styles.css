@@ -1853,3 +1853,11 @@ button.start-degraded { background: var(--hearth, #b8863b); }
 .composer-footer select { flex:1; min-width:0; }
 .composer-footer button { white-space:nowrap; }
 #home-post-status { min-height:1.1em; margin-top:6px; font-size:.74rem; }
+.terms-check { display:flex; gap:10px; align-items:flex-start; margin-top:12px; padding:12px; border:1px solid rgba(45,32,19,.14); border-radius:14px; background:rgba(255,255,255,.38); font-size:.82rem; line-height:1.4; }
+.terms-check input { width:20px; height:20px; flex:0 0 auto; margin:0; accent-color:var(--gold,#d9ab55); }
+.settings-subsection { margin-top:16px; padding-top:14px; border-top:1px solid rgba(45,32,19,.12); }
+.developer-checklist { padding-left:22px; font-size:.84rem; color:var(--muted); }
+#developer-verification-card details, #pending-church-card { margin-top:12px; }
+#developer-verification-card input, #developer-verification-card textarea, #pending-church-card input { width:100%; margin-top:8px; }
+.verified-mark { display:inline-grid; place-items:center; width:17px; height:17px; margin-left:4px; border-radius:50%; background:#2f6f5d; color:white; font-size:.68rem; font-weight:800; vertical-align:1px; }
+.dm-link-warning { margin-top:5px; padding:7px 9px; border-radius:10px; background:#fff0cf; color:#6b4300; font-size:.7rem; line-height:1.35; }

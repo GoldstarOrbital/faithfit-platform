@@ -285,6 +285,10 @@ function score(v, now) {
   // A little preference for a real publisher over a search result: official
   // uploads are higher quality and far less likely to vanish.
   if (v.source_kind === 'channel') s += 3;
+  // Approved first-party work rises as verified developers contribute it. The
+  // boost changes ordering, not eligibility or a hard quota, so migration is
+  // gradual and can never create an empty feed while first-party supply grows.
+  if (v.source_kind === 'functioning_faith') s += 24;
 
   return s;
 }

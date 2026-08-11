@@ -4,18 +4,21 @@
 // KDF suitable for password storage.
 //
 // Stored format:  scrypt$<N>$<saltHex>$<hashHex>
-const { scryptSync, randomBytes, timingSafeEqual } = require('crypto');
+const { scrypt, randomBytes, timingSafeEqual } = require('crypto');
+const { promisify } = require('util');
 
 const N = 16384;   // CPU/memory cost (2^14) — solid for a free-tier single process
 const KEYLEN = 64;
 
-function hashPassword(plain) {
+const derive = promisify(scrypt);
+
+async function hashPassword(plain) {
   const salt = randomBytes(16);
-  const hash = scryptSync(String(plain), salt, KEYLEN, { N });
+  const hash = await derive(String(plain), salt, KEYLEN, { N });
   return `scrypt$${N}$${salt.toString('hex')}$${hash.toString('hex')}`;
 }
 
-function verifyPassword(plain, stored) {
+async function verifyPassword(plain, stored) {
   if (!stored || typeof stored !== 'string') return false;
   const parts = stored.split('$');
   if (parts.length !== 4 || parts[0] !== 'scrypt') return false;
@@ -24,7 +27,7 @@ function verifyPassword(plain, stored) {
   const expected = Buffer.from(parts[3], 'hex');
   let actual;
   try {
-    actual = scryptSync(String(plain), salt, expected.length, { N: n });
+    actual = await derive(String(plain), salt, expected.length, { N: n });
   } catch {
     return false;
   }

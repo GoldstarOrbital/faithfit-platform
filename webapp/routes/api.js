@@ -36,6 +36,8 @@ const youtube = require('../lib/youtube');
 const sermonSummary = require('../lib/sermon-summary');
 const { fetchChurchWebsiteEmbeds, isHttpUrl } = require('../lib/church-website');
 const webhooks = require('../lib/webhooks');
+const accountSecurity = require('../lib/account-security');
+const developerVerification = require('../lib/developer-verification');
 
 // Load real, public-domain Bible text (KJV/WEB) into bible_verses once at startup.
 loadBibleData();
@@ -67,10 +69,25 @@ const ACTIVITY_SET = new Set(ACTIVITY_TYPES.map(a => a.type));
 
 const router = express.Router();
 const postRateWindow = new Map();
+const webhookTestWindow = new Map();
+const dmRateWindow = new Map();
+const commentRateWindow = new Map();
+const churchSearchWindow = new Map();
 
 // ---- auth: real email + password accounts (scrypt-hashed). ----
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const VISIBILITIES = ['private', 'followers', 'public'];
+
+async function captchaAccepted(req) {
+  if (!process.env.TURNSTILE_SECRET_KEY) return true;
+  const token=String(req.body?.captcha_token||'');
+  if(!token) return false;
+  try {
+    const body=new URLSearchParams({secret:process.env.TURNSTILE_SECRET_KEY,response:token,remoteip:String(req.ip||'')});
+    const response=await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify',{method:'POST',body,signal:AbortSignal.timeout(5000)});
+    const result=await response.json(); return result.success===true;
+  } catch { return false; }
+}
 
 function publicUser(row) {
   if (!row) return null;
@@ -85,15 +102,23 @@ function publicUser(row) {
 // ---- shared image-upload cap (avatars + post photos) ----
 const MAX_IMAGE_BYTES = 250 * 1024; // 250KB
 function validateDataUrlImage(dataUrl) {
-  if (typeof dataUrl !== 'string' || !/^data:image\/[a-zA-Z0-9.+-]+;base64,/.test(dataUrl)) {
-    return { ok: false, error: 'invalid_image', hint: 'Image must be a base64 data URL (data:image/...;base64,...).' };
+  if (typeof dataUrl !== 'string') return { ok: false, error: 'invalid_image', hint: 'Choose a JPEG, PNG, or WebP image.' };
+  const match = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl);
+  if (!match) {
+    return { ok: false, error: 'invalid_image', hint: 'Choose a JPEG, PNG, or WebP image.' };
   }
-  const base64 = dataUrl.slice(dataUrl.indexOf(',') + 1);
-  const bytes = Math.floor(base64.length * 3 / 4);
-  if (bytes > MAX_IMAGE_BYTES) {
+  let decoded;
+  try { decoded = Buffer.from(match[2], 'base64'); } catch { return { ok: false, error: 'invalid_image' }; }
+  if (!decoded.length || decoded.length > MAX_IMAGE_BYTES) {
     return { ok: false, error: 'image_too_large', hint: `Image must be under ${Math.round(MAX_IMAGE_BYTES / 1024)}KB after resizing.` };
   }
-  return { ok: true, bytes };
+  const jpeg = decoded.length >= 3 && decoded[0] === 0xff && decoded[1] === 0xd8 && decoded[2] === 0xff;
+  const png = decoded.length >= 8 && decoded.subarray(0, 8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]));
+  const webp = decoded.length >= 12 && decoded.subarray(0, 4).toString() === 'RIFF' && decoded.subarray(8, 12).toString() === 'WEBP';
+  if ((match[1] === 'jpeg' && !jpeg) || (match[1] === 'png' && !png) || (match[1] === 'webp' && !webp)) {
+    return { ok: false, error: 'invalid_image', hint: 'The file contents do not match the image type.' };
+  }
+  return { ok: true, bytes: decoded.length };
 }
 
 // ---- bio link allowlist: LinkedIn or known fundraiser platforms only ----
@@ -141,6 +166,7 @@ function notify(userId, type, message, extra) {
   push.send(userId, notificationPushCategory(type), { title: 'Functioning Faith', body: message, url: destination, tag: `${type}:${details.post_id || details.thread_id || details.event_id || details.invite_id || 'notification'}` }).catch(() => {});
 }
 function notificationPushCategory(type) {
+  if (type === 'security' || type === 'moderation') return 'security';
   if (type === 'verse' || type === 'reflection') return 'verse_reply';
   return ['challenge_complete', 'streak', 'effort', 'journey', 'badge', 'quest'].includes(type) ? 'reminders' : 'social';
 }
@@ -171,15 +197,21 @@ function displayName(userId) {
 
 // Create a real account. Password is scrypt-hashed; email is stored lowercased
 // and must be unique. Signs the new user in on success.
-router.post('/auth/register', (req, res) => {
-  const { email, password, display_name } = req.body || {};
+router.post('/auth/register', async (req, res) => {
+  const { email, password, display_name, date_of_birth, terms_accepted } = req.body || {};
   const mail = String(email || '').trim().toLowerCase();
   const name = String(display_name || '').trim().slice(0, 60);
   const pw = String(password || '');
+  if (!(await captchaAccepted(req))) return res.status(400).json({ error:'captcha_required' });
 
   if (!EMAIL_RE.test(mail)) return res.status(400).json({ error: 'invalid_email' });
-  if (pw.length < 8) return res.status(400).json({ error: 'weak_password', hint: 'Use at least 8 characters.' });
+  const policy = accountSecurity.passwordPolicy(pw);
+  if (!policy.ok) return res.status(400).json({ error: 'weak_password', hint: policy.hint });
   if (!name) return res.status(400).json({ error: 'missing_display_name' });
+  const age = accountSecurity.ageFromDob(date_of_birth);
+  if (age == null) return res.status(400).json({ error: 'date_of_birth_required' });
+  if (age < 13) return res.status(403).json({ error: 'minimum_age', hint: 'Functioning Faith accounts are currently available to people age 13 and older.' });
+  if (!terms_accepted) return res.status(400).json({ error: 'terms_required', terms_version: accountSecurity.TERMS_VERSION });
 
   const existing = db.prepare('SELECT 1 FROM users WHERE email = ?').get(mail);
   if (existing) return res.status(409).json({ error: 'email_taken' });
@@ -189,29 +221,76 @@ router.post('/auth/register', (req, res) => {
   if (nameCheck.error) return res.status(409).json(nameCheck);
 
   const id = randomUUID();
-  db.prepare('INSERT INTO users (id, email, display_name, password_hash) VALUES (?, ?, ?, ?)')
-    .run(id, mail, nameCheck.name, hashPassword(pw));
+  db.prepare(`INSERT INTO users
+    (id,email,display_name,password_hash,date_of_birth,age,terms_version,terms_accepted_at)
+    VALUES (?,?,?,?,?,?,?,?)`)
+    .run(id, mail, nameCheck.name, await hashPassword(pw), date_of_birth, age,
+      accountSecurity.TERMS_VERSION, new Date().toISOString());
   db.prepare('INSERT OR IGNORE INTO user_xp (user_id, xp, level) VALUES (?, 0, 1)').run(id);
 
-  req.session.userId = id;
+  accountSecurity.startSession(req, id, 'password', { initialRegistration: true });
+  accountSecurity.audit(id, 'terms_accepted', req, { version: accountSecurity.TERMS_VERSION });
   res.status(201).json({ ok: true, user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(id)) });
 });
 
 // Sign in with email + password.
-router.post('/auth/login', (req, res) => {
+router.post('/auth/login', async (req, res) => {
   const { email, password } = req.body || {};
   const mail = String(email || '').trim().toLowerCase();
+  if (!(await captchaAccepted(req))) return res.status(400).json({ error:'captcha_required' });
+  const allowed = accountSecurity.loginAllowed(req, mail);
+  if (!allowed.ok) { res.setHeader('Retry-After', String(allowed.retryAfter)); return res.status(429).json({ error: 'too_many_attempts', retry_after: allowed.retryAfter }); }
   const row = db.prepare('SELECT * FROM users WHERE email = ?').get(mail);
   // Constant-ish response: same error whether the email is unknown or the
   // password is wrong, so we don't leak which emails have accounts.
-  if (!row || !verifyPassword(String(password || ''), row.password_hash)) {
+  if (!row || !(await verifyPassword(String(password || ''), row.password_hash))) {
+    const failed = accountSecurity.recordLoginFailure(req, mail);
+    if (failed.retryAfter) res.setHeader('Retry-After', String(failed.retryAfter));
     return res.status(401).json({ error: 'invalid_credentials' });
   }
-  req.session.userId = row.id;
+  accountSecurity.clearLoginFailures(req, mail);
+  if (accountSecurity.mfaEnabled(row.id)) {
+    req.session.mfaPending = { userId: row.id, method: 'password', createdAt: Date.now() };
+    return res.status(202).json({ mfa_required: true });
+  }
+  const started = accountSecurity.startSession(req, row.id, 'password');
+  if (started.newDevice) notify(row.id, 'security', `New sign-in on ${started.deviceName}.`, { url: '/?open=profile&settings=security' });
   res.json({ ok: true, user: publicUser(row) });
 });
 
+router.post('/auth/mfa/complete', (req, res) => {
+  const pending = req.session?.mfaPending;
+  if (!pending || Date.now() - pending.createdAt > 5 * 60 * 1000) return res.status(401).json({ error: 'mfa_session_expired' });
+  if (!accountSecurity.verifyMfa(pending.userId, req.body?.code)) return res.status(401).json({ error: 'invalid_mfa_code' });
+  const user = db.prepare('SELECT * FROM users WHERE id=?').get(pending.userId);
+  const started = accountSecurity.startSession(req, pending.userId, `${pending.method}+mfa`);
+  if (started.newDevice) notify(user.id, 'security', `New sign-in on ${started.deviceName}.`, { url: '/?open=profile&settings=security' });
+  res.json({ ok: true, user: publicUser(user) });
+});
+
+router.post('/auth/recovery/request', async (req,res) => {
+  const mail=String(req.body?.email||'').trim().toLowerCase();
+  const allowed=accountSecurity.loginAllowed(req,`recovery:${mail}`);
+  if(!allowed.ok) return res.status(429).json({error:'too_many_attempts'});
+  accountSecurity.recordLoginFailure(req,`recovery:${mail}`);
+  try { await accountSecurity.requestPasswordReset(mail,baseUrl(req),req); }
+  catch(err){ console.error('[security] recovery email failed:',err.message); }
+  res.json({ok:true,message:'If that account exists and recovery email is configured, a reset link is on its way.'});
+});
+router.post('/auth/recovery/complete', async (req,res) => {
+  const policy=accountSecurity.passwordPolicy(req.body?.password);
+  if(!policy.ok) return res.status(400).json({error:'weak_password',hint:policy.hint});
+  const userId=accountSecurity.consumePasswordReset(req.body?.token);
+  if(!userId) return res.status(400).json({error:'invalid_or_expired_reset'});
+  db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(await hashPassword(req.body.password),userId);
+  accountSecurity.audit(userId,'password_reset_completed',req);
+  const started=accountSecurity.startSession(req,userId,'password_recovery');
+  notify(userId,'security',`Your password was reset on ${started.deviceName}.`,{url:'/?open=profile&settings=security'});
+  res.json({ok:true});
+});
+
 router.post('/auth/logout', (req, res) => {
+  accountSecurity.endSession(req);
   req.session = null;
   res.json({ ok: true });
 });
@@ -223,24 +302,29 @@ router.post('/auth/demo', (req, res) => {
   const { user_id } = req.body || {};
   const user = db.prepare("SELECT * FROM users WHERE id = ? AND email LIKE '%@functioningfaith.demo'").get(user_id);
   if (!user) return res.status(404).json({ error: 'demo_user_not_found' });
-  req.session.userId = user.id;
+  accountSecurity.startSession(req, user.id, 'demo');
   res.json({ ok: true, user: publicUser(user) });
 });
 
-router.get('/users', (req, res) => {
+router.get('/users', requireAuth, (req, res) => {
   res.json(db.prepare(`
-    SELECT id, display_name, bio_verse_ref, bio_verse_text, job, church, fitness_group, gym,
-      CASE WHEN show_age = 1 THEN age ELSE NULL END AS age,
+    SELECT id, display_name, bio_verse_ref,
       CASE WHEN avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar
-    FROM users
-  `).all());
+    FROM users u WHERE id = ? OR (profile_visibility <> 'private' AND NOT EXISTS (
+      SELECT 1 FROM dm_blocks b WHERE (b.blocker_id=? AND b.blocked_id=u.id) OR (b.blocker_id=u.id AND b.blocked_id=?)))
+  `).all(req.session.userId, req.session.userId, req.session.userId));
 });
 
 // Dedicated lightweight endpoint for fetching a user's real avatar image lazily.
 // Kept out of list/feed responses so those payloads don't bloat with base64 images.
 router.get('/users/:id/avatar', (req, res) => {
-  const row = db.prepare('SELECT avatar_data FROM users WHERE id = ?').get(req.params.id);
+  const row = db.prepare('SELECT avatar_data,profile_visibility FROM users WHERE id = ?').get(req.params.id);
   if (!row || !row.avatar_data) return res.status(404).json({ error: 'no_avatar' });
+  const me=req.session?.userId||null,own=me===req.params.id;
+  const follows=me&&!!db.prepare('SELECT 1 FROM followers WHERE follower_id=? AND followee_id=?').get(me,req.params.id);
+  if(!own&&(row.profile_visibility==='private'||(row.profile_visibility==='followers'&&!follows))) return res.status(404).json({error:'no_avatar'});
+  if(me&&dms.isBlockedEitherWay(me,req.params.id)) return res.status(404).json({error:'no_avatar'});
+  if(!validateDataUrlImage(row.avatar_data).ok) return res.status(404).json({error:'no_avatar'});
   res.json({ avatar_data: row.avatar_data });
 });
 
@@ -250,6 +334,7 @@ router.get('/users/:id/avatar', (req, res) => {
 router.get('/auth/providers', (req, res) => {
   res.json({ providers: oauth.listConfiguredProviders() });
 });
+router.get('/auth/security-config', (req,res) => res.json({ turnstile_site_key:(process.env.TURNSTILE_SITE_KEY&&process.env.TURNSTILE_SECRET_KEY)?process.env.TURNSTILE_SITE_KEY:null }));
 
 function baseUrl(req) {
   if (process.env.APP_BASE_URL) return process.env.APP_BASE_URL.replace(/\/$/, '');
@@ -266,6 +351,9 @@ router.get('/auth/oauth/:provider/start', (req, res) => {
   const state = oauth.b64url(require('crypto').randomBytes(16));
   const nonce = oauth.b64url(require('crypto').randomBytes(16));
   const link = req.query.link === '1' && !!req.session.userId;
+  if (link && !accountSecurity.recentlyReauthenticated(req)) {
+    return res.status(403).json({ error: 'recent_reauthentication_required', hint: 'Sign in again before linking a new identity.' });
+  }
 
   req.session.oauthPending = { provider, state, nonce, verifier, link, userId: link ? req.session.userId : null, createdAt: Date.now() };
   const redirectUri = `${baseUrl(req)}/api/auth/oauth/${provider}/callback`;
@@ -301,9 +389,11 @@ async function handleOauthCallback(req, res) {
       // Linking to an already-signed-in account.
       const existingOther = db.prepare('SELECT user_id FROM user_identities WHERE provider = ? AND provider_user_id = ?').get(provider, claims.sub);
       if (existingOther && existingOther.user_id !== pending.userId) { req.session.oauthPending = null; return fail('identity_linked_elsewhere'); }
-      db.prepare(`INSERT INTO user_identities (id, user_id, provider, provider_user_id, email) VALUES (?,?,?,?,?)
-                  ON CONFLICT(provider, provider_user_id) DO UPDATE SET email = excluded.email`)
-        .run(randomUUID(), pending.userId, provider, claims.sub, email);
+      db.prepare(`INSERT INTO user_identities (id,user_id,provider,provider_user_id,email,email_verified) VALUES (?,?,?,?,?,?)
+                  ON CONFLICT(provider,provider_user_id) DO UPDATE SET email=excluded.email,email_verified=excluded.email_verified`)
+        .run(randomUUID(), pending.userId, provider, claims.sub, email, emailVerified ? 1 : 0);
+      accountSecurity.audit(pending.userId, 'identity_linked', req, { provider });
+      notify(pending.userId,'security',`${oauth.PROVIDERS[provider].label} sign-in was linked to your account.`,{url:'/?open=profile&settings=security'});
       req.session.oauthPending = null;
       return res.redirect('/?linked=' + provider);
     }
@@ -314,12 +404,13 @@ async function handleOauthCallback(req, res) {
     if (identity) {
       userId = identity.user_id;
     } else if (email && emailVerified) {
-      // Link to an existing password account with the same, provider-verified email.
-      const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+      // Never silently merge a new OAuth identity into a password account. A
+      // legitimate owner can sign into that account and explicitly link it;
+      // silent merging creates an account-pre-hijack path.
+      const existingUser = db.prepare('SELECT id,password_hash FROM users WHERE email = ?').get(email);
       if (existingUser) {
-        userId = existingUser.id;
-        db.prepare('INSERT OR IGNORE INTO user_identities (id, user_id, provider, provider_user_id, email) VALUES (?,?,?,?,?)')
-          .run(randomUUID(), userId, provider, claims.sub, email);
+        req.session.oauthPending = null;
+        return fail('account_link_required');
       }
     }
     if (!userId) {
@@ -329,15 +420,21 @@ async function handleOauthCallback(req, res) {
       // A name clash must never be why somebody's Google sign-in fails, so this
       // path takes the nearest free variant instead of refusing.
       const chosen = usernames.suggest(String(name || 'Friend'), null);
-      db.prepare('INSERT INTO users (id, email, display_name) VALUES (?, ?, ?)').run(userId, uniqueEmail, chosen);
+      db.prepare(`INSERT INTO users (id,email,display_name,terms_version,terms_accepted_at)
+        VALUES (?,?,?,NULL,NULL)`).run(userId, uniqueEmail, chosen);
       db.prepare('INSERT OR IGNORE INTO user_xp (user_id, xp, level) VALUES (?, 0, 1)').run(userId);
-      db.prepare('INSERT INTO user_identities (id, user_id, provider, provider_user_id, email) VALUES (?,?,?,?,?)')
-        .run(randomUUID(), userId, provider, claims.sub, email);
+      db.prepare('INSERT INTO user_identities (id,user_id,provider,provider_user_id,email,email_verified) VALUES (?,?,?,?,?,?)')
+        .run(randomUUID(), userId, provider, claims.sub, email, emailVerified ? 1 : 0);
     }
 
     req.session.oauthPending = null;
-    req.session.userId = userId;
-    res.redirect('/');
+    if (accountSecurity.mfaEnabled(userId)) {
+      req.session.mfaPending = { userId, method: provider, createdAt: Date.now() };
+      return res.redirect('/?mfa_required=1');
+    }
+    const started = accountSecurity.startSession(req, userId, provider);
+    if (started.newDevice) notify(userId, 'security', `New sign-in on ${started.deviceName}.`, { url: '/?open=profile&settings=security' });
+    res.redirect('/?account_setup=1');
   } catch (err) {
     req.session.oauthPending = null;
     console.error(`[oauth] ${provider} callback failed:`, err.message);
@@ -357,7 +454,13 @@ router.get('/auth/connections', requireAuth, (req, res) => {
 });
 
 router.post('/auth/identities/:provider/unlink', requireAuth, (req, res) => {
+  if (!accountSecurity.recentlyReauthenticated(req)) return res.status(403).json({ error: 'recent_reauthentication_required' });
+  const user = db.prepare('SELECT password_hash FROM users WHERE id=?').get(req.session.userId);
+  const count = db.prepare('SELECT COUNT(*) c FROM user_identities WHERE user_id=?').get(req.session.userId).c;
+  if (!user?.password_hash && count <= 1) return res.status(409).json({ error: 'last_sign_in_method' });
   db.prepare('DELETE FROM user_identities WHERE user_id = ? AND provider = ?').run(req.session.userId, req.params.provider);
+  accountSecurity.audit(req.session.userId, 'identity_unlinked', req, { provider: req.params.provider });
+  notify(req.session.userId,'security',`${req.params.provider} sign-in was unlinked from your account.`,{url:'/?open=profile&settings=security'});
   res.json({ ok: true });
 });
 
@@ -386,7 +489,7 @@ router.get('/connectors/strava/callback', async (req, res) => {
                 ON CONFLICT(user_id, provider) DO UPDATE SET
                   provider_user_id=excluded.provider_user_id, access_token=excluded.access_token,
                   refresh_token=excluded.refresh_token, expires_at=excluded.expires_at, scope=excluded.scope`)
-      .run(randomUUID(), pending.userId, 'strava', String(tokens.athlete?.id || ''), tokens.access_token, tokens.refresh_token,
+      .run(randomUUID(), pending.userId, 'strava', String(tokens.athlete?.id || ''), accountSecurity.protectSecret(tokens.access_token), accountSecurity.protectSecret(tokens.refresh_token),
         new Date(tokens.expires_at * 1000).toISOString(), 'read,activity:read_all');
     req.session.stravaPending = null;
     await syncStravaForUser(pending.userId).catch(err => console.error('[strava] initial sync failed:', err.message));
@@ -419,11 +522,12 @@ router.post('/connectors/:provider/disconnect', requireAuth, (req, res) => {
 async function syncStravaForUser(userId) {
   let conn = db.prepare('SELECT * FROM user_connectors WHERE user_id = ? AND provider = ?').get(userId, 'strava');
   if (!conn) throw new Error('not_connected');
+  conn={...conn,access_token:accountSecurity.unprotectSecret(conn.access_token),refresh_token:accountSecurity.unprotectSecret(conn.refresh_token)};
 
   if (new Date(conn.expires_at).getTime() < Date.now() + 60000) {
     const fresh = await strava.refreshTokens(conn.refresh_token);
     db.prepare('UPDATE user_connectors SET access_token = ?, refresh_token = ?, expires_at = ? WHERE user_id = ? AND provider = ?')
-      .run(fresh.access_token, fresh.refresh_token, new Date(fresh.expires_at * 1000).toISOString(), userId, 'strava');
+      .run(accountSecurity.protectSecret(fresh.access_token), accountSecurity.protectSecret(fresh.refresh_token), new Date(fresh.expires_at * 1000).toISOString(), userId, 'strava');
     conn = { ...conn, access_token: fresh.access_token };
   }
 
@@ -474,12 +578,13 @@ router.post('/session', (req, res) => {
   const { user_id } = req.body || {};
   const user = db.prepare("SELECT * FROM users WHERE id = ? AND email LIKE '%@functioningfaith.demo'").get(user_id);
   if (!user) return res.status(404).json({ error: 'user_not_found' });
-  req.session.userId = user.id;
+  accountSecurity.startSession(req, user.id, 'demo');
   res.json({ ok: true, user: publicUser(user) });
 });
 
 router.get('/me', (req, res) => {
-  if (!req.session.userId) return res.status(401).json({ error: 'not_signed_in' });
+  const checked = accountSecurity.validateSession(req);
+  if (!checked.ok) { req.session = null; return res.status(401).json({ error: checked.error }); }
   const uid = req.session.userId;
   const userRow = db.prepare('SELECT * FROM users WHERE id = ?').get(uid);
   if (!userRow) {
@@ -527,7 +632,7 @@ router.get('/connectors/:provider/callback', async (req, res) => {
     const tokens = await wearables.exchangeCodeForTokens(name, req.query.code, `${baseUrl(req)}/api/connectors/${name}/callback`);
     db.prepare(`INSERT INTO user_connectors (id,user_id,provider,provider_user_id,access_token,refresh_token,expires_at,scope)
       VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(user_id,provider) DO UPDATE SET access_token=excluded.access_token,refresh_token=excluded.refresh_token,expires_at=excluded.expires_at,scope=excluded.scope`)
-      .run(randomUUID(), pending.userId, name, String(tokens.user_id || tokens.user?.id || ''), tokens.access_token, tokens.refresh_token || null, new Date(Date.now() + Number(tokens.expires_in || 3600) * 1000).toISOString(), tokens.scope || wearables.provider(name).scope);
+      .run(randomUUID(), pending.userId, name, String(tokens.user_id || tokens.user?.id || ''), accountSecurity.protectSecret(tokens.access_token), accountSecurity.protectSecret(tokens.refresh_token || null), new Date(Date.now() + Number(tokens.expires_in || 3600) * 1000).toISOString(), tokens.scope || wearables.provider(name).scope);
     req.session.wearablePending = null;
     await syncWearableForUser(pending.userId, name).catch(err => console.error(`[${name}] initial sync failed:`, err.message));
     res.redirect(`/?connected=${name}`);
@@ -542,9 +647,10 @@ async function syncWearableForUser(userId, provider) {
   if (!wearables.provider(provider)) throw new Error('unsupported_wearable');
   let conn = db.prepare('SELECT * FROM user_connectors WHERE user_id = ? AND provider = ?').get(userId, provider);
   if (!conn) throw new Error('not_connected');
+  conn={...conn,access_token:accountSecurity.unprotectSecret(conn.access_token),refresh_token:accountSecurity.unprotectSecret(conn.refresh_token)};
   if (conn.expires_at && new Date(conn.expires_at).getTime() < Date.now() + 60000 && conn.refresh_token) {
     const fresh = await wearables.refreshTokens(provider, conn.refresh_token);
-    db.prepare('UPDATE user_connectors SET access_token=?, refresh_token=?, expires_at=? WHERE user_id=? AND provider=?').run(fresh.access_token, fresh.refresh_token || conn.refresh_token, new Date(Date.now() + Number(fresh.expires_in || 3600) * 1000).toISOString(), userId, provider);
+    db.prepare('UPDATE user_connectors SET access_token=?, refresh_token=?, expires_at=? WHERE user_id=? AND provider=?').run(accountSecurity.protectSecret(fresh.access_token), accountSecurity.protectSecret(fresh.refresh_token || conn.refresh_token), new Date(Date.now() + Number(fresh.expires_in || 3600) * 1000).toISOString(), userId, provider);
     conn = { ...conn, access_token: fresh.access_token };
   }
   const payload = await wearables.fetchRecent(provider, conn.access_token); let imported = 0;
@@ -561,6 +667,8 @@ async function syncWearableForUser(userId, provider) {
   db.prepare('UPDATE user_connectors SET last_synced_at=? WHERE user_id=? AND provider=?').run(new Date().toISOString(),userId,provider);
   return { imported, checked: (payload.activities || []).length, recovery_days: wearables.normalizeRecovery(provider, payload).length };
 }
+function allowWindow(map,key,limit,windowMs){const now=Date.now(),recent=(map.get(key)||[]).filter(t=>now-t<windowMs);if(recent.length>=limit)return false;recent.push(now);map.set(key,recent);return true;}
+function linkWarning(text){const urls=String(text||'').match(/https?:\/\/[^\s]+/gi)||[];for(const raw of urls){try{const u=new URL(raw);if(u.protocol!=='https:'||u.username||u.password||u.hostname.startsWith('xn--')||/^\d+\.\d+\.\d+\.\d+$/.test(u.hostname)||/\.(zip|mov|top|click|country)$/i.test(u.hostname))return 'This message contains an unfamiliar or disguised link. Verify the sender and destination before opening it.';}catch{return 'This message contains a malformed link. Do not open it.';}}return null;}
 
 // The full accomplishment shelf: earned badges stay visible, while locked
 // badges show the next honest milestone instead of disappearing.
@@ -582,14 +690,115 @@ router.get('/badges', requireAuth, (req, res) => {
 });
 
 function requireAuth(req, res, next) {
-  if (!req.session.userId) return res.status(401).json({ error: 'not_signed_in' });
-  const exists = db.prepare('SELECT 1 FROM users WHERE id = ?').get(req.session.userId);
-  if (!exists) {
+  const checked = accountSecurity.validateSession(req);
+  if (!checked.ok) {
     req.session = null;
-    return res.status(401).json({ error: 'not_signed_in' });
+    return res.status(401).json({ error: checked.error });
   }
   next();
 }
+
+function requireCommunityAccess(req, res, next) {
+  const user = db.prepare('SELECT date_of_birth,terms_version,terms_accepted_at FROM users WHERE id=?').get(req.session.userId);
+  const age = accountSecurity.ageFromDob(user?.date_of_birth);
+  if (age == null || age < 13) return res.status(403).json({ error: 'age_confirmation_required' });
+  if (!user?.terms_accepted_at || user.terms_version !== accountSecurity.TERMS_VERSION) {
+    return res.status(403).json({ error: 'terms_acceptance_required', terms_version: accountSecurity.TERMS_VERSION });
+  }
+  next();
+}
+
+router.post('/account/setup', requireAuth, (req, res) => {
+  const dob = String(req.body?.date_of_birth || '');
+  const age = accountSecurity.ageFromDob(dob);
+  if (age == null) return res.status(400).json({ error: 'invalid_date_of_birth' });
+  if (age < 13) return res.status(403).json({ error: 'minimum_age' });
+  if (!req.body?.terms_accepted) return res.status(400).json({ error: 'terms_required' });
+  const now = new Date().toISOString();
+  db.prepare('UPDATE users SET date_of_birth=?,age=?,terms_version=?,terms_accepted_at=? WHERE id=?')
+    .run(dob, age, accountSecurity.TERMS_VERSION, now, req.session.userId);
+  accountSecurity.audit(req.session.userId, 'terms_accepted', req, { version: accountSecurity.TERMS_VERSION });
+  res.json({ ok: true, age_band: age < 18 ? 'minor' : 'adult', terms_version: accountSecurity.TERMS_VERSION });
+});
+
+router.get('/security/capabilities', (req, res) => res.json({
+  password_login: true,
+  oauth_providers: oauth.listConfiguredProviders(),
+  totp_mfa: !!(process.env.DATA_ENCRYPTION_KEY || process.env.MFA_ENCRYPTION_KEY || process.env.SESSION_SECRET),
+  passkeys_biometric: false,
+  sms_mfa: false,
+  captcha: !!(process.env.TURNSTILE_SECRET_KEY && process.env.TURNSTILE_SITE_KEY),
+  recovery_email: !!(process.env.RESEND_API_KEY && process.env.EMAIL_FROM),
+  end_to_end_encrypted_dms: false,
+  session_idle_minutes: Math.round(accountSecurity.IDLE_TIMEOUT_MS / 60000),
+}));
+
+router.get('/security/sessions', requireAuth, (req, res) => {
+  res.json({ sessions: accountSecurity.listSessions(req.session.userId, req.session.sid) });
+});
+router.delete('/security/sessions/:id', requireAuth, (req, res) => {
+  if (!accountSecurity.revokeSession(req.session.userId, req.params.id)) return res.status(404).json({ error: 'session_not_found' });
+  accountSecurity.audit(req.session.userId, 'session_revoked', req, { session_id: req.params.id });
+  const current = req.params.id === req.session.sid;
+  if (current) req.session = null;
+  res.json({ ok: true, current });
+});
+router.post('/security/sessions/logout-others', requireAuth, (req, res) => {
+  const revoked = accountSecurity.revokeOtherSessions(req.session.userId, req.session.sid);
+  accountSecurity.audit(req.session.userId, 'other_sessions_revoked', req, { count: revoked });
+  res.json({ ok: true, revoked });
+});
+router.get('/security/activity', requireAuth, (req, res) => res.json({ events: accountSecurity.securityEvents(req.session.userId) }));
+
+router.post('/security/reauthenticate', requireAuth, async (req, res) => {
+  const user = db.prepare('SELECT password_hash FROM users WHERE id=?').get(req.session.userId);
+  if (!user?.password_hash) return res.status(409).json({ error: 'oauth_reauthentication_required' });
+  if (!(await verifyPassword(String(req.body?.password || ''), user.password_hash))) return res.status(401).json({ error: 'invalid_credentials' });
+  accountSecurity.markReauthenticated(req);
+  accountSecurity.audit(req.session.userId, 'reauthenticated', req);
+  res.json({ ok: true });
+});
+
+router.get('/security/mfa', requireAuth, (req, res) => res.json({ enabled: accountSecurity.mfaEnabled(req.session.userId) }));
+router.post('/security/mfa/setup', requireAuth, (req, res) => {
+  if (!accountSecurity.recentlyReauthenticated(req)) return res.status(403).json({ error: 'recent_reauthentication_required' });
+  const user = db.prepare('SELECT email FROM users WHERE id=?').get(req.session.userId);
+  try { res.json(accountSecurity.beginMfa(req.session.userId, user.email)); }
+  catch (err) { res.status(503).json({ error: err.code || 'mfa_not_configured' }); }
+});
+router.post('/security/mfa/enable', requireAuth, (req, res) => {
+  const backupCodes = accountSecurity.enableMfa(req.session.userId, req.body?.code);
+  if (!backupCodes) return res.status(400).json({ error: 'invalid_mfa_code' });
+  accountSecurity.audit(req.session.userId, 'mfa_enabled', req);
+  notify(req.session.userId, 'security', 'Two-factor authentication was enabled.', { url: '/?open=profile&settings=security' });
+  res.json({ ok: true, backup_codes: backupCodes, warning: 'Store these one-time backup codes somewhere safe. They will not be shown again.' });
+});
+router.post('/security/mfa/disable', requireAuth, (req, res) => {
+  if (!accountSecurity.recentlyReauthenticated(req)) return res.status(403).json({ error: 'recent_reauthentication_required' });
+  if (!accountSecurity.verifyMfa(req.session.userId, req.body?.code)) return res.status(401).json({ error: 'invalid_mfa_code' });
+  accountSecurity.disableMfa(req.session.userId);
+  accountSecurity.audit(req.session.userId, 'mfa_disabled', req);
+  notify(req.session.userId, 'security', 'Two-factor authentication was disabled.', { url: '/?open=profile&settings=security' });
+  res.json({ ok: true });
+});
+
+router.get('/privacy', requireAuth, (req, res) => res.json(accountSecurity.privacy(req.session.userId)));
+router.patch('/privacy', requireAuth, (req, res) => {
+  try {
+    const settings = accountSecurity.updatePrivacy(req.session.userId, req.body || {});
+    accountSecurity.audit(req.session.userId, 'privacy_settings_changed', req, settings);
+    res.json(settings);
+  } catch (err) { res.status(400).json({ error: err.code || 'invalid_privacy_setting' }); }
+});
+router.put('/users/:id/:control(mute|restrict)', requireAuth, (req, res) => {
+  if (!db.prepare('SELECT 1 FROM users WHERE id=?').get(req.params.id)) return res.status(404).json({ error: 'user_not_found' });
+  if (!accountSecurity.relationship(req.session.userId, req.params.id, req.params.control, true)) return res.status(400).json({ error: 'invalid_control' });
+  res.json({ ok: true, [req.params.control]: true });
+});
+router.delete('/users/:id/:control(mute|restrict)', requireAuth, (req, res) => {
+  accountSecurity.relationship(req.session.userId, req.params.id, req.params.control, false);
+  res.json({ ok: true, [req.params.control]: false });
+});
 
 // ---- consent (privacy opt-in, per spec section 3) ----
 router.post('/consent', requireAuth, (req, res) => {
@@ -617,6 +826,7 @@ router.get('/feed', (req, res) => {
   const posts = db.prepare(`
     SELECT p.id, p.content, p.created_at, p.user_id author_id, u.display_name author,
            CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS author_has_avatar,
+           CASE WHEN EXISTS(SELECT 1 FROM developer_applications da WHERE da.user_id=u.id AND da.status='verified') THEN 1 ELSE 0 END AS author_verified_developer,
            p.visibility, p.workout_id, p.photo_data, p.photo_category,
            p.show_route, p.route_privacy_m, w.gps_path,
            w.type workout_type, w.calories, w.avg_hr, w.start_time, w.end_time, w.distance_km,
@@ -638,11 +848,15 @@ router.get('/feed', (req, res) => {
             SELECT 1 FROM dm_blocks blocked
             WHERE (blocked.blocker_id = @me AND blocked.blocked_id = p.user_id)
                OR (blocked.blocker_id = p.user_id AND blocked.blocked_id = @me)))
+      AND (@me IS NULL OR NOT EXISTS (
+            SELECT 1 FROM account_relationship_controls rc
+            WHERE rc.actor_id=@me AND rc.subject_id=p.user_id AND rc.control='mute'))
       AND (@before = '' OR p.created_at < @before)
     ORDER BY p.created_at DESC LIMIT @limit
   `).all({ me: meId, following_only: followingOnly ? 1 : 0, before, limit });
 
   const withSocial = posts.map(p => {
+    if (p.photo_data && !validateDataUrlImage(p.photo_data).ok) p.photo_data = null;
     // Replace the raw trace with only what the author chose to publish, so the
     // full path never leaves the server on a post that did not opt in.
     const route = publishedRoute(p);
@@ -739,9 +953,15 @@ router.get('/posts/saved', requireAuth, (req, res) => {
   res.json({ posts: posts.map(p => ({ ...p, saved_by_me: true })) });
 });
 
-router.post('/posts/:id/comments', requireAuth, (req, res) => {
+router.post('/posts/:id/comments', requireAuth, requireCommunityAccess, (req, res) => {
+  if(!allowWindow(commentRateWindow,req.session.userId,12,60_000)) return res.status(429).json({error:'commenting_too_fast'});
   const post = db.prepare('SELECT id, user_id, visibility FROM posts WHERE id = ?').get(req.params.id);
   if (!post || !postVisibleTo(post, req.session.userId)) return res.status(404).json({ error: 'post_not_found' });
+  const permission = db.prepare('SELECT comment_permission FROM users WHERE id=?').get(post.user_id)?.comment_permission || 'everyone';
+  const follows = !!db.prepare('SELECT 1 FROM followers WHERE follower_id=? AND followee_id=?').get(req.session.userId,post.user_id);
+  if (post.user_id !== req.session.userId && (permission === 'nobody' || (permission === 'followers' && !follows))) {
+    return res.status(403).json({ error: 'comments_closed' });
+  }
   const content = String(req.body?.content || '').trim().slice(0, 500);
   if (!content) return res.status(400).json({ error: 'empty_comment' });
   const id = randomUUID();
@@ -790,8 +1010,12 @@ function tagWorkoutPartners(taggerId, workoutId, partnerUserIds) {
     const partnerId = String(rawId || '').trim();
     if (!partnerId) continue;
     if (partnerId === taggerId) { errors.push({ partner_user_id: partnerId, error: 'cannot_tag_self' }); continue; }
-    const exists = db.prepare('SELECT 1 FROM users WHERE id = ?').get(partnerId);
+    const exists = db.prepare('SELECT tag_permission FROM users WHERE id = ?').get(partnerId);
     if (!exists) { errors.push({ partner_user_id: partnerId, error: 'user_not_found' }); continue; }
+    const connected=!!db.prepare('SELECT 1 FROM followers WHERE follower_id=? AND followee_id=?').get(partnerId,taggerId);
+    if(dms.isBlockedEitherWay(taggerId,partnerId)||exists.tag_permission==='nobody'||(exists.tag_permission==='followers'&&!connected)){
+      errors.push({partner_user_id:partnerId,error:'tag_permission'});continue;
+    }
     const id = randomUUID();
     try {
       db.prepare('INSERT INTO workout_partners (id, workout_id, tagged_by, partner_user_id, status) VALUES (?, ?, ?, ?, ?)')
@@ -879,6 +1103,9 @@ router.post('/workouts/:id/sample', requireAuth, async (req, res) => {
   const stress_level = Number.isFinite(Number(rawStress)) ? Math.round(Number(rawStress)) : null;
   const workout = db.prepare('SELECT * FROM workouts WHERE id = ? AND user_id = ?').get(req.params.id, req.session.userId);
   if (!workout) return res.status(404).json({ error: 'not_found' });
+  if ((heart_rate != null || stress_level != null) && !hasActiveConsent(req.session.userId, 'biometric_ingest')) {
+    return res.status(403).json({ error: 'biometric_consent_required' });
+  }
   db.prepare('INSERT INTO biometric_samples (id, user_id, workout_id, time, heart_rate, stress_level) VALUES (?, ?, ?, ?, ?, ?)')
     .run(randomUUID(), req.session.userId, workout.id, new Date().toISOString(), heart_rate, stress_level);
 
@@ -1078,6 +1305,9 @@ router.post('/workouts/manual', requireAuth, (req, res) => {
   const uid = req.session.userId;
   let { type = 'Run', duration_min, distance_km, calories, note, date, avg_hr, partner_user_ids, skip_journeys, hr_samples } = req.body || {};
   if (!ACTIVITY_SET.has(type)) return res.status(400).json({ error: 'invalid_activity_type' });
+  if ((Number(avg_hr) > 0 || (Array.isArray(hr_samples) && hr_samples.length)) && !hasActiveConsent(uid, 'biometric_ingest')) {
+    return res.status(403).json({ error: 'biometric_consent_required' });
+  }
   const durSec = Math.max(0, Math.round((Number(duration_min) || 0) * 60));
   if (durSec === 0 && !(Number(distance_km) > 0)) return res.status(400).json({ error: 'need_duration_or_distance' });
   const dist = Number(distance_km) > 0 ? Number(distance_km) : null;
@@ -1273,7 +1503,7 @@ router.get('/stories', requireAuth, (req, res) => {
   res.json({ stories: rows });
 });
 
-router.post('/stories', requireAuth, (req, res) => {
+router.post('/stories', requireAuth, requireCommunityAccess, (req, res) => {
   const { content, photo_data, photo_category, visibility } = req.body || {};
   const text = String(content || '').trim().slice(0, 280);
   let photoData = null;
@@ -1299,6 +1529,10 @@ router.post('/stories/:id/view', requireAuth, (req, res) => {
     .run(story.id, req.session.userId);
   res.json({ ok: true });
 });
+
+function hasActiveConsent(userId, scope) {
+  return !!db.prepare('SELECT 1 FROM user_consents WHERE user_id=? AND scope=? AND revoked_at IS NULL').get(userId, scope);
+}
 
 const STORY_REACTIONS = ['❤️', '🙏', '🔥', '💪', '👏'];
 router.post('/stories/:id/reaction', requireAuth, (req, res) => {
@@ -1327,10 +1561,35 @@ router.delete('/stories/:id', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-router.post('/posts', requireAuth, (req, res) => {
+async function matchedScriptureForPost(userId, content, workoutId, requestedId) {
+  if (requestedId) {
+    const selected=db.prepare('SELECT id,reference,text FROM scripture_verses WHERE id=?').get(String(requestedId));
+    if (selected) return { verse:selected, source:'member', reason:'Verse selected by the member.' };
+  }
+  const workout=workoutId?db.prepare('SELECT type FROM workouts WHERE id=? AND user_id=?').get(workoutId,userId):null;
+  const activityTheme={Run:'endurance perseverance',Walk:'peace gratitude',Hike:'creation strength',Cycle:'endurance courage',Strength:'strength discipline',HIIT:'discipline perseverance',Yoga:'peace stillness',Swim:'renewal courage'};
+  const terms=`${activityTheme[workout?.type]||'faith encouragement'} ${String(content||'').replace(/[^A-Za-z\s]/g,' ').slice(0,180)}`;
+  let candidates=bibleFtsSearch(terms).slice(0,8);
+  if(!candidates.length) candidates=db.prepare('SELECT id,book,chapter,verse,text,translation FROM bible_verses ORDER BY RANDOM() LIMIT 8').all().map(mirrorVerse);
+  if(!candidates.length) return null;
+  let picked=candidates[0],source='verified_fallback',reason=`Matched to ${workout?.type||'the post'} using verified Bible text.`;
+  if(gloo.isConfigured()) {
+    try {
+      const user=db.prepare('SELECT tradition FROM users WHERE id=?').get(userId)||{};
+      const out=await gloo.chatJson({kind:'post_scripture_match',userId,tradition:gloo.normaliseTradition(user.tradition),cache:false,maxTokens:180,
+        messages:[{role:'user',content:`Choose exactly one candidate id for this Christian fitness/community post. Do not write or alter scripture. Return JSON {"id":"...","reason":"..."}. Post context: ${String(content||'').slice(0,300)}. Activity: ${workout?.type||'none'}. Candidates: ${JSON.stringify(candidates.map(v=>({id:v.id,reference:v.reference,text:v.text})))}`}]});
+      const chosen=out?.json&&candidates.find(v=>v.id===out.json.id);
+      if(chosen){picked=chosen;source='gloo_verified_candidates';reason=String(out.json.reason||reason).slice(0,240);}
+    } catch { /* verified fallback remains */ }
+  }
+  return {verse:picked,source,reason};
+}
+
+router.post('/posts', requireAuth, requireCommunityAccess, async (req, res) => {
   const { content, workout_id, verse_id, visibility, photo_data, photo_category,
           show_route, route_privacy_m } = req.body || {};
   const uid = req.session.userId;
+  if(!allowWindow(postRateWindow,uid,6,60_000)) return res.status(429).json({error:'posting_too_fast'});
 
   // A workout can only be posted by its owner.
   if (workout_id) {
@@ -1363,23 +1622,36 @@ router.post('/posts', requireAuth, (req, res) => {
   // for, and with a privacy trim capped to something sane.
   const wantsRoute = !!show_route && !!workout_id ? 1 : 0;
   const privacyM = Math.max(0, Math.min(1000, Math.round(Number(route_privacy_m) || 0)));
+  const scripture = await matchedScriptureForPost(uid,content,workout_id,verse_id);
+  if (!scripture) return res.status(503).json({ error:'scripture_unavailable', hint:'A verified verse could not be resolved, so the post was not published.' });
 
-  db.prepare(`INSERT INTO posts (id, user_id, content, workout_id, verse_id, visibility,
-              photo_data, photo_category, show_route, route_privacy_m)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, uid, (content || '').toString().slice(0, 1000), workout_id || null, verse_id || null, vis,
-         photoData, photoCategory, wantsRoute, privacyM);
-  res.status(201).json({ id, visibility: vis, share_url: vis === 'public' ? `/w/${id}` : null });
+  db.prepare(`INSERT INTO posts (id,user_id,content,workout_id,verse_id,visibility,
+              photo_data,photo_category,show_route,route_privacy_m,verse_match_source,verse_match_reason)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(id,uid,(content||'').toString().slice(0,1000),workout_id||null,scripture.verse.id,vis,
+         photoData,photoCategory,wantsRoute,privacyM,scripture.source,scripture.reason);
+  res.status(201).json({ id,visibility:vis,share_url:vis==='public'?`/w/${id}`:null,
+    scripture:{reference:scripture.verse.reference,text:scripture.verse.text,chosen_by:scripture.source,reason:scripture.reason} });
 });
 
 // Community-enforcement report. No moderation queue/UI yet in this pass — this is
 // a foundation for a future admin review flow, not a complete moderation system.
 router.post('/posts/:id/report', requireAuth, (req, res) => {
-  const post = db.prepare('SELECT id FROM posts WHERE id = ?').get(req.params.id);
-  if (!post) return res.status(404).json({ error: 'not_found' });
+  const post = db.prepare('SELECT id,user_id,visibility FROM posts WHERE id = ?').get(req.params.id);
+  if (!post || !postVisibleTo(post,req.session.userId)) return res.status(404).json({ error: 'not_found' });
+  if (post.user_id === req.session.userId) return res.status(400).json({ error: 'cannot_report_own_post' });
   const reason = (req.body && req.body.reason ? String(req.body.reason) : '').trim().slice(0, 300);
+  if (reason.length < 5) return res.status(400).json({ error: 'reason_required' });
+  const recent = db.prepare("SELECT COUNT(*) c FROM moderation_queue WHERE reporter_id=? AND created_at>=datetime('now','-1 day')").get(req.session.userId).c;
+  if (recent >= 10) return res.status(429).json({ error: 'report_limit_reached' });
+  if (db.prepare("SELECT 1 FROM moderation_queue WHERE report_type='post' AND target_id=? AND reporter_id=?").get(post.id,req.session.userId)) {
+    return res.status(409).json({ error: 'already_reported' });
+  }
+  const reportId = randomUUID();
   db.prepare('INSERT INTO post_reports (id, post_id, reporter_id, reason) VALUES (?, ?, ?, ?)')
-    .run(randomUUID(), post.id, req.session.userId, reason || null);
+    .run(reportId, post.id, req.session.userId, reason);
+  db.prepare("INSERT INTO moderation_queue(id,report_type,target_id,reporter_id,reason) VALUES(?,'post',?,?,?)")
+    .run(reportId,post.id,req.session.userId,reason);
   res.status(201).json({ ok: true });
 });
 
@@ -1401,7 +1673,7 @@ router.get('/public/post/:id', (req, res) => {
   const p = db.prepare(`
     SELECT p.id, p.content, p.created_at, p.visibility, p.photo_data, p.photo_category, u.display_name author,
            w.type workout_type, w.calories, w.avg_hr, w.max_hr, w.distance_km,
-           w.start_time, w.end_time, w.gps_path,
+           w.start_time, w.end_time, w.gps_path, p.show_route, p.route_privacy_m,
            v.reference verse_reference, v.text verse_text
     FROM posts p
     JOIN users u ON u.id = p.user_id
@@ -1411,9 +1683,9 @@ router.get('/public/post/:id', (req, res) => {
   `).get(req.params.id);
 
   if (!p || p.visibility !== 'public') return res.status(404).json({ error: 'not_found' });
+  if (p.photo_data && !validateDataUrlImage(p.photo_data).ok) p.photo_data = null;
 
-  let route = null;
-  if (p.gps_path) { try { route = JSON.parse(p.gps_path); } catch { route = null; } }
+  const route = publishedRoute(p);
 
   let durationMin = null, pace = null, distanceKm = p.distance_km ?? null;
   if (p.start_time && p.end_time) durationMin = +(((new Date(p.end_time) - new Date(p.start_time)) / 60000).toFixed(1));
@@ -1491,7 +1763,13 @@ router.get('/users/suggested', requireAuth, (req, res) => {
 });
 
 function socialList(req, res, userId, kind) {
-  if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(userId)) return res.status(404).json({ error: 'user_not_found' });
+  const targetUser = db.prepare('SELECT follower_list_visibility FROM users WHERE id = ?').get(userId);
+  if (!targetUser) return res.status(404).json({ error: 'user_not_found' });
+  const isMe = userId === req.session.userId;
+  const follows = !!db.prepare('SELECT 1 FROM followers WHERE follower_id=? AND followee_id=?').get(req.session.userId,userId);
+  if (!isMe && (targetUser.follower_list_visibility === 'private' || (targetUser.follower_list_visibility === 'followers' && !follows))) {
+    return res.status(404).json({ error: 'not_found' });
+  }
   const idColumn = kind === 'followers' ? 'f.follower_id' : 'f.followee_id';
   const targetColumn = kind === 'followers' ? 'f.followee_id' : 'f.follower_id';
   const rows = db.prepare(`
@@ -1517,20 +1795,29 @@ router.get('/users/:id/following', requireAuth, (req, res) => socialList(req, re
 router.get('/users/:id', (req, res) => {
   const me = req.session.userId || null;
   const u = db.prepare(`
-    SELECT id, display_name, bio_verse_ref, bio_verse_text, bio_link_url, bio_link_label,
+    SELECT id,display_name,bio_verse_ref,bio_verse_text,bio_link_url,bio_link_label,profile_visibility,follower_list_visibility,
+           CASE WHEN EXISTS(SELECT 1 FROM developer_applications da WHERE da.user_id=users.id AND da.status='verified') THEN 1 ELSE 0 END AS verified_developer,
            CASE WHEN avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar
     FROM users WHERE id = ?
   `).get(req.params.id);
   if (!u) return res.status(404).json({ error: 'user_not_found' });
+
+  const is_me = me === u.id;
+  const is_following = me ? !!db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(me, u.id) : false;
+  if (me && dms.isBlockedEitherWay(me,u.id)) return res.status(404).json({ error: 'user_not_found' });
+  if (!is_me && (u.profile_visibility === 'private' || (u.profile_visibility === 'followers' && !is_following))) {
+    return res.status(404).json({ error: 'user_not_found' });
+  }
+  delete u.profile_visibility;
 
   const stats = {
     workouts: db.prepare("SELECT COUNT(*) c FROM workouts WHERE user_id = ? AND end_time IS NOT NULL").get(u.id).c,
     followers: db.prepare('SELECT COUNT(*) c FROM followers WHERE followee_id = ?').get(u.id).c,
     following: db.prepare('SELECT COUNT(*) c FROM followers WHERE follower_id = ?').get(u.id).c,
   };
-  const is_me = me === u.id;
-  const is_following = me ? !!db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(me, u.id) : false;
-
+  const followerStatsVisible=is_me||u.follower_list_visibility==='public'||(u.follower_list_visibility==='followers'&&is_following);
+  if(!followerStatsVisible){stats.followers=null;stats.following=null;}
+  delete u.follower_list_visibility;
   const posts = db.prepare(`
     SELECT p.id, p.content, p.created_at, p.visibility, p.workout_id, p.photo_data, p.photo_category,
            w.type workout_type, w.calories, w.avg_hr, w.distance_km,
@@ -1544,6 +1831,8 @@ router.get('/users/:id', (req, res) => {
       OR (p.visibility = 'followers' AND EXISTS (SELECT 1 FROM followers f WHERE f.followee_id = @uid AND f.follower_id = @me)))
     ORDER BY p.created_at DESC LIMIT 20
   `).all({ uid: u.id, me });
+
+  posts.forEach(p => { if (p.photo_data && !validateDataUrlImage(p.photo_data).ok) p.photo_data = null; });
 
   res.json({ user: u, stats, is_me, is_following, is_blocked: me ? dms.isBlockedEitherWay(me, u.id) : false, posts });
 });
@@ -1562,9 +1851,14 @@ router.post('/users/:id/report', requireAuth, (req, res) => {
   if (req.params.id === req.session.userId) return res.status(400).json({ error: 'cannot_report_self' });
   if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(req.params.id)) return res.status(404).json({ error: 'user_not_found' });
   const reason = String(req.body?.reason || '').trim().slice(0, 300);
-  if (!reason) return res.status(400).json({ error: 'reason_required' });
+  if (reason.length<5) return res.status(400).json({ error: 'reason_required' });
+  const recent=db.prepare("SELECT COUNT(*) c FROM moderation_queue WHERE reporter_id=? AND created_at>=datetime('now','-1 day')").get(req.session.userId).c;
+  if(recent>=10)return res.status(429).json({error:'report_limit_reached'});
+  if(db.prepare("SELECT 1 FROM moderation_queue WHERE report_type='user' AND target_id=? AND reporter_id=?").get(req.params.id,req.session.userId))return res.status(409).json({error:'already_reported'});
+  const id=randomUUID();
   db.prepare('INSERT INTO user_reports (id, reported_user_id, reporter_id, reason) VALUES (?, ?, ?, ?)')
-    .run(randomUUID(), req.params.id, req.session.userId, reason);
+    .run(id, req.params.id, req.session.userId, reason);
+  db.prepare("INSERT INTO moderation_queue(id,report_type,target_id,reporter_id,reason) VALUES(?,'user',?,?,?)").run(id,req.params.id,req.session.userId,reason);
   res.status(201).json({ ok: true });
 });
 
@@ -1593,7 +1887,7 @@ function groupInvitePayload(group, token) {
   return { link, token, qr_url: `https://quickchart.io/qr?size=320&text=${encodeURIComponent(link)}` };
 }
 
-router.post('/groups', requireAuth, (req, res) => {
+router.post('/groups', requireAuth, requireCommunityAccess, (req, res) => {
   const { name, description, username, church_osm_id, church_name, location_name, lat, lng, sport } = req.body || {};
   const cleanName = String(name || '').trim().slice(0, 80);
   const handle = groupUsername(username || name);
@@ -1683,12 +1977,12 @@ router.get('/groups/:id', requireAuth, (req, res) => {
   if (!group) return res.status(404).json({ error: 'not_found' });
   const memberCount = db.prepare('SELECT COUNT(*) c FROM group_members WHERE group_id = ?').get(group.id).c;
   const isMember = isGroupMember(group.id, req.session.userId);
-  const messages = db.prepare(`
+  const messages = isMember ? db.prepare(`
     SELECT m.id, m.content, m.created_at, m.user_id author_id, u.display_name author
     FROM group_messages m JOIN users u ON u.id = m.user_id
     WHERE m.group_id = ? ORDER BY m.created_at ASC LIMIT 50
-  `).all(group.id);
-  const events = db.prepare(`
+  `).all(group.id) : [];
+  const events = isMember ? db.prepare(`
     SELECT e.*,
       (SELECT COUNT(*) FROM event_rsvps r WHERE r.event_id = e.id AND r.status = 'going') going_count,
       (SELECT COUNT(*) FROM event_rsvps r WHERE r.event_id = e.id AND r.status = 'interested') interested_count,
@@ -1696,7 +1990,7 @@ router.get('/groups/:id', requireAuth, (req, res) => {
     FROM group_events e
     WHERE e.group_id = @gid AND e.event_time >= datetime('now')
     ORDER BY e.event_time ASC
-  `).all({ gid: group.id, me: req.session.userId });
+  `).all({ gid: group.id, me: req.session.userId }) : [];
   res.json({ group, member_count: memberCount, is_member: isMember, is_admin: isGroupAdmin(group.id, req.session.userId), messages, events });
 });
 
@@ -1734,7 +2028,7 @@ router.get('/groups/:id/messages', requireAuth, (req, res) => {
   res.json(rows);
 });
 
-router.post('/groups/:id/messages', requireAuth, (req, res) => {
+router.post('/groups/:id/messages', requireAuth, requireCommunityAccess, (req, res) => {
   const group = db.prepare('SELECT id FROM groups WHERE id = ?').get(req.params.id);
   if (!group) return res.status(404).json({ error: 'not_found' });
   if (!isGroupMember(group.id, req.session.userId)) return res.status(403).json({ error: 'not_a_member' });
@@ -1771,6 +2065,7 @@ router.post('/groups/:id/events', requireAuth, (req, res) => {
 router.get('/groups/:id/events', requireAuth, (req, res) => {
   const group = db.prepare('SELECT id FROM groups WHERE id = ?').get(req.params.id);
   if (!group) return res.status(404).json({ error: 'not_found' });
+  if (!isGroupMember(group.id, req.session.userId)) return res.status(403).json({ error: 'not_a_member' });
   const events = db.prepare(`
     SELECT e.*,
       (SELECT COUNT(*) FROM event_rsvps r WHERE r.event_id = e.id AND r.status = 'going') going_count,
@@ -2056,10 +2351,6 @@ router.get('/recommendations', (req, res) => {
 // ---- account deletion and transparent data export ----------------------
 router.delete('/me', requireAuth, (req, res) => {
   const uid = req.session.userId;
-  const now = Date.now();
-  const recent = (postRateWindow.get(uid) || []).filter(t => now - t < 60_000);
-  if (recent.length >= 6) return res.status(429).json({ error: 'posting_too_fast', hint: 'Give the community a moment before sharing again.' });
-  recent.push(now); postRateWindow.set(uid, recent);
   if (!db.prepare('SELECT id FROM users WHERE id = ?').get(uid)) return res.status(404).json({ error: 'account_not_found' });
   const userTables = [
     'user_consents', 'workouts', 'biometric_samples', 'scripture_triggers', 'user_xp',
@@ -2070,6 +2361,9 @@ router.delete('/me', requireAuth, (req, res) => {
     'verse_reflections', 'verse_reflection_likes', 'training_goals', 'webhooks',
     'journey_segment_times', 'gloo_calls', 'api_keys', 'push_subscriptions',
     'push_log', 'user_reminders', 'motivation_seen', 'wearable_metrics',
+    'overlay_tokens', 'overlay_state', 'user_sessions', 'account_security_events',
+    'user_mfa', 'mfa_backup_codes', 'password_reset_tokens', 'developer_applications',
+    'developer_content_submissions', 'developer_enforcement_cases', 'reel_impressions', 'reel_reactions',
   ];
   try {
     db.exec('BEGIN');
@@ -2082,8 +2376,17 @@ router.delete('/me', requireAuth, (req, res) => {
       db.prepare(`DELETE FROM post_likes WHERE post_id IN (${marks})`).run(...postIds);
       db.prepare(`DELETE FROM post_saves WHERE post_id IN (${marks})`).run(...postIds);
       db.prepare(`DELETE FROM post_comments WHERE post_id IN (${marks})`).run(...postIds);
+      db.prepare(`DELETE FROM post_reports WHERE post_id IN (${marks})`).run(...postIds);
+      db.prepare(`DELETE FROM moderation_queue WHERE report_type='post' AND target_id IN (${marks})`).run(...postIds);
       db.prepare(`DELETE FROM posts WHERE id IN (${marks})`).run(...postIds);
     }
+    for (const hook of db.prepare('SELECT id FROM webhooks WHERE user_id=?').all(uid)) db.prepare('DELETE FROM webhook_deliveries WHERE webhook_id=?').run(hook.id);
+    for (const key of db.prepare('SELECT id FROM api_keys WHERE user_id=?').all(uid)) db.prepare('DELETE FROM api_key_usage WHERE key_id=?').run(key.id);
+    for (const item of db.prepare('SELECT id FROM developer_enforcement_cases WHERE user_id=?').all(uid)) db.prepare('DELETE FROM church_notification_outbox WHERE enforcement_case_id=?').run(item.id);
+    db.prepare('UPDATE churches SET submitted_by=NULL WHERE submitted_by=?').run(uid);
+    db.prepare('DELETE FROM account_relationship_controls WHERE actor_id=? OR subject_id=?').run(uid,uid);
+    db.prepare("DELETE FROM moderation_queue WHERE reporter_id=? OR (report_type='user' AND target_id=?)").run(uid,uid);
+    db.prepare('DELETE FROM post_reports WHERE reporter_id=?').run(uid);
     if (workoutIds.length) {
       const marks = workoutIds.map(() => '?').join(',');
       db.prepare(`DELETE FROM workout_partners WHERE workout_id IN (${marks})`).run(...workoutIds);
@@ -2141,6 +2444,18 @@ router.get('/me/export', requireAuth, (req, res) => {
     challenges: db.prepare('SELECT * FROM user_challenges WHERE user_id = ?').all(uid),
     xp: db.prepare('SELECT * FROM user_xp WHERE user_id = ?').get(uid),
     badges: db.prepare('SELECT badge_id, earned_at FROM user_badges WHERE user_id = ?').all(uid),
+    sessions: db.prepare('SELECT id,device_name,auth_method,created_at,last_seen_at,revoked_at,revoked_reason FROM user_sessions WHERE user_id=?').all(uid),
+    security_activity: accountSecurity.securityEvents(uid),
+    identities: db.prepare('SELECT provider,email,email_verified,linked_at FROM user_identities WHERE user_id=?').all(uid),
+    connectors: db.prepare('SELECT provider,provider_user_id,scope,connected_at,last_synced_at FROM user_connectors WHERE user_id=?').all(uid),
+    groups: db.prepare('SELECT group_id,role FROM group_members WHERE user_id=?').all(uid),
+    group_messages: db.prepare('SELECT group_id,content,created_at FROM group_messages WHERE user_id=?').all(uid),
+    direct_messages: db.prepare(`SELECT m.thread_id,m.sender_id,m.body,m.kind,m.metadata,m.created_at,m.read_at FROM dm_messages m JOIN dm_threads t ON t.id=m.thread_id WHERE t.user_a=? OR t.user_b=? ORDER BY m.created_at`).all(uid,uid),
+    stories: db.prepare('SELECT * FROM stories WHERE user_id=?').all(uid),
+    reminders: db.prepare('SELECT * FROM user_reminders WHERE user_id=?').all(uid),
+    developer_application: db.prepare('SELECT * FROM developer_applications WHERE user_id=?').get(uid)||null,
+    developer_content: db.prepare('SELECT * FROM developer_content_submissions WHERE user_id=?').all(uid),
+    moderation_reports: db.prepare('SELECT report_type,target_id,reason,status,created_at,reviewed_at FROM moderation_queue WHERE reporter_id=?').all(uid),
   };
   res.setHeader('Content-Disposition', 'attachment; filename="functioning-faith-my-data.json"');
   res.json(data);
@@ -2539,7 +2854,8 @@ router.get('/bible/coverage', (req, res) => {
 });
 
 // ---- Location-based church discovery (free OpenStreetMap Overpass API, no key) ----
-router.get('/churches/search', async (req, res) => {
+router.get('/churches/search', requireAuth, async (req, res) => {
+  if(!allowWindow(churchSearchWindow,req.session.userId,10,60_000)) return res.status(429).json({error:'church_search_rate_limit'});
   const lat = Number(req.query.lat);
   const lng = Number(req.query.lng);
   const radiusKm = Math.min(50, Math.max(0.5, Number(req.query.radius_km) || 5));
@@ -2558,7 +2874,7 @@ router.get('/youtube/configured', (req, res) => {
   res.json({ configured: youtube.isConfigured() });
 });
 
-router.get('/youtube/search-channels', requireAuth, async (req, res) => {
+router.get('/youtube/search-channels', requireAuth, requireVerifiedDeveloper, async (req, res) => {
   if (!youtube.isConfigured()) return res.status(404).json({ error: 'not_configured' });
   const q = String(req.query.q || '').trim();
   if (!q) return res.status(400).json({ error: 'missing_query' });
@@ -2571,7 +2887,14 @@ router.get('/youtube/search-channels', requireAuth, async (req, res) => {
   }
 });
 
-router.post('/churches/:osmId/link-youtube', requireAuth, (req, res) => {
+function requireVerifiedChurchAdmin(req,res,next){
+  let verification;try{verification=developerVerification.requireVerified(req.session.userId);}catch{return res.status(403).json({error:'verified_church_admin_required'});}
+  const church=db.prepare('SELECT id FROM churches WHERE osm_id=?').get(req.params.osmId);
+  if(!church||verification.church_id!==church.id)return res.status(403).json({error:'verified_church_admin_required'});
+  req.verifiedChurch=church;next();
+}
+
+router.post('/churches/:osmId/link-youtube', requireAuth, requireVerifiedChurchAdmin, (req, res) => {
   const osmId = req.params.osmId;
   const { channel_id, channel_title } = req.body || {};
   if (!youtube.isConfigured()) return res.status(404).json({ error: 'not_configured' });
@@ -2838,7 +3161,7 @@ router.post('/church/service/summarize', requireAuth, async (req, res) => {
 // API path. Most churches already embed their sermon player (YouTube/Vimeo
 // iframe) directly on their own site — we read that real embed and reuse it,
 // rather than requiring YOUTUBE_API_KEY just to find a channel. ----
-router.post('/churches/:osmId/website', requireAuth, (req, res) => {
+router.post('/churches/:osmId/website', requireAuth, requireVerifiedChurchAdmin, (req, res) => {
   const osmId = req.params.osmId;
   const { website_url } = req.body || {};
 
@@ -3395,27 +3718,101 @@ router.post('/breathing/:key/verse', requireAuth, async (req, res) => {
 // --- Developer API keys ----------------------------------------------------
 // The other half of the webhook story: webhooks push events out, keys let
 // software ask questions. Both belong to a member, not to the platform.
-router.get('/dev/keys', requireAuth, (req, res) => {
+function requireVerifiedDeveloper(req, res, next) {
+  try { req.developerVerification = developerVerification.requireVerified(req.session.userId); next(); }
+  catch (err) { res.status(403).json({ error: err.code || 'developer_verification_required', verification: err.verification || developerVerification.get(req.session.userId) }); }
+}
+
+function reviewerAuthorized(req) {
+  const expected = process.env.DEVELOPER_REVIEW_TOKEN;
+  const supplied = String(req.get('x-developer-review-token') || '');
+  if (!expected || supplied.length !== expected.length) return false;
+  return require('crypto').timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
+}
+
+router.get('/developer/verification', requireAuth, (req, res) => res.json(developerVerification.get(req.session.userId)));
+router.post('/developer/churches', requireAuth, requireCommunityAccess, (req, res) => {
+  try { res.status(201).json({ church: developerVerification.createChurch(req.session.userId, req.body || {}) }); }
+  catch (err) { res.status(400).json({ error: err.code || 'church_submission_failed', hint: err.message }); }
+});
+router.post('/developer/apply', requireAuth, requireCommunityAccess, (req, res) => {
+  try { res.status(201).json(developerVerification.apply(req.session.userId, req.body || {})); }
+  catch (err) { res.status(400).json({ error: err.code || 'developer_application_failed', hint: err.message }); }
+});
+router.post('/developer/review/:id', (req, res) => {
+  if (!reviewerAuthorized(req)) return res.status(404).json({ error: 'not_found' });
+  try {
+    const result = developerVerification.review(req.params.id, req.body || {});
+    if (['suspended','revoked'].includes(result.status)) {
+      db.prepare("UPDATE api_keys SET revoked_at=datetime('now') WHERE user_id=? AND revoked_at IS NULL").run(result.user_id);
+      db.prepare('UPDATE webhooks SET active=0 WHERE user_id=?').run(result.user_id);
+    }
+    res.json(result);
+  } catch (err) { res.status(err.code === 'not_found' ? 404 : 400).json({ error: err.code || 'review_failed', hint: err.message }); }
+});
+router.get('/developer/content', requireAuth, requireVerifiedDeveloper, (req,res) => {
+  res.json({ submissions: developerVerification.listContent(req.session.userId), categories:[...developerVerification.CONTENT_CATEGORIES] });
+});
+router.post('/developer/content', requireAuth, requireVerifiedDeveloper, (req,res) => {
+  try { res.status(201).json({ submission: developerVerification.submitContent(req.session.userId,req.body||{}) }); }
+  catch(err){ res.status(400).json({error:err.code||'content_submission_failed',hint:err.message}); }
+});
+router.post('/developer/content/:id/review', (req,res) => {
+  if(!reviewerAuthorized(req)) return res.status(404).json({error:'not_found'});
+  try { res.json({submission:developerVerification.reviewContent(req.params.id,req.body||{})}); }
+  catch(err){ res.status(err.code==='not_found'?404:400).json({error:err.code||'review_failed',hint:err.message}); }
+});
+router.post('/developer/enforcement/:id', (req,res) => {
+  if(!reviewerAuthorized(req)) return res.status(404).json({error:'not_found'});
+  try { res.json(developerVerification.enforce(req.params.id,req.body||{})); }
+  catch(err){ res.status(err.code==='not_found'?404:400).json({error:err.code||'enforcement_failed',hint:err.message}); }
+});
+router.get('/moderation/queue', (req,res) => {
+  if(!reviewerAuthorized(req)) return res.status(404).json({error:'not_found'});
+  const status=['pending','reviewing','resolved'].includes(req.query.status)?req.query.status:'pending';
+  res.json({reports:db.prepare('SELECT * FROM moderation_queue WHERE status=? ORDER BY created_at LIMIT 100').all(status)});
+});
+router.post('/moderation/queue/:id/review', (req,res) => {
+  if(!reviewerAuthorized(req)) return res.status(404).json({error:'not_found'});
+  const report=db.prepare('SELECT * FROM moderation_queue WHERE id=?').get(req.params.id);
+  if(!report)return res.status(404).json({error:'report_not_found'});
+  const decision=String(req.body?.decision||'');
+  if(!['no_violation','content_removed','account_suspended'].includes(decision))return res.status(400).json({error:'invalid_decision'});
+  let affectedUser=null;
+  if(report.report_type==='post')affectedUser=db.prepare('SELECT user_id FROM posts WHERE id=?').get(report.target_id)?.user_id||null;
+  if(report.report_type==='user')affectedUser=report.target_id;
+  if(decision==='content_removed'&&report.report_type==='post'){
+    db.prepare('DELETE FROM post_likes WHERE post_id=?').run(report.target_id);db.prepare('DELETE FROM post_saves WHERE post_id=?').run(report.target_id);db.prepare('DELETE FROM post_comments WHERE post_id=?').run(report.target_id);db.prepare('DELETE FROM posts WHERE id=?').run(report.target_id);
+  }
+  if(decision==='account_suspended'&&affectedUser){db.prepare('UPDATE users SET suspended_at=?,suspension_reason=? WHERE id=?').run(new Date().toISOString(),String(req.body?.note||'Confirmed community standards violation').slice(0,500),affectedUser);db.prepare("UPDATE user_sessions SET revoked_at=?,revoked_reason='account_suspended' WHERE user_id=? AND revoked_at IS NULL").run(new Date().toISOString(),affectedUser);}
+  db.prepare("UPDATE moderation_queue SET status='resolved',reviewer=?,review_note=?,reviewed_at=? WHERE id=?").run(String(req.body?.reviewer||'authorized reviewer').slice(0,120),`${decision}: ${String(req.body?.note||'').slice(0,800)}`,new Date().toISOString(),report.id);
+  if(affectedUser)notify(affectedUser,'moderation',decision==='no_violation'?'A report was reviewed and no violation was found.':decision==='content_removed'?'Content was removed after review.':'Your account was suspended after review.',{url:'/?open=profile'});
+  res.json({ok:true,decision});
+});
+
+router.get('/dev/keys', requireAuth, requireVerifiedDeveloper, (req, res) => {
   res.json({ keys: apikeys.list(req.session.userId), scopes: apikeys.SCOPES });
 });
 
-router.post('/dev/keys', requireAuth, (req, res) => {
+router.post('/dev/keys', requireAuth, requireVerifiedDeveloper, (req, res) => {
   const b = req.body || {};
   // `key` appears in this response and nowhere else, ever again.
-  const created = apikeys.create(req.session.userId, { name: b.name, scopes: b.scopes });
+  let created;
+  try { created = apikeys.create(req.session.userId, { name: b.name, scopes: b.scopes }); }
+  catch (err) { return res.status(err.code === 'active_key_limit' ? 409 : 400).json({ error: err.code || 'key_creation_failed', hint: err.message }); }
   res.status(201).json({
     ...created,
     warning: 'Copy this key now — it is stored only as a hash and cannot be shown again.',
   });
 });
 
-router.post('/dev/keys/:id/rotate', requireAuth, (req, res) => {
+router.post('/dev/keys/:id/rotate', requireAuth, requireVerifiedDeveloper, (req, res) => {
   const fresh = apikeys.rotate(req.session.userId, req.params.id);
   if (!fresh) return res.status(404).json({ error: 'not_found' });
   res.json({ ...fresh, warning: 'The previous key is now revoked. Copy this one — it cannot be shown again.' });
 });
 
-router.delete('/dev/keys/:id', requireAuth, (req, res) => {
+router.delete('/dev/keys/:id', requireAuth, requireVerifiedDeveloper, (req, res) => {
   if (!apikeys.revoke(req.session.userId, req.params.id)) return res.status(404).json({ error: 'not_found' });
   res.json({ ok: true });
 });
@@ -3736,7 +4133,7 @@ function ensureChurchRow(osmId, name) {
 // Auto-populate a church's videos the moment it's selected — no extra steps.
 // Cascade: already-linked channel → confident YouTube search match → the
 // church's own website embeds (free, key-free) → nothing (say so honestly).
-router.post('/churches/:osmId/auto-link', requireAuth, async (req, res) => {
+router.post('/churches/:osmId/auto-link', requireAuth, requireVerifiedChurchAdmin, async (req, res) => {
   const osmId = req.params.osmId;
   // Same ownership check as link-youtube.
   const me = db.prepare('SELECT church_osm_id, church_name FROM users WHERE id = ?').get(req.session.userId);
@@ -3870,29 +4267,29 @@ router.post('/journeys/:key/progress', requireAuth, (req, res) => {
 
 router.get('/webhooks/events', (req, res) => res.json({ events: webhooks.TOPICS }));
 
-router.get('/webhooks', requireAuth, (req, res) => {
+router.get('/webhooks', requireAuth, requireVerifiedDeveloper, (req, res) => {
   res.json({ webhooks: webhooks.list(req.session.userId) });
 });
 
-router.post('/webhooks', requireAuth, (req, res) => {
+router.post('/webhooks', requireAuth, requireVerifiedDeveloper, (req, res) => {
   const r = webhooks.create(req.session.userId, req.body || {});
   if (r.error) return res.status(400).json(r);
   res.status(201).json(r);
 });
 
-router.patch('/webhooks/:id', requireAuth, (req, res) => {
+router.patch('/webhooks/:id', requireAuth, requireVerifiedDeveloper, (req, res) => {
   const r = webhooks.update(req.session.userId, req.params.id, req.body || {});
   if (r.error) return res.status(r.error === 'not_found' ? 404 : 400).json(r);
   res.json(r);
 });
 
-router.post('/webhooks/:id/rotate', requireAuth, (req, res) => {
+router.post('/webhooks/:id/rotate', requireAuth, requireVerifiedDeveloper, (req, res) => {
   const r = webhooks.rotate(req.session.userId, req.params.id);
   if (r.error) return res.status(404).json(r);
   res.json(r);
 });
 
-router.get('/webhooks/:id/deliveries', requireAuth, (req, res) => {
+router.get('/webhooks/:id/deliveries', requireAuth, requireVerifiedDeveloper, (req, res) => {
   const d = webhooks.deliveries(req.session.userId, req.params.id);
   if (!d) return res.status(404).json({ error: 'not_found' });
   res.json({ deliveries: d });
@@ -3900,17 +4297,17 @@ router.get('/webhooks/:id/deliveries', requireAuth, (req, res) => {
 
 // A test event, so a developer can verify signature handling without waiting
 // for a real workout. It is delivered through the identical signed path.
-router.post('/webhooks/:id/test', requireAuth, (req, res) => {
-  const hook = webhooks.list(req.session.userId).find(h => h.id === req.params.id);
-  if (!hook) return res.status(404).json({ error: 'not_found' });
-  publish('workout.completed', {
-    user_id: req.session.userId, workout_id: null, calories: 0,
-    avg_hr: null, max_hr: null, test: true,
-  });
-  res.json({ ok: true, note: 'A test workout.completed event was dispatched.' });
+router.post('/webhooks/:id/test', requireAuth, requireVerifiedDeveloper, async (req, res) => {
+  const key = `${req.session.userId}:${req.params.id}`; const now = Date.now();
+  const recent = (webhookTestWindow.get(key) || []).filter(t => now - t < 60_000);
+  if (recent.length >= 3) return res.status(429).json({ error: 'test_rate_limit', retry_after: 60 });
+  recent.push(now); webhookTestWindow.set(key,recent);
+  const result = await webhooks.testDelivery(req.session.userId,req.params.id);
+  if (result.error) return res.status(404).json(result);
+  res.json({ ok: true, note: 'A test event was delivered only to this webhook.' });
 });
 
-router.delete('/webhooks/:id', requireAuth, (req, res) => {
+router.delete('/webhooks/:id', requireAuth, requireVerifiedDeveloper, (req, res) => {
   const r = webhooks.remove(req.session.userId, req.params.id);
   if (r.error) return res.status(404).json(r);
   res.json(r);
@@ -3923,6 +4320,7 @@ router.delete('/webhooks/:id', requireAuth, (req, res) => {
 // `measured` says which kind of read this was, and the client shows that.
 router.post('/live/moment', requireAuth, async (req, res) => {
   const b = req.body || {};
+  const biometricAllowed = hasActiveConsent(req.session.userId, 'biometric_ingest');
   const me = db.prepare('SELECT max_hr, resting_hr, birth_year, tradition, bible_version_id FROM users WHERE id = ?')
     .get(req.session.userId);
   const maxHr = effortLib.estimatedMaxHr(me || {});
@@ -3934,8 +4332,8 @@ router.post('/live/moment', requireAuth, async (req, res) => {
     speed_kmh: b.speed_kmh,
     recent_speeds: b.recent_speeds,
     // Heart rate is passed through only when it came from a connected monitor.
-    hr: b.hr_measured ? b.hr : null,
-    recent_hr: b.hr_measured ? b.recent_hr : null,
+    hr: b.hr_measured && biometricAllowed ? b.hr : null,
+    recent_hr: b.hr_measured && biometricAllowed ? b.recent_hr : null,
     max_hr: maxHr,
     terrain: b.terrain,
     // The client says why it asked. A fade or an approaching climb is something
@@ -3963,7 +4361,7 @@ router.post('/live/moment', requireAuth, async (req, res) => {
       seenRefs: seen,
       measured: state.measured,
       zone: state.zone,
-      hr: b.hr_measured ? b.hr : null,
+      hr: b.hr_measured && biometricAllowed ? b.hr : null,
       distanceKm: Number(b.distance_km),
       totalKm: Number(b.total_km),
       elapsedSec: Number(b.elapsed_sec),
@@ -4248,7 +4646,7 @@ router.get('/dms/unread', requireAuth, (req, res) => {
 });
 
 // Open (or reopen) the conversation with someone. Idempotent: one pair, one thread.
-router.post('/dms/with/:userId', requireAuth, (req, res) => {
+router.post('/dms/with/:userId', requireAuth, requireCommunityAccess, (req, res) => {
   const r = dms.openThread(req.session.userId, req.params.userId);
   if (r.error) {
     const code = r.error === 'no_such_user' ? 404 : r.error === 'blocked' ? 403 : 400;
@@ -4263,15 +4661,17 @@ router.get('/dms/:threadId', requireAuth, (req, res) => {
   res.json(data);
 });
 
-router.post('/dms/:threadId', requireAuth, (req, res) => {
-  const r = dms.send(req.session.userId, req.params.threadId, req.body && req.body.body);
+router.post('/dms/:threadId', requireAuth, requireCommunityAccess, (req, res) => {
+  if(!allowWindow(dmRateWindow,req.session.userId,30,60_000)) return res.status(429).json({error:'messaging_too_fast'});
+  const warning=linkWarning(req.body&&req.body.body);
+  const r = dms.send(req.session.userId, req.params.threadId, req.body && req.body.body,{metadata:warning?{link_warning:warning}:null});
   if (r.error) {
     const code = r.error === 'not_found' ? 404 : r.error === 'blocked' ? 403 : 400;
     return res.status(code).json(r);
   }
-  notify(r.recipient_id, 'dm', `${displayName(req.session.userId)} sent you a message.`,
+  if(!accountSecurity.hasRelationship(r.recipient_id,req.session.userId,'mute')) notify(r.recipient_id, 'dm', `${displayName(req.session.userId)} sent you a message.`,
     { thread_id: req.params.threadId });
-  res.status(201).json({ message: r.message });
+  res.status(201).json({ message: r.message, link_warning:warning });
 });
 
 router.post('/dms/:threadId/verse', requireAuth, async (req, res) => {
