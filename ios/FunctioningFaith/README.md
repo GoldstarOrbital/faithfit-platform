@@ -44,3 +44,10 @@ Developer portal and verified on a signed device build.
 - Dynamic Type supported via `.font(.body)` / relative text styles throughout.
 - All interactive elements have `.accessibilityLabel` and meet the 44x44pt minimum tap target.
 - Contrast targets WCAG AA (verify with Xcode's Accessibility Inspector before ship).
+
+## TestFlight and App Store release checks
+
+- Native registration sends the same date-of-birth, Terms acceptance, and password-policy fields required by the production API. Verify a fresh-account path against the production environment before upload.
+- `PrivacyInfo.xcprivacy` declares the app's use of `UserDefaults` for local member settings. Re-check the manifest whenever a new SDK, analytics package, or required-reason API is added.
+- Before archive, set the Apple Development Team, enable Sign in with Apple if the native app adds any third-party sign-in option, provide app icons/screenshots, and verify the production privacy-policy and support URLs in App Store Connect.
+- Archive and test on a signed physical device: location workout capture, notification opt-in, biometric lock, account export/deletion, and fresh sign-up.
