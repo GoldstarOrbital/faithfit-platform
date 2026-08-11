@@ -1,9 +1,12 @@
 import SwiftUI
 
 struct WorkoutView: View {
+    @StateObject private var tracker = NativeWorkoutTracker()
     @State private var isActive = false
     @State private var elapsed: TimeInterval = 0
     @State private var heartRate = 0
+    @State private var workoutID: UUID?
+    @State private var errorMessage: String?
     @State private var showReflection = false
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -11,11 +14,15 @@ struct WorkoutView: View {
         VStack(spacing: 24) {
             Spacer()
 
-            Text("\(heartRate)")
+            Text(heartRate > 0 ? "\(heartRate)" : "—")
                 .font(.system(size: 72, weight: .bold, design: .rounded))
                 .monospacedDigit()
                 .accessibilityLabel("Heart rate \(heartRate) beats per minute")
             Text("BPM").font(.caption).foregroundStyle(.secondary)
+            Text(tracker.statusText)
+                .font(.caption)
+                .foregroundStyle(tracker.points.isEmpty ? .secondary : .green)
+                .multilineTextAlignment(.center)
 
             Text(elapsedString)
                 .font(.system(size: 28, weight: .medium, design: .rounded))
@@ -39,8 +46,11 @@ struct WorkoutView: View {
         }
         .padding()
         .navigationTitle("Workout")
-        .onReceive(timer) { _ in if isActive { elapsed += 1; heartRate = Int.random(in: 110...165) } }
+        .onReceive(timer) { _ in if isActive { elapsed += 1 } }
         .sheet(isPresented: $showReflection) { PostWorkoutReflectionView() }
+        .alert("Workout unavailable", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: { Text(errorMessage ?? "Please try again.") }
     }
 
     private var elapsedString: String {
@@ -49,10 +59,23 @@ struct WorkoutView: View {
     }
 
     private func toggleWorkout() {
-        isActive.toggle()
-        if !isActive { showReflection = true }
-        // TODO: on start -> emit workout.started via wearable-ingest bridge; on stop -> workout.completed
-        // TODO: haptic feedback on HR zone changes via UIImpactFeedbackGenerator; audio cues via AVSpeechSynthesizer
+        if isActive {
+            guard let id = workoutID else { return }
+            isActive = false
+            tracker.stop()
+            let route = tracker.points
+            Task {
+                do { try await APIClient.shared.stopWorkout(id: id, gpsPoints: route); await MainActor.run { showReflection = true } }
+                catch { await MainActor.run { errorMessage = error.localizedDescription } }
+            }
+            return
+        }
+        Task {
+            do {
+                let started = try await APIClient.shared.startWorkout(type: "Run")
+                await MainActor.run { workoutID = started.id; elapsed = 0; heartRate = 0; isActive = true; tracker.start() }
+            } catch { await MainActor.run { errorMessage = error.localizedDescription } }
+        }
     }
 }
 

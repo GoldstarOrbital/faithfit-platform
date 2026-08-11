@@ -37,8 +37,10 @@ final class APIClient {
 
     func fetchFeed() async throws -> [FeedPost] {
         if useMock { return MockData.feed }
-        let rows: [FeedDTO] = try await request("/api/feed")
-        return rows.map(\.model)
+        // The web API returns a paginated envelope. Decoding the old bare array
+        // made the native Home tab silently empty against the production API.
+        let response: FeedResponse = try await request("/api/feed?limit=20")
+        return response.posts.map(\.model)
     }
 
     func fetchProfile() async throws -> UserProfile {
@@ -70,6 +72,16 @@ final class APIClient {
         return WorkoutSummary(id: response.id, type: type, startTime: .now, endTime: nil, calories: nil, avgHR: nil)
     }
 
+    func stopWorkout(id: UUID, gpsPoints: [[Double]]) async throws {
+        if useMock { return }
+        let _: WorkoutStopResponse = try await request("/api/workouts/\(id.uuidString)/stop", method: "POST", body: WorkoutStop(gpsPoints: gpsPoints))
+    }
+
+    func deleteAccount() async throws {
+        if useMock { return }
+        let _: AuthResponse = try await request("/api/me", method: "DELETE")
+    }
+
     private func request<T: Decodable>(_ path: String, method: String = "GET") async throws -> T {
         try await request(path, method: method, body: Optional<EmptyBody>.none)
     }
@@ -95,11 +107,19 @@ private struct EmptyBody: Encodable {}
 private struct Credentials: Encodable { let email: String; let password: String }
 private struct Registration: Encodable { let displayName: String; let email: String; let password: String; enum CodingKeys: String, CodingKey { case displayName = "display_name"; case email, password } }
 private struct WorkoutStart: Encodable { let type: String }
+private struct WorkoutStop: Encodable { let gpsPoints: [[Double]]; enum CodingKeys: String, CodingKey { case gpsPoints = "gps_path" } }
 private struct AuthResponse: Decodable { let ok: Bool }
 private struct WorkoutStartResponse: Decodable { let id: UUID }
+private struct WorkoutStopResponse: Decodable { let id: UUID }
+
+private struct FeedResponse: Decodable {
+    let posts: [FeedDTO]
+    let nextCursor: String?
+    enum CodingKeys: String, CodingKey { case posts; case nextCursor = "next_cursor" }
+}
 
 private struct FeedDTO: Decodable {
-    let id: UUID; let content: String; let author: String; let createdAt: String
+    let id: UUID; let content: String?; let author: String; let createdAt: String
     let workoutID: UUID?; let workoutType: String?; let startTime: String?; let endTime: String?
     let calories: Int?; let avgHR: Int?; let verseReference: String?; let verseText: String?; let youVersionID: String?
 
@@ -107,7 +127,7 @@ private struct FeedDTO: Decodable {
     var model: FeedPost {
         let workout = workoutType.map { WorkoutSummary(id: workoutID ?? UUID(), type: $0, startTime: DateParser.parse(startTime) ?? .now, endTime: DateParser.parse(endTime), calories: calories, avgHR: avgHR) }
         let verse = verseReference.map { VerseSnippet(id: youVersionID ?? $0, reference: $0, snippet: verseText ?? "", deepLink: "https://www.bible.com/bible?query=\($0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0)") }
-        return FeedPost(id: id, authorName: author, content: content, workout: workout, verse: verse, createdAt: DateParser.parse(createdAt) ?? .now)
+        return FeedPost(id: id, authorName: author, content: content ?? "", workout: workout, verse: verse, createdAt: DateParser.parse(createdAt) ?? .now)
     }
 }
 

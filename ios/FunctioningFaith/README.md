@@ -16,8 +16,10 @@ simulator, and run. `APIClient.useMock = true` by default for previews and local
 Before TestFlight, add Sign in with Apple and switch the release configuration to live
 networking with the production base URL.
 The shell now includes email/password sign-in and registration, a restore-session path,
-real feed/profile/workout request plumbing, and a production base URL; OAuth provider
-buttons and Sign in with Apple remain a final entitlement/deep-link step.
+real feed/profile/workout request plumbing, production account deletion/sign-out, real
+Core Location route capture, and a production base URL. The feed decoder matches the
+paginated production API. OAuth provider buttons and Sign in with Apple remain a final
+entitlement/deep-link step.
 
 ## Store metadata included
 

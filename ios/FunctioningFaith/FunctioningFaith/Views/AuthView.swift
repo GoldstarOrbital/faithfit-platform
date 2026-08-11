@@ -12,6 +12,16 @@ final class NativeSession: ObservableObject {
         profile = try? await APIClient.shared.fetchProfile()
         isRestoring = false
     }
+
+    func signOut() async {
+        try? await APIClient.shared.logout()
+        profile = nil
+    }
+
+    func deleteAccount() async throws {
+        try await APIClient.shared.deleteAccount()
+        profile = nil
+    }
 }
 
 struct NativeAuthView: View {

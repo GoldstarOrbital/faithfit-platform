@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct RootTabView: View {
+    @EnvironmentObject private var session: NativeSession
+
     var body: some View {
         TabView {
             NavigationStack { HomeFeedView() }
@@ -18,4 +20,4 @@ struct RootTabView: View {
     }
 }
 
-#Preview { RootTabView() }
+#Preview { RootTabView().environmentObject(NativeSession()) }

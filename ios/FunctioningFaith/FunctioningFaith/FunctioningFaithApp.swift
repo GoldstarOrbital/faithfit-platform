@@ -15,6 +15,7 @@ struct FunctioningFaithApp: App {
                     }
                 }
             }
+            .environmentObject(session)
             .task { await session.restore() }
         }
     }
