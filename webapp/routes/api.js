@@ -676,10 +676,16 @@ router.get('/posts/:id/comments', requireAuth, (req, res) => {
     (post.visibility === 'followers' && !!db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(me, post.user_id));
   if (!visible) return res.status(404).json({ error: 'post_not_found' });
   const comments = db.prepare(`
-    SELECT c.id, c.content, c.created_at, u.display_name author
+    SELECT c.id, c.content, c.created_at, u.display_name author,
+           (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id) AS like_count,
+           CASE WHEN EXISTS (SELECT 1 FROM comment_likes mine WHERE mine.comment_id = c.id AND mine.user_id = @me) THEN 1 ELSE 0 END AS liked_by_me
     FROM post_comments c JOIN users u ON u.id = c.user_id
-    WHERE c.post_id = ? ORDER BY c.created_at ASC
-  `).all(post.id);
+    WHERE c.post_id = @post
+      AND NOT EXISTS (SELECT 1 FROM dm_blocks b
+                      WHERE (b.blocker_id = @me AND b.blocked_id = c.user_id)
+                         OR (b.blocker_id = c.user_id AND b.blocked_id = @me))
+    ORDER BY c.created_at ASC
+  `).all({ post: post.id, me });
   res.json({ comments });
 });
 
@@ -749,6 +755,24 @@ router.post('/posts/:id/comments', requireAuth, (req, res) => {
     notify(o.user_id, 'comment', `${displayName(req.session.userId)} also replied: "${snippet}"`, { post_id: req.params.id });
   }
   res.json(comment);
+});
+
+router.post('/comments/:id/like', requireAuth, (req, res) => {
+  const me = req.session.userId;
+  const comment = db.prepare(`SELECT c.id, c.user_id, p.id post_id, p.user_id post_author, p.visibility
+    FROM post_comments c JOIN posts p ON p.id = c.post_id WHERE c.id = ?`).get(req.params.id);
+  if (!comment) return res.status(404).json({ error: 'comment_not_found' });
+  const visible = comment.post_author === me || comment.visibility === 'public' ||
+    (comment.visibility === 'followers' && !!db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(me, comment.post_author));
+  if (!visible || dms.isBlockedEitherWay(me, comment.user_id)) return res.status(404).json({ error: 'comment_not_found' });
+  const existing = db.prepare('SELECT 1 FROM comment_likes WHERE comment_id = ? AND user_id = ?').get(comment.id, me);
+  if (existing) db.prepare('DELETE FROM comment_likes WHERE comment_id = ? AND user_id = ?').run(comment.id, me);
+  else {
+    db.prepare('INSERT INTO comment_likes (comment_id, user_id) VALUES (?, ?)').run(comment.id, me);
+    if (comment.user_id !== me) notify(comment.user_id, 'comment_like', `${displayName(me)} liked your comment`, { post_id: comment.post_id });
+  }
+  const count = db.prepare('SELECT COUNT(*) AS count FROM comment_likes WHERE comment_id = ?').get(comment.id).count;
+  res.json({ liked: !existing, like_count: Number(count) });
 });
 
 // ---- workout partners: tag someone you worked out with, they must confirm ----
@@ -2036,7 +2060,7 @@ router.delete('/me', requireAuth, (req, res) => {
   if (!db.prepare('SELECT id FROM users WHERE id = ?').get(uid)) return res.status(404).json({ error: 'account_not_found' });
   const userTables = [
     'user_consents', 'workouts', 'biometric_samples', 'scripture_triggers', 'user_xp',
-    'user_badges', 'user_quests', 'notifications', 'post_comments', 'post_likes', 'post_saves',
+    'user_badges', 'user_quests', 'notifications', 'post_comments', 'comment_likes', 'post_likes', 'post_saves',
     'stories',
     'breathing_sessions', 'user_challenges', 'user_identities', 'user_connectors',
     'imported_activities', 'group_messages', 'event_rsvps', 'user_journeys',
@@ -2050,6 +2074,8 @@ router.delete('/me', requireAuth, (req, res) => {
     const workoutIds = db.prepare('SELECT id FROM workouts WHERE user_id = ?').all(uid).map(r => r.id);
     if (postIds.length) {
       const marks = postIds.map(() => '?').join(',');
+      const commentIds = db.prepare(`SELECT id FROM post_comments WHERE post_id IN (${marks})`).all(...postIds).map(r => r.id);
+      if (commentIds.length) { const commentMarks = commentIds.map(() => '?').join(','); db.prepare(`DELETE FROM comment_likes WHERE comment_id IN (${commentMarks})`).run(...commentIds); }
       db.prepare(`DELETE FROM post_likes WHERE post_id IN (${marks})`).run(...postIds);
       db.prepare(`DELETE FROM post_saves WHERE post_id IN (${marks})`).run(...postIds);
       db.prepare(`DELETE FROM post_comments WHERE post_id IN (${marks})`).run(...postIds);

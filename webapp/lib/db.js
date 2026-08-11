@@ -586,6 +586,14 @@ CREATE TABLE IF NOT EXISTS post_reports (
   reason TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS comment_likes (
+  comment_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (comment_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_comment_likes_comment ON comment_likes(comment_id);
 CREATE TABLE IF NOT EXISTS user_reports (
   id TEXT PRIMARY KEY,
   reported_user_id TEXT NOT NULL,

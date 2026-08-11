@@ -196,6 +196,10 @@ main { flex: 1; padding: 16px 16px 18px; overflow-y: auto; -webkit-overflow-scro
 .comments { margin-top:10px; display:flex; flex-direction:column; gap:6px; }
 .comment { font-size: 0.88rem; color: var(--ink-soft); }
 .comment b { margin-right: 5px; color: var(--ink); }
+.comment-with-action { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.comment-like { border:0; background:transparent; color:var(--muted); cursor:pointer; padding:4px 5px; border-radius:8px; white-space:nowrap; }
+.comment-like:hover, .comment-like.liked { color:var(--seal); background:rgba(211,92,72,.08); }
+.comment-like:focus-visible { outline:2px solid var(--forest); outline-offset:2px; }
 .comment-input-row { display:flex; gap:8px; margin-top:10px; }
 .comment-input-row input { flex:1; background: var(--parch-2); border:1px solid var(--hairline); border-radius:20px; padding:8px 14px; color:var(--ink); font-family:inherit; font-size:0.86rem; }
 .comment-input-row button { background: var(--forest); border:1px solid var(--forest-2); color:var(--parch-2); border-radius:20px; padding:8px 16px; font-size:0.82rem; font-weight:600; cursor:pointer; }

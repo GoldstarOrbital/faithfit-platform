@@ -594,9 +594,10 @@ async function renderHome(main) {
       el.innerHTML = '<div class="comments-loading muted">Loading conversation…</div>';
       api(`/posts/${btn.dataset.commentToggle}/comments`).then(({ comments }) => {
         if (!document.body.contains(el)) return;
-        el.innerHTML = comments.map(c => `<div class="comment"><b>${escapeHtml(c.author)}</b>${escapeHtml(c.content)}</div>`).join('') + `<div class="comment-input-row"><input type="text" placeholder="Add a comment…" id="comment-input-${btn.dataset.commentToggle}" /><button data-send-comment="${btn.dataset.commentToggle}">Post</button></div>`;
+        el.innerHTML = comments.map(c => `<div class="comment comment-with-action"><div><b>${escapeHtml(c.author)}</b>${escapeHtml(c.content)}</div><button class="comment-like ${c.liked_by_me ? 'liked' : ''}" data-comment-like="${escapeHtml(c.id)}" aria-pressed="${c.liked_by_me ? 'true' : 'false'}">${c.liked_by_me ? '❤️' : '🤍'} <span>${c.like_count || 0}</span></button></div>`).join('') + `<div class="comment-input-row"><input type="text" placeholder="Add a comment…" id="comment-input-${btn.dataset.commentToggle}" /><button data-send-comment="${btn.dataset.commentToggle}">Post</button></div>`;
         el.dataset.loaded = '1';
         wireCommentSubmit(el);
+        wireCommentLikes(el);
       }).catch(() => { el.innerHTML = '<div class="muted">Could not load conversation.</div>'; });
     }
   });
@@ -618,6 +619,12 @@ async function renderHome(main) {
       status.textContent = err.status === 429 ? 'You have shared a few updates recently — try again in a minute.' : 'Could not share this update.';
     }
   };
+  function wireCommentLikes(root) { root.querySelectorAll('[data-comment-like]').forEach(btn => btn.onclick = async () => {
+    const result = await api(`/comments/${encodeURIComponent(btn.dataset.commentLike)}/like`, { method: 'POST', body: {}, throwOnError: true }).catch(() => null);
+    if (!result) return;
+    btn.classList.toggle('liked', result.liked); btn.setAttribute('aria-pressed', result.liked ? 'true' : 'false');
+    btn.innerHTML = `${result.liked ? '❤️' : '🤍'} <span>${result.like_count}</span>`;
+  }); }
   function wireCommentSubmit(root) { root.querySelectorAll('[data-send-comment]').forEach(btn => btn.onclick = async () => {
     const id = btn.dataset.sendComment; const input = document.getElementById(`comment-input-${id}`);
     if (!input.value.trim()) return;
