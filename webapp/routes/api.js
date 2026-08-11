@@ -668,13 +668,18 @@ router.get('/feed', (req, res) => {
 
 // Comments are fetched only when a member opens a thread. This keeps the feed
 // fast while retaining the same visibility rules as the post itself.
+function postVisibleTo(post, viewerId) {
+  if (!post || !viewerId) return false;
+  const audience = post.user_id === viewerId || post.visibility === 'public' ||
+    (post.visibility === 'followers' && !!db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(viewerId, post.user_id));
+  return audience && !dms.isBlockedEitherWay(viewerId, post.user_id);
+}
+
 router.get('/posts/:id/comments', requireAuth, (req, res) => {
   const me = req.session.userId;
   const post = db.prepare('SELECT id, user_id, visibility FROM posts WHERE id = ?').get(req.params.id);
   if (!post) return res.status(404).json({ error: 'post_not_found' });
-  const visible = post.user_id === me || post.visibility === 'public' ||
-    (post.visibility === 'followers' && !!db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(me, post.user_id));
-  if (!visible) return res.status(404).json({ error: 'post_not_found' });
+  if (!postVisibleTo(post, me)) return res.status(404).json({ error: 'post_not_found' });
   const comments = db.prepare(`
     SELECT c.id, c.content, c.created_at, u.display_name author,
            (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id) AS like_count,
@@ -690,13 +695,14 @@ router.get('/posts/:id/comments', requireAuth, (req, res) => {
 });
 
 router.post('/posts/:id/like', requireAuth, (req, res) => {
+  const post = db.prepare('SELECT id, user_id, visibility FROM posts WHERE id = ?').get(req.params.id);
+  if (!post || !postVisibleTo(post, req.session.userId)) return res.status(404).json({ error: 'post_not_found' });
   const existing = db.prepare('SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?').get(req.params.id, req.session.userId);
   if (existing) {
     db.prepare('DELETE FROM post_likes WHERE post_id = ? AND user_id = ?').run(req.params.id, req.session.userId);
   } else {
     db.prepare('INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)').run(req.params.id, req.session.userId);
     // Tell the author someone cheered them on — but never notify yourself.
-    const post = db.prepare('SELECT user_id FROM posts WHERE id = ?').get(req.params.id);
     if (post && post.user_id !== req.session.userId) {
       notify(post.user_id, 'kudos', `${displayName(req.session.userId)} gave you kudos`, { post_id: req.params.id });
     }
@@ -709,9 +715,7 @@ router.post('/posts/:id/save', requireAuth, (req, res) => {
   const post = db.prepare('SELECT id, user_id, visibility FROM posts WHERE id = ?').get(req.params.id);
   if (!post) return res.status(404).json({ error: 'post_not_found' });
   const me = req.session.userId;
-  const visible = post.user_id === me || post.visibility === 'public' ||
-    (post.visibility === 'followers' && !!db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(me, post.user_id));
-  if (!visible || dms.isBlockedEitherWay(me, post.user_id)) return res.status(404).json({ error: 'post_not_found' });
+  if (!postVisibleTo(post, me)) return res.status(404).json({ error: 'post_not_found' });
   const existing = db.prepare('SELECT 1 FROM post_saves WHERE post_id = ? AND user_id = ?').get(post.id, me);
   if (existing) db.prepare('DELETE FROM post_saves WHERE post_id = ? AND user_id = ?').run(post.id, me);
   else db.prepare('INSERT INTO post_saves (post_id, user_id) VALUES (?, ?)').run(post.id, me);
@@ -736,14 +740,15 @@ router.get('/posts/saved', requireAuth, (req, res) => {
 });
 
 router.post('/posts/:id/comments', requireAuth, (req, res) => {
-  const { content } = req.body || {};
-  if (!content || !content.trim()) return res.status(400).json({ error: 'empty_comment' });
+  const post = db.prepare('SELECT id, user_id, visibility FROM posts WHERE id = ?').get(req.params.id);
+  if (!post || !postVisibleTo(post, req.session.userId)) return res.status(404).json({ error: 'post_not_found' });
+  const content = String(req.body?.content || '').trim().slice(0, 500);
+  if (!content) return res.status(400).json({ error: 'empty_comment' });
   const id = randomUUID();
-  db.prepare('INSERT INTO post_comments (id, post_id, user_id, content) VALUES (?, ?, ?, ?)').run(id, req.params.id, req.session.userId, content.trim());
+  db.prepare('INSERT INTO post_comments (id, post_id, user_id, content) VALUES (?, ?, ?, ?)').run(id, req.params.id, req.session.userId, content);
   const comment = db.prepare(`SELECT c.id, c.content, c.created_at, u.display_name author FROM post_comments c JOIN users u ON u.id = c.user_id WHERE c.id = ?`).get(id);
 
-  const post = db.prepare('SELECT user_id FROM posts WHERE id = ?').get(req.params.id);
-  const snippet = content.trim().slice(0, 60);
+  const snippet = content.slice(0, 60);
   if (post && post.user_id !== req.session.userId) {
     notify(post.user_id, 'comment', `${displayName(req.session.userId)} commented: "${snippet}"`, { post_id: req.params.id });
   }
@@ -762,9 +767,7 @@ router.post('/comments/:id/like', requireAuth, (req, res) => {
   const comment = db.prepare(`SELECT c.id, c.user_id, p.id post_id, p.user_id post_author, p.visibility
     FROM post_comments c JOIN posts p ON p.id = c.post_id WHERE c.id = ?`).get(req.params.id);
   if (!comment) return res.status(404).json({ error: 'comment_not_found' });
-  const visible = comment.post_author === me || comment.visibility === 'public' ||
-    (comment.visibility === 'followers' && !!db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(me, comment.post_author));
-  if (!visible || dms.isBlockedEitherWay(me, comment.user_id)) return res.status(404).json({ error: 'comment_not_found' });
+  if (!postVisibleTo({ user_id: comment.post_author, visibility: comment.visibility }, me) || dms.isBlockedEitherWay(me, comment.user_id)) return res.status(404).json({ error: 'comment_not_found' });
   const existing = db.prepare('SELECT 1 FROM comment_likes WHERE comment_id = ? AND user_id = ?').get(comment.id, me);
   if (existing) db.prepare('DELETE FROM comment_likes WHERE comment_id = ? AND user_id = ?').run(comment.id, me);
   else {
