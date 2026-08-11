@@ -226,6 +226,12 @@ router.post('/auth/register', async (req, res) => {
     VALUES (?,?,?,?,?,?,?,?)`)
     .run(id, mail, nameCheck.name, await hashPassword(pw), date_of_birth, age,
       accountSecurity.TERMS_VERSION, new Date().toISOString());
+  // Teen accounts begin private by design. They can deliberately broaden an
+  // audience later, but registration never exposes a minor by default.
+  if (age < 18) db.prepare(`UPDATE users SET profile_visibility='private',
+    follower_list_visibility='private',message_permission='followers',
+    tag_permission='nobody',comment_permission='followers',default_visibility='private'
+    WHERE id=?`).run(id);
   db.prepare('INSERT OR IGNORE INTO user_xp (user_id, xp, level) VALUES (?, 0, 1)').run(id);
 
   accountSecurity.startSession(req, id, 'password', { initialRegistration: true });
@@ -512,6 +518,7 @@ router.post('/connectors/strava/sync', requireAuth, async (req, res) => {
 
 router.post('/connectors/:provider/disconnect', requireAuth, (req, res) => {
   db.prepare('DELETE FROM user_connectors WHERE user_id = ? AND provider = ?').run(req.session.userId, req.params.provider);
+  accountSecurity.audit(req.session.userId, 'connector_disconnected', req, { provider: req.params.provider });
   res.json({ ok: true });
 });
 
@@ -717,6 +724,12 @@ router.post('/account/setup', requireAuth, (req, res) => {
   const now = new Date().toISOString();
   db.prepare('UPDATE users SET date_of_birth=?,age=?,terms_version=?,terms_accepted_at=? WHERE id=?')
     .run(dob, age, accountSecurity.TERMS_VERSION, now, req.session.userId);
+  // OAuth-created accounts only learn their age here, so apply the same safe
+  // defaults as password registration when the member is under 18.
+  if (age < 18) db.prepare(`UPDATE users SET profile_visibility='private',
+    follower_list_visibility='private',message_permission='followers',
+    tag_permission='nobody',comment_permission='followers',default_visibility='private'
+    WHERE id=?`).run(req.session.userId);
   accountSecurity.audit(req.session.userId, 'terms_accepted', req, { version: accountSecurity.TERMS_VERSION });
   res.json({ ok: true, age_band: age < 18 ? 'minor' : 'adult', terms_version: accountSecurity.TERMS_VERSION });
 });
@@ -812,6 +825,7 @@ router.post('/consent', requireAuth, (req, res) => {
   } else {
     db.prepare("UPDATE user_consents SET revoked_at = datetime('now') WHERE user_id = ? AND scope = ? AND revoked_at IS NULL").run(req.session.userId, scope);
   }
+  accountSecurity.audit(req.session.userId, 'consent_changed', req, { scope, granted: !!granted });
   res.json({ ok: true });
 });
 
@@ -2429,6 +2443,7 @@ router.delete('/me', requireAuth, (req, res) => {
 // ---- transparent data export: everything we hold on the signed-in user ----
 router.get('/me/export', requireAuth, (req, res) => {
   const uid = req.session.userId;
+  accountSecurity.audit(uid, 'data_exported', req);
   const { password_hash, ...profile } = db.prepare('SELECT * FROM users WHERE id = ?').get(uid) || {};
   const data = {
     exported_at: new Date().toISOString(),

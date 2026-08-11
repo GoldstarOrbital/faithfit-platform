@@ -27,7 +27,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.functioningfaith.app
         PRODUCT_MODULE_NAME: FunctioningFaith
-        PRODUCT_NAME: Functioning Faith
+        # Keep the executable/test-host path stable while Info.plist preserves
+        # the spaced, user-facing name on the Home Screen.
+        PRODUCT_NAME: FunctioningFaith
         TARGETED_DEVICE_FAMILY: "1,2"
         MARKETING_VERSION: 1.0
         CURRENT_PROJECT_VERSION: 1

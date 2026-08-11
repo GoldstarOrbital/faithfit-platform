@@ -1619,14 +1619,14 @@ async function renderProfile(main) {
   state.me = me;
 
   let connections = { identities: [], connectors: [] }, providers = [], stravaConfigured = false, wearableProviders = [];
-  let securitySessions={sessions:[]}, privacySettings={}, mfaStatus={enabled:false}, developerStatus={status:'not_applied'}, securityCapabilities={};
+  let securitySessions={sessions:[]}, securityActivity={events:[]}, privacySettings={}, mfaStatus={enabled:false}, developerStatus={status:'not_applied'}, securityCapabilities={};
   try {
-    const [connRes, provRes, stravaRes, wearableRes, sessionRes, privacyRes, mfaRes, devRes, capRes] = await Promise.all([
+    const [connRes, provRes, stravaRes, wearableRes, sessionRes, activityRes, privacyRes, mfaRes, devRes, capRes] = await Promise.all([
       api('/auth/connections'), api('/auth/providers'), api('/connectors/strava/configured'), api('/connectors/configured'),
-      api('/security/sessions'),api('/privacy'),api('/security/mfa'),api('/developer/verification'),api('/security/capabilities'),
+      api('/security/sessions'),api('/security/activity'),api('/privacy'),api('/security/mfa'),api('/developer/verification'),api('/security/capabilities'),
     ]);
     connections = connRes; providers = provRes.providers || []; stravaConfigured = !!stravaRes.configured; wearableProviders = wearableRes.providers || [];
-    securitySessions=sessionRes;privacySettings=privacyRes;mfaStatus=mfaRes;developerStatus=devRes;securityCapabilities=capRes;
+    securitySessions=sessionRes;securityActivity=activityRes;privacySettings=privacyRes;mfaStatus=mfaRes;developerStatus=devRes;securityCapabilities=capRes;
   } catch (e) { console.error('connections load failed', e); }
 
   const linkedProviders = new Map(connections.identities.map(i => [i.provider, i]));
@@ -1779,10 +1779,12 @@ async function renderProfile(main) {
       <label class="field-label">Who can see my profile</label><select id="privacy-profile">${['public','followers','private'].map(v=>`<option value="${v}" ${privacySettings.profile_visibility===v?'selected':''}>${v}</option>`).join('')}</select>
       <label class="field-label">Who can see followers/following</label><select id="privacy-followers">${['public','followers','private'].map(v=>`<option value="${v}" ${privacySettings.follower_list_visibility===v?'selected':''}>${v}</option>`).join('')}</select>
       <label class="field-label">Who can message me</label><select id="privacy-messages">${['everyone','followers','nobody'].map(v=>`<option value="${v}" ${privacySettings.message_permission===v?'selected':''}>${v}</option>`).join('')}</select>
+      <label class="field-label">Who can tag me in workouts</label><select id="privacy-tags">${['everyone','followers','nobody'].map(v=>`<option value="${v}" ${privacySettings.tag_permission===v?'selected':''}>${v}</option>`).join('')}</select>
       <label class="field-label">Who can comment</label><select id="privacy-comments">${['everyone','followers','nobody'].map(v=>`<option value="${v}" ${privacySettings.comment_permission===v?'selected':''}>${v}</option>`).join('')}</select>
       <button class="primary" id="privacy-save" style="width:100%;margin-top:10px">Save audience controls</button><div id="privacy-status" class="muted"></div>
       <div class="settings-subsection"><strong>Two-factor authentication</strong><div class="muted">Authenticator-app codes and one-time backup codes.</div><button class="ghost" id="mfa-action" style="margin-top:8px">${mfaStatus.enabled?'Disable 2FA':'Set up 2FA'}</button><div id="mfa-status" class="muted"></div></div>
       <div class="settings-subsection"><strong>Active sessions</strong><div id="session-list">${securitySessions.sessions.map(s=>`<div class="integration-row"><div><strong>${escapeHtml(s.device_name)}</strong><div class="muted">${escapeHtml(s.auth_method)} · active ${timeAgo(s.last_seen_at)} ago${s.current?' · this device':''}</div></div>${s.current?'':`<button class="ghost" data-revoke-session="${escapeHtml(s.id)}">Log out</button>`}</div>`).join('')||'<div class="muted">No active sessions.</div>'}</div><button class="ghost" id="logout-others" style="width:100%;margin-top:8px">Log out other devices</button></div>
+      <details class="settings-subsection"><summary><strong>Security activity</strong></summary><div class="muted" style="margin:8px 0">Recent sign-ins and sensitive account changes.</div><div>${(securityActivity.events||[]).slice(0,20).map(e=>`<div class="integration-row"><div><strong>${escapeHtml(String(e.event_type||'account event').replaceAll('_',' '))}</strong><div class="muted">${escapeHtml(e.device_name||'Account')} · ${timeAgo(e.created_at)} ago</div></div></div>`).join('')||'<div class="muted">No security activity yet.</div>'}</div></details>
       <div class="muted" style="margin-top:10px">Passkeys/biometric login: ${securityCapabilities.passkeys_biometric?'available':'not enabled'} · SMS 2FA: ${securityCapabilities.sms_mfa?'available':'not enabled'} · DMs use HTTPS and access controls; end-to-end encryption is ${securityCapabilities.end_to_end_encrypted_dms?'enabled':'not claimed'}.</div>
     </div>
     <div class="card glass profile-panel" data-profile-group="integrations" id="developer-verification-card">
@@ -1858,7 +1860,7 @@ async function renderProfile(main) {
     tab.onclick = () => showProfileView(tab.dataset.profileView);
   });
   const privacySave=document.getElementById('privacy-save');
-  if(privacySave) privacySave.onclick=async()=>{const r=await api('/privacy',{method:'PATCH',body:{profile_visibility:document.getElementById('privacy-profile').value,follower_list_visibility:document.getElementById('privacy-followers').value,message_permission:document.getElementById('privacy-messages').value,comment_permission:document.getElementById('privacy-comments').value}});document.getElementById('privacy-status').textContent=r.error?'Could not save these choices.':'Audience controls saved.';};
+  if(privacySave) privacySave.onclick=async()=>{const r=await api('/privacy',{method:'PATCH',body:{profile_visibility:document.getElementById('privacy-profile').value,follower_list_visibility:document.getElementById('privacy-followers').value,message_permission:document.getElementById('privacy-messages').value,tag_permission:document.getElementById('privacy-tags').value,comment_permission:document.getElementById('privacy-comments').value}});document.getElementById('privacy-status').textContent=r.error?'Could not save these choices.':'Audience controls saved.';};
   main.querySelectorAll('[data-revoke-session]').forEach(btn=>btn.onclick=async()=>{await api('/security/sessions/'+encodeURIComponent(btn.dataset.revokeSession),{method:'DELETE'});btn.closest('.integration-row')?.remove();});
   const logoutOthers=document.getElementById('logout-others'); if(logoutOthers) logoutOthers.onclick=async()=>{const r=await api('/security/sessions/logout-others',{method:'POST'});logoutOthers.textContent=`Logged out ${r.revoked||0} other device${r.revoked===1?'':'s'}`;};
   const mfaAction=document.getElementById('mfa-action');
