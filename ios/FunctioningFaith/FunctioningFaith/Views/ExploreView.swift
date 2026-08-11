@@ -89,19 +89,23 @@ struct ExploreView: View {
                     Text("No groups yet. Create one from the web app.").foregroundStyle(.secondary)
                 } else {
                     ForEach(groups.prefix(8)) { group in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(group.name).font(.headline)
-                            if let description = group.description {
-                                Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        NavigationLink {
+                            GroupDetailView(group: group)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(group.name).font(.headline)
+                                if let description = group.description {
+                                    Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                }
+                                HStack {
+                                    if let sport = group.sport { Label(sport, systemImage: "figure.run") }
+                                    Spacer()
+                                    Text("\(group.memberCount) members")
+                                }
+                                .font(.caption2).foregroundStyle(.secondary)
                             }
-                            HStack {
-                                if let sport = group.sport { Label(sport, systemImage: "figure.run") }
-                                Spacer()
-                                Text("\(group.memberCount) members")
-                            }
-                            .font(.caption2).foregroundStyle(.secondary)
+                            .padding(.vertical, 4)
                         }
-                        .padding(.vertical, 4)
                     }
                 }
             }

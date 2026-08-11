@@ -85,6 +85,34 @@ final class APIClient {
         let _: ActionResponse = try await request("/api/challenges/\(encoded)/join", method: "POST", body: EmptyBody())
     }
 
+    func fetchGroupDetail(id: String) async throws -> NativeGroupDetail {
+        if useMock { return MockData.groupDetail }
+        guard let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw APIError.invalidResponse
+        }
+        let response: GroupDetailResponse = try await request("/api/groups/\(encoded)")
+        return response.model
+    }
+
+    func setGroupMembership(id: String, joining: Bool) async throws {
+        if useMock { return }
+        guard let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw APIError.invalidResponse
+        }
+        let action = joining ? "join" : "leave"
+        let _: ActionResponse = try await request("/api/groups/\(encoded)/\(action)", method: "POST", body: EmptyBody())
+    }
+
+    func sendGroupMessage(groupID: String, content: String) async throws -> GroupMessage {
+        if useMock {
+            return GroupMessage(id: UUID().uuidString, content: content, createdAt: ISO8601DateFormatter().string(from: .now), authorID: MockData.profile.id.uuidString, author: MockData.profile.displayName)
+        }
+        guard let encoded = groupID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw APIError.invalidResponse
+        }
+        return try await request("/api/groups/\(encoded)/messages", method: "POST", body: GroupMessageBody(content: content))
+    }
+
     func login(email: String, password: String) async throws -> UserProfile {
         if useMock { return MockData.profile }
         let _: AuthResponse = try await request("/api/auth/login", method: "POST", body: Credentials(email: email, password: password))
@@ -200,6 +228,10 @@ private struct ReportBody: Encodable {
     let reason: String
 }
 
+private struct GroupMessageBody: Encodable {
+    let content: String
+}
+
 private struct FeedResponse: Decodable {
     let posts: [FeedDTO]
     let nextCursor: String?
@@ -209,6 +241,53 @@ private struct FeedResponse: Decodable {
 private struct ExploreResponse: Decodable {
     let groups: [ExploreGroup]
     let quests: [ExploreQuest]
+}
+
+private struct GroupDetailResponse: Decodable {
+    let group: GroupCoreDTO
+    let memberCount: Int
+    let isMember: Bool
+    let isAdmin: Bool
+    let messages: [GroupMessage]
+    let events: [GroupEvent]
+
+    enum CodingKeys: String, CodingKey {
+        case group, messages, events
+        case memberCount = "member_count"
+        case isMember = "is_member"
+        case isAdmin = "is_admin"
+    }
+
+    var model: NativeGroupDetail {
+        NativeGroupDetail(
+            group: group.model(memberCount: memberCount),
+            memberCount: memberCount,
+            isMember: isMember,
+            isAdmin: isAdmin,
+            messages: messages,
+            events: events
+        )
+    }
+}
+
+private struct GroupCoreDTO: Decodable {
+    let id: String
+    let name: String
+    let description: String?
+    let username: String?
+    let churchName: String?
+    let locationName: String?
+    let sport: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, description, username, sport
+        case churchName = "church_name"
+        case locationName = "location_name"
+    }
+
+    func model(memberCount: Int) -> ExploreGroup {
+        ExploreGroup(id: id, name: name, description: description, username: username, churchName: churchName, locationName: locationName, sport: sport, memberCount: memberCount)
+    }
 }
 
 struct FeedPage {
@@ -276,6 +355,14 @@ enum MockData {
         groups: [ExploreGroup(id: "group-preview", name: "Sunrise 5K Fellowship", description: "Early runs and spiritual reflection.", username: "sunrise-5k", churchName: nil, locationName: nil, sport: "Running", memberCount: 12)],
         quests: [ExploreQuest(id: "quest-preview", name: "Faithful Five", description: "Complete five workouts this week.", theme: "perseverance", target: 5)],
         challenges: [ExploreChallenge(id: "challenge-preview", name: "First Steps", description: "Complete three workouts.", flavor: "Do not despise small beginnings.", scriptureReference: "Zechariah 4:10", metric: "workouts", target: 3, theme: "beginning", progress: 1, participants: 24, joined: true, percent: 33, completed: false)]
+    )
+    static let groupDetail = NativeGroupDetail(
+        group: exploreContent.groups[0],
+        memberCount: exploreContent.groups[0].memberCount,
+        isMember: true,
+        isAdmin: false,
+        messages: [GroupMessage(id: "message-preview", content: "See everyone at sunrise!", createdAt: "2026-08-11 06:00:00", authorID: "preview-author", author: "Sam T.")],
+        events: [GroupEvent(id: "event-preview", title: "Saturday 5K", description: "Easy community run.", activityType: "Run", eventTime: "2026-08-15 07:00:00", locationName: "River Trail", goingCount: 8, interestedCount: 3, myRSVP: "going")]
     )
     static func activeWorkout(type: String) -> WorkoutSummary { WorkoutSummary(id: UUID(), type: type, startTime: .now, endTime: nil, calories: nil, avgHR: nil) }
 }

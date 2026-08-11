@@ -105,3 +105,48 @@ struct ExploreContent {
     let quests: [ExploreQuest]
     let challenges: [ExploreChallenge]
 }
+
+struct GroupMessage: Codable, Identifiable {
+    let id: String
+    let content: String
+    let createdAt: String
+    let authorID: String
+    let author: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, content, author
+        case createdAt = "created_at"
+        case authorID = "author_id"
+    }
+}
+
+struct GroupEvent: Codable, Identifiable {
+    let id: String
+    let title: String
+    let description: String?
+    let activityType: String?
+    let eventTime: String
+    let locationName: String?
+    let goingCount: Int
+    let interestedCount: Int
+    let myRSVP: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, description
+        case activityType = "activity_type"
+        case eventTime = "event_time"
+        case locationName = "location_name"
+        case goingCount = "going_count"
+        case interestedCount = "interested_count"
+        case myRSVP = "my_rsvp"
+    }
+}
+
+struct NativeGroupDetail {
+    let group: ExploreGroup
+    var memberCount: Int
+    var isMember: Bool
+    let isAdmin: Bool
+    var messages: [GroupMessage]
+    let events: [GroupEvent]
+}
