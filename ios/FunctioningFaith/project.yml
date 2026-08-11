@@ -46,3 +46,14 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.functioningfaith.app.tests
         PRODUCT_MODULE_NAME: FunctioningFaithTests
+
+schemes:
+  FunctioningFaith:
+    build:
+      targets:
+        FunctioningFaith: all
+        FunctioningFaithTests: [test]
+    test:
+      gatherCoverageData: true
+      targets:
+        - FunctioningFaithTests
