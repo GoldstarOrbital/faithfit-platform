@@ -7,11 +7,11 @@ struct HomeFeedView: View {
     var body: some View {
         List {
             ForEach(posts) { post in
-                FeedPostRow(post: post)
+                FeedPostRow(post: post, onLike: { toggleLike(post) }, onSave: { toggleSave(post) })
                     .swipeActions(edge: .trailing) {
-                        Button { /* like */ } label: { Label("Like", systemImage: "heart.fill") }
+                        Button { toggleLike(post) } label: { Label(post.likedByMe ? "Unlike" : "Like", systemImage: post.likedByMe ? "heart.slash" : "heart.fill") }
                             .tint(.pink)
-                        Button { /* share */ } label: { Label("Share", systemImage: "square.and.arrow.up") }
+                        Button { toggleSave(post) } label: { Label(post.savedByMe ? "Unsave" : "Save", systemImage: post.savedByMe ? "bookmark.slash" : "bookmark.fill") }
                             .tint(.blue)
                     }
             }
@@ -30,10 +30,29 @@ struct HomeFeedView: View {
         defer { isLoading = false }
         posts = (try? await APIClient.shared.fetchFeed()) ?? []
     }
+
+    private func toggleLike(_ post: FeedPost) {
+        Task {
+            guard let response = try? await APIClient.shared.likePost(id: post.id),
+                  let index = posts.firstIndex(where: { $0.id == post.id }) else { return }
+            posts[index].likedByMe = response.liked
+            posts[index].likeCount = response.likeCount
+        }
+    }
+
+    private func toggleSave(_ post: FeedPost) {
+        Task {
+            guard let response = try? await APIClient.shared.savePost(id: post.id),
+                  let index = posts.firstIndex(where: { $0.id == post.id }) else { return }
+            posts[index].savedByMe = response.saved
+        }
+    }
 }
 
 struct FeedPostRow: View {
     let post: FeedPost
+    let onLike: () -> Void
+    let onSave: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -52,9 +71,30 @@ struct FeedPostRow: View {
             if let verse = post.verse {
                 VerseSnippetCard(verse: verse)
             }
+
+            HStack(spacing: 18) {
+                Button(action: onLike) {
+                    Label("\(post.likeCount)", systemImage: post.likedByMe ? "heart.fill" : "heart")
+                }
+                .tint(post.likedByMe ? .pink : .secondary)
+
+                Button(action: onSave) {
+                    Label(post.savedByMe ? "Saved" : "Save", systemImage: post.savedByMe ? "bookmark.fill" : "bookmark")
+                }
+                .tint(post.savedByMe ? .indigo : .secondary)
+
+                ShareLink(item: post.content) {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+                .tint(.secondary)
+                Spacer()
+            }
+            .buttonStyle(.borderless)
+            .font(.footnote.weight(.semibold))
+            .accessibilityElement(children: .contain)
         }
         .padding(.vertical, 6)
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .contain)
     }
 }
 

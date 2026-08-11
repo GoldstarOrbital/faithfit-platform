@@ -23,6 +23,9 @@ struct FeedPost: Codable, Identifiable {
     let workout: WorkoutSummary?
     let verse: VerseSnippet?
     let createdAt: Date
+    var likeCount: Int = 0
+    var likedByMe: Bool = false
+    var savedByMe: Bool = false
 }
 
 struct Badge: Codable, Identifiable {

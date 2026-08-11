@@ -82,6 +82,16 @@ final class APIClient {
         let _: AuthResponse = try await request("/api/me", method: "DELETE")
     }
 
+    func likePost(id: UUID) async throws -> PostReactionResponse {
+        if useMock { return PostReactionResponse(liked: true, likeCount: 1) }
+        return try await request("/api/posts/\(id.uuidString)/like", method: "POST", body: EmptyBody())
+    }
+
+    func savePost(id: UUID) async throws -> PostSaveResponse {
+        if useMock { return PostSaveResponse(saved: true) }
+        return try await request("/api/posts/\(id.uuidString)/save", method: "POST", body: EmptyBody())
+    }
+
     private func request<T: Decodable>(_ path: String, method: String = "GET") async throws -> T {
         try await request(path, method: method, body: Optional<EmptyBody>.none)
     }
@@ -112,6 +122,20 @@ private struct AuthResponse: Decodable { let ok: Bool }
 private struct WorkoutStartResponse: Decodable { let id: UUID }
 private struct WorkoutStopResponse: Decodable { let id: UUID }
 
+struct PostReactionResponse: Decodable {
+    let liked: Bool
+    let likeCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case liked
+        case likeCount = "like_count"
+    }
+}
+
+struct PostSaveResponse: Decodable {
+    let saved: Bool
+}
+
 private struct FeedResponse: Decodable {
     let posts: [FeedDTO]
     let nextCursor: String?
@@ -122,12 +146,13 @@ private struct FeedDTO: Decodable {
     let id: UUID; let content: String?; let author: String; let createdAt: String
     let workoutID: UUID?; let workoutType: String?; let startTime: String?; let endTime: String?
     let calories: Int?; let avgHR: Int?; let verseReference: String?; let verseText: String?; let youVersionID: String?
+    let likeCount: Int?; let likedByMe: Bool?; let savedByMe: Bool?
 
-    enum CodingKeys: String, CodingKey { case id, content, author; case createdAt = "created_at"; case workoutID = "workout_id"; case workoutType = "workout_type"; case startTime = "start_time"; case endTime = "end_time"; case calories; case avgHR = "avg_hr"; case verseReference = "verse_reference"; case verseText = "verse_text"; case youVersionID = "youversion_id" }
+    enum CodingKeys: String, CodingKey { case id, content, author; case createdAt = "created_at"; case workoutID = "workout_id"; case workoutType = "workout_type"; case startTime = "start_time"; case endTime = "end_time"; case calories; case avgHR = "avg_hr"; case verseReference = "verse_reference"; case verseText = "verse_text"; case youVersionID = "youversion_id"; case likeCount = "like_count"; case likedByMe = "liked_by_me"; case savedByMe = "saved_by_me" }
     var model: FeedPost {
         let workout = workoutType.map { WorkoutSummary(id: workoutID ?? UUID(), type: $0, startTime: DateParser.parse(startTime) ?? .now, endTime: DateParser.parse(endTime), calories: calories, avgHR: avgHR) }
         let verse = verseReference.map { VerseSnippet(id: youVersionID ?? $0, reference: $0, snippet: verseText ?? "", deepLink: "https://www.bible.com/bible?query=\($0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0)") }
-        return FeedPost(id: id, authorName: author, content: content ?? "", workout: workout, verse: verse, createdAt: DateParser.parse(createdAt) ?? .now)
+        return FeedPost(id: id, authorName: author, content: content ?? "", workout: workout, verse: verse, createdAt: DateParser.parse(createdAt) ?? .now, likeCount: likeCount ?? 0, likedByMe: likedByMe ?? false, savedByMe: savedByMe ?? false)
     }
 }
 
