@@ -13,7 +13,7 @@ const state = {
   splits: [], lastSplitKm: 0, lastSplitElapsed: 0, hrSamples: [],
   bleDevice: null, bleServer: null, bleConnected: false,
   breathePhase: 'idle',
-  homeCache: null, feedScope: 'community', reelTargetId: null,
+  homeCache: null, feedScope: 'community', reelTargetId: null, reelsView: 'for_you',
 };
 
 let gpsStartedAt = null, gpsTicker = null;
@@ -1023,10 +1023,16 @@ function reelShareButton() {
 // it behaves like a scrollable social surface, not another category shelf.
 async function renderReelsTab(body) {
   body.innerHTML = `<div class="reels-hero"><div class="video-kicker">FUNCTIONING FAITH REELS</div><h2>Small moments. Big encouragement.</h2><p>One mixed feed for faith, movement, meals, family, and your church. Swipe up for the next moment.</p>
-    <div class="reels-feed-note">Shorts + food + church content · Gloo-curated when available</div></div>
+    <div class="reels-feed-note">Shorts + food + church content · Gloo-curated when available</div>
+    <div class="reel-view-switch" role="tablist" aria-label="Reel feed"><button type="button" role="tab" aria-selected="${state.reelsView === 'for_you'}" class="${state.reelsView === 'for_you' ? 'active' : ''}" data-reels-view="for_you">For you</button><button type="button" role="tab" aria-selected="${state.reelsView === 'saved'}" class="${state.reelsView === 'saved' ? 'active' : ''}" data-reels-view="saved">Saved</button></div></div>
     <div id="reels-list"><div class="muted">Loading reels…</div></div>`;
+  body.querySelectorAll('[data-reels-view]').forEach(btn => btn.onclick = () => { state.reelsView = btn.dataset.reelsView; renderReelsTab(body); });
   let payload = { videos: [] };
-  try { payload = await api('/reels'); } catch { try { payload.videos = await api('/videos?category=reels'); } catch { payload.videos = []; } }
+  if (state.reelsView === 'saved') {
+    try { payload = await api('/reels/saved'); } catch { payload.videos = []; }
+  } else {
+    try { payload = await api('/reels'); } catch { try { payload.videos = await api('/videos?category=reels'); } catch { payload.videos = []; } }
+  }
   const starters = [
     { video_id: 'nENP1nWCJGU', title: 'Meal Prep: 5 Recipes + 10 Meals for Variety', channel_title: 'Fit Men Cook', category: 'food', is_short: 1 },
     { video_id: 'pDgEBQx7wKY', title: 'Budget Meal Prep with Nutrient-Dense Ingredients', channel_title: 'Downshiftology', category: 'food', is_short: 1 },
@@ -1037,13 +1043,13 @@ async function renderReelsTab(body) {
     { video_id: 'ak06MSETeo4', title: 'What Is the Bible? · Animated Explainer', channel_title: 'BibleProject', category: 'christian' },
     { video_id: 'xsIRy1IlI_0', title: 'Fruit of the Spirit Brain Break', channel_title: 'Ready Set Fitness Kids', category: 'kids' },
   ].map(v => ({ ...v, thumbnail_url: `https://i.ytimg.com/vi/${v.video_id}/hqdefault.jpg` }));
-  let videos = [...(payload.videos || []), ...starters];
+  let videos = [...(payload.videos || []), ...(state.reelsView === 'saved' ? [] : starters)];
   const seen = new Set();
   videos = videos.filter(v => v.video_id && !seen.has(v.video_id))
     .map(v => { seen.add(v.video_id); return v; })
     .sort(() => Math.random() - 0.5);
   const list = document.getElementById('reels-list');
-  if (!videos.length) { list.innerHTML = '<div class="card glass"><p class="muted">No reels in this filter yet. Fresh videos will appear here as the library refreshes.</p></div>'; return; }
+  if (!videos.length) { list.innerHTML = `<div class="card glass"><p class="muted">${state.reelsView === 'saved' ? 'Your saved Reels will appear here. Tap 🔖 on anything you want to come back to.' : 'No reels in this filter yet. Fresh videos will appear here as the library refreshes.'}</p></div>`; return; }
   const labels = { food: 'Food + fitness', kids: 'Kids + family', fitness: 'Faith + movement', christian: 'Scripture + formation', motivational: 'Purpose + perseverance', veggietales: 'Kids + family', nickbare: 'Training + discipline', church: 'Your church' };
   list.innerHTML = videos.map(v => `<article class="reel-card" data-reel-card="${escapeHtml(v.video_id)}">
     <div class="reel-frame video-thumb-wrap" data-reel-frame="${escapeHtml(v.video_id)}"><img loading="lazy" src="${escapeHtml(v.thumbnail_url || `https://i.ytimg.com/vi/${encodeURIComponent(v.video_id)}/hqdefault.jpg`)}" alt="${escapeHtml(v.title || 'Functioning Faith reel')}" /><span class="reel-play">▶</span>${reelSoundButton(reelsSoundOn())}</div>

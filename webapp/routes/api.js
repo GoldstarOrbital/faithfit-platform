@@ -2471,6 +2471,22 @@ router.get('/videos', (req, res) => {
   res.json(rows.filter(v => !blocked.test(`${v.title || ''} ${v.description || ''}`)));
 });
 
+// Saved Reels are private by design. Keep them separate from the discovery
+// ranking so a member can return to something intentionally bookmarked.
+router.get('/reels/saved', requireAuth, (req, res) => {
+  const rows = db.prepare(`
+    SELECT r.video_id, v.title, v.description, v.thumbnail_url, v.channel_title,
+           v.published_at, v.category, r.created_at
+      FROM reel_reactions r
+      LEFT JOIN videos v ON v.video_id = r.video_id
+     WHERE r.user_id = ? AND r.kind = 'save'
+       AND (v.video_id IS NULL OR v.dead_at IS NULL)
+     ORDER BY r.created_at DESC
+     LIMIT 100
+  `).all(req.session.userId);
+  res.json({ videos: rows.map(v => ({ ...v, like_count: 0, save_count: 1, liked_by_me: false, saved_by_me: true })) });
+});
+
 // The single social short-form feed. It combines library Shorts, the member's
 // church videos, and Gloo's grounded curation of those church candidates. Gloo
 // never invents a video ID here: it may only rank IDs we supplied.
