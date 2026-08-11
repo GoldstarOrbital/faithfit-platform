@@ -206,10 +206,11 @@ struct FeedPostRow: View {
                     ShareLink(item: url, subject: Text("Functioning Faith"), message: Text(post.content)) {
                         Label("Share", systemImage: "square.and.arrow.up")
                     }
+                    .tint(.secondary)
                 } else {
                     ShareLink(item: post.content) { Label("Share", systemImage: "square.and.arrow.up") }
+                        .tint(.secondary)
                 }
-                .tint(.secondary)
                 Spacer()
             }
             .buttonStyle(.borderless)
