@@ -43,3 +43,12 @@ struct UserProfile: Codable, Identifiable {
     let level: Int
     let badges: [Badge]
 }
+
+struct SuggestedUser: Codable, Identifiable {
+    let id: UUID
+    let displayName: String
+    let bio: String?
+    let followersCount: Int
+    let reason: String
+    var isFollowing: Bool = false
+}

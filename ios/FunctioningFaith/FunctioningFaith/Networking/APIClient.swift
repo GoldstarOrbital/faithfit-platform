@@ -49,6 +49,17 @@ final class APIClient {
         return response.model
     }
 
+    func fetchSuggestedUsers() async throws -> [SuggestedUser] {
+        if useMock { return [] }
+        let response: [SuggestedUserDTO] = try await request("/api/users/suggested")
+        return response.map(\.model)
+    }
+
+    func followUser(id: UUID) async throws -> FollowResponse {
+        if useMock { return FollowResponse(following: true, followersCount: 1) }
+        return try await request("/api/users/\(id.uuidString)/follow", method: "POST", body: EmptyBody())
+    }
+
     func login(email: String, password: String) async throws -> UserProfile {
         if useMock { return MockData.profile }
         let _: AuthResponse = try await request("/api/auth/login", method: "POST", body: Credentials(email: email, password: password))
@@ -146,6 +157,16 @@ struct PostSaveResponse: Decodable {
     let saved: Bool
 }
 
+struct FollowResponse: Decodable {
+    let following: Bool
+    let followersCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case following
+        case followersCount = "followers_count"
+    }
+}
+
 private struct SafetyResponse: Decodable {
     let ok: Bool
 }
@@ -181,6 +202,25 @@ private struct MeDTO: Decodable {
 private struct UserDTO: Decodable { let id: UUID; let displayName: String; let bioVerseRef: String?; enum CodingKeys: String, CodingKey { case id; case displayName = "display_name"; case bioVerseRef = "bio_verse_ref" } }
 private struct XPDTO: Decodable { let xp: Int; let level: Int }
 private struct BadgeDTO: Decodable { let id: String; let name: String; let icon: String }
+private struct SuggestedUserDTO: Decodable {
+    let id: UUID
+    let displayName: String
+    let bioVerseRef: String?
+    let followersCount: Int
+    let reason: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case displayName = "display_name"
+        case bioVerseRef = "bio_verse_ref"
+        case followersCount = "followers_count"
+        case reason
+    }
+
+    var model: SuggestedUser {
+        SuggestedUser(id: id, displayName: displayName, bio: bioVerseRef, followersCount: followersCount, reason: reason)
+    }
+}
 
 private enum DateParser {
     static func parse(_ value: String?) -> Date? {
