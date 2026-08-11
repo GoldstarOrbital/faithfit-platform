@@ -22,6 +22,8 @@ what comes back is stored.
 | `inklings` — Lewis + Tolkien | 3 | CSLewisDoodle, Tolkien Untangled (channels); Mere Christianity, the problem of pain, Tolkien interviews, the Lewis–Tolkien conversation on myth, eucatastrophe, Samwise's speech (queries) |
 | `prairie` — Walnut Grove | 2 | Little House on the Prairie official (channel); best moments, Charles Ingalls lessons, faith scenes (queries) |
 | `highway` — Highway to Heaven | 2 | Official channel; Michael Landon as Jonathan Smith, the probationary angel (queries) |
+| `edits` — Faith edits | 3 | Catholic / Christian / Orthodox saint and scripture edits (queries + seeds) |
+| `shortfilm` — Short films | 1 | Catholic short films on **Vimeo** (seeds only) |
 
 Weight controls the **share of the feed** a category may occupy, not how good it
 is. Lewis and Goggins pull 3; the two Landon shows pull 2 each and sit together
@@ -36,10 +38,10 @@ Two source kinds:
 
 ## Seeds
 
-`SEEDS` in `reel-sources.js` holds **19 hand-picked videos** — 10 Little House
-on the Prairie, 9 Highway to Heaven — inserted at boot with no API call and no
-quota, so the feed has real material on a cold start instead of waiting for an
-ingest cycle.
+`SEEDS` in `reel-sources.js` holds **40 hand-picked videos** — 10 Little House
+on the Prairie, 9 Highway to Heaven, 18 faith edits, and 3 Vimeo short films —
+inserted at boot with no API call and no quota, so the feed has real material on
+a cold start instead of waiting for an ingest cycle.
 
 These are the **only hardcoded video IDs in the app**, and every one was
 verified before being written down: pulled from the real channel and search
@@ -66,6 +68,35 @@ node scripts/verify-reel-seeds.js
 
 Seeding never overwrites a richer row that ingestion later fetched for the same
 video — a seed is a floor, not a ceiling.
+
+## Providers
+
+The feed is not YouTube-only. Every video carries a `provider`, and the client
+builds the right embed for it (`reelEmbedSrc` in `app.js`).
+
+| Provider | Status | Notes |
+|---|---|---|
+| **YouTube** | in use | `youtube-nocookie.com/embed/…`, muted autoplay, sound toggle works |
+| **Vimeo** | in use | `player.vimeo.com/video/…` with `muted=1`; public keyless oEmbed for verification |
+| **TikTok** | supported, none seeded | `tiktok.com/embed/v2/…`; public oEmbed works. Its player exposes **no mute parameter**, so the sound button is deliberately hidden on TikTok cards rather than shown as a control that does nothing |
+| **Instagram** | **not possible** | Instagram's oEmbed has required a Meta app access token since 2020. The keyless endpoint 301s and the Graph endpoint returns `OAuthException`. Embedding Instagram needs a Facebook app and token — a separate integration, not a config line |
+
+The liveness check only understands YouTube, so it is scoped to
+`provider = 'youtube'`. A Vimeo row is never marked dead by a YouTube lookup it
+was never part of.
+
+## A caution on edit content
+
+`edits` is modern short-form devotional content, and it is the one category
+where screening is weakest. Title and description filtering **cannot hear the
+audio track**, and edits are frequently cut over secular music. Two consequences:
+
+- Spot-check this category by hand from time to time. `source_note` in the
+  `videos` table records which query produced each row.
+- One candidate was dropped by judgement rather than by the filter — a genuine
+  Christian accountability video whose title referenced lust. Real content,
+  wrong place for a feed a child might open. The blocklist did not catch it and
+  would not have.
 
 ## Safety
 
