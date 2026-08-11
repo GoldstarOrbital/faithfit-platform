@@ -55,6 +55,8 @@ function init() {
   add('source_note', 'source_note TEXT');                    // which query/channel produced it
   add('last_checked_at', 'last_checked_at TEXT');
   add('dead_at', 'dead_at TEXT');                            // takedown / blocked / private
+  // youtube | vimeo | tiktok. Existing rows are all YouTube, hence the default.
+  add('provider', "provider TEXT NOT NULL DEFAULT 'youtube'");
 
   db.exec(`
     -- What each member has already been shown. The single most important input
@@ -93,10 +95,10 @@ function upsert(row) {
   db.prepare(`
     INSERT INTO videos (id, category, video_id, title, description, thumbnail_url,
                         channel_title, published_at, is_short, language_flag,
-                        source_kind, source_note, last_checked_at)
+                        source_kind, source_note, provider, last_checked_at)
     VALUES (@id, @category, @video_id, @title, @description, @thumbnail_url,
             @channel_title, @published_at, @is_short, @language_flag,
-            @source_kind, @source_note, datetime('now'))
+            @source_kind, @source_note, @provider, datetime('now'))
     ON CONFLICT(category, video_id) DO UPDATE SET
       title = excluded.title,
       thumbnail_url = excluded.thumbnail_url,
@@ -127,10 +129,12 @@ function seed() {
       upsert({
         id: randomUUID(), category, video_id: item.id,
         title: item.title, description: '',
-        thumbnail_url: `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg`,
+        thumbnail_url: (item.provider || 'youtube') === 'youtube'
+          ? `https://i.ytimg.com/vi/${item.id}/hqdefault.jpg` : null,
         channel_title: null, published_at: null,
         is_short: 1, language_flag: check.language_flag,
         source_kind: 'seed', source_note: 'hand-verified via oEmbed',
+        provider: item.provider || 'youtube',
       });
       added++;
     }
@@ -175,7 +179,7 @@ async function ingest() {
             channel_title: found[0].title || null,
             published_at: v.publishedAt || null,
             is_short: 1, language_flag: check.language_flag,
-            source_kind: 'channel', source_note: q,
+            source_kind: 'channel', source_note: q, provider: 'youtube',
           });
           added++;
         }
@@ -206,7 +210,7 @@ async function ingest() {
             channel_title: v.channelTitle || null,
             published_at: v.publishedAt || null,
             is_short: 1, language_flag: check.language_flag,
-            source_kind: 'query', source_note: q,
+            source_kind: 'query', source_note: q, provider: 'youtube',
           });
           added++;
         }
@@ -238,7 +242,7 @@ async function pruneDead(limit) {
   if (!youtube.isConfigured()) return { checked: 0, dead: 0 };
   const due = db.prepare(`
     SELECT DISTINCT video_id FROM videos
-     WHERE dead_at IS NULL
+     WHERE dead_at IS NULL AND provider = 'youtube'
        AND (last_checked_at IS NULL OR last_checked_at < datetime('now', ?))
      LIMIT ?`).all('-' + LIVENESS_DAYS + ' days', Math.min(200, Number(limit) || 100))
     .map(r => r.video_id);
@@ -296,7 +300,7 @@ function feed(userId, opts = {}) {
   const familySafe = opts.familySafe !== false;      // safe unless asked otherwise
 
   const rows = db.prepare(`
-    SELECT v.video_id, v.category, v.title, v.description, v.thumbnail_url,
+    SELECT v.video_id, v.category, v.title, v.description, v.thumbnail_url, v.provider,
            v.channel_title, v.published_at, v.language_flag, v.source_kind,
            (SELECT COUNT(*) FROM reel_impressions i WHERE i.video_id = v.video_id) AS global_impressions,
            (SELECT seen_at FROM reel_impressions i

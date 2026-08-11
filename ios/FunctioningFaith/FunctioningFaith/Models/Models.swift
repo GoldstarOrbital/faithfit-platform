@@ -27,6 +27,16 @@ struct FeedPost: Codable, Identifiable {
     var likeCount: Int = 0
     var likedByMe: Bool = false
     var savedByMe: Bool = false
+    var commentCount: Int = 0
+}
+
+struct FeedComment: Codable, Identifiable {
+    let id: UUID
+    let content: String
+    let author: String
+    let createdAt: String
+    var likeCount: Int
+    var likedByMe: Bool
 }
 
 struct Badge: Codable, Identifiable {

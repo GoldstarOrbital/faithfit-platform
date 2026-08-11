@@ -72,6 +72,32 @@ const CATEGORIES = {
     ],
   },
 
+  // The modern short-form devotional scene: saint edits, scripture edits,
+  // Catholic and Orthodox aesthetics. This is where the feed stops feeling like
+  // an archive and starts feeling like something made this year.
+  edits: {
+    label: 'Faith edits',
+    weight: 3,
+    channels: [],
+    queries: [
+      'Catholic edit saints aesthetic',
+      'Christian edit scripture verse',
+      'Orthodox edit icon saint',
+      'Saint Augustine edit',
+      'Thomas Aquinas edit',
+      'Psalm edit bible verse short',
+    ],
+  },
+
+  // Higher-production Catholic short films. Vimeo rather than YouTube because
+  // that is where this kind of work actually lives.
+  shortfilm: {
+    label: 'Short films',
+    weight: 1,
+    channels: [],
+    queries: [],
+  },
+
   // Michael Landon again, as Jonathan Smith — a probationary angel sent to help
   // people, 1984-89. Sits naturally beside Walnut Grove and carries the same
   // plainly-moral tone, so the two share a slot in the mix.
@@ -123,6 +149,35 @@ const SEEDS = {
     { id: 'uut92SfgiHk', title: 'Top 10 Romantic Moments on Little House on the Prairie' },
     { id: '1I6pdJR42zA', title: 'The Legacy of Laura Ingalls Wilder — Morgan Horses' },
   ],
+  // Modern edits — verified via YouTube oEmbed 2026-08-01.
+  edits: [
+    { id: 'Pem0gTgOw-M', provider: 'youtube', title: 'holy orders | ✞ catholic aesthetics ✞' },
+    { id: 'lTzR479F0Ao', provider: 'youtube', title: 'Catholicism | Christian Edit' },
+    { id: 'hL3Nr73Kta8', provider: 'youtube', title: 'COME BACK HOME! | Catholic Edit' },
+    { id: 'dIPL_JtYXpA', provider: 'youtube', title: 'Saint Augustine edit' },
+    { id: 'VRkdcTyzYns', provider: 'youtube', title: 'St. Thomas Aquinas | Catholic edit' },
+    { id: 'DyoiTGRwnX8', provider: 'youtube', title: 'Catholicism Edit | Golden Brown' },
+    { id: 'SHDWomvLo94', provider: 'youtube', title: 'St. Peter the Athonite | Orthodox Edit' },
+    { id: 'Hk5Ees09sRg', provider: 'youtube', title: 'Once lost, now a flame for Christ || St. Augustine edit' },
+    { id: 'Y2xPdB1mnX4', provider: 'youtube', title: 'Catholic dark aesthetic' },
+    { id: 'HeZ7xn0m0wY', provider: 'youtube', title: 'St. George the Martyr | Christian edit' },
+    { id: 'Ovq3MyMWZgw', provider: 'youtube', title: 'Catholicism is not boring' },
+    { id: 'yeXHFu6sH2g', provider: 'youtube', title: 'Psalm 6 — "Lord, do not forsake me"' },
+    { id: 'Ov-WaIoxi_k', provider: 'youtube', title: 'Psalm 139 — "You have searched me, Lord"' },
+    { id: 'Ij9nkikuJs4', provider: 'youtube', title: 'Proverbs 3 — a message before you sleep' },
+    { id: 'pu9H4T6MvtY', provider: 'youtube', title: 'JESUS CHOSE YOU! | Christian Edit' },
+    { id: 'IJZWD5LzOeI', provider: 'youtube', title: '"I Am The Alpha" | Christian Edit' },
+    { id: 'k7klFUBDafU', provider: 'youtube', title: "That One Christian Edit You're Looking For" },
+    { id: '9bp-8xnUVhk', provider: 'youtube', title: 'That One Christian Edit' },
+  ],
+
+  // Vimeo — verified via Vimeo's public oEmbed 2026-08-01.
+  shortfilm: [
+    { id: '333435822', provider: 'vimeo', title: 'The Catholic Girl — short film (St.Pio Films)' },
+    { id: '344875215', provider: 'vimeo', title: 'The Catholic Farmer Boy — short film (St.Pio Films)' },
+    { id: '406540493', provider: 'vimeo', title: 'Semana Santa (Holy Week) — cinematic short' },
+  ],
+
   highway: [
     { id: 'xHRQaOMfOS4', title: 'Highway To Heaven S4E17 We Have Forever, Part 1 (clip)' },
     { id: 'JSGYdPxHWqs', title: 'Highway to Heaven — "I\'m an Angel" (pilot)' },

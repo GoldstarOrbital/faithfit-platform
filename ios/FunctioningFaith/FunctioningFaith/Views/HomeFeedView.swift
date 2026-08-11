@@ -5,6 +5,7 @@ struct HomeFeedView: View {
     @State private var isLoading = true
     @State private var isLoadingMore = false
     @State private var nextCursor: String?
+    @State private var selectedPost: FeedPost?
     @State private var blockCandidate: (id: UUID, name: String)?
     @State private var showBlockConfirmation = false
 
@@ -15,6 +16,7 @@ struct HomeFeedView: View {
                     post: post,
                     onLike: { toggleLike(post) },
                     onSave: { toggleSave(post) },
+                    onComments: { selectedPost = post },
                     onReport: { report(post) },
                     onBlock: {
                         guard let authorID = post.authorID else { return }
@@ -43,6 +45,15 @@ struct HomeFeedView: View {
         .refreshable { await loadFeed() }
         .navigationTitle("Home")
         .task { await loadFeed() }
+        .sheet(item: $selectedPost) { post in
+            NavigationStack {
+                CommentThreadView(post: post) {
+                    if let index = posts.firstIndex(where: { $0.id == post.id }) {
+                        posts[index].commentCount += 1
+                    }
+                }
+            }
+        }
         .confirmationDialog(
             "Block this member?",
             isPresented: $showBlockConfirmation,
@@ -120,6 +131,7 @@ struct FeedPostRow: View {
     let post: FeedPost
     let onLike: () -> Void
     let onSave: () -> Void
+    let onComments: () -> Void
     let onReport: () -> Void
     let onBlock: () -> Void
 
@@ -151,6 +163,11 @@ struct FeedPostRow: View {
                     Label(post.savedByMe ? "Saved" : "Save", systemImage: post.savedByMe ? "bookmark.fill" : "bookmark")
                 }
                 .tint(post.savedByMe ? .indigo : .secondary)
+
+                Button(action: onComments) {
+                    Label("\(post.commentCount)", systemImage: "bubble.left")
+                }
+                .tint(.secondary)
 
                 ShareLink(item: post.content) {
                     Label("Share", systemImage: "square.and.arrow.up")

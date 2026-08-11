@@ -19,10 +19,22 @@
 
 const { SEEDS } = require('../lib/reel-sources');
 
-const OEMBED = 'https://www.youtube.com/oembed?format=json&url=';
+// Each provider's own public oEmbed. All keyless; all fail for anything
+// private, deleted, or not embeddable — exactly the states that would render as
+// an error box inside the feed.
+const OEMBED = {
+  youtube: (id) => 'https://www.youtube.com/oembed?format=json&url=' +
+    encodeURIComponent('https://www.youtube.com/watch?v=' + id),
+  vimeo: (id) => 'https://vimeo.com/api/oembed.json?url=' +
+    encodeURIComponent('https://vimeo.com/' + id),
+  tiktok: (id) => 'https://www.tiktok.com/oembed?url=' +
+    encodeURIComponent('https://www.tiktok.com/@i/video/' + id),
+};
 
-async function check(id) {
-  const url = OEMBED + encodeURIComponent('https://www.youtube.com/watch?v=' + id);
+async function check(id, provider) {
+  const build = OEMBED[provider || 'youtube'];
+  if (!build) return { ok: false, reason: 'unknown provider ' + provider };
+  const url = build(id);
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), 15000);
   try {
@@ -42,10 +54,10 @@ async function check(id) {
   for (const [category, list] of Object.entries(SEEDS)) {
     console.log('\n' + category);
     for (const item of list) {
-      const r = await check(item.id);
+      const r = await check(item.id, item.provider);
       checked++;
       if (r.ok) {
-        console.log(`  ok    ${item.id}  [${r.author}]  ${r.title.slice(0, 58)}`);
+        console.log(`  ok    ${String(item.provider||'youtube').padEnd(7)} ${item.id.padEnd(11)} [${r.author}]  ${String(r.title).slice(0, 46)}`);
       } else {
         failed++;
         console.log(`  FAIL  ${item.id}  ${r.reason}  — stored as "${item.title}"`);

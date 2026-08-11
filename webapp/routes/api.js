@@ -2662,9 +2662,10 @@ router.get('/reels/saved', requireAuth, (req, res) => {
 // never invents a video ID here: it may only rank IDs we supplied.
 router.get('/reels', requireAuth, async (req, res) => {
   const blocked = /\b(porn|sex|onlyfans|cannabis|marijuana|weed|alcohol|beer|wine|vodka|drug|steroid|anorexia|bulimia|purge|starvation|pro[- ]ana|laxative)\b/i;
-  const library = db.prepare(`SELECT video_id, title, description, thumbnail_url, channel_title, published_at, category
+  const library = db.prepare(`SELECT video_id, title, description, thumbnail_url, channel_title, published_at, category, provider
     FROM (SELECT video_id,title,description,thumbnail_url,channel_title,published_at,category,
-      ROW_NUMBER() OVER (PARTITION BY video_id ORDER BY CASE WHEN category='food' THEN 0 ELSE 1 END,published_at DESC) reel_rank
+      provider,
+        ROW_NUMBER() OVER (PARTITION BY video_id ORDER BY CASE WHEN category='food' THEN 0 ELSE 1 END,published_at DESC) reel_rank
       FROM videos WHERE is_short=1 OR lower(title||'') LIKE '%#short%' OR lower(title||'') LIKE '%shorts%'
         OR lower(title||'') LIKE '%reel%' OR lower(description||'') LIKE '%#short%' OR lower(description||'') LIKE '%shorts%')
     WHERE reel_rank=1 ORDER BY RANDOM() LIMIT 100`).all().filter(v => !blocked.test(`${v.title || ''} ${v.description || ''}`));

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Functioning Faith
+@testable import FunctioningFaith
 
 final class FunctioningFaithTests: XCTestCase {
     func testMockFeedIsNonEmpty() async throws {
