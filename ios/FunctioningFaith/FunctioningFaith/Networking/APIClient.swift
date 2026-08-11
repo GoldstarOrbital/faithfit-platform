@@ -69,6 +69,22 @@ final class APIClient {
         return try await request("/api/users/\(id.uuidString)/follow", method: "POST", body: EmptyBody())
     }
 
+    func fetchExploreContent() async throws -> ExploreContent {
+        if useMock { return MockData.exploreContent }
+        async let catalog: ExploreResponse = request("/api/explore")
+        async let challenges: [ExploreChallenge] = request("/api/challenges")
+        let (base, liveChallenges) = try await (catalog, challenges)
+        return ExploreContent(groups: base.groups, quests: base.quests, challenges: liveChallenges)
+    }
+
+    func joinChallenge(id: String) async throws {
+        if useMock { return }
+        guard let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw APIError.invalidResponse
+        }
+        let _: ActionResponse = try await request("/api/challenges/\(encoded)/join", method: "POST", body: EmptyBody())
+    }
+
     func login(email: String, password: String) async throws -> UserProfile {
         if useMock { return MockData.profile }
         let _: AuthResponse = try await request("/api/auth/login", method: "POST", body: Credentials(email: email, password: password))
@@ -114,12 +130,12 @@ final class APIClient {
 
     func reportPost(id: UUID, reason: String) async throws {
         if useMock { return }
-        let _: SafetyResponse = try await request("/api/posts/\(id.uuidString)/report", method: "POST", body: ReportBody(reason: reason))
+        let _: ActionResponse = try await request("/api/posts/\(id.uuidString)/report", method: "POST", body: ReportBody(reason: reason))
     }
 
     func blockUser(id: UUID) async throws {
         if useMock { return }
-        let _: SafetyResponse = try await request("/api/users/\(id.uuidString)/block", method: "POST", body: EmptyBody())
+        let _: ActionResponse = try await request("/api/users/\(id.uuidString)/block", method: "POST", body: EmptyBody())
     }
 
     private func request<T: Decodable>(_ path: String, method: String = "GET") async throws -> T {
@@ -176,7 +192,7 @@ struct FollowResponse: Decodable {
     }
 }
 
-private struct SafetyResponse: Decodable {
+private struct ActionResponse: Decodable {
     let ok: Bool
 }
 
@@ -188,6 +204,11 @@ private struct FeedResponse: Decodable {
     let posts: [FeedDTO]
     let nextCursor: String?
     enum CodingKeys: String, CodingKey { case posts; case nextCursor = "next_cursor" }
+}
+
+private struct ExploreResponse: Decodable {
+    let groups: [ExploreGroup]
+    let quests: [ExploreQuest]
 }
 
 struct FeedPage {
@@ -251,5 +272,10 @@ enum MockData {
         FeedPost(id: UUID(), authorName: "Priya K.", content: "Rest day reflection.", workout: nil, verse: VerseSnippet(id: "psa.46.1", reference: "Psalm 46:1", snippet: "God is our refuge and strength...", deepLink: "youversion://bible/verse/psa.46.1"), createdAt: .now.addingTimeInterval(-7200)),
     ]
     static let profile = UserProfile(id: UUID(), displayName: "Alex G.", bio: "Training body and spirit.", xp: 320, level: 3, badges: [Badge(id: "b-first-workout", name: "First Steps", iconURL: "star.fill")])
+    static let exploreContent = ExploreContent(
+        groups: [ExploreGroup(id: "group-preview", name: "Sunrise 5K Fellowship", description: "Early runs and spiritual reflection.", username: "sunrise-5k", churchName: nil, locationName: nil, sport: "Running", memberCount: 12)],
+        quests: [ExploreQuest(id: "quest-preview", name: "Faithful Five", description: "Complete five workouts this week.", theme: "perseverance", target: 5)],
+        challenges: [ExploreChallenge(id: "challenge-preview", name: "First Steps", description: "Complete three workouts.", flavor: "Do not despise small beginnings.", scriptureReference: "Zechariah 4:10", metric: "workouts", target: 3, theme: "beginning", progress: 1, participants: 24, joined: true, percent: 33, completed: false)]
+    )
     static func activeWorkout(type: String) -> WorkoutSummary { WorkoutSummary(id: UUID(), type: type, startTime: .now, endTime: nil, calories: nil, avgHR: nil) }
 }

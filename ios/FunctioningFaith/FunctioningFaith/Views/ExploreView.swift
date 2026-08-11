@@ -3,6 +3,10 @@ import SwiftUI
 struct ExploreView: View {
     @State private var suggestions: [SuggestedUser] = []
     @State private var isLoadingSuggestions = true
+    @State private var groups: [ExploreGroup] = []
+    @State private var quests: [ExploreQuest] = []
+    @State private var challenges: [ExploreChallenge] = []
+    @State private var isLoadingContent = true
 
     var body: some View {
         List {
@@ -41,19 +45,101 @@ struct ExploreView: View {
             } footer: {
                 Text("Suggestions are based on shared communities and mutual connections. You can unfollow any time from the web profile.")
             }
-            Section("Challenges") { Text("Faithful Five - weekly workout challenge") }
-            Section("Groups") { Text("Sunrise 5K Fellowship (synced via Gloo)") }
-            Section("Quests") { Text("Scripture Streak - 7 day devotion quest") }
+            Section("Challenges") {
+                if isLoadingContent {
+                    ProgressView()
+                } else if challenges.isEmpty {
+                    Text("New challenges are being prepared.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(challenges.prefix(6)) { challenge in
+                        VStack(alignment: .leading, spacing: 7) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(challenge.name).font(.headline)
+                                    Text(challenge.description ?? challenge.flavor ?? "")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Button(challenge.joined ? "Joined" : "Join") {
+                                    join(challenge)
+                                }
+                                .buttonStyle(.bordered)
+                                .disabled(challenge.joined)
+                            }
+                            ProgressView(value: Double(challenge.percent), total: 100)
+                                .tint(challenge.completed ? .green : .orange)
+                            HStack {
+                                Text("\(challenge.percent)%")
+                                Spacer()
+                                Text("\(challenge.participants) participating")
+                            }
+                            .font(.caption2).foregroundStyle(.secondary)
+                            if let reference = challenge.scriptureReference {
+                                Text(reference).font(.caption.weight(.semibold)).foregroundStyle(.indigo)
+                            }
+                        }
+                        .padding(.vertical, 5)
+                    }
+                }
+            }
+            Section("Groups") {
+                if isLoadingContent {
+                    ProgressView()
+                } else if groups.isEmpty {
+                    Text("No groups yet. Create one from the web app.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(groups.prefix(8)) { group in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(group.name).font(.headline)
+                            if let description = group.description {
+                                Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            }
+                            HStack {
+                                if let sport = group.sport { Label(sport, systemImage: "figure.run") }
+                                Spacer()
+                                Text("\(group.memberCount) members")
+                            }
+                            .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+            Section("Quests") {
+                if isLoadingContent {
+                    ProgressView()
+                } else {
+                    ForEach(quests) { quest in
+                        Label {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(quest.name).font(.headline)
+                                Text(quest.description ?? "").font(.caption).foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "sparkles").foregroundStyle(.orange)
+                        }
+                    }
+                }
+            }
         }
         .navigationTitle("Explore")
-        .task { await loadSuggestions() }
-        .refreshable { await loadSuggestions() }
+        .task { await loadExplore() }
+        .refreshable { await loadExplore() }
     }
 
-    private func loadSuggestions() async {
+    private func loadExplore() async {
         isLoadingSuggestions = true
-        defer { isLoadingSuggestions = false }
-        suggestions = (try? await APIClient.shared.fetchSuggestedUsers()) ?? []
+        isLoadingContent = true
+        let suggestionsTask = Task { try? await APIClient.shared.fetchSuggestedUsers() }
+        let contentTask = Task { try? await APIClient.shared.fetchExploreContent() }
+        suggestions = (await suggestionsTask.value) ?? []
+        if let content = await contentTask.value {
+            groups = content.groups
+            quests = content.quests
+            challenges = content.challenges
+        }
+        isLoadingSuggestions = false
+        isLoadingContent = false
     }
 
     private func follow(_ user: SuggestedUser) {
@@ -61,6 +147,15 @@ struct ExploreView: View {
             guard let response = try? await APIClient.shared.followUser(id: user.id),
                   let index = suggestions.firstIndex(where: { $0.id == user.id }) else { return }
             suggestions[index].isFollowing = response.following
+        }
+    }
+
+    private func join(_ challenge: ExploreChallenge) {
+        Task {
+            guard (try? await APIClient.shared.joinChallenge(id: challenge.id)) != nil,
+                  let index = challenges.firstIndex(where: { $0.id == challenge.id }) else { return }
+            challenges[index].joined = true
+            challenges[index].participants += 1
         }
     }
 }
