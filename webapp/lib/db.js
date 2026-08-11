@@ -547,6 +547,13 @@ CREATE TABLE IF NOT EXISTS post_reports (
   reason TEXT,
   created_at TEXT DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS user_reports (
+  id TEXT PRIMARY KEY,
+  reported_user_id TEXT NOT NULL,
+  reporter_id TEXT NOT NULL,
+  reason TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS workout_partners (
   id TEXT PRIMARY KEY,
   workout_id TEXT NOT NULL,

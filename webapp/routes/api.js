@@ -633,6 +633,10 @@ router.get('/feed', (req, res) => {
     )
       AND (@following_only = 0 OR p.user_id = @me OR EXISTS (
             SELECT 1 FROM followers ff WHERE ff.follower_id = @me AND ff.followee_id = p.user_id))
+      AND (@me IS NULL OR NOT EXISTS (
+            SELECT 1 FROM dm_blocks blocked
+            WHERE (blocked.blocker_id = @me AND blocked.blocked_id = p.user_id)
+               OR (blocked.blocker_id = p.user_id AND blocked.blocked_id = @me)))
       AND (@before = '' OR p.created_at < @before)
     ORDER BY p.created_at DESC LIMIT @limit
   `).all({ me: meId, following_only: followingOnly ? 1 : 0, before, limit });
@@ -1377,7 +1381,27 @@ router.get('/users/:id', (req, res) => {
     ORDER BY p.created_at DESC LIMIT 20
   `).all({ uid: u.id, me });
 
-  res.json({ user: u, stats, is_me, is_following, posts });
+  res.json({ user: u, stats, is_me, is_following, is_blocked: me ? dms.isBlockedEitherWay(me, u.id) : false, posts });
+});
+
+router.post('/users/:id/block', requireAuth, (req, res) => {
+  if (req.params.id === req.session.userId) return res.status(400).json({ error: 'invalid_recipient' });
+  if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(req.params.id)) return res.status(404).json({ error: 'user_not_found' });
+  res.json(dms.block(req.session.userId, req.params.id));
+});
+
+router.delete('/users/:id/block', requireAuth, (req, res) => {
+  res.json(dms.unblock(req.session.userId, req.params.id));
+});
+
+router.post('/users/:id/report', requireAuth, (req, res) => {
+  if (req.params.id === req.session.userId) return res.status(400).json({ error: 'cannot_report_self' });
+  if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(req.params.id)) return res.status(404).json({ error: 'user_not_found' });
+  const reason = String(req.body?.reason || '').trim().slice(0, 300);
+  if (!reason) return res.status(400).json({ error: 'reason_required' });
+  db.prepare('INSERT INTO user_reports (id, reported_user_id, reporter_id, reason) VALUES (?, ?, ?, ?)')
+    .run(randomUUID(), req.params.id, req.session.userId, reason);
+  res.status(201).json({ ok: true });
 });
 
 // ---- explore ----
@@ -1904,6 +1928,7 @@ router.delete('/me', requireAuth, (req, res) => {
       db.prepare(`DELETE FROM dm_threads WHERE id IN (${marks})`).run(...threads);
     }
     db.prepare('DELETE FROM dm_blocks WHERE blocker_id = ? OR blocked_id = ?').run(uid, uid);
+    db.prepare('DELETE FROM user_reports WHERE reporter_id = ? OR reported_user_id = ?').run(uid, uid);
     db.prepare('DELETE FROM followers WHERE follower_id = ? OR followee_id = ?').run(uid, uid);
     db.prepare('DELETE FROM workout_partners WHERE tagged_by = ? OR partner_user_id = ?').run(uid, uid);
     db.prepare('DELETE FROM workout_invites WHERE sender_id = ? OR recipient_id = ?').run(uid, uid);

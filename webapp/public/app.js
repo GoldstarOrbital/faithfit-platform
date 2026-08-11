@@ -568,6 +568,7 @@ async function renderUserProfile(userId) {
       ${u.bio_verse_ref ? `<div class="verse-card"><div class="verse-ref">${u.bio_verse_ref}</div><div class="verse-text">${escapeHtml(u.bio_verse_text || '')}</div></div>` : ''}
       ${u.bio_link_url ? `<a href="${escapeHtml(u.bio_link_url)}" target="_blank" rel="noopener noreferrer" class="ghost" style="display:inline-block;margin-top:10px;text-decoration:none">${escapeHtml(u.bio_link_label || 'Link ↗')}</a>` : ''}
     </div>
+    ${!data.is_me ? `<div class="profile-safety"><button class="ghost" id="profile-block">${data.is_blocked ? 'Unblock member' : 'Block member'}</button><button class="ghost" id="profile-report">Report member</button></div>` : ''}
     <div id="profile-posts">${data.posts.length ? '' : '<p class="muted">No posts to show yet.</p>'}</div>
   `;
   hydrateAvatars(main);
@@ -593,6 +594,19 @@ async function renderUserProfile(userId) {
   if (mb) mb.onclick = () => openDmWith(userId);
   const inviteBtn = document.getElementById('profile-invite');
   if (inviteBtn) inviteBtn.onclick = () => openWorkoutInvite(userId, u.display_name);
+  const blockBtn = document.getElementById('profile-block');
+  if (blockBtn) blockBtn.onclick = async () => {
+    const blocked = blockBtn.textContent.startsWith('Unblock');
+    await api(`/users/${userId}/block`, { method: blocked ? 'DELETE' : 'POST' });
+    blockBtn.textContent = blocked ? 'Block member' : 'Unblock member';
+  };
+  const reportBtn = document.getElementById('profile-report');
+  if (reportBtn) reportBtn.onclick = async () => {
+    const reason = prompt('Why are you reporting this member?');
+    if (!reason) return;
+    await api(`/users/${userId}/report`, { method: 'POST', body: { reason }, throwOnError: true });
+    reportBtn.textContent = 'Report sent'; reportBtn.disabled = true;
+  };
   const fb = document.getElementById('profile-follow');
   if (fb) fb.onclick = async () => {
     const r = await api(`/users/${userId}/follow`, { method: 'POST' });
