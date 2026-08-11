@@ -1,0 +1,14 @@
+{
+  "name": "Functioning Faith",
+  "short_name": "Faith",
+  "description": "Move your body, deepen your faith, and find your people.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6efdf",
+  "theme_color": "#2b1e14",
+  "orientation": "portrait-primary",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ],
+  "categories": ["health", "lifestyle", "social"]
+}

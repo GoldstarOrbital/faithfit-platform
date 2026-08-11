@@ -208,6 +208,9 @@ async function renderSignIn() {
       </p>
       <div class="auth-divider"><span>or</span></div>
       <button class="ghost" id="demo-open" style="width:100%">Explore a demo profile</button>
+      <p class="muted" style="font-size:0.72rem;text-align:center;margin:14px 0 0">
+        By continuing, you agree to our <a href="/terms.html" target="_blank" rel="noopener">Terms</a> and acknowledge our <a href="/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.
+      </p>
     </div>`;
 
   const errEl = main.querySelector('#auth-error');
@@ -1413,6 +1416,7 @@ async function renderProfile(main) {
       <h2>Your data</h2>
       <div class="muted" style="margin-bottom:10px">Full transparency — download everything Functioning Faith stores about your account as a JSON file.</div>
       <a class="ghost" id="data-export" href="/api/me/export" download="functioning-faith-my-data.json" style="display:block;text-align:center;text-decoration:none">⬇ Download my data</a>
+      <div class="settings-danger-zone"><strong>Delete account</strong><div class="muted">Permanently removes your profile, workouts, posts, messages, connections, and personal data.</div><button class="ghost danger" id="delete-account" type="button">Delete my account</button></div>
     </div>
     <div class="card glass profile-panel" data-profile-group="integrations" id="creator-overlay">
       <h2>Creator overlay</h2>
@@ -1489,6 +1493,12 @@ async function renderProfile(main) {
   };
   document.getElementById('c-biometric').onchange = (e) => api('/consent', { method: 'POST', body: { scope: 'biometric_ingest', granted: e.target.checked } });
   document.getElementById('c-scripture').onchange = (e) => api('/consent', { method: 'POST', body: { scope: 'scripture_personalization', granted: e.target.checked } });
+  document.getElementById('delete-account').onclick = async () => {
+    if (!confirm('Delete your Functioning Faith account and personal data permanently? This cannot be undone.')) return;
+    const button = document.getElementById('delete-account'); button.disabled = true; button.textContent = 'Deleting…';
+    try { await api('/me', { method: 'DELETE', throwOnError: true }); state.me = null; signInMode = 'login'; location.href = '/'; }
+    catch { button.disabled = false; button.textContent = 'Delete failed — try again'; }
+  };
   document.getElementById('signout').onclick = async () => {
     try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
     state.me = null; signInMode = 'login'; location.reload();

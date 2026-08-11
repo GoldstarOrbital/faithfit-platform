@@ -1776,3 +1776,11 @@ header.topbar .brand { gap: 0; }
 /* Start is available on a poor fix, but it should not look like a clean one. */
 button.start-degraded { background: var(--hearth, #b8863b); }
 .gps-gate-note { display:block; margin-top:3px; font-size:.72rem; opacity:.85; }
+/* Store-ready legal pages share the product shell without loading the app. */
+.legal-page { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+.legal-page > .ghost { display: inline-block; margin-bottom: 14px; text-decoration: none; }
+.legal-page h1 { margin: 4px 0 8px; }
+.legal-page h2 { margin: 24px 0 7px; font-size: 1.05rem; }
+.legal-page p { line-height: 1.65; }
+.settings-danger-zone { margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(92,57,31,.18); display: grid; gap: 7px; }
+.settings-danger-zone .danger { justify-self: start; color: #9b4037; border-color: rgba(155,64,55,.35); }

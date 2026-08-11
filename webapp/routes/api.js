@@ -1826,6 +1826,65 @@ router.get('/recommendations', (req, res) => {
   res.json({ theme, verse, podcast, challenge });
 });
 
+// ---- account deletion and transparent data export ----------------------
+router.delete('/me', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  if (!db.prepare('SELECT id FROM users WHERE id = ?').get(uid)) return res.status(404).json({ error: 'account_not_found' });
+  const userTables = [
+    'user_consents', 'workouts', 'biometric_samples', 'scripture_triggers', 'user_xp',
+    'user_badges', 'user_quests', 'notifications', 'post_comments', 'post_likes',
+    'breathing_sessions', 'user_challenges', 'user_identities', 'user_connectors',
+    'imported_activities', 'group_messages', 'event_rsvps', 'user_journeys',
+    'verse_reflections', 'verse_reflection_likes', 'training_goals', 'webhooks',
+    'journey_segment_times', 'gloo_calls', 'api_keys', 'push_subscriptions',
+    'push_log', 'user_reminders', 'motivation_seen', 'wearable_metrics',
+  ];
+  try {
+    db.exec('BEGIN');
+    const postIds = db.prepare('SELECT id FROM posts WHERE user_id = ?').all(uid).map(r => r.id);
+    const workoutIds = db.prepare('SELECT id FROM workouts WHERE user_id = ?').all(uid).map(r => r.id);
+    if (postIds.length) {
+      const marks = postIds.map(() => '?').join(',');
+      db.prepare(`DELETE FROM post_likes WHERE post_id IN (${marks})`).run(...postIds);
+      db.prepare(`DELETE FROM post_comments WHERE post_id IN (${marks})`).run(...postIds);
+      db.prepare(`DELETE FROM posts WHERE id IN (${marks})`).run(...postIds);
+    }
+    if (workoutIds.length) {
+      const marks = workoutIds.map(() => '?').join(',');
+      db.prepare(`DELETE FROM workout_partners WHERE workout_id IN (${marks})`).run(...workoutIds);
+      db.prepare(`DELETE FROM imported_activities WHERE workout_id IN (${marks})`).run(...workoutIds);
+    }
+    const threads = db.prepare('SELECT id FROM dm_threads WHERE user_a = ? OR user_b = ?').all(uid, uid).map(r => r.id);
+    if (threads.length) {
+      const marks = threads.map(() => '?').join(',');
+      db.prepare(`DELETE FROM dm_messages WHERE thread_id IN (${marks})`).run(...threads);
+      db.prepare(`DELETE FROM dm_threads WHERE id IN (${marks})`).run(...threads);
+    }
+    db.prepare('DELETE FROM dm_blocks WHERE blocker_id = ? OR blocked_id = ?').run(uid, uid);
+    db.prepare('DELETE FROM followers WHERE follower_id = ? OR followee_id = ?').run(uid, uid);
+    db.prepare('DELETE FROM workout_partners WHERE tagged_by = ? OR partner_user_id = ?').run(uid, uid);
+    db.prepare('DELETE FROM workout_invites WHERE sender_id = ? OR recipient_id = ?').run(uid, uid);
+    db.prepare('DELETE FROM group_invites WHERE created_by = ?').run(uid);
+    db.prepare('DELETE FROM group_members WHERE user_id = ?').run(uid);
+    for (const group of db.prepare('SELECT id FROM groups WHERE creator_id = ?').all(uid)) {
+      const next = db.prepare('SELECT user_id FROM group_members WHERE group_id = ? ORDER BY rowid LIMIT 1').get(group.id);
+      if (next) {
+        db.prepare('UPDATE groups SET creator_id = ? WHERE id = ?').run(next.user_id, group.id);
+        db.prepare("UPDATE group_members SET role = 'admin' WHERE group_id = ? AND user_id = ?").run(group.id, next.user_id);
+      } else db.prepare('DELETE FROM groups WHERE id = ?').run(group.id);
+    }
+    for (const table of userTables) db.prepare(`DELETE FROM ${table} WHERE user_id = ?`).run(uid);
+    db.prepare('DELETE FROM users WHERE id = ?').run(uid);
+    db.exec('COMMIT');
+    req.session = null;
+    res.json({ ok: true, deleted: true });
+  } catch (err) {
+    try { db.exec('ROLLBACK'); } catch {}
+    console.error('account deletion failed', err);
+    res.status(500).json({ error: 'account_deletion_failed' });
+  }
+});
+
 // ---- transparent data export: everything we hold on the signed-in user ----
 router.get('/me/export', requireAuth, (req, res) => {
   const uid = req.session.userId;
