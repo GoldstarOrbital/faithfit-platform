@@ -18,7 +18,9 @@ networking with the production base URL.
 The shell now includes email/password sign-in and registration, a restore-session path,
 real feed/profile/workout request plumbing, production account deletion/sign-out, real
 Core Location route capture, and a production base URL. The feed decoder matches the
-paginated production API. OAuth provider buttons and Sign in with Apple remain a final
+paginated production API. Native Profile now exposes opt-in Scripture, community, and
+reminder notification categories and requests system permission only after a category
+is selected. OAuth provider buttons and Sign in with Apple remain a final
 entitlement/deep-link step.
 
 ## Store metadata included

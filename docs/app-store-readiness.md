@@ -29,7 +29,9 @@ or notifications that are difficult to turn off.
 - [ ] Add Sign in with Apple capability and the production OAuth redirect URI.
 - [ ] Add `NSLocationWhenInUseUsageDescription` explaining live workout routes.
 - [ ] Add Bluetooth usage text explaining optional heart-rate/sensor pairing.
-- [ ] Request notification permission only after the member chooses a category.
+- [x] Request notification permission only after the member chooses a category;
+      native Profile exposes separate Scripture, community, and reminder controls
+      plus a direct path to iOS notification settings.
 - [x] Implement in-app account deletion and verify deletion of connected tokens,
       push subscriptions, messages, posts, workouts, and profile data.
 - [ ] Test login, workout start/stop, GPS denial, offline launch, push deep links,
