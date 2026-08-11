@@ -609,6 +609,8 @@ router.post('/consent', requireAuth, (req, res) => {
 router.get('/feed', (req, res) => {
   const meId = req.session.userId || null;
   const followingOnly = req.query.scope === 'following' && !!meId;
+  const before = String(req.query.before || '').slice(0, 40);
+  const limit = Math.max(10, Math.min(30, Number(req.query.limit) || 20));
   // Visibility rules: public → everyone; followers → the author's followers (and
   // the author); private → author only.
   const posts = db.prepare(`
@@ -631,8 +633,9 @@ router.get('/feed', (req, res) => {
     )
       AND (@following_only = 0 OR p.user_id = @me OR EXISTS (
             SELECT 1 FROM followers ff WHERE ff.follower_id = @me AND ff.followee_id = p.user_id))
-    ORDER BY p.created_at DESC LIMIT 50
-  `).all({ me: meId, following_only: followingOnly ? 1 : 0 });
+      AND (@before = '' OR p.created_at < @before)
+    ORDER BY p.created_at DESC LIMIT @limit
+  `).all({ me: meId, following_only: followingOnly ? 1 : 0, before, limit });
 
   const withSocial = posts.map(p => {
     // Replace the raw trace with only what the author chose to publish, so the
@@ -654,7 +657,7 @@ router.get('/feed', (req, res) => {
     delete p.comment_count;
     return { ...p, like_count: likeCount, liked_by_me: likedByMe, comment_count: commentCount, distance_km: distanceKm, pace_min_per_km: pace };
   });
-  res.json(withSocial);
+  res.json({ posts: withSocial, next_cursor: withSocial.length === limit ? withSocial[withSocial.length - 1].created_at : null });
 });
 
 // Comments are fetched only when a member opens a thread. This keeps the feed

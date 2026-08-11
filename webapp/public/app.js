@@ -304,11 +304,13 @@ function realRouteSvg(points) {
 async function renderHome(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
   const cacheMatchesScope = state.homeCache && state.homeCache.scope === state.feedScope;
-  const critical = cacheMatchesScope && state.homeCache.posts ? [state.homeCache.posts, state.homeCache.users] : await Promise.all([api(`/feed?scope=${encodeURIComponent(state.feedScope)}`), api('/users')]);
-  const [posts, users] = critical;
+  const critical = cacheMatchesScope && state.homeCache.posts ? [state.homeCache, state.homeCache.users] : await Promise.all([api(`/feed?scope=${encodeURIComponent(state.feedScope)}&limit=20`), api('/users')]);
+  const feedData = critical[0];
+  const posts = Array.isArray(feedData) ? feedData : (feedData.posts || []);
+  const users = critical[1];
   const secondary = state.homeCache && state.homeCache.secondary;
   const [suggested, rec, devo, churchVideos] = secondary || [[], null, null, null];
-  if (!cacheMatchesScope) state.homeCache = { posts, users, secondary: null, scope: state.feedScope };
+  if (!cacheMatchesScope) state.homeCache = { posts, users, nextCursor: Array.isArray(feedData) ? null : feedData.next_cursor, secondary: null, scope: state.feedScope };
   const firstName = escapeHtml((state.me && state.me.user && state.me.user.display_name || 'friend').split(' ')[0]);
   main.innerHTML = `
     <section class="home-hero">
@@ -378,6 +380,7 @@ async function renderHome(main) {
       </div>
     </div>` : ''}
     <div id="posts"></div>
+    <div id="feed-more"></div>
   `;
   main.querySelectorAll('[data-home-tab]').forEach(btn => btn.onclick = () => {
     if (btn.dataset.homeExplore) state.exploreTab = btn.dataset.homeExplore;
@@ -440,6 +443,19 @@ async function renderHome(main) {
   `; }).join('') || '<p class="muted">No posts yet.</p>';
 
   hydrateAvatars(postsEl);
+  const moreEl = main.querySelector('#feed-more');
+  if (moreEl && state.homeCache.nextCursor) {
+    moreEl.innerHTML = '<button class="ghost feed-more-btn" type="button">Load more from the community</button>';
+    moreEl.querySelector('button').onclick = async () => {
+      const button = moreEl.querySelector('button'); button.disabled = true; button.textContent = 'Loading…';
+      try {
+        const page = await api(`/feed?scope=${encodeURIComponent(state.feedScope)}&limit=20&before=${encodeURIComponent(state.homeCache.nextCursor)}`);
+        state.homeCache.posts = state.homeCache.posts.concat(page.posts || []);
+        state.homeCache.nextCursor = page.next_cursor || null;
+        renderHome(main);
+      } catch { button.disabled = false; button.textContent = 'Could not load more — try again'; }
+    };
+  }
   wireVerseCards(postsEl);
   postsEl.querySelectorAll('[data-report]').forEach(btn => btn.onclick = async () => {
     const reason = prompt('Why are you reporting this photo? (e.g. shows a single person)');
