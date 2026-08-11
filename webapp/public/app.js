@@ -13,7 +13,7 @@ const state = {
   splits: [], lastSplitKm: 0, lastSplitElapsed: 0, hrSamples: [],
   bleDevice: null, bleServer: null, bleConnected: false,
   breathePhase: 'idle',
-  homeCache: null, feedScope: 'community', reelTargetId: null, reelsView: 'for_you',
+  homeCache: null, feedScope: 'community', reelTargetId: null, reelsView: 'for_you', searchPostId: null,
 };
 
 let gpsStartedAt = null, gpsTicker = null;
@@ -463,6 +463,11 @@ async function renderHome(main) {
       </div>
     </div>
   `; }).join('') || '<p class="muted">No posts yet.</p>';
+  if (state.searchPostId) {
+    const target = postsEl.querySelector(`[data-post="${CSS.escape(state.searchPostId)}"]`);
+    state.searchPostId = null;
+    if (target) setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+  }
 
   hydrateAvatars(postsEl);
   const moreEl = main.querySelector('#feed-more');
@@ -4156,6 +4161,7 @@ let searchTimer = null;
 
 const SEARCH_ICONS = {
   people:     '<circle cx="12" cy="8" r="4"/><path d="M4.5 20c0-4.2 3.8-6.2 7.5-6.2s7.5 2 7.5 6.2"/>',
+  posts:      '<path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/>',
   journeys:   '<path d="M4 19c3-1 4-5 8-5s5-4 8-5"/><circle cx="5" cy="19" r="1.6"/><circle cx="19" cy="9" r="1.6"/>',
   challenges: '<path d="M7 4h10v4a5 5 0 01-10 0V4z"/><path d="M10 15h4v3h-4z"/><path d="M8 21h8"/>',
   groups:     '<circle cx="9" cy="8" r="3"/><path d="M3 19c0-3.2 2.8-5 6-5s6 1.8 6 5"/>',
@@ -4228,6 +4234,7 @@ function openSearchResult(type, id) {
   const main = document.getElementById('main');
   switch (type) {
     case 'people':     return renderUserProfile(id);
+    case 'posts':      state.tab = 'home'; state.feedScope = 'community'; state.homeCache = null; state.searchPostId = id; return render();
     case 'journeys':   return renderJourneyDetail(id);
     case 'scripture':  return renderVerseThread(id);
     case 'challenges': state.tab = 'explore'; state.exploreTab = 'challenges'; return render();

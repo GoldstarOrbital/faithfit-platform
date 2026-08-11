@@ -3948,7 +3948,7 @@ router.get('/username-available', (req, res) => {
 // One query, grouped results: people, routes, challenges, groups, videos,
 // podcasts and scripture. Scripture goes through the same verified table as
 // everything else, so a search can never surface a verse we cannot trace.
-router.get('/search', (req, res) => {
+router.get('/search', requireAuth, (req, res) => {
   const raw = String(req.query.q || '').trim();
   if (raw.length < 2) return res.json({ q: raw, groups: [], total: 0 });
   const like = '%' + raw.replace(/[%_]/g, m => '\\' + m) + '%';
@@ -3957,13 +3957,33 @@ router.get('/search', (req, res) => {
   const add = (type, label, items) => { if (items.length) groups.push({ type, label, items }); };
 
   add('people', 'People', db.prepare(
-    `SELECT id, display_name, church, job,
-            CASE WHEN avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar
-     FROM users WHERE display_name LIKE ? ESCAPE '\\'
-     ORDER BY length(display_name) LIMIT ?`).all(like, limit)
+    `SELECT u.id, u.display_name, u.bio_verse_ref,
+            CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar
+     FROM users u
+     WHERE u.id != @me AND u.display_name LIKE @like ESCAPE '\\'
+       AND NOT EXISTS (SELECT 1 FROM dm_blocks b
+                       WHERE (b.blocker_id = @me AND b.blocked_id = u.id)
+                          OR (b.blocker_id = u.id AND b.blocked_id = @me))
+     ORDER BY length(u.display_name), u.display_name LIMIT @limit`).all({ like, me: req.session.userId, limit })
     .map(u => ({ id: u.id, title: u.display_name,
-                 subtitle: [u.job, u.church].filter(Boolean).join(' · ') || null,
+                 subtitle: u.bio_verse_ref || null,
                  has_avatar: !!u.has_avatar })));
+
+  // Search respects the same visibility and block rules as the feed. This
+  // makes search a way to re-find a useful conversation, not a side channel
+  // around a member's audience choice.
+  add('posts', 'Community posts', db.prepare(`
+    SELECT p.id, p.content, p.created_at, u.display_name AS author
+      FROM posts p JOIN users u ON u.id = p.user_id
+     WHERE p.content LIKE @like ESCAPE '\\'
+       AND (p.visibility = 'public' OR p.user_id = @me OR (p.visibility = 'followers' AND EXISTS (
+            SELECT 1 FROM followers f WHERE f.followee_id = p.user_id AND f.follower_id = @me)))
+       AND NOT EXISTS (SELECT 1 FROM dm_blocks b
+                       WHERE (b.blocker_id = @me AND b.blocked_id = p.user_id)
+                          OR (b.blocker_id = p.user_id AND b.blocked_id = @me))
+     ORDER BY p.created_at DESC LIMIT @limit
+  `).all({ like, me: req.session.userId, limit })
+    .map(p => ({ id: p.id, title: p.author, subtitle: p.content })));
 
   add('journeys', 'Journeys', db.prepare(
     `SELECT key, name, subtitle, total_km FROM journeys
