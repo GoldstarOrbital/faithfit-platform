@@ -31,6 +31,24 @@ final class FunctioningFaithTests: XCTestCase {
         XCTAssertTrue(true)
     }
 
+    func testNativeAuthProvidersOnlyExposeSupportedProviderNames() async throws {
+        let client = APIClient.shared
+        client.useMock = true
+        let providers = try await client.fetchAuthProviders()
+
+        XCTAssertEqual(Set(providers.map(\.name)), Set(["google", "apple"]))
+        XCTAssertTrue(providers.allSatisfy { !$0.label.isEmpty })
+    }
+
+    @MainActor
+    func testNativeOAuthNonceDerivationsMatchServerContracts() {
+        let verifier = "test"
+        XCTAssertEqual(NativeOAuthCoordinator.appleNonceHash(for: verifier),
+                       "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08")
+        XCTAssertEqual(NativeOAuthCoordinator.pkceChallenge(for: verifier),
+                       "n4bQgYhMfWWaL-qgxVrQFaO_TxsrC4Is0V1sFbDwCgg")
+    }
+
     func testFeedPostPhotoFieldsSurviveCodableRoundTrip() throws {
         let original = FeedPost(
             id: UUID(),

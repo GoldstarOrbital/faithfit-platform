@@ -1,0 +1,44 @@
+name: Web CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "webapp/**"
+      - ".github/workflows/web-ci.yml"
+  pull_request:
+    paths:
+      - "webapp/**"
+      - ".github/workflows/web-ci.yml"
+
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: webapp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - run: npm ci
+      - name: Check server JavaScript
+        run: |
+          node --check server.js
+          node --check routes/api.js
+          node --check lib/account-security.js
+          node --check lib/oauth.js
+          node --check public/app.js
+          node --check scripts/verify-native-auth.js
+      - name: Verify native authentication contract
+        run: npm run verify:native-auth
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high

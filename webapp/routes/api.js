@@ -269,6 +269,15 @@ router.post('/auth/mfa/complete', (req, res) => {
   if (!pending || Date.now() - pending.createdAt > 5 * 60 * 1000) return res.status(401).json({ error: 'mfa_session_expired' });
   if (!accountSecurity.verifyMfa(pending.userId, req.body?.code)) return res.status(401).json({ error: 'invalid_mfa_code' });
   const user = db.prepare('SELECT * FROM users WHERE id=?').get(pending.userId);
+  if (pending.native) {
+    try {
+      const code = accountSecurity.issueNativeAuthCode(pending.userId, `${pending.method}+mfa`, pending.handoffChallenge);
+      req.session.mfaPending = null;
+      return res.json({ ok: true, native_callback: nativeOAuthCallback({ code }) });
+    } catch (err) {
+      return res.status(400).json({ error: err.code || 'native_handoff_failed' });
+    }
+  }
   const started = accountSecurity.startSession(req, pending.userId, `${pending.method}+mfa`);
   if (started.newDevice) notify(user.id, 'security', `New sign-in on ${started.deviceName}.`, { url: '/?open=profile&settings=security' });
   res.json({ ok: true, user: publicUser(user) });
@@ -357,11 +366,17 @@ router.get('/auth/oauth/:provider/start', (req, res) => {
   const state = oauth.b64url(require('crypto').randomBytes(16));
   const nonce = oauth.b64url(require('crypto').randomBytes(16));
   const link = req.query.link === '1' && !!req.session.userId;
+  const native = req.query.native === '1' && !link;
+  const handoffChallenge = native ? String(req.query.handoff_challenge || '') : null;
+  if (native && !/^[A-Za-z0-9_-]{43}$/.test(handoffChallenge)) {
+    return res.status(400).json({ error: 'invalid_handoff_challenge' });
+  }
   if (link && !accountSecurity.recentlyReauthenticated(req)) {
     return res.status(403).json({ error: 'recent_reauthentication_required', hint: 'Sign in again before linking a new identity.' });
   }
 
-  req.session.oauthPending = { provider, state, nonce, verifier, link, userId: link ? req.session.userId : null, createdAt: Date.now() };
+  req.session.oauthPending = { provider, state, nonce, verifier, link, native, handoffChallenge,
+    userId: link ? req.session.userId : null, createdAt: Date.now() };
   const redirectUri = `${baseUrl(req)}/api/auth/oauth/${provider}/callback`;
   try {
     const url = oauth.buildAuthorizationUrl(provider, { redirectUri, state, nonce, codeChallenge: challenge });
@@ -375,7 +390,9 @@ async function handleOauthCallback(req, res) {
   const { provider } = req.params;
   const params = { ...req.query, ...req.body };
   const pending = req.session.oauthPending;
-  const fail = (reason) => res.redirect(`/?oauth_error=${encodeURIComponent(reason)}`);
+  const fail = (reason) => res.redirect(pending?.native
+    ? nativeOAuthCallback({ error: reason })
+    : `/?oauth_error=${encodeURIComponent(reason)}`);
 
   if (!pending || pending.provider !== provider) return fail('session_expired');
   if (Date.now() - pending.createdAt > 10 * 60 * 1000) { req.session.oauthPending = null; return fail('session_expired'); }
@@ -389,7 +406,6 @@ async function handleOauthCallback(req, res) {
 
     const email = claims.email ? String(claims.email).trim().toLowerCase() : null;
     const emailVerified = claims.email_verified === true || claims.email_verified === 'true';
-    const name = claims.name || (email ? email.split('@')[0] : `${oauth.PROVIDERS[provider].label} user`);
 
     if (pending.link) {
       // Linking to an already-signed-in account.
@@ -405,38 +421,18 @@ async function handleOauthCallback(req, res) {
     }
 
     // Sign-in-or-create.
-    let identity = db.prepare('SELECT user_id FROM user_identities WHERE provider = ? AND provider_user_id = ?').get(provider, claims.sub);
     let userId;
-    if (identity) {
-      userId = identity.user_id;
-    } else if (email && emailVerified) {
-      // Never silently merge a new OAuth identity into a password account. A
-      // legitimate owner can sign into that account and explicitly link it;
-      // silent merging creates an account-pre-hijack path.
-      const existingUser = db.prepare('SELECT id,password_hash FROM users WHERE email = ?').get(email);
-      if (existingUser) {
-        req.session.oauthPending = null;
-        return fail('account_link_required');
-      }
-    }
-    if (!userId) {
-      // New account — no password (identity-only sign-in).
-      userId = randomUUID();
-      const uniqueEmail = email || `${provider}-${claims.sub}@login.functioning-faith`;
-      // A name clash must never be why somebody's Google sign-in fails, so this
-      // path takes the nearest free variant instead of refusing.
-      const chosen = usernames.suggest(String(name || 'Friend'), null);
-      db.prepare(`INSERT INTO users (id,email,display_name,terms_version,terms_accepted_at)
-        VALUES (?,?,?,NULL,NULL)`).run(userId, uniqueEmail, chosen);
-      db.prepare('INSERT OR IGNORE INTO user_xp (user_id, xp, level) VALUES (?, 0, 1)').run(userId);
-      db.prepare('INSERT INTO user_identities (id,user_id,provider,provider_user_id,email,email_verified) VALUES (?,?,?,?,?,?)')
-        .run(randomUUID(), userId, provider, claims.sub, email, emailVerified ? 1 : 0);
-    }
-
+    try { userId = resolveOauthUser(provider, claims); }
+    catch (err) { req.session.oauthPending = null; return fail(err.code || 'sign_in_failed'); }
     req.session.oauthPending = null;
     if (accountSecurity.mfaEnabled(userId)) {
-      req.session.mfaPending = { userId, method: provider, createdAt: Date.now() };
-      return res.redirect('/?mfa_required=1');
+      req.session.mfaPending = { userId, method: provider, native: !!pending.native,
+        handoffChallenge: pending.handoffChallenge || null, createdAt: Date.now() };
+      return res.redirect(pending.native ? '/?mfa_required=1&native_oauth=1' : '/?mfa_required=1');
+    }
+    if (pending.native) {
+      const code = accountSecurity.issueNativeAuthCode(userId, provider, pending.handoffChallenge);
+      return res.redirect(nativeOAuthCallback({ code }));
     }
     const started = accountSecurity.startSession(req, userId, provider);
     if (started.newDevice) notify(userId, 'security', `New sign-in on ${started.deviceName}.`, { url: '/?open=profile&settings=security' });
@@ -449,6 +445,84 @@ async function handleOauthCallback(req, res) {
 }
 router.get('/auth/oauth/:provider/callback', handleOauthCallback);
 router.post('/auth/oauth/:provider/callback', handleOauthCallback); // Apple uses form_post
+
+function nativeOAuthCallback({ code, error }) {
+  const params = new URLSearchParams();
+  if (code) params.set('code', code);
+  if (error) params.set('error', error);
+  return `functioningfaith://oauth/callback?${params.toString()}`;
+}
+
+// Exchanges the short-lived custom-scheme callback for the native app's normal
+// signed, HttpOnly session cookie. A second PKCE verifier binds the callback to
+// the app instance that initiated it, and every code can be redeemed once.
+router.post('/auth/native/exchange', (req, res) => {
+  if (req.get('x-functioning-faith-client') !== 'ios-native-v1' || !req.is('application/json')) {
+    return res.status(400).json({ error: 'native_client_required' });
+  }
+  const grant = accountSecurity.consumeNativeAuthCode(req.body?.code, req.body?.handoff_verifier);
+  if (!grant) return res.status(401).json({ error: 'invalid_or_expired_native_code' });
+  const user = db.prepare('SELECT * FROM users WHERE id=?').get(grant.userId);
+  if (!user || user.suspended_at) return res.status(401).json({ error: 'account_unavailable' });
+  const started = accountSecurity.startSession(req, user.id, grant.authMethod);
+  if (started.newDevice) notify(user.id, 'security', `New sign-in on ${started.deviceName}.`, { url: '/?open=profile&settings=security' });
+  const age = accountSecurity.ageFromDob(user.date_of_birth);
+  const accountSetupRequired = age == null || age < 13 || !user.terms_accepted_at || user.terms_version !== accountSecurity.TERMS_VERSION;
+  res.json({ ok: true, account_setup_required: accountSetupRequired });
+});
+
+// Native Sign in with Apple. Apple verifies the human and signs the identity
+// token; this endpoint independently verifies signature, issuer, app audience,
+// expiry, and the SHA-256 nonce before creating a Functioning Faith session.
+router.post('/auth/native/apple', async (req, res) => {
+  if (req.get('x-functioning-faith-client') !== 'ios-native-v1' || !req.is('application/json')) {
+    return res.status(400).json({ error: 'native_client_required' });
+  }
+  const identityToken = String(req.body?.identity_token || '');
+  const rawNonce = String(req.body?.nonce || '');
+  if (!identityToken || rawNonce.length < 32 || rawNonce.length > 128) {
+    return res.status(400).json({ error: 'invalid_apple_credential' });
+  }
+  try {
+    const expectedNonce = require('crypto').createHash('sha256').update(rawNonce).digest('hex');
+    const audience = process.env.APPLE_NATIVE_CLIENT_ID || 'com.functioningfaith.app';
+    const claims = await oauth.verifyIdToken('apple', identityToken, { nonce: expectedNonce, audience });
+    const userId = resolveOauthUser('apple', claims, req.body?.display_name);
+    if (accountSecurity.mfaEnabled(userId)) {
+      req.session.mfaPending = { userId, method: 'apple', native: false, createdAt: Date.now() };
+      return res.status(202).json({ mfa_required: true });
+    }
+    const user = db.prepare('SELECT * FROM users WHERE id=?').get(userId);
+    const started = accountSecurity.startSession(req, userId, 'apple');
+    if (started.newDevice) notify(userId, 'security', `New sign-in on ${started.deviceName}.`, { url: '/?open=profile&settings=security' });
+    const age = accountSecurity.ageFromDob(user.date_of_birth);
+    const accountSetupRequired = age == null || age < 13 || !user.terms_accepted_at || user.terms_version !== accountSecurity.TERMS_VERSION;
+    res.json({ ok: true, account_setup_required: accountSetupRequired });
+  } catch (err) {
+    const status = err.code === 'account_link_required' ? 409 : 401;
+    res.status(status).json({ error: err.code || 'invalid_apple_credential' });
+  }
+});
+
+function resolveOauthUser(provider, claims, suppliedName) {
+  const email = claims.email ? String(claims.email).trim().toLowerCase() : null;
+  const emailVerified = claims.email_verified === true || claims.email_verified === 'true';
+  const identity = db.prepare('SELECT user_id FROM user_identities WHERE provider=? AND provider_user_id=?').get(provider, claims.sub);
+  if (identity) return identity.user_id;
+  if (email && emailVerified && db.prepare('SELECT 1 FROM users WHERE email=?').get(email)) {
+    throw Object.assign(new Error('Existing account must explicitly link this identity.'), { code: 'account_link_required' });
+  }
+  const userId = randomUUID();
+  const uniqueEmail = email || `${provider}-${claims.sub}@login.functioning-faith`;
+  const fallback = email ? email.split('@')[0] : `${oauth.PROVIDERS[provider]?.label || provider} user`;
+  const chosen = usernames.suggest(String(suppliedName || claims.name || fallback).trim().slice(0, 60) || 'Friend', null);
+  db.prepare(`INSERT INTO users (id,email,display_name,terms_version,terms_accepted_at)
+    VALUES (?,?,?,NULL,NULL)`).run(userId, uniqueEmail, chosen);
+  db.prepare('INSERT OR IGNORE INTO user_xp (user_id,xp,level) VALUES (?,0,1)').run(userId);
+  db.prepare('INSERT INTO user_identities (id,user_id,provider,provider_user_id,email,email_verified) VALUES (?,?,?,?,?,?)')
+    .run(randomUUID(), userId, provider, claims.sub, email, emailVerified ? 1 : 0);
+  return userId;
+}
 
 // Linked sign-in identities + connected data connectors for the current user —
 // full transparency into what's linked, shown in Profile settings.
@@ -612,7 +686,9 @@ router.get('/me', (req, res) => {
     followers: db.prepare('SELECT COUNT(*) c FROM followers WHERE followee_id = ?').get(uid).c,
     following: db.prepare('SELECT COUNT(*) c FROM followers WHERE follower_id = ?').get(uid).c,
   };
-  res.json({ user, xp, badges, consents, stats });
+  const age = accountSecurity.ageFromDob(userRow.date_of_birth);
+  const accountSetupRequired = age == null || age < 13 || !userRow.terms_accepted_at || userRow.terms_version !== accountSecurity.TERMS_VERSION;
+  res.json({ user, xp, badges, consents, stats, account_setup_required: accountSetupRequired });
 });
 
 // Direct Fitbit/Oura cloud connectors. Garmin devices are intentionally offered
@@ -737,6 +813,8 @@ router.post('/account/setup', requireAuth, (req, res) => {
 router.get('/security/capabilities', (req, res) => res.json({
   password_login: true,
   oauth_providers: oauth.listConfiguredProviders(),
+  native_google_sign_in: oauth.isConfigured('google'),
+  native_apple_sign_in: true,
   totp_mfa: !!(process.env.DATA_ENCRYPTION_KEY || process.env.MFA_ENCRYPTION_KEY || process.env.SESSION_SECRET),
   passkeys_biometric: false,
   sms_mfa: false,
@@ -2376,7 +2454,7 @@ router.delete('/me', requireAuth, (req, res) => {
     'journey_segment_times', 'gloo_calls', 'api_keys', 'push_subscriptions',
     'push_log', 'user_reminders', 'motivation_seen', 'wearable_metrics',
     'overlay_tokens', 'overlay_state', 'user_sessions', 'account_security_events',
-    'user_mfa', 'mfa_backup_codes', 'password_reset_tokens', 'developer_applications',
+    'user_mfa', 'mfa_backup_codes', 'password_reset_tokens', 'native_auth_codes', 'developer_applications',
     'developer_content_submissions', 'developer_enforcement_cases', 'reel_impressions', 'reel_reactions',
   ];
   try {

@@ -160,7 +160,7 @@ async function getJwks(providerName) {
 // ---- ID token verification (RS256 only) ----
 // Verifies signature against the provider's live JWKS, plus exp/iss/aud/nonce.
 // Never trusts a token's claims without a passing signature check first.
-async function verifyIdToken(providerName, idToken, { nonce } = {}) {
+async function verifyIdToken(providerName, idToken, { nonce, audience } = {}) {
   const parts = idToken.split('.');
   if (parts.length !== 3) throw new Error('malformed_id_token');
   const [headerB64, payloadB64, sigB64] = parts;
@@ -183,7 +183,8 @@ async function verifyIdToken(providerName, idToken, { nonce } = {}) {
   if (typeof payload.exp !== 'number' || payload.exp < now) throw new Error('token_expired');
   const issOk = p.issuerMatch ? p.issuerMatch(payload.iss) : payload.iss === p.issuer;
   if (!issOk) throw new Error('issuer_mismatch');
-  const clientId = p.clientId();
+  const clientId = audience || p.clientId();
+  if (!clientId) throw new Error('audience_not_configured');
   const aud = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
   if (!aud.includes(clientId)) throw new Error('audience_mismatch');
   if (nonce && payload.nonce !== nonce) throw new Error('nonce_mismatch');

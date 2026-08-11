@@ -86,6 +86,22 @@ struct UserProfile: Codable, Identifiable {
     let badges: [Badge]
 }
 
+struct NativeAuthProvider: Codable, Identifiable {
+    let name: String
+    let label: String
+    var id: String { name }
+}
+
+struct NativeSessionState {
+    let profile: UserProfile
+    let accountSetupRequired: Bool
+}
+
+enum NativeLoginOutcome {
+    case authenticated(NativeSessionState)
+    case mfaRequired
+}
+
 struct SuggestedUser: Codable, Identifiable {
     let id: UUID
     let displayName: String

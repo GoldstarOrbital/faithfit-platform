@@ -53,9 +53,19 @@ final class APIClient {
     }
 
     func fetchProfile() async throws -> UserProfile {
-        if useMock { return MockData.profile }
+        (try await fetchSessionState()).profile
+    }
+
+    func fetchSessionState() async throws -> NativeSessionState {
+        if useMock { return NativeSessionState(profile: MockData.profile, accountSetupRequired: false) }
         let response: MeDTO = try await request("/api/me")
-        return response.model
+        return NativeSessionState(profile: response.model, accountSetupRequired: response.accountSetupRequired ?? false)
+    }
+
+    func fetchAuthProviders() async throws -> [NativeAuthProvider] {
+        if useMock { return [NativeAuthProvider(name: "google", label: "Google"), NativeAuthProvider(name: "apple", label: "Apple")] }
+        let response: AuthProvidersResponse = try await request("/api/auth/providers")
+        return response.providers
     }
 
     func fetchSuggestedUsers() async throws -> [SuggestedUser] {
@@ -113,10 +123,43 @@ final class APIClient {
         return try await request("/api/groups/\(encoded)/messages", method: "POST", body: GroupMessageBody(content: content))
     }
 
-    func login(email: String, password: String) async throws -> UserProfile {
-        if useMock { return MockData.profile }
-        let _: AuthResponse = try await request("/api/auth/login", method: "POST", body: Credentials(email: email, password: password))
-        return try await fetchProfile()
+    func login(email: String, password: String) async throws -> NativeLoginOutcome {
+        if useMock { return .authenticated(NativeSessionState(profile: MockData.profile, accountSetupRequired: false)) }
+        let response: AuthResponse = try await request("/api/auth/login", method: "POST", body: Credentials(email: email, password: password))
+        if response.mfaRequired == true { return .mfaRequired }
+        return .authenticated(try await fetchSessionState())
+    }
+
+    func completeMfa(code: String) async throws -> NativeSessionState {
+        if useMock { return NativeSessionState(profile: MockData.profile, accountSetupRequired: false) }
+        let _: AuthResponse = try await request("/api/auth/mfa/complete", method: "POST", body: MfaBody(code: code))
+        return try await fetchSessionState()
+    }
+
+    func exchangeNativeOAuth(code: String, handoffVerifier: String) async throws -> NativeSessionState {
+        if useMock { return NativeSessionState(profile: MockData.profile, accountSetupRequired: false) }
+        let response: NativeOAuthExchangeResponse = try await request(
+            "/api/auth/native/exchange",
+            method: "POST",
+            body: NativeOAuthExchangeBody(code: code, handoffVerifier: handoffVerifier)
+        )
+        let state = try await fetchSessionState()
+        return NativeSessionState(profile: state.profile, accountSetupRequired: response.accountSetupRequired)
+    }
+
+    func signInWithApple(identityToken: String, nonce: String, displayName: String?) async throws -> NativeLoginOutcome {
+        if useMock { return .authenticated(NativeSessionState(profile: MockData.profile, accountSetupRequired: false)) }
+        let response: NativeAppleAuthResponse = try await request(
+            "/api/auth/native/apple",
+            method: "POST",
+            body: NativeAppleAuthBody(identityToken: identityToken, nonce: nonce, displayName: displayName)
+        )
+        if response.mfaRequired == true { return .mfaRequired }
+        let state = try await fetchSessionState()
+        return .authenticated(NativeSessionState(
+            profile: state.profile,
+            accountSetupRequired: response.accountSetupRequired ?? state.accountSetupRequired
+        ))
     }
 
     func register(name: String, email: String, password: String) async throws -> UserProfile {
@@ -203,6 +246,7 @@ final class APIClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("ios-native-v1", forHTTPHeaderField: "X-Functioning-Faith-Client")
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONEncoder().encode(body)
@@ -222,10 +266,43 @@ final class APIClient {
 private struct EmptyBody: Encodable {}
 private struct APIErrorResponse: Decodable { let error: String?; let hint: String? }
 private struct Credentials: Encodable { let email: String; let password: String }
+private struct MfaBody: Encodable { let code: String }
+private struct NativeOAuthExchangeBody: Encodable {
+    let code: String
+    let handoffVerifier: String
+    enum CodingKeys: String, CodingKey { case code; case handoffVerifier = "handoff_verifier" }
+}
+private struct NativeAppleAuthBody: Encodable {
+    let identityToken: String
+    let nonce: String
+    let displayName: String?
+    enum CodingKeys: String, CodingKey {
+        case identityToken = "identity_token"
+        case nonce
+        case displayName = "display_name"
+    }
+}
 private struct Registration: Encodable { let displayName: String; let email: String; let password: String; enum CodingKeys: String, CodingKey { case displayName = "display_name"; case email, password } }
 private struct WorkoutStart: Encodable { let type: String }
 private struct WorkoutStop: Encodable { let gpsPoints: [[Double]]; enum CodingKeys: String, CodingKey { case gpsPoints = "gps_path" } }
-private struct AuthResponse: Decodable { let ok: Bool }
+private struct AuthResponse: Decodable {
+    let ok: Bool?
+    let mfaRequired: Bool?
+    enum CodingKeys: String, CodingKey { case ok; case mfaRequired = "mfa_required" }
+}
+private struct AuthProvidersResponse: Decodable { let providers: [NativeAuthProvider] }
+private struct NativeOAuthExchangeResponse: Decodable {
+    let accountSetupRequired: Bool
+    enum CodingKeys: String, CodingKey { case accountSetupRequired = "account_setup_required" }
+}
+private struct NativeAppleAuthResponse: Decodable {
+    let accountSetupRequired: Bool?
+    let mfaRequired: Bool?
+    enum CodingKeys: String, CodingKey {
+        case accountSetupRequired = "account_setup_required"
+        case mfaRequired = "mfa_required"
+    }
+}
 private struct WorkoutStartResponse: Decodable { let id: UUID }
 private struct WorkoutStopResponse: Decodable { let id: UUID }
 
@@ -406,7 +483,8 @@ private struct FeedDTO: Decodable {
 }
 
 private struct MeDTO: Decodable {
-    let user: UserDTO; let xp: XPDTO?; let badges: [BadgeDTO]
+    let user: UserDTO; let xp: XPDTO?; let badges: [BadgeDTO]; let accountSetupRequired: Bool?
+    enum CodingKeys: String, CodingKey { case user, xp, badges; case accountSetupRequired = "account_setup_required" }
     var model: UserProfile { UserProfile(id: user.id, displayName: user.displayName, bio: user.bioVerseRef, xp: xp?.xp ?? 0, level: xp?.level ?? 1, badges: badges.map { Badge(id: $0.id, name: $0.name, iconURL: $0.icon) }) }
 }
 private struct UserDTO: Decodable { let id: UUID; let displayName: String; let bioVerseRef: String?; enum CodingKeys: String, CodingKey { case id; case displayName = "display_name"; case bioVerseRef = "bio_verse_ref" } }

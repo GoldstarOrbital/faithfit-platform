@@ -25,8 +25,14 @@ reminder notification categories and requests system permission only after a cat
 is selected. Newly registered members also receive a resumable three-step activation
 flow: a concise product promise, optional follows/groups from the live recommendation
 API, and explicit notification choices. Existing members are never forced back through
-it. OAuth provider buttons and Sign in with Apple remain a final entitlement/deep-link
-step.
+it. The native sign-in screen discovers configured providers such as Google and
+completes their Authorization Code flow inside `ASWebAuthenticationSession`, then
+exchanges a two-minute, single-use callback bound to the initiating app with a second
+PKCE verifier. Sign in with Apple uses Apple's native system control and a nonce-bound
+ID token that the server verifies against Apple's signing keys and the app audience.
+Password and identity accounts with 2FA can finish their authenticator challenge, and
+new identity-only accounts must complete the same age and Terms gate before entering
+the app.
 
 The project spec includes a unit-test target, iOS 17 deployment settings, the live
 permission copy, the privacy manifest, and the Sign in with Apple entitlement scaffold.
@@ -52,5 +58,5 @@ Developer portal and verified on a signed device build.
 
 - Native registration sends the same date-of-birth, Terms acceptance, and password-policy fields required by the production API. Verify a fresh-account path against the production environment before upload.
 - `PrivacyInfo.xcprivacy` declares the app's use of `UserDefaults` for local member settings. Re-check the manifest whenever a new SDK, analytics package, or required-reason API is added.
-- Before archive, set the Apple Development Team, enable Sign in with Apple if the native app adds any third-party sign-in option, provide app icons/screenshots, and verify the production privacy-policy and support URLs in App Store Connect.
+- Before archive, set the Apple Development Team, enable Sign in with Apple for the App ID, confirm the native audience (`APPLE_NATIVE_CLIENT_ID`, default `com.functioningfaith.app`), provide app icons/screenshots, and verify the production privacy-policy and support URLs in App Store Connect. Apple Services ID/private-key configuration is needed only for the web Apple flow.
 - Archive and test on a signed physical device: location workout capture, notification opt-in, biometric lock, account export/deletion, and fresh sign-up.

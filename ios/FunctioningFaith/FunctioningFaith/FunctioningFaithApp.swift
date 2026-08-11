@@ -10,14 +10,25 @@ struct FunctioningFaithApp: App {
     var body: some Scene {
         WindowGroup {
             Group {
-                if session.isAuthenticated && biometricLock.isLocked {
+                if session.isRestoring {
+                    ProgressView("Restoring your account...")
+                } else if session.isAuthenticated && biometricLock.isLocked {
                     BiometricLockView()
+                } else if session.isAuthenticated && session.requiresAccountSetup {
+                    NativeAccountSetupView(
+                        onComplete: {
+                            session.requiresAccountSetup = false
+                            if let id = session.profile?.id.uuidString { pendingOnboardingUserID = id }
+                        },
+                        onSignOut: { Task { await session.signOut() } }
+                    )
                 } else if session.isAuthenticated {
                     RootTabView()
                 } else {
-                    NativeAuthView { profile, isNewAccount in
+                    NativeAuthView { profile, isNewAccount, requiresAccountSetup in
                         session.profile = profile
-                        if isNewAccount { pendingOnboardingUserID = profile.id.uuidString }
+                        session.requiresAccountSetup = requiresAccountSetup
+                        if isNewAccount && !requiresAccountSetup { pendingOnboardingUserID = profile.id.uuidString }
                     }
                 }
             }

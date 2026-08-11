@@ -95,6 +95,18 @@ function init() {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS native_auth_codes (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      code_hash TEXT NOT NULL UNIQUE,
+      handoff_challenge TEXT NOT NULL,
+      auth_method TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_native_auth_codes_expiry ON native_auth_codes(expires_at, used_at);
+
     CREATE TABLE IF NOT EXISTS moderation_queue (
       id TEXT PRIMARY KEY,
       report_type TEXT NOT NULL,
@@ -406,12 +418,37 @@ function consumePasswordReset(token) {
   return row.user_id;
 }
 
+function issueNativeAuthCode(userId, authMethod, handoffChallenge) {
+  if (!/^[A-Za-z0-9_-]{43}$/.test(String(handoffChallenge || ''))) {
+    throw Object.assign(new Error('Invalid native handoff challenge.'), { code: 'invalid_handoff_challenge' });
+  }
+  const code = randomBytes(32).toString('base64url');
+  const now = new Date();
+  db.prepare("DELETE FROM native_auth_codes WHERE used_at IS NOT NULL OR expires_at<datetime('now')").run();
+  db.prepare(`INSERT INTO native_auth_codes
+    (id,user_id,code_hash,handoff_challenge,auth_method,expires_at) VALUES(?,?,?,?,?,?)`)
+    .run(randomUUID(), userId, hash(code), handoffChallenge, String(authMethod || 'oauth').slice(0, 40),
+      new Date(now.getTime() + 2 * 60 * 1000).toISOString());
+  return code;
+}
+
+function consumeNativeAuthCode(code, handoffVerifier) {
+  const challenge = createHash('sha256').update(String(handoffVerifier || '')).digest('base64url');
+  const row = db.prepare(`SELECT * FROM native_auth_codes
+    WHERE code_hash=? AND used_at IS NULL AND expires_at>datetime('now')`).get(hash(String(code || '')));
+  if (!row || !safeEqualText(row.handoff_challenge, challenge)) return null;
+  const changed = db.prepare('UPDATE native_auth_codes SET used_at=? WHERE id=? AND used_at IS NULL')
+    .run(new Date().toISOString(), row.id).changes;
+  return changed === 1 ? { userId: row.user_id, authMethod: row.auth_method } : null;
+}
+
 module.exports = {
   init, audit, startSession, validateSession, endSession, listSessions, revokeSession, revokeOtherSessions,
   recentlyReauthenticated, markReauthenticated, loginAllowed, recordLoginFailure, clearLoginFailures,
   passwordPolicy, ageFromDob, privacy, updatePrivacy, relationship, hasRelationship,
   beginMfa, enableMfa, verifyMfa, disableMfa, mfaEnabled, securityEvents,
   requestPasswordReset,consumePasswordReset,
+  issueNativeAuthCode,consumeNativeAuthCode,
   protectSecret,unprotectSecret,
   TERMS_VERSION, IDLE_TIMEOUT_MS, ABSOLUTE_TIMEOUT_MS,
 };
