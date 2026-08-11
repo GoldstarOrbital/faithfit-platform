@@ -13,7 +13,7 @@ const state = {
   splits: [], lastSplitKm: 0, lastSplitElapsed: 0, hrSamples: [],
   bleDevice: null, bleServer: null, bleConnected: false,
   breathePhase: 'idle',
-  homeCache: null, feedScope: 'community',
+  homeCache: null, feedScope: 'community', reelTargetId: null,
 };
 
 let gpsStartedAt = null, gpsTicker = null;
@@ -1010,6 +1010,14 @@ function reelSoundButton(on) {
   return '<button type="button" class="reel-sound" data-reel-sound aria-pressed="' + (on ? 'true' : 'false') +
          '" aria-label="' + (on ? 'Mute' : 'Unmute') + '">' + (on ? '🔊' : '🔇') + '</button>';
 }
+function reelActionButton(kind, active, count) {
+  const icon = kind === 'like' ? '♥' : '🔖';
+  const label = kind === 'like' ? (active ? 'Unlike reel' : 'Like reel') : (active ? 'Remove reel from saves' : 'Save reel');
+  return `<button type="button" class="reel-action ${active ? 'is-active' : ''}" data-reel-action="${kind}" aria-pressed="${active ? 'true' : 'false'}" aria-label="${label}"><span class="reel-action-icon">${icon}</span><span data-reel-count>${Number(count) || 0}</span></button>`;
+}
+function reelShareButton() {
+  return '<button type="button" class="reel-action" data-reel-action="share" aria-label="Share reel"><span class="reel-action-icon">↗</span><span>Share</span></button>';
+}
 
 // Standalone short-form feed: Reels is intentionally separate from Videos so
 // it behaves like a scrollable social surface, not another category shelf.
@@ -1039,6 +1047,7 @@ async function renderReelsTab(body) {
   const labels = { food: 'Food + fitness', kids: 'Kids + family', fitness: 'Faith + movement', christian: 'Scripture + formation', motivational: 'Purpose + perseverance', veggietales: 'Kids + family', nickbare: 'Training + discipline', church: 'Your church' };
   list.innerHTML = videos.map(v => `<article class="reel-card" data-reel-card="${escapeHtml(v.video_id)}">
     <div class="reel-frame video-thumb-wrap" data-reel-frame="${escapeHtml(v.video_id)}"><img loading="lazy" src="${escapeHtml(v.thumbnail_url || `https://i.ytimg.com/vi/${encodeURIComponent(v.video_id)}/hqdefault.jpg`)}" alt="${escapeHtml(v.title || 'Functioning Faith reel')}" /><span class="reel-play">▶</span>${reelSoundButton(reelsSoundOn())}</div>
+    <div class="reel-actions" aria-label="Reel actions">${reelActionButton('like', v.liked_by_me, v.like_count)}${reelActionButton('save', v.saved_by_me, v.save_count)}${reelShareButton()}</div>
     <div class="reel-overlay"><span class="video-audience">${escapeHtml(labels[v.category] || 'Faith + movement')}</span><div class="reel-title">${escapeHtml(v.title || 'Short encouragement')}</div><div class="muted">${escapeHtml(v.channel_title || '')}</div></div>
   </article>`).join('');
   let activeCard = null;
@@ -1063,6 +1072,33 @@ async function renderReelsTab(body) {
   // One delegated handler for every sound button, present and future — the
   // frames are rebuilt as reels scroll, so per-element handlers would be lost.
   list.addEventListener('click', (e) => {
+    const action = e.target.closest('[data-reel-action]');
+    if (action) {
+      e.stopPropagation();
+      e.preventDefault();
+      const card = action.closest('[data-reel-card]');
+      const id = card?.dataset.reelCard;
+      if (!id) return;
+      const kind = action.dataset.reelAction;
+      if (kind === 'share') {
+        const url = `${location.origin}/?open=reel&video_id=${encodeURIComponent(id)}`;
+        const finish = () => { action.classList.add('is-confirmed'); setTimeout(() => action.classList.remove('is-confirmed'), 900); };
+        if (navigator.share) navigator.share({ title: 'Functioning Faith Reel', url }).then(finish).catch(() => {});
+        else if (navigator.clipboard) navigator.clipboard.writeText(url).then(finish).catch(() => {});
+        else { window.prompt('Copy this reel link', url); }
+      } else {
+        api(`/reels/${encodeURIComponent(id)}/reaction`, { method: 'POST', body: { kind }, throwOnError: true }).then(result => {
+          action.classList.toggle('is-active', !!result.active);
+          action.setAttribute('aria-pressed', result.active ? 'true' : 'false');
+          action.setAttribute('aria-label', kind === 'like'
+            ? (result.active ? 'Unlike reel' : 'Like reel')
+            : (result.active ? 'Remove reel from saves' : 'Save reel'));
+          const count = action.querySelector('[data-reel-count]');
+          if (count) count.textContent = result.count;
+        }).catch(() => {});
+      }
+      return;
+    }
     const btn = e.target.closest('[data-reel-sound]');
     if (!btn) return;
     // Don't let the tap fall through to the card and re-activate it.
@@ -1087,6 +1123,11 @@ async function renderReelsTab(body) {
 
   const observer = new IntersectionObserver(entries => entries.forEach(entry => { if (entry.isIntersecting && entry.intersectionRatio >= 0.65) activate(entry.target); }), { root: list, threshold: [0.65] });
   list.querySelectorAll('[data-reel-card]').forEach(card => { observer.observe(card); card.onclick = () => activate(card); });
+  if (state.reelTargetId) {
+    const target = list.querySelector(`[data-reel-card="${CSS.escape(state.reelTargetId)}"]`);
+    state.reelTargetId = null;
+    if (target) { target.scrollIntoView({ behavior: 'smooth', block: 'start' }); setTimeout(() => activate(target), 250); }
+  }
 }
 
 // ---- Curated video library -------------------------------------------------
@@ -2732,6 +2773,7 @@ async function openNotificationDestination(url) {
   if (kind === 'workout' && p.get('workout_id')) return renderWorkoutDetail(p.get('workout_id'));
   if (kind === 'verse' && p.get('ref')) return renderVerseThread(p.get('ref'));
   if (kind === 'journeys') { if (p.get('journey_key')) return renderJourneyDetail(p.get('journey_key')); state.tab = 'explore'; state.exploreTab = 'journeys'; return render(); }
+  if (kind === 'reel' && p.get('video_id')) { state.tab = 'explore'; state.exploreTab = 'reels'; state.reelTargetId = p.get('video_id'); return render(); }
   if (kind === 'challenges') { state.tab = 'explore'; state.exploreTab = 'challenges'; return render(); }
   if (kind === 'profile' && p.get('user_id')) return renderUserProfile(p.get('user_id'));
   if (kind === 'profile') { state.tab = 'profile'; return render(); }

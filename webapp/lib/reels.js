@@ -67,6 +67,18 @@ function init() {
     );
     CREATE INDEX IF NOT EXISTS idx_reel_impr_user ON reel_impressions(user_id, seen_at);
 
+    -- Durable member actions. Likes are public aggregate signals; saves are
+    -- private to the member who made them. The composite key makes retries
+    -- idempotent and prevents a double tap from creating duplicate reactions.
+    CREATE TABLE IF NOT EXISTS reel_reactions (
+      user_id TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('like', 'save')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, video_id, kind)
+    );
+    CREATE INDEX IF NOT EXISTS idx_reel_reactions_video ON reel_reactions(video_id, kind);
+
     -- When each catalogue query last ran, so an expensive search is not repeated
     -- on every cycle.
     CREATE TABLE IF NOT EXISTS reel_query_runs (

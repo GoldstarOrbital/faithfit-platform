@@ -2515,6 +2515,31 @@ router.get('/reels', requireAuth, async (req, res) => {
   const videos = [...curated.videos, ...library, ...curatedChurch]
     .filter(v => v.video_id && !seen.has(v.video_id) && (seen.add(v.video_id), true));
 
+  // Engagement is joined after the catalogue is assembled because church
+  // videos can be live candidates rather than rows in `videos`. That keeps the
+  // feed flexible while returning one consistent shape to the client.
+  const videoIds = videos.map(v => String(v.video_id));
+  const reactionMap = new Map();
+  if (videoIds.length) {
+    const marks = videoIds.map(() => '?').join(',');
+    const reactions = db.prepare(`
+      SELECT video_id, kind, COUNT(*) AS count,
+             MAX(CASE WHEN user_id = ? THEN 1 ELSE 0 END) AS mine
+      FROM reel_reactions
+      WHERE video_id IN (${marks})
+      GROUP BY video_id, kind
+    `).all(req.session.userId, ...videoIds);
+    for (const row of reactions) {
+      const item = reactionMap.get(row.video_id) || { like_count: 0, save_count: 0, liked_by_me: false, saved_by_me: false };
+      if (row.kind === 'like') { item.like_count = Number(row.count); item.liked_by_me = !!row.mine; }
+      if (row.kind === 'save') { item.save_count = Number(row.count); item.saved_by_me = !!row.mine; }
+      reactionMap.set(row.video_id, item);
+    }
+  }
+  for (const video of videos) Object.assign(video, reactionMap.get(String(video.video_id)) || {
+    like_count: 0, save_count: 0, liked_by_me: false, saved_by_me: false,
+  });
+
   // Record what actually went out, so the next load is genuinely different.
   try { reels.markSeen(req.session.userId, curated.videos.map(v => v.video_id)); }
   catch (err) { console.error('[reels] markSeen failed:', err.message); }
@@ -2529,6 +2554,29 @@ router.get('/reels', requireAuth, async (req, res) => {
     // client can say so rather than presenting them as new.
     recycled: !!curated.recycled,
   });
+});
+
+// Reels are catalogue items rather than member-authored posts, so reactions
+// do not generate author notifications. A toggle response includes the fresh
+// aggregate count, making rapid taps converge without a second fetch.
+router.post('/reels/:videoId/reaction', requireAuth, (req, res) => {
+  const videoId = String(req.params.videoId || '').trim().slice(0, 120);
+  const kind = String(req.body?.kind || '').trim();
+  // Church uploads may be returned live from YouTube rather than persisted in
+  // `videos`, so validate the opaque provider ID instead of requiring a local
+  // catalogue row. The client can only reach this route from a feed item.
+  if (!/^[A-Za-z0-9_-]{6,120}$/.test(videoId) || !['like', 'save'].includes(kind)) {
+    return res.status(400).json({ error: 'invalid_reaction' });
+  }
+  const userId = req.session.userId;
+  const current = db.prepare('SELECT 1 FROM reel_reactions WHERE user_id = ? AND video_id = ? AND kind = ?').get(userId, videoId, kind);
+  if (current) {
+    db.prepare('DELETE FROM reel_reactions WHERE user_id = ? AND video_id = ? AND kind = ?').run(userId, videoId, kind);
+  } else {
+    db.prepare('INSERT INTO reel_reactions (user_id, video_id, kind) VALUES (?, ?, ?)').run(userId, videoId, kind);
+  }
+  const count = db.prepare('SELECT COUNT(*) AS count FROM reel_reactions WHERE video_id = ? AND kind = ?').get(videoId, kind).count;
+  res.json({ kind, active: !current, count: Number(count) });
 });
 
 // ---- AI sermon summary ("10 minute podcast review") ----
