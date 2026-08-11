@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleDisplayName</key><string>Functioning Faith</string>
+  <key>NSLocationWhenInUseUsageDescription</key><string>Functioning Faith uses your location only while you choose to record a live workout route.</string>
+  <key>NSBluetoothAlwaysUsageDescription</key><string>Functioning Faith uses Bluetooth only when you choose to connect a heart-rate monitor or fitness sensor.</string>
+  <key>NSUserNotificationsUsageDescription</key><string>Choose notifications for Scripture, replies, and reminders that help you follow your rhythm.</string>
+</dict></plist>
