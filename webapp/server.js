@@ -1,4 +1,5 @@
 const express = require('express');
+const compression = require('compression');
 const path = require('path');
 const cookieSession = require('cookie-session');
 const { seed } = require('./lib/seed');
@@ -58,6 +59,10 @@ if (!sessionSecret) throw new Error('SESSION_SECRET must be configured in produc
 // Railway terminates TLS in front of the app — trust its X-Forwarded-* headers
 // so req.protocol/req.secure and the OAuth redirect_uri we build are correct.
 app.set('trust proxy', 1);
+// Compress JavaScript, CSS, JSON, and HTML before they leave Railway. This is
+// especially valuable on first load because the main client bundle is large
+// enough that transfer time is visible on cellular connections.
+app.use(compression());
 // Baseline browser protections compatible with YouTube, Leaflet, OAuth, and
 // the service-worker surfaces used by the app.
 app.use((req, res, next) => {
@@ -80,6 +85,16 @@ app.use(cookieSession({
   secure: productionMode,
 }));
 
+// API data is private and mostly live. Keep a short browser cache only for
+// read-only discovery/feed responses; never let a shared proxy cache member
+// data, mutations, GPS telemetry, DMs, or notifications.
+app.use('/api', (req, res, next) => {
+  const shortLived = req.method === 'GET' && /^\/(feed|users(?:\/suggested)?|recommendations|devotionals\/today|church\/videos|explore|reels|videos)(?:\/|\?|$)/.test(req.path);
+  res.setHeader('Cache-Control', shortLived
+    ? 'private, max-age=15, stale-while-revalidate=45'
+    : 'no-store');
+  next();
+});
 app.use('/api', apiRoutes);
 // Versioned and separate from /api, because this one is a public contract:
 // /api may change with the app, /v1 may not.
@@ -91,7 +106,18 @@ app.get('/w/:id', (req, res) => res.sendFile(path.join(__dirname, 'public', 'sha
 // Keep the human-friendly docs URL aligned with the links inside the app.
 app.get('/developers', (req, res) => res.sendFile(path.join(__dirname, 'public', 'developers.html')));
 
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders(res, filePath, stat) {
+    // Every cacheable script/style in index.html carries a version query. It
+    // is therefore safe to retain it for a year and avoid re-downloading the
+    // app bundle on every visit. The service worker itself must always update.
+    if (filePath.endsWith('sw.js')) {
+      res.setHeader('Cache-Control', 'no-cache');
+    } else if (res.req && res.req.query && res.req.query.v && /\.(?:js|css|png|svg|woff2?)$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    }
+  },
+}));
 
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'functioning-faith-webapp' }));
 

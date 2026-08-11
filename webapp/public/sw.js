@@ -1,16 +1,53 @@
 /**
- * Service worker — the part of Functioning Faith that runs when the app is not
- * open. Its only job is push: receive a message, show it, and take the member
- * where it points.
- *
- * Deliberately not a cache/offline worker. Caching this app properly is a real
- * piece of work, and a half-done cache that serves stale scripture or a stale
- * build is worse than none.
+ * Service worker — push plus a small, versioned shell cache. Navigation is
+ * network-first so deployments arrive immediately; versioned assets are
+ * cache-first so repeat visits do not redownload the app bundle.
  */
 'use strict';
 
-self.addEventListener('install', (e) => self.skipWaiting());
-self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
+const SHELL_CACHE = 'functioning-faith-shell-v2';
+const SHELL = [
+  '/',
+  '/styles.css?v=logo-v1',
+  '/sensors.js?v=rider-v1',
+  '/journey3d.js?v=rider-v1',
+  '/app.js?v=hackathon-v1',
+  '/journey-live.js?v=rider-v1',
+];
+
+self.addEventListener('install', (e) => e.waitUntil(
+  caches.open(SHELL_CACHE).then(cache => cache.addAll(SHELL)).catch(() => {}).then(() => self.skipWaiting())
+));
+self.addEventListener('activate', (e) => e.waitUntil((async () => {
+  const keys = await caches.keys();
+  await Promise.all(keys.filter(key => key !== SHELL_CACHE).map(key => caches.delete(key)));
+  await self.clients.claim();
+})()));
+
+self.addEventListener('fetch', (event) => {
+  const request = event.request;
+  if (request.method !== 'GET') return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin || url.pathname.startsWith('/api') || url.pathname === '/sw.js') return;
+
+  if (request.mode === 'navigate') {
+    event.respondWith(fetch(request).then(response => {
+      const copy = response.clone();
+      caches.open(SHELL_CACHE).then(cache => cache.put(request, copy)).catch(() => {});
+      return response;
+    }).catch(() => caches.match(request).then(cached => cached || caches.match('/'))));
+    return;
+  }
+
+  // Only explicitly versioned assets are cache-first. Unversioned files keep
+  // the browser's normal behavior and can never trap a newly deployed build.
+  if (!url.searchParams.has('v')) return;
+  event.respondWith(caches.match(request).then(cached => cached || fetch(request).then(response => {
+    const copy = response.clone();
+    caches.open(SHELL_CACHE).then(cache => cache.put(request, copy)).catch(() => {});
+    return response;
+  })));
+});
 
 self.addEventListener('push', (event) => {
   let data = {};
