@@ -111,6 +111,15 @@ CREATE TABLE IF NOT EXISTS story_views (
   PRIMARY KEY (story_id, viewer_id)
 );
 
+CREATE TABLE IF NOT EXISTS story_reactions (
+  story_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  emoji TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (story_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_story_reactions_story ON story_reactions(story_id);
+
 CREATE TABLE IF NOT EXISTS user_xp (
   user_id TEXT PRIMARY KEY,
   xp INTEGER DEFAULT 0,

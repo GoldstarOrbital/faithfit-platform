@@ -13,7 +13,7 @@ const state = {
   splits: [], lastSplitKm: 0, lastSplitElapsed: 0, hrSamples: [],
   bleDevice: null, bleServer: null, bleConnected: false,
   breathePhase: 'idle',
-  homeCache: null, feedScope: 'community', reelTargetId: null, reelsView: 'for_you', searchPostId: null,
+  homeCache: null, feedScope: 'community', reelTargetId: null, reelsView: 'for_you', searchPostId: null, storyTargetId: null,
 };
 
 let gpsStartedAt = null, gpsTicker = null;
@@ -336,6 +336,7 @@ function openStoryViewer(story, allStories = [story]) {
     <div class="moment-viewer-head"><div><b>${escapeHtml(story.author || 'Community member')}</b><div class="muted">24-hour moment · ${timeAgo(story.created_at)} ago</div></div><button class="ghost" type="button" data-story-close aria-label="Close moment">✕</button></div>
     ${story.photo_data ? `<img class="moment-photo" src="${escapeHtml(story.photo_data)}" alt="${escapeHtml(story.photo_category || 'Community moment')}" />` : ''}
     ${story.content ? `<div class="moment-copy">${escapeHtml(story.content)}</div>` : ''}
+    <div class="moment-reactions" aria-label="Encourage this member">${['❤️','🙏','🔥','💪','👏'].map(emoji => `<button type="button" class="moment-reaction ${story.my_reaction === emoji ? 'is-active' : ''}" data-story-reaction="${emoji}" aria-pressed="${story.my_reaction === emoji ? 'true' : 'false'}">${emoji}</button>`).join('')}<span class="muted" data-story-reaction-count>${story.reaction_count || 0}</span></div>
     <div class="moment-viewer-actions">${story.user_id === state.me?.user?.id ? '<button class="ghost" data-story-delete>Delete moment</button>' : ''}${allStories.length > 1 ? `<button class="primary" data-story-next>Next moment →</button>` : ''}</div>
   </article>`;
   document.body.appendChild(layer);
@@ -344,6 +345,16 @@ function openStoryViewer(story, allStories = [story]) {
   layer.querySelector('[data-story-delete]')?.addEventListener('click', async () => {
     await api(`/stories/${encodeURIComponent(story.id)}`, { method: 'DELETE' });
     closeMomentLayer(); state.homeCache = null; renderHome(document.getElementById('main'));
+  });
+  layer.querySelectorAll('[data-story-reaction]').forEach(button => button.onclick = async () => {
+    const result = await api(`/stories/${encodeURIComponent(story.id)}/reaction`, { method: 'POST', body: { emoji: button.dataset.storyReaction }, throwOnError: true }).catch(() => null);
+    if (!result) return;
+    story.my_reaction = result.emoji; story.reaction_count = result.reaction_count;
+    layer.querySelectorAll('[data-story-reaction]').forEach(item => {
+      const active = item.dataset.storyReaction === result.emoji;
+      item.classList.toggle('is-active', active); item.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    const count = layer.querySelector('[data-story-reaction-count]'); if (count) count.textContent = result.reaction_count;
   });
   layer.querySelector('[data-story-next]')?.addEventListener('click', () => openStoryViewer(next, allStories));
   layer.addEventListener('keydown', e => { if (e.key === 'Escape') closeMomentLayer(); });
@@ -484,6 +495,10 @@ async function renderHome(main) {
     const story = activeStories.find(s => s.id === el.dataset.storyId);
     if (story) openStoryViewer(story, activeStories);
   });
+  if (state.storyTargetId) {
+    const target = activeStories.find(s => s.id === state.storyTargetId);
+    if (target) { state.storyTargetId = null; setTimeout(() => openStoryViewer(target, activeStories), 50); }
+  }
   main.querySelectorAll('.suggest-item').forEach(el => el.onclick = (e) => { if (!e.target.closest('[data-follow]')) renderUserProfile(el.dataset.user); });
   main.querySelectorAll('[data-follow]').forEach(btn => btn.onclick = async (e) => {
     e.stopPropagation();
@@ -2826,6 +2841,7 @@ const NOTIF_ICONS = {
   devotional: '🎬',
   streak: '🔥',
   effort: '💪',
+  story_reaction: '💛',
   reflection: '📖',
   verse: '📖',
   badge: '🎖️',
@@ -2853,6 +2869,7 @@ async function openNotificationDestination(url) {
   if (kind === 'verse' && p.get('ref')) return renderVerseThread(p.get('ref'));
   if (kind === 'journeys') { if (p.get('journey_key')) return renderJourneyDetail(p.get('journey_key')); state.tab = 'explore'; state.exploreTab = 'journeys'; return render(); }
   if (kind === 'reel' && p.get('video_id')) { state.tab = 'explore'; state.exploreTab = 'reels'; state.reelTargetId = p.get('video_id'); return render(); }
+  if (kind === 'story' && p.get('story_id')) { state.tab = 'home'; state.homeCache = null; state.storyTargetId = p.get('story_id'); return render(); }
   if (kind === 'challenges') { state.tab = 'explore'; state.exploreTab = 'challenges'; return render(); }
   if (kind === 'profile' && p.get('user_id')) return renderUserProfile(p.get('user_id'));
   if (kind === 'profile') { state.tab = 'profile'; return render(); }

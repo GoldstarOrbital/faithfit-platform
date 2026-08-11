@@ -155,6 +155,7 @@ function notificationDestination(type, details) {
   else if (details.thread_id && ['dm', 'workout_invite', 'workout_invite_response'].includes(type)) { q.set('open', 'dm'); q.set('thread_id', details.thread_id); }
   else if (details.group_id || details.event_id) { q.set('open', 'group'); if (details.group_id) q.set('group_id', details.group_id); if (details.event_id) q.set('event_id', details.event_id); }
   else if (details.workout_id) { q.set('open', 'workout'); q.set('workout_id', details.workout_id); }
+  else if (details.story_id) { q.set('open', 'story'); q.set('story_id', details.story_id); }
   else if (details.reference) { q.set('open', 'verse'); q.set('ref', details.reference); }
   else if (type === 'journey' || type === 'segment') { q.set('open', 'journeys'); if (details.journey_key) q.set('journey_key', details.journey_key); }
   else if (['challenge_complete', 'quest'].includes(type)) { q.set('open', 'challenges'); }
@@ -1198,7 +1199,9 @@ router.get('/stories', requireAuth, (req, res) => {
     SELECT s.id, s.user_id, s.content, s.photo_data, s.photo_category,
            s.visibility, s.created_at, s.expires_at, u.display_name author,
            CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS author_has_avatar,
-           CASE WHEN sv.story_id IS NULL THEN 0 ELSE 1 END AS viewed
+           CASE WHEN sv.story_id IS NULL THEN 0 ELSE 1 END AS viewed,
+           (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS reaction_count,
+           (SELECT emoji FROM story_reactions mine WHERE mine.story_id = s.id AND mine.user_id = @me) AS my_reaction
       FROM stories s JOIN users u ON u.id = s.user_id
       LEFT JOIN story_views sv ON sv.story_id = s.id AND sv.viewer_id = @me
      WHERE s.expires_at > datetime('now')
@@ -1237,6 +1240,26 @@ router.post('/stories/:id/view', requireAuth, (req, res) => {
   db.prepare('INSERT INTO story_views (story_id, viewer_id) VALUES (?, ?) ON CONFLICT(story_id, viewer_id) DO UPDATE SET viewed_at = datetime(\'now\')')
     .run(story.id, req.session.userId);
   res.json({ ok: true });
+});
+
+const STORY_REACTIONS = ['❤️', '🙏', '🔥', '💪', '👏'];
+router.post('/stories/:id/reaction', requireAuth, (req, res) => {
+  const story = db.prepare('SELECT * FROM stories WHERE id = ? AND expires_at > datetime(\'now\')').get(req.params.id);
+  if (!story || !storyVisible(story, req.session.userId) || dms.isBlockedEitherWay(req.session.userId, story.user_id)) return res.status(404).json({ error: 'story_not_found' });
+  const emoji = String(req.body?.emoji || '');
+  if (!STORY_REACTIONS.includes(emoji)) return res.status(400).json({ error: 'invalid_reaction' });
+  const current = db.prepare('SELECT emoji FROM story_reactions WHERE story_id = ? AND user_id = ?').get(story.id, req.session.userId);
+  if (current?.emoji === emoji) {
+    db.prepare('DELETE FROM story_reactions WHERE story_id = ? AND user_id = ?').run(story.id, req.session.userId);
+  } else {
+    db.prepare(`INSERT INTO story_reactions (story_id, user_id, emoji) VALUES (?, ?, ?)
+                ON CONFLICT(story_id, user_id) DO UPDATE SET emoji = excluded.emoji, created_at = datetime('now')`)
+      .run(story.id, req.session.userId, emoji);
+    if (story.user_id !== req.session.userId) notify(story.user_id, 'story_reaction', `${displayName(req.session.userId)} reacted ${emoji} to your moment`, { story_id: story.id });
+  }
+  const count = db.prepare('SELECT COUNT(*) AS count FROM story_reactions WHERE story_id = ?').get(story.id).count;
+  const active = current?.emoji === emoji ? null : emoji;
+  res.json({ emoji: active, reaction_count: Number(count) });
 });
 
 router.delete('/stories/:id', requireAuth, (req, res) => {
