@@ -1788,6 +1788,9 @@ button.start-degraded { background: var(--hearth, #b8863b); }
 .composer-heading, .composer-footer { display:flex; align-items:center; justify-content:space-between; gap:10px; }
 .composer-spark { color: var(--hearth, #d99a3f); font-size:1.35rem; }
 .home-composer textarea { width:100%; resize:vertical; margin:10px 0 8px; }
+.feed-switch { display:flex; gap:4px; padding:4px; margin:8px 0 12px; background:rgba(78,58,37,.08); border-radius:12px; }
+.feed-switch button { flex:1; border:0; border-radius:9px; padding:8px 10px; background:transparent; color:inherit; cursor:pointer; font:inherit; }
+.feed-switch button.active { background:var(--paper,#f6efdf); box-shadow:0 2px 8px rgba(43,30,20,.08); font-weight:700; }
 .composer-footer select { flex:1; min-width:0; }
 .composer-footer button { white-space:nowrap; }
 #home-post-status { min-height:1.1em; margin-top:6px; font-size:.74rem; }

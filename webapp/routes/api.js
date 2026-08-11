@@ -608,6 +608,7 @@ router.post('/consent', requireAuth, (req, res) => {
 // ---- feed ----
 router.get('/feed', (req, res) => {
   const meId = req.session.userId || null;
+  const followingOnly = req.query.scope === 'following' && !!meId;
   // Visibility rules: public → everyone; followers → the author's followers (and
   // the author); private → author only.
   const posts = db.prepare(`
@@ -622,12 +623,16 @@ router.get('/feed', (req, res) => {
     JOIN users u ON u.id = p.user_id
     LEFT JOIN workouts w ON w.id = p.workout_id
     LEFT JOIN scripture_verses v ON v.id = p.verse_id
-    WHERE p.visibility = 'public'
-       OR p.user_id = @me
-       OR (p.visibility = 'followers' AND EXISTS (
-             SELECT 1 FROM followers f WHERE f.followee_id = p.user_id AND f.follower_id = @me))
+    WHERE (
+      p.visibility = 'public'
+      OR p.user_id = @me
+      OR (p.visibility = 'followers' AND EXISTS (
+            SELECT 1 FROM followers f WHERE f.followee_id = p.user_id AND f.follower_id = @me))
+    )
+      AND (@following_only = 0 OR p.user_id = @me OR EXISTS (
+            SELECT 1 FROM followers ff WHERE ff.follower_id = @me AND ff.followee_id = p.user_id))
     ORDER BY p.created_at DESC LIMIT 50
-  `).all({ me: meId });
+  `).all({ me: meId, following_only: followingOnly ? 1 : 0 });
 
   const withSocial = posts.map(p => {
     // Replace the raw trace with only what the author chose to publish, so the

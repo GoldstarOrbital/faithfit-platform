@@ -13,7 +13,7 @@ const state = {
   splits: [], lastSplitKm: 0, lastSplitElapsed: 0, hrSamples: [],
   bleDevice: null, bleServer: null, bleConnected: false,
   breathePhase: 'idle',
-  homeCache: null,
+  homeCache: null, feedScope: 'community',
 };
 
 let gpsStartedAt = null, gpsTicker = null;
@@ -303,11 +303,12 @@ function realRouteSvg(points) {
 
 async function renderHome(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
-  const critical = state.homeCache && state.homeCache.posts ? [state.homeCache.posts, state.homeCache.users] : await Promise.all([api('/feed'), api('/users')]);
+  const cacheMatchesScope = state.homeCache && state.homeCache.scope === state.feedScope;
+  const critical = cacheMatchesScope && state.homeCache.posts ? [state.homeCache.posts, state.homeCache.users] : await Promise.all([api(`/feed?scope=${encodeURIComponent(state.feedScope)}`), api('/users')]);
   const [posts, users] = critical;
   const secondary = state.homeCache && state.homeCache.secondary;
   const [suggested, rec, devo, churchVideos] = secondary || [[], null, null, null];
-  if (!state.homeCache) state.homeCache = { posts, users, secondary: null };
+  if (!cacheMatchesScope) state.homeCache = { posts, users, secondary: null, scope: state.feedScope };
   const firstName = escapeHtml((state.me && state.me.user && state.me.user.display_name || 'friend').split(' ')[0]);
   main.innerHTML = `
     <section class="home-hero">
@@ -337,7 +338,11 @@ async function renderHome(main) {
       <div class="mission-actions"><button class="primary" data-home-tab="workout">Begin the mission</button><a class="ghost mission-read" href="https://www.bible.com/search/bible?query=${encodeURIComponent(rec.verse.reference)}" target="_blank" rel="noopener">Read in Bible ↗</a></div>
       <div class="mission-grounding">Functioning Faith coaching is generated from your activity context; Scripture text is always shown from the verified library.</div>
     </div>` : ''}
-    <div class="social-section-label"><span>Community</span><span>${users.length ? users.length + ' nearby' : 'Your people'}</span></div>
+    <div class="social-section-label"><span>${state.feedScope === 'following' ? 'Following' : 'Community'}</span><span>${users.length ? users.length + ' nearby' : 'Your people'}</span></div>
+    <div class="feed-switch" role="tablist" aria-label="Feed view">
+      <button type="button" role="tab" aria-selected="${state.feedScope === 'community'}" class="${state.feedScope === 'community' ? 'active' : ''}" data-feed-scope="community">Community</button>
+      <button type="button" role="tab" aria-selected="${state.feedScope === 'following'}" class="${state.feedScope === 'following' ? 'active' : ''}" data-feed-scope="following">Following</button>
+    </div>
     <div class="stories">
       ${users.map(u => `<div class="story" data-user="${u.id}"><div class="story-ring">${avatarHtml(u, 'story-avatar')}</div><div class="story-label">${u.display_name.split(' ')[0]}</div></div>`).join('')}
     </div>
@@ -461,6 +466,10 @@ async function renderHome(main) {
         wireCommentSubmit(el);
       }).catch(() => { el.innerHTML = '<div class="muted">Could not load conversation.</div>'; });
     }
+  });
+  main.querySelectorAll('[data-feed-scope]').forEach(btn => btn.onclick = () => {
+    if (state.feedScope === btn.dataset.feedScope) return;
+    state.feedScope = btn.dataset.feedScope; state.homeCache = null; renderHome(main);
   });
   const composerSubmit = main.querySelector('#home-post-submit');
   if (composerSubmit) composerSubmit.onclick = async () => {
