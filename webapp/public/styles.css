@@ -189,6 +189,8 @@ main { flex: 1; padding: 16px 16px 18px; overflow-y: auto; -webkit-overflow-scro
 .action-row { display:flex; align-items:center; gap:18px; margin-top:12px; padding-top:10px; border-top:1px solid var(--hairline-soft); }
 .action-btn { display:flex; align-items:center; gap:5px; background:none; border:none; color: var(--muted); font-size:0.85rem; font-family:inherit; cursor:pointer; padding:4px; }
 .action-btn.liked { color: var(--seal); }
+.action-btn.saved { color: var(--forest); background: rgba(70,192,127,.08); }
+.saved-post-card .action-btn { margin-top: 10px; }
 .action-btn .n { font-weight:600; }
 
 .comments { margin-top:10px; display:flex; flex-direction:column; gap:6px; }

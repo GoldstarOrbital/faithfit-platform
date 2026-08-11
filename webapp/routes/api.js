@@ -652,6 +652,7 @@ router.get('/feed', (req, res) => {
     p.has_route = !!route;
     const likeCount = db.prepare('SELECT COUNT(*) c FROM post_likes WHERE post_id = ?').get(p.id).c;
     const likedByMe = meId ? !!db.prepare('SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?').get(p.id, meId) : false;
+    const savedByMe = meId ? !!db.prepare('SELECT 1 FROM post_saves WHERE post_id = ? AND user_id = ?').get(p.id, meId) : false;
     let pace = null, distanceKm = p.distance_km ?? null;
     if (p.workout_type && p.start_time && p.end_time) {
       const mins = (new Date(p.end_time) - new Date(p.start_time)) / 60000;
@@ -660,7 +661,7 @@ router.get('/feed', (req, res) => {
     }
     const commentCount = Number(p.comment_count || 0);
     delete p.comment_count;
-    return { ...p, like_count: likeCount, liked_by_me: likedByMe, comment_count: commentCount, distance_km: distanceKm, pace_min_per_km: pace };
+    return { ...p, like_count: likeCount, liked_by_me: likedByMe, saved_by_me: savedByMe, comment_count: commentCount, distance_km: distanceKm, pace_min_per_km: pace };
   });
   res.json({ posts: withSocial, next_cursor: withSocial.length === limit ? withSocial[withSocial.length - 1].created_at : null });
 });
@@ -696,6 +697,36 @@ router.post('/posts/:id/like', requireAuth, (req, res) => {
   }
   const likeCount = db.prepare('SELECT COUNT(*) c FROM post_likes WHERE post_id = ?').get(req.params.id).c;
   res.json({ liked: !existing, like_count: likeCount });
+});
+
+router.post('/posts/:id/save', requireAuth, (req, res) => {
+  const post = db.prepare('SELECT id, user_id, visibility FROM posts WHERE id = ?').get(req.params.id);
+  if (!post) return res.status(404).json({ error: 'post_not_found' });
+  const me = req.session.userId;
+  const visible = post.user_id === me || post.visibility === 'public' ||
+    (post.visibility === 'followers' && !!db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(me, post.user_id));
+  if (!visible || dms.isBlockedEitherWay(me, post.user_id)) return res.status(404).json({ error: 'post_not_found' });
+  const existing = db.prepare('SELECT 1 FROM post_saves WHERE post_id = ? AND user_id = ?').get(post.id, me);
+  if (existing) db.prepare('DELETE FROM post_saves WHERE post_id = ? AND user_id = ?').run(post.id, me);
+  else db.prepare('INSERT INTO post_saves (post_id, user_id) VALUES (?, ?)').run(post.id, me);
+  res.json({ saved: !existing });
+});
+
+router.get('/posts/saved', requireAuth, (req, res) => {
+  const me = req.session.userId;
+  const posts = db.prepare(`
+    SELECT p.id, p.content, p.created_at, p.visibility, p.photo_data, p.photo_category,
+           u.display_name author, CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END author_has_avatar,
+           w.type workout_type, w.distance_km, w.calories, w.avg_hr, v.reference verse_reference, v.text verse_text,
+           s.created_at saved_at
+      FROM post_saves s JOIN posts p ON p.id = s.post_id JOIN users u ON u.id = p.user_id
+      LEFT JOIN workouts w ON w.id = p.workout_id LEFT JOIN scripture_verses v ON v.id = p.verse_id
+     WHERE s.user_id = ? AND (p.user_id = ? OR p.visibility = 'public' OR (p.visibility = 'followers' AND EXISTS (
+            SELECT 1 FROM followers f WHERE f.follower_id = ? AND f.followee_id = p.user_id)))
+       AND NOT EXISTS (SELECT 1 FROM dm_blocks b WHERE (b.blocker_id = ? AND b.blocked_id = p.user_id) OR (b.blocker_id = p.user_id AND b.blocked_id = ?))
+     ORDER BY s.created_at DESC LIMIT 100
+  `).all(me, me, me, me, me);
+  res.json({ posts: posts.map(p => ({ ...p, saved_by_me: true })) });
 });
 
 router.post('/posts/:id/comments', requireAuth, (req, res) => {
@@ -1984,7 +2015,8 @@ router.delete('/me', requireAuth, (req, res) => {
   if (!db.prepare('SELECT id FROM users WHERE id = ?').get(uid)) return res.status(404).json({ error: 'account_not_found' });
   const userTables = [
     'user_consents', 'workouts', 'biometric_samples', 'scripture_triggers', 'user_xp',
-    'user_badges', 'user_quests', 'notifications', 'post_comments', 'post_likes',
+    'user_badges', 'user_quests', 'notifications', 'post_comments', 'post_likes', 'post_saves',
+    'stories',
     'breathing_sessions', 'user_challenges', 'user_identities', 'user_connectors',
     'imported_activities', 'group_messages', 'event_rsvps', 'user_journeys',
     'verse_reflections', 'verse_reflection_likes', 'training_goals', 'webhooks',
@@ -1998,6 +2030,7 @@ router.delete('/me', requireAuth, (req, res) => {
     if (postIds.length) {
       const marks = postIds.map(() => '?').join(',');
       db.prepare(`DELETE FROM post_likes WHERE post_id IN (${marks})`).run(...postIds);
+      db.prepare(`DELETE FROM post_saves WHERE post_id IN (${marks})`).run(...postIds);
       db.prepare(`DELETE FROM post_comments WHERE post_id IN (${marks})`).run(...postIds);
       db.prepare(`DELETE FROM posts WHERE id IN (${marks})`).run(...postIds);
     }
@@ -2019,6 +2052,8 @@ router.delete('/me', requireAuth, (req, res) => {
     db.prepare('DELETE FROM workout_invites WHERE sender_id = ? OR recipient_id = ?').run(uid, uid);
     db.prepare('DELETE FROM group_invites WHERE created_by = ?').run(uid);
     db.prepare('DELETE FROM group_members WHERE user_id = ?').run(uid);
+    db.prepare('DELETE FROM story_views WHERE viewer_id = ?').run(uid);
+    db.prepare('DELETE FROM story_reactions WHERE user_id = ?').run(uid);
     for (const group of db.prepare('SELECT id FROM groups WHERE creator_id = ?').all(uid)) {
       const next = db.prepare('SELECT user_id FROM group_members WHERE group_id = ? ORDER BY rowid LIMIT 1').get(group.id);
       if (next) {

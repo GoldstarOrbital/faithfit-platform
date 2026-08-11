@@ -536,6 +536,7 @@ async function renderHome(main) {
       ${p.verse_reference ? `<div class="verse-card verse-tappable" data-verse-ref="${escapeHtml(p.verse_reference)}"><div class="verse-ref">${p.verse_reference}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div><div class="verse-convo" data-convo-for="${escapeHtml(p.verse_reference)}">💬 Start the conversation</div></div>` : ''}
       <div class="action-row">
         <button class="action-btn ${p.liked_by_me ? 'liked' : ''}" data-like="${p.id}">${p.liked_by_me ? '❤️' : '🤍'} <span class="n">${p.like_count}</span> kudos</button>
+        <button class="action-btn ${p.saved_by_me ? 'saved' : ''}" data-save-post="${p.id}" aria-pressed="${p.saved_by_me ? 'true' : 'false'}">${p.saved_by_me ? '🔖 Saved' : '🔖 Save'}</button>
         <button class="action-btn" data-comment-toggle="${p.id}">💬 <span class="n">${p.comment_count || 0}</span></button>
         <button class="action-btn" data-share="${p.id}" data-vis="${p.visibility || 'public'}">↗ Share</button>
         ${p.photo_data ? `<button class="action-btn" data-report="${p.id}">🚩 Report</button>` : ''}
@@ -577,6 +578,13 @@ async function renderHome(main) {
     await api(`/posts/${btn.dataset.like}/like`, { method: 'POST' });
     state.homeCache = null;
     renderHome(main);
+  });
+  postsEl.querySelectorAll('[data-save-post]').forEach(btn => btn.onclick = async () => {
+    const result = await api(`/posts/${encodeURIComponent(btn.dataset.savePost)}/save`, { method: 'POST', body: {}, throwOnError: true }).catch(() => null);
+    if (!result) return;
+    btn.classList.toggle('saved', !!result.saved);
+    btn.setAttribute('aria-pressed', result.saved ? 'true' : 'false');
+    btn.textContent = result.saved ? '🔖 Saved' : '🔖 Save';
   });
   postsEl.querySelectorAll('[data-comment-toggle]').forEach(btn => btn.onclick = () => {
     const el = document.getElementById(`comments-${btn.dataset.commentToggle}`);
@@ -1489,6 +1497,27 @@ async function renderGroupDetail(groupId) {
   }
 }
 
+async function renderSavedPosts(main) {
+  document.querySelectorAll('nav button').forEach(b => b.style.display = '');
+  main.innerHTML = '<button class="ghost back-btn" id="saved-posts-back">← Back to profile</button><div class="card glass"><span class="eyebrow">Your collection</span><h2>Saved posts</h2><p class="muted">Private bookmarks for workouts, prayers, and encouragement you want to return to.</p></div><div id="saved-posts-list"><div class="card glass muted">Loading saved posts…</div></div>';
+  let data;
+  try { data = await api('/posts/saved'); } catch { data = { posts: [] }; }
+  const list = main.querySelector('#saved-posts-list');
+  list.innerHTML = data.posts.length ? data.posts.map(p => `<article class="card glass saved-post-card" data-saved-card="${escapeHtml(p.id)}">
+    <div class="post-head"><div class="avatar-sm">${initials(p.author)}</div><div><b>${escapeHtml(p.author)}</b><div class="post-time">Saved ${timeAgo(p.saved_at)} ago · posted ${timeAgo(p.created_at)} ago</div></div></div>
+    ${p.content ? `<div class="post-content">${escapeHtml(p.content)}</div>` : ''}
+    ${p.photo_data ? `<img src="${escapeHtml(p.photo_data)}" alt="${escapeHtml(p.photo_category || 'Saved community photo')}" style="width:100%;border-radius:12px;margin-top:8px;display:block" />` : ''}
+    ${p.workout_type ? `<div class="stat-row"><div class="stat"><div class="v">${p.distance_km ?? '—'}</div><div class="l">km</div></div><div class="stat"><div class="v">${p.calories ?? '—'}</div><div class="l">kcal</div></div><div class="stat"><div class="v">${p.avg_hr ?? '—'}</div><div class="l">avg HR</div></div></div>` : ''}
+    ${p.verse_reference ? `<div class="verse-card"><div class="verse-ref">${escapeHtml(p.verse_reference)}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div></div>` : ''}
+    <button class="action-btn saved" data-unsave-post="${escapeHtml(p.id)}">🔖 Remove from saved</button>
+  </article>`).join('') : '<div class="card glass"><p class="muted">Nothing saved yet. Tap 🔖 Save on a community post to keep it here.</p></div>';
+  main.querySelector('#saved-posts-back').onclick = () => renderProfile(main);
+  main.querySelectorAll('[data-unsave-post]').forEach(btn => btn.onclick = async () => {
+    const result = await api(`/posts/${encodeURIComponent(btn.dataset.unsavePost)}/save`, { method: 'POST', body: {}, throwOnError: true }).catch(() => null);
+    if (result && !result.saved) btn.closest('[data-saved-card]')?.remove();
+  });
+}
+
 async function renderProfile(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
   const me = await api('/me');
@@ -1559,6 +1588,7 @@ async function renderProfile(main) {
       </div>
       <div class="accomplishments-head"><div><h3>Accomplishments</h3><div class="muted">Every milestone, earned or still ahead.</div></div><span id="badge-count" class="premium-badge">Loading</span></div>
       <div id="badge-shelf" class="badge-shelf"><span class="muted">Loading accomplishments…</span></div>
+      <button class="ghost" id="saved-posts-open" style="width:100%;margin-top:12px">🔖 View saved posts</button>
     </div>
     <div class="card glass profile-panel" data-profile-group="overview">
       <h2>Workout invites</h2>
@@ -1711,6 +1741,7 @@ async function renderProfile(main) {
     tab.onclick = () => showProfileView(tab.dataset.profileView);
   });
   showProfileView('overview');
+  document.getElementById('saved-posts-open').onclick = () => renderSavedPosts(main);
   // The profile screen builds its avatar inline rather than through
   // avatarHtml, so its ring needs filling explicitly.
   hydrateXpRings(main);

@@ -262,6 +262,14 @@ CREATE TABLE IF NOT EXISTS motivation_quotes (
   theme TEXT
 );
 
+CREATE TABLE IF NOT EXISTS post_saves (
+  post_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  PRIMARY KEY (post_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_post_saves_user ON post_saves(user_id, created_at);
+
 -- Per-member history for the Explore Motivation queue. The quote id is
 -- intentionally a string so curated, local Bible, and YouVersion verses can
 -- share one history without pretending they are the same source.
