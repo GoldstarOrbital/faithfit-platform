@@ -1766,6 +1766,10 @@ async function renderProfile(main) {
       <div class="muted" style="margin-bottom:10px">Full transparency — download everything Functioning Faith stores about your account as a JSON file.</div>
       <a class="ghost" id="data-export" href="/api/me/export" download="functioning-faith-my-data.json" style="display:block;text-align:center;text-decoration:none">⬇ Download my data</a>
       <div class="settings-danger-zone"><strong>Delete account</strong><div class="muted">Permanently removes your profile, workouts, posts, messages, connections, and personal data.</div><button class="ghost danger" id="delete-account" type="button">Delete my account</button></div>
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(0,0,0,0.08);text-align:center">
+        <div class="muted" style="margin-bottom:8px">Functioning Faith runs on donations, not investors or subscriptions.</div>
+        <a class="ghost" href="https://gofund.me/d6fe1b099" target="_blank" rel="noopener" style="display:block;text-decoration:none">🌻 Support development</a>
+      </div>
     </div>
     <div class="card glass profile-panel" data-profile-group="integrations" id="creator-overlay">
       <h2>Creator overlay</h2>
