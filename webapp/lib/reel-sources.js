@@ -223,6 +223,10 @@ const SEEDS = {
     { id: '333435822', provider: 'vimeo', title: 'The Catholic Girl — short film (St.Pio Films)' },
     { id: '344875215', provider: 'vimeo', title: 'The Catholic Farmer Boy — short film (St.Pio Films)' },
     { id: '406540493', provider: 'vimeo', title: 'Semana Santa (Holy Week) — cinematic short' },
+    // YouTube — verified via YouTube's public oEmbed 2026-08-12. Award-winning
+    // (IMDb: 2 wins, 4 nominations), official upload from the production's own
+    // channel, not a reupload.
+    { id: 'Hs980DuOBNU', provider: 'youtube', title: 'A Great Day (Award Winning Catholic Short Film)' },
   ],
 
   highway: [

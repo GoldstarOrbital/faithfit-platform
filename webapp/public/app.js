@@ -1654,6 +1654,7 @@ async function renderProfile(main) {
       <div class="accomplishments-head"><div><h3>Accomplishments</h3><div class="muted">Every milestone, earned or still ahead.</div></div><span id="badge-count" class="premium-badge">Loading</span></div>
       <div id="badge-shelf" class="badge-shelf"><span class="muted">Loading accomplishments…</span></div>
       <button class="ghost" id="saved-posts-open" style="width:100%;margin-top:12px">🔖 View saved posts</button>
+      <a class="ghost" href="https://gofund.me/d6fe1b099" target="_blank" rel="noopener" style="display:block;width:100%;margin-top:8px;text-align:center;text-decoration:none;box-sizing:border-box">🌻 Support Functioning Faith</a>
     </div>
     <div class="card glass profile-panel" data-profile-group="overview">
       <h2>Workout invites</h2>
@@ -1756,7 +1757,31 @@ async function renderProfile(main) {
     </div>
     <div class="card glass profile-panel" data-profile-group="integrations" id="developer-verification-card">
       <h2>Verified developer</h2><p class="muted">Status: <strong>${escapeHtml(developerStatus.status||'not_applied')}</strong>. Developer keys and webhooks require a verified .edu identity, verified church relationship, review, and the current accountability terms.</p>
-      ${developerStatus.status==='verified'?'<div class="badge-pill">✓ Verified developer</div>':`<details><summary>Developer checklist & application</summary><ol class="developer-checklist"><li>Link a provider-verified .edu email.</li><li>Select a church or submit a missing church for review.</li><li>Provide the church's public contact email.</li><li>Describe a community-serving project.</li><li>Accept rights, conduct, and accountability terms.</li></ol><input id="dev-edu" type="email" placeholder="you@school.edu"><input id="dev-church-id" type="text" placeholder="Church record ID"><input id="dev-church-email" type="email" placeholder="Public church contact email"><input id="dev-project" type="text" placeholder="Project name"><textarea id="dev-purpose" placeholder="How will this serve the community? (30+ characters)"></textarea><label class="terms-check"><input id="dev-attest" type="checkbox"><span>I accept the Developer Terms, content standard, rights responsibility, due-process enforcement, and church accountability notice policy.</span></label><button class="primary" id="dev-apply" style="width:100%;margin-top:8px">Submit for verification</button><div id="dev-status" class="muted"></div></details>`}
+      ${developerStatus.status==='verified'?`<div class="badge-pill">✓ Verified developer</div>
+        <details style="margin-top:10px"><summary><strong>Submit a reel</strong></summary>
+          <p class="muted" style="margin:6px 0">A YouTube or Vimeo link, reviewed before it can appear. Approved reels show up in Explore → Reels alongside everything else, ranked above other sources.</p>
+          <input id="dc-url" type="url" placeholder="https://youtube.com/watch?v=… or vimeo.com/…">
+          <input id="dc-title" type="text" maxlength="160" placeholder="Title">
+          <select id="dc-category">
+            <option value="">— Category —</option>
+            <option value="motivation">Grit + perseverance</option>
+            <option value="inklings">Lewis + Tolkien</option>
+            <option value="prairie">Walnut Grove</option>
+            <option value="edits">Faith edits</option>
+            <option value="shortfilm">Short films</option>
+            <option value="highway">Highway to Heaven</option>
+            <option value="fitness">Faith + fitness</option>
+            <option value="food">Fuel + meals</option>
+            <option value="kids">Kids + family faith</option>
+          </select>
+          <textarea id="dc-purpose" placeholder="How does this serve the community? (30+ characters)"></textarea>
+          <label class="terms-check"><input id="dc-rights" type="checkbox"><span>I hold the rights to submit this, or it's rights-cleared for this use.</span></label>
+          <label class="terms-check"><input id="dc-no-vanity" type="checkbox"><span>This is not vanity content — no sexualized display, status display, or solo self-promotion.</span></label>
+          <button class="primary" id="dc-submit" style="width:100%;margin-top:8px">Submit for review</button>
+          <div id="dc-status" class="muted"></div>
+          <div id="dc-list" class="muted" style="margin-top:10px">Loading your submissions…</div>
+        </details>`
+      :`<details><summary>Developer checklist & application</summary><ol class="developer-checklist"><li>Link a provider-verified .edu email.</li><li>Select a church or submit a missing church for review.</li><li>Provide the church's public contact email.</li><li>Describe a community-serving project.</li><li>Accept rights, conduct, and accountability terms.</li></ol><input id="dev-edu" type="email" placeholder="you@school.edu"><input id="dev-church-id" type="text" placeholder="Church record ID"><input id="dev-church-email" type="email" placeholder="Public church contact email"><input id="dev-project" type="text" placeholder="Project name"><textarea id="dev-purpose" placeholder="How will this serve the community? (30+ characters)"></textarea><label class="terms-check"><input id="dev-attest" type="checkbox"><span>I accept the Developer Terms, content standard, rights responsibility, due-process enforcement, and church accountability notice policy.</span></label><button class="primary" id="dev-apply" style="width:100%;margin-top:8px">Submit for verification</button><div id="dev-status" class="muted"></div></details>`}
     </div>
     <div class="card glass profile-panel" data-profile-group="integrations" id="pending-church-card">
       <h2>Church missing?</h2><p class="muted">Submit a pending church record for developer review. This does not verify that you represent it.</p><input id="dev-new-church-name" placeholder="Church name"><input id="dev-new-church-address" placeholder="Street address, city, state"><input id="dev-new-church-email" type="email" placeholder="Public church contact email"><input id="dev-new-church-site" type="url" placeholder="https://church.example"><button class="ghost" id="dev-new-church" style="width:100%;margin-top:8px">Submit pending church</button><div id="dev-new-church-status" class="muted"></div>
@@ -1845,6 +1870,30 @@ async function renderProfile(main) {
   };
   const devApply=document.getElementById('dev-apply');
   if(devApply) devApply.onclick=async()=>{const accepted=document.getElementById('dev-attest').checked;const r=await api('/developer/apply',{method:'POST',body:{edu_email:document.getElementById('dev-edu').value,church_id:document.getElementById('dev-church-id').value,church_contact_email:document.getElementById('dev-church-email').value,project_name:document.getElementById('dev-project').value,project_purpose:document.getElementById('dev-purpose').value,terms_accepted:accepted,accountability_accepted:accepted,content_standard_accepted:accepted}});document.getElementById('dev-status').textContent=r.error?(r.hint||r.error):`Application status: ${r.status}`;};
+  const dcList=document.getElementById('dc-list');
+  async function refreshDcList(){
+    if(!dcList) return;
+    const r=await api('/developer/content').catch(()=>null);
+    const subs=r&&r.submissions||[];
+    dcList.innerHTML=subs.length?('Your submissions:<br>'+subs.map(s=>`${escapeHtml(s.title)} — <strong>${escapeHtml(s.moderation_status)}</strong>`).join('<br>')):'No submissions yet.';
+  }
+  refreshDcList();
+  const dcSubmit=document.getElementById('dc-submit');
+  if(dcSubmit) dcSubmit.onclick=async()=>{
+    const status=document.getElementById('dc-status');
+    dcSubmit.disabled=true;
+    const r=await api('/developer/content',{method:'POST',body:{
+      source_url:document.getElementById('dc-url').value,
+      title:document.getElementById('dc-title').value,
+      category:document.getElementById('dc-category').value,
+      community_purpose:document.getElementById('dc-purpose').value,
+      rights_attested:document.getElementById('dc-rights').checked,
+      no_vanity_attested:document.getElementById('dc-no-vanity').checked,
+    }});
+    dcSubmit.disabled=false;
+    status.textContent=r.error?(r.hint||r.error):'Submitted for review.';
+    if(!r.error){document.getElementById('dc-url').value='';document.getElementById('dc-title').value='';refreshDcList();}
+  };
   const newChurch=document.getElementById('dev-new-church');
   if(newChurch)newChurch.onclick=async()=>{const r=await api('/developer/churches',{method:'POST',body:{name:document.getElementById('dev-new-church-name').value,address:document.getElementById('dev-new-church-address').value,contact_email:document.getElementById('dev-new-church-email').value,website_url:document.getElementById('dev-new-church-site').value}});const status=document.getElementById('dev-new-church-status');if(r.error){status.textContent=r.hint||r.error;return;}status.textContent=`Pending church submitted. Record ID: ${r.church.id}`;const idField=document.getElementById('dev-church-id');if(idField)idField.value=r.church.id;};
   showProfileView('overview');
