@@ -185,4 +185,26 @@ app.use(express.static(path.join(__dirname, 'public'), {
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'functioning-faith-webapp' }));
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Functioning Faith webapp listening on ${PORT}`));
+const httpServer = app.listen(PORT, () => console.log(`Functioning Faith webapp listening on ${PORT}`));
+
+// Railway (and any container platform) sends SIGTERM to the OLD instance the
+// moment a new deploy is ready to cut over -- completely normal, on every
+// single deploy. Without a handler, Node's default action for SIGTERM is to
+// terminate immediately, which the npm wrapper around `node server.js`
+// reports as "npm error signal SIGTERM" / "command failed". That npm-level
+// error is what Railway's crash detection was alerting on -- a false
+// positive on ordinary redeploy traffic, not an actual application crash.
+// Confirmed by reading the previous deployment's own logs: the sequence was
+// "Stopping Container" -> SIGTERM -> npm logging it as a failure, with
+// nothing resembling a real exception anywhere above it.
+// Exiting 0 in response to SIGTERM makes this a normal, clean shutdown
+// instead of a signal-killed one.
+function shutdown(signal) {
+  console.log(`[server] ${signal} received, shutting down cleanly`);
+  httpServer.close(() => process.exit(0));
+  // Railway gives a limited grace period before SIGKILL; do not wait
+  // indefinitely on close() (e.g. a slow-draining keep-alive connection).
+  setTimeout(() => process.exit(0), 8000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
