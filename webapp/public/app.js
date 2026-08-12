@@ -253,6 +253,12 @@ async function renderSignIn() {
       <p class="muted" style="font-size:0.72rem;text-align:center;margin:14px 0 0">
         By continuing, you agree to our <a href="/terms.html" target="_blank" rel="noopener">Terms</a> and acknowledge our <a href="/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.
       </p>
+      <div class="auth-divider"><span>not ready yet?</span></div>
+      <div style="display:flex;gap:6px">
+        <input id="launch-notify-email" type="email" placeholder="you@example.com" style="flex:1">
+        <button class="ghost" id="launch-notify-submit" style="white-space:nowrap">Notify me at launch</button>
+      </div>
+      <div id="launch-notify-status" class="muted" style="font-size:0.76rem;margin-top:4px" aria-live="polite"></div>
     </div>`;
 
   const errEl = main.querySelector('#auth-error');
@@ -261,6 +267,13 @@ async function renderSignIn() {
 
   main.querySelector('#auth-toggle').onclick = (e) => { e.preventDefault(); signInMode = isRegister ? 'login' : 'register'; renderSignIn(); };
   const forgot=main.querySelector('#forgot-password');if(forgot)forgot.onclick=async()=>{const email=prompt('Enter your account email.');if(!email)return;await api('/auth/recovery/request',{method:'POST',body:{email}});showErr('If recovery email is configured and that account exists, a reset link is on its way.');};
+  const notifySubmit=main.querySelector('#launch-notify-submit');
+  if(notifySubmit) notifySubmit.onclick=async()=>{
+    const emailInput=main.querySelector('#launch-notify-email'), status=main.querySelector('#launch-notify-status');
+    const r=await api('/launch-notify',{method:'POST',body:{email:emailInput.value}}).catch(e=>e);
+    status.textContent=r&&r.error?(r.hint||'Enter a real email address.'):'You\'re on the list — we\'ll email you.';
+    if(!(r&&r.error)) emailInput.value='';
+  };
 
   main.querySelector('#auth-form').onsubmit = async (e) => {
     e.preventDefault();
@@ -714,13 +727,45 @@ function trainingLog(performance) {
   }).join('')}</div>`;
 }
 
+// Two real, independent signals -- never blended into one fake score. Both
+// degrade honestly: no workout history yet, or no wearable synced in the
+// last 3 days, says exactly that instead of showing a number.
+function recoveryCardHtml(data) {
+  if (!data) return '';
+  const tl = data.training_load, wr = data.wearable;
+  const bandCopy = { sustainable: '✅ Sustainable', undertrained: '📉 Lighter load', 'spike-risk': '⚠️ Sharp increase' };
+  return `<div class="card glass">
+    <div class="premium-card-head"><div><div class="stats-period-head">Recovery</div><div class="muted">Training load from your own history, plus your wearable if it's connected.</div></div><span class="premium-badge">RECOVERY</span></div>
+    ${tl.available ? `
+      <div class="stat-tiles">
+        <div class="stat-tile"><div class="stat-tile-v">${tl.ratio}</div><div class="stat-tile-l">7d : 28d load</div></div>
+        <div class="stat-tile"><div class="stat-tile-v">${bandCopy[tl.band]}</div><div class="stat-tile-l">${escapeHtml(tl.headline)}</div></div>
+      </div>
+      <div class="muted" style="font-size:0.78rem;margin-top:6px">${tl.band === 'spike-risk'
+        ? 'A ratio above 1.5 is when sports-science literature associates the sharpest rise in injury risk. Not a diagnosis — a pattern worth noticing.'
+        : tl.band === 'undertrained'
+        ? 'Below 0.8 usually just means a lighter week, intentional or not. Ramping back up gradually (rather than all at once) is what keeps this ratio in the sustainable band.'
+        : 'This is the range most associated with sustainable training — meaningfully harder or easier than this over a week is what the ratio is built to flag.'}</div>
+    ` : `<div class="muted">${tl.reason === 'not_enough_history' ? 'A couple more weeks of logged workouts and this fills in — it needs real history, not a guess from one session.' : 'Log a few workouts and this fills in automatically.'}</div>`}
+    ${wr.available ? `
+      <div class="stat-tiles" style="margin-top:12px">
+        ${wr.readiness_score != null ? `<div class="stat-tile"><div class="stat-tile-v">${wr.readiness_score}</div><div class="stat-tile-l">readiness</div></div>` : ''}
+        ${wr.sleep_score != null ? `<div class="stat-tile"><div class="stat-tile-v">${wr.sleep_score}</div><div class="stat-tile-l">sleep score</div></div>` : ''}
+        ${wr.sleep_hours != null ? `<div class="stat-tile"><div class="stat-tile-v">${wr.sleep_hours}</div><div class="stat-tile-l">hours slept</div></div>` : ''}
+        ${wr.hrv != null ? `<div class="stat-tile"><div class="stat-tile-v">${wr.hrv}</div><div class="stat-tile-l">HRV</div></div>` : ''}
+      </div>
+      <div class="muted" style="font-size:0.72rem;margin-top:4px">From ${escapeHtml(wr.provider)}, synced ${escapeHtml(wr.date)}.</div>
+    ` : `<div class="muted" style="margin-top:10px;font-size:0.82rem">Connect Oura or Fitbit in Profile → Integrations for sleep and readiness here too.</div>`}
+  </div>`;
+}
+
 async function renderStats(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
   main.innerHTML = `<div class="card glass" style="text-align:center">Loading your stats…</div>`;
-  let summary, trends, breakdown, challenges, performance, goals, weeklyRecap;
+  let summary, trends, breakdown, challenges, performance, goals, weeklyRecap, recoveryData;
   try {
-    [summary, trends, breakdown, challenges, performance, goals, weeklyRecap] = await Promise.all([
-      api('/stats/summary'), api('/stats/trends?weeks=12'), api('/stats/activity-breakdown'), api('/challenges'), api('/stats/performance'), api('/goals'), api('/stats/recap'),
+    [summary, trends, breakdown, challenges, performance, goals, weeklyRecap, recoveryData] = await Promise.all([
+      api('/stats/summary'), api('/stats/trends?weeks=12'), api('/stats/activity-breakdown'), api('/challenges'), api('/stats/performance'), api('/goals'), api('/stats/recap'), api('/stats/recovery').catch(() => null),
     ]);
   } catch { main.innerHTML = '<div class="card glass">Could not load stats.</div>'; return; }
 
@@ -742,6 +787,8 @@ async function renderStats(main) {
       <div><div class="streak-num">${summary.active_days}</div><div class="muted">active days</div></div>
       <div><div class="streak-num">${life.workouts}</div><div class="muted">workouts</div></div>
     </div>
+
+    ${recoveryCardHtml(recoveryData)}
 
     <div class="card glass">
       <div class="stats-period-head">This week</div>
@@ -1796,6 +1843,18 @@ async function renderProfile(main) {
         <a class="ghost" href="https://gofund.me/d6fe1b099" target="_blank" rel="noopener" style="display:block;text-decoration:none">🌻 Support development</a>
       </div>
     </div>
+    ${me.user.is_admin ? `<div class="card glass profile-panel" data-profile-group="settings" id="admin-card">
+      <h2>Admin</h2>
+      <div id="admin-metrics" class="muted">Loading…</div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
+        <h3 style="margin:0 0 6px">Launch notification</h3>
+        <div id="admin-launch-stats" class="muted" style="margin-bottom:8px">Loading…</div>
+        <input id="admin-appstore-url" type="url" placeholder="App Store URL (optional)">
+        <input id="admin-playstore-url" type="url" placeholder="Play Store URL (optional)" style="margin-top:6px">
+        <button class="primary" id="admin-notify-launch" style="width:100%;margin-top:8px">Notify everyone the app is live</button>
+        <div id="admin-notify-status" class="muted" style="margin-top:6px"></div>
+      </div>
+    </div>` : ''}
     <div class="card glass profile-panel" data-profile-group="integrations" id="creator-overlay">
       <h2>Creator overlay</h2>
       <div class="muted" style="margin-bottom:10px">Add this as a browser source in OBS or Streamlabs. While you ride a journey, your route, pace, heart-rate zone and the scripture you are given appear over your stream.</div>
@@ -1894,6 +1953,39 @@ async function renderProfile(main) {
     status.textContent=r.error?(r.hint||r.error):'Submitted for review.';
     if(!r.error){document.getElementById('dc-url').value='';document.getElementById('dc-title').value='';refreshDcList();}
   };
+  const adminMetricsEl=document.getElementById('admin-metrics');
+  if(adminMetricsEl){
+    api('/admin/metrics').then(m=>{
+      adminMetricsEl.innerHTML=`
+        <div class="stat-tiles">
+          <div class="stat-tile"><div class="stat-tile-v">${m.total_users}</div><div class="stat-tile-l">total signups</div></div>
+          <div class="stat-tile"><div class="stat-tile-v">${m.signups_24h}</div><div class="stat-tile-l">signups 24h</div></div>
+          <div class="stat-tile"><div class="stat-tile-v">${m.signups_7d}</div><div class="stat-tile-l">signups 7d</div></div>
+        </div>
+        <div class="stat-tiles" style="margin-top:8px">
+          <div class="stat-tile"><div class="stat-tile-v">${m.active_24h}</div><div class="stat-tile-l">active 24h</div></div>
+          <div class="stat-tile"><div class="stat-tile-v">${m.active_7d}</div><div class="stat-tile-l">active 7d</div></div>
+        </div>
+        <div style="margin-top:10px;font-weight:600;color:${m.all_systems_go?'#3a7d44':'#a05a2c'}">${m.all_systems_go?'✅ All systems go':'⚠ Some integrations not configured'}</div>
+        <div style="margin-top:4px;font-size:0.8rem">${m.systems.map(s=>`${s.ok?'✅':'⭕'} ${escapeHtml(s.name)}`).join('<br>')}</div>
+      `;
+    }).catch(()=>{adminMetricsEl.textContent='Could not load metrics.';});
+    const launchStatsEl=document.getElementById('admin-launch-stats');
+    const refreshLaunchStats=()=>api('/admin/launch-notify/stats').then(s=>{launchStatsEl.textContent=`${s.total} signed up, ${s.pending} not yet notified.`;}).catch(()=>{launchStatsEl.textContent='Could not load.';});
+    refreshLaunchStats();
+    const notifyBtn=document.getElementById('admin-notify-launch');
+    if(notifyBtn) notifyBtn.onclick=async()=>{
+      const status=document.getElementById('admin-notify-status');
+      notifyBtn.disabled=true; notifyBtn.textContent='Sending…';
+      const r=await api('/admin/launch-notify/send',{method:'POST',body:{
+        app_store_url:document.getElementById('admin-appstore-url').value||undefined,
+        play_store_url:document.getElementById('admin-playstore-url').value||undefined,
+      }});
+      notifyBtn.disabled=false; notifyBtn.textContent='Notify everyone the app is live';
+      status.textContent=r.error?(r.hint||r.error):`Sent to ${r.sent}, failed ${r.failed}.`;
+      if(!r.error) refreshLaunchStats();
+    };
+  }
   const newChurch=document.getElementById('dev-new-church');
   if(newChurch)newChurch.onclick=async()=>{const r=await api('/developer/churches',{method:'POST',body:{name:document.getElementById('dev-new-church-name').value,address:document.getElementById('dev-new-church-address').value,contact_email:document.getElementById('dev-new-church-email').value,website_url:document.getElementById('dev-new-church-site').value}});const status=document.getElementById('dev-new-church-status');if(r.error){status.textContent=r.hint||r.error;return;}status.textContent=`Pending church submitted. Record ID: ${r.church.id}`;const idField=document.getElementById('dev-church-id');if(idField)idField.value=r.church.id;};
   showProfileView('overview');

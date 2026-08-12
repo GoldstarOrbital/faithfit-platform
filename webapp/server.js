@@ -27,9 +27,14 @@ const accountSecurity = require('./lib/account-security');
 const developerVerification = require('./lib/developer-verification');
 const media = require('./lib/media');
 const retention = require('./lib/retention');
+const admin = require('./lib/admin');
+const launchNotify = require('./lib/launch-notify');
 
 seed();
 accountSecurity.init();
+admin.init();
+admin.ensureAdmin();
+launchNotify.init();
 developerVerification.init();
 developerVerification.startNotifications();
 // Create the webhook tables and attach the dispatcher to the domain event bus.

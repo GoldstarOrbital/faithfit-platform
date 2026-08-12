@@ -60,6 +60,30 @@
 
   var spokenForThisLeave = false;
 
+  // Picks the most natural-sounding voice actually available, rather than
+  // whatever the browser defaults to (frequently the flattest, most robotic
+  // option in the list). Ranked by real naming signals from the platforms
+  // that ship these: "Natural"/"Neural"/"Enhanced"/"Premium" mark the newer
+  // neural voices on Edge, Chrome, and Windows; Apple's "Enhanced"/"Premium"
+  // voices on macOS/iOS carry the same distinction. Falls back to any local
+  // (non-network) voice over a remote one -- local voices are consistently
+  // better-sounding defaults across browsers -- and only then to whatever is
+  // first in the list.
+  function bestVoice() {
+    var voices = speechSynthesis.getVoices ? speechSynthesis.getVoices() : [];
+    if (!voices.length) return null;
+    var english = voices.filter(function (v) { return /^en/i.test(v.lang || ''); });
+    var pool = english.length ? english : voices;
+    function score(v) {
+      var name = v.name || '';
+      if (/natural|neural/i.test(name)) return 3;
+      if (/enhanced|premium/i.test(name)) return 2;
+      if (v.localService) return 1;
+      return 0;
+    }
+    return pool.slice().sort(function (a, b) { return score(b) - score(a); })[0];
+  }
+
   function speakAmen() {
     if (muted() || spokenForThisLeave) return;
     spokenForThisLeave = true;
@@ -69,9 +93,8 @@
       u.rate = 0.82;
       u.pitch = 0.85;
       u.volume = 0.6;
-      var voices = speechSynthesis.getVoices ? speechSynthesis.getVoices() : [];
-      var calm = voices.find(function (v) { return /calm|soft|whisper/i.test(v.name); });
-      if (calm) u.voice = calm;
+      var voice = bestVoice();
+      if (voice) u.voice = voice;
       speechSynthesis.speak(u);
     } catch (e) { /* best-effort; never fatal */ }
   }

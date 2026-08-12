@@ -31,6 +31,7 @@ const dms = require('../lib/dms');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
 const wearables = require('../lib/wearables');
+const recovery = require('../lib/recovery');
 const { searchNearbyChurches } = require('../lib/overpass');
 const youtube = require('../lib/youtube');
 const sermonSummary = require('../lib/sermon-summary');
@@ -38,6 +39,8 @@ const { fetchChurchWebsiteEmbeds, isHttpUrl } = require('../lib/church-website')
 const webhooks = require('../lib/webhooks');
 const accountSecurity = require('../lib/account-security');
 const developerVerification = require('../lib/developer-verification');
+const admin = require('../lib/admin');
+const launchNotify = require('../lib/launch-notify');
 const news = require('../lib/news');
 const media = require('../lib/media');
 const retention = require('../lib/retention');
@@ -780,6 +783,16 @@ function requireAuth(req, res, next) {
   if (!checked.ok) {
     req.session = null;
     return res.status(401).json({ error: checked.error });
+  }
+  next();
+}
+
+// 404, not 403 -- same reasoning as reviewerAuthorized elsewhere in this file:
+// an unauthorized caller should not learn that an admin surface exists at all.
+function requireAdmin(req, res, next) {
+  const checked = accountSecurity.validateSession(req);
+  if (!checked.ok || !admin.isAdmin(req.session.userId)) {
+    return res.status(404).json({ error: 'not_found' });
   }
   next();
 }
@@ -2329,6 +2342,10 @@ function completedWorkouts(uid) {
   return db.prepare("SELECT type, calories, avg_hr, max_hr, distance_km, duration_sec, start_time, end_time FROM workouts WHERE user_id = ? AND end_time IS NOT NULL").all(uid);
 }
 
+router.get('/stats/recovery', requireAuth, (req, res) => {
+  res.json(recovery.summary(req.session.userId));
+});
+
 router.get('/stats/summary', requireAuth, (req, res) => {
   const uid = req.session.userId;
   const ws = completedWorkouts(uid);
@@ -2820,6 +2837,32 @@ router.get('/podcasts', (req, res) => {
 
 router.get('/news', (req, res) => {
   res.json({ items: news.list({ limit: req.query.limit }), sources: news.FEEDS.map(f => f.source) });
+});
+
+// Public -- no account needed. Someone deciding whether this is worth an
+// account yet is exactly who "notify me at launch" is for.
+router.post('/launch-notify', (req, res) => {
+  const r = launchNotify.signup((req.body || {}).email);
+  if (!r.ok) return res.status(400).json({ error: r.error, hint: 'Enter a real email address.' });
+  res.status(201).json({ ok: true });
+});
+
+router.get('/admin/metrics', requireAdmin, (req, res) => {
+  res.json(admin.metrics());
+});
+
+router.get('/admin/launch-notify/stats', requireAdmin, (req, res) => {
+  res.json(launchNotify.stats());
+});
+
+// Single-click, from the admin page only. Sends once to everyone not yet
+// notified -- calling it again is safe and just catches anyone who signed up
+// since the last send, never re-emails someone already notified.
+router.post('/admin/launch-notify/send', requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  const result = await launchNotify.notifyLaunch({ appStoreUrl: b.app_store_url, playStoreUrl: b.play_store_url });
+  if (!result.configured) return res.status(503).json({ error: 'email_not_configured', hint: 'Set RESEND_API_KEY and EMAIL_FROM to send.' });
+  res.json(result);
 });
 
 // One consolidated read of a member's own rhythm: streak, standing, what
