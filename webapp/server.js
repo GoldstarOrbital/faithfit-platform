@@ -25,6 +25,8 @@ const publicApi = require('./routes/public-api');
 const reels = require('./lib/reels');
 const accountSecurity = require('./lib/account-security');
 const developerVerification = require('./lib/developer-verification');
+const media = require('./lib/media');
+const retention = require('./lib/retention');
 
 seed();
 accountSecurity.init();
@@ -55,6 +57,8 @@ reminders.start();
 // Ingest real podcast episodes from public RSS feeds (background, non-blocking).
 startPodcastRefresh();
 startNewsRefresh();
+media.init();
+retention.start();
 // Church devotionals from YouTube — true no-op (not even a timer) unless
 // Alex has set YOUTUBE_API_KEY, since it requires his own Google Cloud project.
 if (youtube.isConfigured()) youtube.startDevotionalRefresh();
@@ -80,7 +84,7 @@ app.use((req, res, next) => {
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self), bluetooth=(self)');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   if (productionMode) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://challenges.cloudflare.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https:; media-src 'self' https:; frame-src https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com https://challenges.cloudflare.com; connect-src 'self' https://*.googleapis.com https://api.gloo.us https://api.scripture.api.bible; object-src 'none'; base-uri 'self'; form-action 'self' https://accounts.google.com https://appleid.apple.com; frame-ancestors 'self'");
+  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://challenges.cloudflare.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https:; media-src 'self' data: https:; frame-src https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com https://challenges.cloudflare.com; connect-src 'self' https://*.googleapis.com https://api.gloo.us https://api.scripture.api.bible; object-src 'none'; base-uri 'self'; form-action 'self' https://accounts.google.com https://appleid.apple.com; frame-ancestors 'self'");
   next();
 });
 // Photos are resized in the browser before being sent as a data URL. Keep the

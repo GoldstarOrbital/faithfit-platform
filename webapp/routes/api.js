@@ -39,6 +39,8 @@ const webhooks = require('../lib/webhooks');
 const accountSecurity = require('../lib/account-security');
 const developerVerification = require('../lib/developer-verification');
 const news = require('../lib/news');
+const media = require('../lib/media');
+const retention = require('../lib/retention');
 
 // Load real, public-domain Bible text (KJV/WEB) into bible_verses once at startup.
 loadBibleData();
@@ -920,7 +922,7 @@ router.get('/feed', (req, res) => {
     SELECT p.id, p.content, p.created_at, p.user_id author_id, u.display_name author,
            CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS author_has_avatar,
            CASE WHEN EXISTS(SELECT 1 FROM developer_applications da WHERE da.user_id=u.id AND da.status='verified') THEN 1 ELSE 0 END AS author_verified_developer,
-           p.visibility, p.workout_id, p.photo_data, p.photo_category,
+           p.visibility, p.workout_id, p.photo_data, p.photo_category, p.video_data, p.video_category,
            p.show_route, p.route_privacy_m, w.gps_path,
            w.type workout_type, w.calories, w.avg_hr, w.start_time, w.end_time, w.distance_km,
            v.reference verse_reference, v.text verse_text, v.youversion_id,
@@ -1032,7 +1034,7 @@ router.post('/posts/:id/save', requireAuth, (req, res) => {
 router.get('/posts/saved', requireAuth, (req, res) => {
   const me = req.session.userId;
   const posts = db.prepare(`
-    SELECT p.id, p.content, p.created_at, p.visibility, p.photo_data, p.photo_category,
+    SELECT p.id, p.content, p.created_at, p.visibility, p.photo_data, p.photo_category, p.video_data, p.video_category,
            u.display_name author, CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END author_has_avatar,
            w.type workout_type, w.distance_km, w.calories, w.avg_hr, v.reference verse_reference, v.text verse_text,
            s.created_at saved_at
@@ -1680,7 +1682,7 @@ async function matchedScriptureForPost(userId, content, workoutId, requestedId) 
 
 router.post('/posts', requireAuth, requireCommunityAccess, async (req, res) => {
   const { content, workout_id, verse_id, visibility, photo_data, photo_category,
-          show_route, route_privacy_m } = req.body || {};
+          video_data, video_category, show_route, route_privacy_m } = req.body || {};
   const uid = req.session.userId;
   if(!allowWindow(postRateWindow,uid,6,60_000)) return res.status(429).json({error:'posting_too_fast'});
 
@@ -1707,6 +1709,21 @@ router.post('/posts', requireAuth, requireCommunityAccess, async (req, res) => {
     photoCategory = photo_category;
   }
 
+  // Same anti-vanity gate as photos, enforced on real container bytes rather
+  // than the declared MIME type (see lib/media.js). A post carries at most one
+  // piece of media, so a video makes a photo on the same post redundant.
+  let videoData = null, videoCategory = null, videoFormat = null, videoBytes = null, videoDurationS = null;
+  if (video_data) {
+    if (photoData) return res.status(400).json({ error: 'photo_and_video_not_allowed', hint: 'Attach either a photo or a video, not both.' });
+    const check = media.validateVideo(video_data, video_category);
+    if (!check.ok) return res.status(400).json({ error: check.error, hint: check.hint });
+    videoData = video_data;
+    videoCategory = check.category;
+    videoFormat = check.format;
+    videoBytes = check.bytes;
+    videoDurationS = check.duration_s;
+  }
+
   const userDefault = db.prepare('SELECT default_visibility FROM users WHERE id = ?').get(uid)?.default_visibility || 'public';
   const vis = VISIBILITIES.includes(visibility) ? visibility : userDefault;
 
@@ -1719,10 +1736,12 @@ router.post('/posts', requireAuth, requireCommunityAccess, async (req, res) => {
   if (!scripture) return res.status(503).json({ error:'scripture_unavailable', hint:'A verified verse could not be resolved, so the post was not published.' });
 
   db.prepare(`INSERT INTO posts (id,user_id,content,workout_id,verse_id,visibility,
-              photo_data,photo_category,show_route,route_privacy_m,verse_match_source,verse_match_reason)
-              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+              photo_data,photo_category,show_route,route_privacy_m,verse_match_source,verse_match_reason,
+              video_data,video_category,video_format,video_bytes,video_duration_s)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(id,uid,(content||'').toString().slice(0,1000),workout_id||null,scripture.verse.id,vis,
-         photoData,photoCategory,wantsRoute,privacyM,scripture.source,scripture.reason);
+         photoData,photoCategory,wantsRoute,privacyM,scripture.source,scripture.reason,
+         videoData,videoCategory,videoFormat,videoBytes,videoDurationS);
   res.status(201).json({ id,visibility:vis,share_url:vis==='public'?`/w/${id}`:null,
     scripture:{reference:scripture.verse.reference,text:scripture.verse.text,chosen_by:scripture.source,reason:scripture.reason} });
 });
@@ -1764,7 +1783,8 @@ router.patch('/posts/:id/visibility', requireAuth, (req, res) => {
 // private profile fields (job/church/gym/age/email).
 router.get('/public/post/:id', (req, res) => {
   const p = db.prepare(`
-    SELECT p.id, p.content, p.created_at, p.visibility, p.photo_data, p.photo_category, u.display_name author,
+    SELECT p.id, p.content, p.created_at, p.visibility, p.photo_data, p.photo_category,
+           p.video_data, p.video_category, u.display_name author,
            w.type workout_type, w.calories, w.avg_hr, w.max_hr, w.distance_km,
            w.start_time, w.end_time, w.gps_path, p.show_route, p.route_privacy_m,
            v.reference verse_reference, v.text verse_text
@@ -1777,6 +1797,7 @@ router.get('/public/post/:id', (req, res) => {
 
   if (!p || p.visibility !== 'public') return res.status(404).json({ error: 'not_found' });
   if (p.photo_data && !validateDataUrlImage(p.photo_data).ok) p.photo_data = null;
+  if (p.video_data && !media.validateVideo(p.video_data).ok) p.video_data = null;
 
   const route = publishedRoute(p);
 
@@ -1791,6 +1812,8 @@ router.get('/public/post/:id', (req, res) => {
     created_at: p.created_at,
     photo_data: p.photo_data,
     photo_category: p.photo_category,
+    video_data: p.video_data,
+    video_category: p.video_category,
     workout: p.workout_type ? {
       type: p.workout_type, calories: p.calories, avg_hr: p.avg_hr, max_hr: p.max_hr,
       distance_km: distanceKm, duration_min: durationMin, pace_min_per_km: pace,
@@ -1912,7 +1935,7 @@ router.get('/users/:id', (req, res) => {
   if(!followerStatsVisible){stats.followers=null;stats.following=null;}
   delete u.follower_list_visibility;
   const posts = db.prepare(`
-    SELECT p.id, p.content, p.created_at, p.visibility, p.workout_id, p.photo_data, p.photo_category,
+    SELECT p.id, p.content, p.created_at, p.visibility, p.workout_id, p.photo_data, p.photo_category, p.video_data, p.video_category,
            w.type workout_type, w.calories, w.avg_hr, w.distance_km,
            v.reference verse_reference, v.text verse_text
     FROM posts p
@@ -2797,6 +2820,23 @@ router.get('/podcasts', (req, res) => {
 
 router.get('/news', (req, res) => {
   res.json({ items: news.list({ limit: req.query.limit }), sources: news.FEEDS.map(f => f.source) });
+});
+
+// One consolidated read of a member's own rhythm: streak, standing, what
+// onboarding step is next, who would notice they showed up, and the single
+// suggestion (if any) worth surfacing on Home. Never another member's data.
+router.get('/retention/state', requireAuth, (req, res) => {
+  const state = retention.memberState(req.session.userId);
+  if (!state) return res.status(404).json({ error: 'not_found' });
+  res.json(state);
+});
+
+router.get('/retention/history', requireAuth, (req, res) => {
+  res.json({ nudges: retention.history(req.session.userId, req.query.limit) });
+});
+
+router.post('/retention/opt-out', requireAuth, (req, res) => {
+  res.json(retention.setOptOut(req.session.userId, req.body?.opted_out !== false));
 });
 
 router.post('/breathing/complete', requireAuth, (req, res) => {

@@ -13,7 +13,7 @@ const state = {
   splits: [], lastSplitKm: 0, lastSplitElapsed: 0, hrSamples: [],
   bleDevice: null, bleServer: null, bleConnected: false,
   breathePhase: 'idle',
-  homeCache: null, feedScope: 'community', reelTargetId: null, reelsView: 'for_you', searchPostId: null, storyTargetId: null,
+  homeCache: null, feedScope: 'community', reelTargetId: null, reelsView: 'for_you', searchPostId: null,
 };
 
 let gpsStartedAt = null, gpsTicker = null;
@@ -370,76 +370,6 @@ function realRouteSvg(points) {
     + '</svg>';
 }
 
-function closeMomentLayer() { document.getElementById('moment-layer')?.remove(); }
-
-function openStoryViewer(story, allStories = [story]) {
-  closeMomentLayer();
-  const layer = document.createElement('div');
-  layer.id = 'moment-layer';
-  layer.className = 'moment-layer';
-  const index = Math.max(0, allStories.findIndex(s => s.id === story.id));
-  const next = allStories[(index + 1) % allStories.length];
-  layer.innerHTML = `<div class="moment-backdrop" data-story-close></div><article class="moment-viewer" role="dialog" aria-modal="true" aria-label="${escapeHtml(story.author || 'Community moment')}">
-    <div class="moment-viewer-head"><div><b>${escapeHtml(story.author || 'Community member')}</b><div class="muted">24-hour moment · ${timeAgo(story.created_at)} ago</div></div><button class="ghost" type="button" data-story-close aria-label="Close moment">✕</button></div>
-    ${story.photo_data ? `<img class="moment-photo" src="${escapeHtml(story.photo_data)}" alt="${escapeHtml(story.photo_category || 'Community moment')}" />` : ''}
-    ${story.content ? `<div class="moment-copy">${escapeHtml(story.content)}</div>` : ''}
-    <div class="moment-reactions" aria-label="Encourage this member">${['❤️','🙏','🔥','💪','👏'].map(emoji => `<button type="button" class="moment-reaction ${story.my_reaction === emoji ? 'is-active' : ''}" data-story-reaction="${emoji}" aria-pressed="${story.my_reaction === emoji ? 'true' : 'false'}">${emoji}</button>`).join('')}<span class="muted" data-story-reaction-count>${story.reaction_count || 0}</span></div>
-    <div class="moment-viewer-actions">${story.user_id === state.me?.user?.id ? '<button class="ghost" data-story-delete>Delete moment</button>' : ''}${allStories.length > 1 ? `<button class="primary" data-story-next>Next moment →</button>` : ''}</div>
-  </article>`;
-  document.body.appendChild(layer);
-  api(`/stories/${encodeURIComponent(story.id)}/view`, { method: 'POST' }).catch(() => {});
-  layer.querySelectorAll('[data-story-close]').forEach(el => el.onclick = closeMomentLayer);
-  layer.querySelector('[data-story-delete]')?.addEventListener('click', async () => {
-    await api(`/stories/${encodeURIComponent(story.id)}`, { method: 'DELETE' });
-    closeMomentLayer(); state.homeCache = null; renderHome(document.getElementById('main'));
-  });
-  layer.querySelectorAll('[data-story-reaction]').forEach(button => button.onclick = async () => {
-    const result = await api(`/stories/${encodeURIComponent(story.id)}/reaction`, { method: 'POST', body: { emoji: button.dataset.storyReaction }, throwOnError: true }).catch(() => null);
-    if (!result) return;
-    story.my_reaction = result.emoji; story.reaction_count = result.reaction_count;
-    layer.querySelectorAll('[data-story-reaction]').forEach(item => {
-      const active = item.dataset.storyReaction === result.emoji;
-      item.classList.toggle('is-active', active); item.setAttribute('aria-pressed', active ? 'true' : 'false');
-    });
-    const count = layer.querySelector('[data-story-reaction-count]'); if (count) count.textContent = result.reaction_count;
-  });
-  layer.querySelector('[data-story-next]')?.addEventListener('click', () => openStoryViewer(next, allStories));
-  layer.addEventListener('keydown', e => { if (e.key === 'Escape') closeMomentLayer(); });
-  layer.tabIndex = -1; layer.focus();
-}
-
-function openMomentComposer(main) {
-  closeMomentLayer();
-  const layer = document.createElement('div');
-  layer.id = 'moment-layer'; layer.className = 'moment-layer';
-  layer.innerHTML = `<div class="moment-backdrop" data-moment-close></div><article class="moment-composer" role="dialog" aria-modal="true" aria-label="Share a 24-hour moment">
-    <div class="moment-viewer-head"><div><b>Share a 24-hour moment</b><div class="muted">A small, real update for your people. It expires automatically.</div></div><button class="ghost" type="button" data-moment-close aria-label="Close">✕</button></div>
-    <textarea class="input" id="moment-content" maxlength="280" rows="4" placeholder="A thought, a win, a verse, or what you are practicing today…"></textarea>
-    <input type="file" id="moment-photo-file" accept="image/*" hidden><button class="ghost" id="moment-photo-pick" type="button">📷 Add photo</button><div id="moment-photo-preview" class="moment-photo-preview"></div>
-    <div id="moment-photo-cat-wrap" style="display:none"><label class="field-label">What's in this photo?</label><label class="moment-radio"><input type="radio" name="moment-photo-cat" value="nature"> 🌿 Nature</label><label class="moment-radio"><input type="radio" name="moment-photo-cat" value="animal"> 🐾 Animal</label><label class="moment-radio"><input type="radio" name="moment-photo-cat" value="group"> 👥 Group of people</label></div>
-    <label class="field-label">Who can see it?</label><select class="input" id="moment-visibility"><option value="public">🌍 Everyone</option><option value="followers">👥 Followers</option><option value="private">🔒 Only me</option></select>
-    <div id="moment-status" class="muted" aria-live="polite"></div><button class="primary" id="moment-submit" type="button">Share moment</button>
-  </article>`;
-  document.body.appendChild(layer);
-  let photoData = null;
-  layer.querySelectorAll('[data-moment-close]').forEach(el => el.onclick = closeMomentLayer);
-  layer.querySelector('#moment-photo-pick').onclick = () => layer.querySelector('#moment-photo-file').click();
-  layer.querySelector('#moment-photo-file').onchange = async () => {
-    const file = layer.querySelector('#moment-photo-file').files[0]; if (!file) return;
-    try { photoData = await resizeImageFile(file, 1200, 0.8); layer.querySelector('#moment-photo-preview').innerHTML = `<img src="${escapeHtml(photoData)}" alt="Photo preview" />`; layer.querySelector('#moment-photo-cat-wrap').style.display = ''; }
-    catch { layer.querySelector('#moment-status').textContent = 'Could not process that image.'; }
-  };
-  layer.querySelector('#moment-submit').onclick = async () => {
-    const button = layer.querySelector('#moment-submit'), status = layer.querySelector('#moment-status');
-    const category = layer.querySelector('input[name="moment-photo-cat"]:checked')?.value || null;
-    if (photoData && !category) { status.textContent = 'Pick a category for the photo.'; return; }
-    button.disabled = true; button.textContent = 'Sharing…';
-    try { await api('/stories', { method: 'POST', body: { content: layer.querySelector('#moment-content').value.trim(), photo_data: photoData, photo_category: category, visibility: layer.querySelector('#moment-visibility').value }, throwOnError: true }); closeMomentLayer(); state.homeCache = null; renderHome(main); }
-    catch (err) { button.disabled = false; button.textContent = 'Share moment'; status.textContent = err.hint || 'Could not share this moment.'; }
-  };
-  layer.tabIndex = -1; layer.focus();
-}
-
 async function renderHome(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
   const cacheMatchesScope = state.homeCache && state.homeCache.scope === state.feedScope;
@@ -448,9 +378,7 @@ async function renderHome(main) {
   const posts = Array.isArray(feedData) ? feedData : (feedData.posts || []);
   const users = critical[1];
   const secondary = state.homeCache && state.homeCache.secondary;
-  const [suggested, rec, devo, churchVideos, storiesData] = secondary || [[], null, null, null, null];
-  const activeStories = (storiesData && Array.isArray(storiesData.stories)) ? storiesData.stories : [];
-  const storyAuthors = [...new Map(activeStories.map(s => [s.user_id, s])).values()];
+  const [suggested, rec, devo, churchVideos] = secondary || [[], null, null, null];
   if (!cacheMatchesScope) state.homeCache = { posts, users, nextCursor: Array.isArray(feedData) ? null : feedData.next_cursor, secondary: null, scope: state.feedScope };
   const firstName = escapeHtml((state.me && state.me.user && state.me.user.display_name || 'friend').split(' ')[0]);
   main.innerHTML = `
@@ -466,13 +394,6 @@ async function renderHome(main) {
       <button class="home-action home-action-primary" data-home-tab="workout"><span>＋</span><b>Log activity</b><small>Keep your streak alive</small></button>
       <button class="home-action" data-home-tab="explore" data-home-explore="journeys"><span>↗</span><b>Explore routes</b><small>Ride Bible &amp; fantasy worlds</small></button>
     </div>
-    <div class="card glass home-composer">
-      <div class="composer-heading"><div><div class="foryou-head">Share with your people</div><div class="muted">A thought, a win, or a verse from today.</div></div><span class="composer-spark">✦</span></div>
-      <textarea id="home-post-content" class="input" maxlength="1000" rows="3" placeholder="What is moving you today?"></textarea>
-      <div class="composer-footer"><select id="home-post-visibility" class="input" aria-label="Who can see this update"><option value="public">🌍 Everyone</option><option value="followers">👥 Followers</option><option value="private">🔒 Only me</option></select><button class="primary" id="home-post-submit" type="button">Share update</button></div>
-      <button class="ghost moment-launch" type="button" data-open-moment>＋ Share a 24-hour moment</button>
-      <div id="home-post-status" class="muted" aria-live="polite"></div>
-    </div>
     ${rec && rec.verse ? `
     <div class="card glass mission-card">
       <div class="mission-kicker"><span>✦ SCRIPTURE IN MOTION</span><span class="mission-live">TODAY</span></div>
@@ -486,10 +407,6 @@ async function renderHome(main) {
     <div class="feed-switch" role="tablist" aria-label="Feed view">
       <button type="button" role="tab" aria-selected="${state.feedScope === 'community'}" class="${state.feedScope === 'community' ? 'active' : ''}" data-feed-scope="community">Community</button>
       <button type="button" role="tab" aria-selected="${state.feedScope === 'following'}" class="${state.feedScope === 'following' ? 'active' : ''}" data-feed-scope="following">Following</button>
-    </div>
-    <div class="stories">
-      <button class="story story-create" type="button" data-open-moment><div class="story-ring"><span class="story-plus">＋</span></div><div class="story-label">Your moment</div></button>
-      ${storyAuthors.map(s => `<button class="story ${s.viewed ? '' : 'story-unread'}" type="button" data-story-id="${escapeHtml(s.id)}"><div class="story-ring">${avatarHtml({ id: s.user_id, display_name: s.author, has_avatar: s.author_has_avatar }, 'story-avatar')}</div><div class="story-label">${escapeHtml((s.author || 'Friend').split(' ')[0])}</div></button>`).join('')}
     </div>
     ${devo && devo.devotional ? `
     <div class="card glass foryou-card">
@@ -537,15 +454,6 @@ async function renderHome(main) {
     await api(`/challenges/${el.dataset.joinKey}/join`, { method: 'POST' });
     el.textContent = 'Joined ✓'; el.classList.add('following');
   }; });
-  main.querySelectorAll('[data-open-moment]').forEach(el => el.onclick = () => openMomentComposer(main));
-  main.querySelectorAll('[data-story-id]').forEach(el => el.onclick = () => {
-    const story = activeStories.find(s => s.id === el.dataset.storyId);
-    if (story) openStoryViewer(story, activeStories);
-  });
-  if (state.storyTargetId) {
-    const target = activeStories.find(s => s.id === state.storyTargetId);
-    if (target) { state.storyTargetId = null; setTimeout(() => openStoryViewer(target, activeStories), 50); }
-  }
   main.querySelectorAll('.suggest-item').forEach(el => el.onclick = (e) => { if (!e.target.closest('[data-follow]')) renderUserProfile(el.dataset.user); });
   main.querySelectorAll('[data-follow]').forEach(btn => btn.onclick = async (e) => {
     e.stopPropagation();
@@ -580,6 +488,7 @@ async function renderHome(main) {
           <div class="stat"><div class="v">${p.avg_hr ?? '—'}</div><div class="l">avg hr</div></div>
         </div>` : ''}
       ${p.photo_data ? `<div class="post-photo"><img src="${escapeHtml(p.photo_data)}" alt="${escapeHtml(p.photo_category || 'photo')}" style="width:100%;border-radius:10px;margin-top:8px;display:block" /><div class="muted" style="font-size:0.72rem;margin-top:4px">${{nature:'🌿 Nature',animal:'🐾 Animal',group:'👥 Group of people'}[p.photo_category] || ''}</div></div>` : ''}
+      ${p.video_data ? `<div class="post-photo"><video src="${escapeHtml(p.video_data)}" controls preload="none" playsinline style="width:100%;border-radius:10px;margin-top:8px;display:block;background:#000"></video><div class="muted" style="font-size:0.72rem;margin-top:4px">${{workout:'🏃 Workout',nature:'🌿 Nature',animal:'🐾 Animal',group:'👥 Group of people'}[p.video_category] || ''}</div></div>` : ''}
       ${p.verse_reference ? `<div class="verse-card verse-tappable" data-verse-ref="${escapeHtml(p.verse_reference)}"><div class="verse-ref">${p.verse_reference}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div><div class="verse-convo" data-convo-for="${escapeHtml(p.verse_reference)}">💬 Start the conversation</div></div>` : ''}
       <div class="action-row">
         <button class="action-btn ${p.liked_by_me ? 'liked' : ''}" data-like="${p.id}">${p.liked_by_me ? '❤️' : '🤍'} <span class="n">${p.like_count}</span> kudos</button>
@@ -652,20 +561,6 @@ async function renderHome(main) {
     if (state.feedScope === btn.dataset.feedScope) return;
     state.feedScope = btn.dataset.feedScope; state.homeCache = null; renderHome(main);
   });
-  const composerSubmit = main.querySelector('#home-post-submit');
-  if (composerSubmit) composerSubmit.onclick = async () => {
-    const content = main.querySelector('#home-post-content').value.trim();
-    const status = main.querySelector('#home-post-status');
-    if (!content) { status.textContent = 'Write something first, even if it is small.'; return; }
-    composerSubmit.disabled = true; composerSubmit.textContent = 'Sharing…'; status.textContent = '';
-    try {
-      await api('/posts', { method: 'POST', body: { content, visibility: main.querySelector('#home-post-visibility').value }, throwOnError: true });
-      state.homeCache = null; renderHome(main);
-    } catch (err) {
-      composerSubmit.disabled = false; composerSubmit.textContent = 'Share update';
-      status.textContent = err.status === 429 ? 'You have shared a few updates recently — try again in a minute.' : 'Could not share this update.';
-    }
-  };
   function wireCommentLikes(root) { root.querySelectorAll('[data-comment-like]').forEach(btn => btn.onclick = async () => {
     const result = await api(`/comments/${encodeURIComponent(btn.dataset.commentLike)}/like`, { method: 'POST', body: {}, throwOnError: true }).catch(() => null);
     if (!result) return;
@@ -701,7 +596,6 @@ async function renderHome(main) {
       api('/recommendations').catch(() => null),
       api('/devotionals/today').catch(() => null),
       api('/church/videos').catch(() => null),
-      api('/stories').catch(() => ({ stories: [] })),
     ]).then(data => {
       if (state.homeCache !== cache) return;
       cache.secondary = data;
@@ -751,6 +645,7 @@ async function renderUserProfile(userId) {
       <div class="post-time" style="margin-bottom:8px">${timeAgo(p.created_at)} ago</div>
       ${p.content ? `<div class="post-content">${escapeHtml(p.content)}</div>` : ''}
       ${p.photo_data ? `<img src="${escapeHtml(p.photo_data)}" alt="${escapeHtml(p.photo_category || 'photo')}" style="width:100%;border-radius:10px;margin-top:8px;display:block" />` : ''}
+      ${p.video_data ? `<video src="${escapeHtml(p.video_data)}" controls preload="none" playsinline style="width:100%;border-radius:10px;margin-top:8px;display:block;background:#000"></video>` : ''}
       ${p.workout_type ? `${p.route ? `<div class="route-banner">${realRouteSvg(p.route)}<span class="badge-overlay">${p.workout_type}</span></div>` : ''}
         <div class="stat-row">
           <div class="stat"><div class="v">${p.distance_km ?? '—'}</div><div class="l">km</div></div>
@@ -1673,6 +1568,7 @@ async function renderSavedPosts(main) {
     <div class="post-head"><div class="avatar-sm">${initials(p.author)}</div><div><b>${escapeHtml(p.author)}</b><div class="post-time">Saved ${timeAgo(p.saved_at)} ago · posted ${timeAgo(p.created_at)} ago</div></div></div>
     ${p.content ? `<div class="post-content">${escapeHtml(p.content)}</div>` : ''}
     ${p.photo_data ? `<img src="${escapeHtml(p.photo_data)}" alt="${escapeHtml(p.photo_category || 'Saved community photo')}" style="width:100%;border-radius:12px;margin-top:8px;display:block" />` : ''}
+    ${p.video_data ? `<video src="${escapeHtml(p.video_data)}" controls preload="none" playsinline style="width:100%;border-radius:12px;margin-top:8px;display:block;background:#000"></video>` : ''}
     ${p.workout_type ? `<div class="stat-row"><div class="stat"><div class="v">${p.distance_km ?? '—'}</div><div class="l">km</div></div><div class="stat"><div class="v">${p.calories ?? '—'}</div><div class="l">kcal</div></div><div class="stat"><div class="v">${p.avg_hr ?? '—'}</div><div class="l">avg HR</div></div></div>` : ''}
     ${p.verse_reference ? `<div class="verse-card"><div class="verse-ref">${escapeHtml(p.verse_reference)}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div></div>` : ''}
     <button class="action-btn saved" data-unsave-post="${escapeHtml(p.id)}">🔖 Remove from saved</button>
@@ -3108,7 +3004,7 @@ async function openNotificationDestination(url) {
   if (kind === 'verse' && p.get('ref')) return renderVerseThread(p.get('ref'));
   if (kind === 'journeys') { if (p.get('journey_key')) return renderJourneyDetail(p.get('journey_key')); state.tab = 'explore'; state.exploreTab = 'journeys'; return render(); }
   if (kind === 'reel' && p.get('video_id')) { state.tab = 'explore'; state.exploreTab = 'reels'; state.reelTargetId = p.get('video_id'); return render(); }
-  if (kind === 'story' && p.get('story_id')) { state.tab = 'home'; state.homeCache = null; state.storyTargetId = p.get('story_id'); return render(); }
+  if (kind === 'story') { state.tab = 'home'; state.homeCache = null; return render(); }
   if (kind === 'challenges') { state.tab = 'explore'; state.exploreTab = 'challenges'; return render(); }
   if (kind === 'profile' && p.get('user_id')) return renderUserProfile(p.get('user_id'));
   if (kind === 'profile') { state.tab = 'profile'; return render(); }

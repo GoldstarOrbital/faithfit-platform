@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="referrer" content="no-referrer" />
+<!-- This page renders text written by hostile users and holds a reviewer token in
+     the same tab. Everything it needs is same-origin: no CDN, no outside font, no
+     outside image, no outside connection. A single-file page cannot avoid
+     'unsafe-inline', so the first wall is escapeHtml() on every single
+     interpolation below — this header is the second wall. connect-src and
+     form-action are what stop a stolen token from ever leaving the origin. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'" />
+<title>Moderation review — Functioning Faith</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='27' fill='none' stroke='%232d2013' stroke-width='5.5' stroke-dasharray='76 94' transform='rotate(96 32 32)'/%3E%3Ccircle cx='32' cy='32' r='27' fill='none' stroke='%23d9ab55' stroke-width='5.5' stroke-dasharray='76 94' transform='rotate(-84 32 32)'/%3E%3Cpath d='M39.5 19V52M30 30.5H49' stroke='%23d9ab55' stroke-width='5.5' fill='none'/%3E%3Cpath d='M37 15.5h-3.5a7.5 7.5 0 0 0-7.5 7.5V47M19 30.5H33' stroke='%232d2013' stroke-width='5.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" />
+<style>
+  :root { --ink:#2d2013; --parch:#f3ecd8; --parch2:#fdf8ea; --gold:#d9ab55;
+          --line:rgba(45,32,19,.14); --muted:#6f6046; --ok:#5c6b3f; --warn:#8a6a1f; --danger:#8c3a2b; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--parch); color:var(--ink);
+         font:16px/1.6 ui-serif, Georgia, "Times New Roman", serif; }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 28px 20px 80px; }
+  header { display:flex; align-items:center; gap:12px; margin-bottom: 6px; }
+  header svg { width:44px; height:44px; }
+  h1 { font-size:1.7rem; margin:0; }
+  h2 { font-size:1.15rem; margin:34px 0 8px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+  p, li { color:#3a2c1c; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  code { background:var(--parch2); padding:1px 5px; border-radius:4px; font-size:.88em; word-break:break-all; }
+  a { color:#7a5a1e; }
+  .promise { background:var(--parch2); border:1px solid var(--line); border-left:3px solid var(--gold);
+             padding:14px 16px; border-radius:8px; margin:16px 0; }
+
+  /* ---- controls ---- */
+  label.lab { display:block; font-family: ui-sans-serif, system-ui, sans-serif; font-size:.76rem;
+              text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:10px 0 4px; }
+  label.lab .req { text-transform:none; letter-spacing:0; font-size:.85em; color:var(--muted); font-style:italic; }
+  input[type=text], input[type=password], textarea, select {
+    width:100%; font:inherit; font-size:.92rem; color:var(--ink); background:var(--parch2);
+    border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  textarea { resize:vertical; font-size:.9rem; }
+  input:focus, textarea:focus, select:focus { outline:2px solid var(--gold); outline-offset:1px; }
+  .btn { font:inherit; font-size:.85rem; font-family: ui-sans-serif, system-ui, sans-serif;
+         padding:7px 13px; border-radius:7px; border:1px solid var(--line);
+         background:var(--parch2); color:var(--ink); cursor:pointer; }
+  .btn:hover { border-color:var(--gold); }
+  .btn[disabled] { opacity:.5; cursor:default; }
+  .btn.primary { background:var(--ink); color:var(--parch2); border-color:var(--ink); }
+  .btn.ok { border-color:var(--ok); color:var(--ok); }
+  .btn.warn { border-color:var(--warn); color:var(--warn); }
+  .btn.danger { border-color:var(--danger); color:var(--danger); }
+  .btn.danger.solid { background:var(--danger); color:#fff; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  .row > div { flex:1 1 220px; }
+  .row > .shrink { flex:0 0 auto; }
+
+  /* ---- queue ---- */
+  .tabs { display:flex; gap:6px; flex-wrap:wrap; margin:22px 0 4px; }
+  .tab { font-family: ui-sans-serif, system-ui, sans-serif; font-size:.8rem; padding:6px 13px;
+         border:1px solid var(--line); border-radius:999px; background:transparent;
+         color:var(--muted); cursor:pointer; }
+  .tab[aria-selected=true] { background:var(--ink); color:var(--parch2); border-color:var(--ink); }
+  .report { background:var(--parch2); border:1px solid var(--line); border-left:3px solid var(--gold);
+            border-radius:8px; padding:14px 16px; margin:14px 0; }
+  .report.resolved { border-left-color:var(--muted); }
+  .rhead { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  .badge { font-family: ui-monospace, monospace; font-size:.7rem; font-weight:700; letter-spacing:.06em;
+           text-transform:uppercase; padding:2px 7px; border-radius:4px; background:var(--ink); color:var(--parch2); }
+  .badge.user { background:var(--warn); }
+  .pill { font-family: ui-sans-serif, system-ui, sans-serif; font-size:.72rem; letter-spacing:.04em;
+          text-transform:uppercase; color:var(--muted); border:1px solid var(--line);
+          border-radius:999px; padding:1px 9px; }
+  .rhead time { margin-left:auto; font-size:.8rem; color:var(--muted); }
+  .meta { display:flex; flex-wrap:wrap; gap:4px 18px; margin:0 0 10px; font-size:.82rem; }
+  .meta div { display:flex; gap:6px; align-items:baseline; }
+  .meta dt { font-family: ui-sans-serif, system-ui, sans-serif; font-size:.72rem; text-transform:uppercase;
+             letter-spacing:.06em; color:var(--muted); margin:0; }
+  .meta dd { margin:0; }
+  .reason { margin:0 0 12px; padding:9px 13px; border-left:2px solid var(--line);
+            background:rgba(45,32,19,.04); border-radius:0 6px 6px 0;
+            white-space:pre-wrap; overflow-wrap:anywhere; font-size:.94rem; }
+  .reason b { display:block; font-family: ui-sans-serif, system-ui, sans-serif; font-size:.7rem;
+              text-transform:uppercase; letter-spacing:.06em; color:var(--muted); font-weight:600; margin-bottom:2px; }
+
+  .target { border:1px dashed var(--line); border-radius:8px; padding:11px 13px; margin:0 0 12px; }
+  .target .content { white-space:pre-wrap; overflow-wrap:anywhere; margin:6px 0; font-size:.94rem; }
+  .target .verse { font-size:.85rem; color:var(--muted); font-style:italic; overflow-wrap:anywhere; }
+  .media { margin:8px 0 0; }
+  .media img { max-width:100%; max-height:340px; border-radius:6px; border:1px solid var(--line); display:block; }
+  .kv { font-size:.82rem; color:var(--muted); overflow-wrap:anywhere; }
+
+  .actions { border-top:1px solid var(--line); padding-top:10px; }
+  .btns { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .confirm { margin-top:10px; padding:11px 13px; border:1px solid var(--danger);
+             border-radius:8px; background:rgba(140,58,43,.06); }
+  .confirm p { margin:0 0 8px; font-size:.88rem; }
+  .err { color:var(--danger); font-size:.86rem; margin:8px 0 0; }
+  .done { color:var(--ok); font-size:.88rem; margin:8px 0 0; }
+  .empty { text-align:center; padding:44px 20px; color:var(--muted); }
+  .empty .big { font-size:1.1rem; color:var(--ink); margin-bottom:4px; }
+  [hidden] { display:none !important; }
+
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#f0e6d0; --parch:#221a11; --parch2:#2c2317; --line:rgba(240,230,208,.16); --muted:#a1917a;
+            --ok:#9db36e; --warn:#d3ac5a; --danger:#e08a76; }
+    p, li { color:#e6dcc6; }
+    .badge { background:#3a2f20; color:var(--ink); }
+    .badge.user { background:#4a3a1c; }
+    .tab[aria-selected=true] { background:var(--gold); color:#221a11; border-color:var(--gold); }
+    .btn.primary { background:var(--gold); color:#221a11; border-color:var(--gold); }
+    .btn.danger.solid { background:var(--danger); color:#221a11; }
+    .reason { background:rgba(240,230,208,.05); }
+    a { color:var(--gold); }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <svg viewBox="0 0 64 64" role="img" aria-label="Functioning Faith">
+    <g fill="none" stroke-linecap="butt">
+      <circle cx="32" cy="32" r="27" stroke="currentColor" stroke-width="5.5" stroke-dasharray="76 94" transform="rotate(96 32 32)"/>
+      <circle cx="32" cy="32" r="27" stroke="#d9ab55" stroke-width="5.5" stroke-dasharray="76 94" transform="rotate(-84 32 32)"/>
+    </g>
+    <g fill="none" stroke="#d9ab55" stroke-width="5.5"><path d="M39.5 19 V 52"/><path d="M30 30.5 H 49"/></g>
+    <g fill="none" stroke="currentColor" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M37 15.5 h-3.5 a7.5 7.5 0 0 0 -7.5 7.5 V 47"/><path d="M19 30.5 H 33"/>
+    </g>
+  </svg>
+  <h1>Moderation review</h1>
+</header>
+<p class="muted">Reports are allegations, not findings. A decision here removes a member's
+words or ends their session — read the content before you choose. ·
+<a href="/developers">Developer API</a> · <a href="/terms.html">Community standards</a></p>
+
+<!-- ---- the reviewer gate ---- -->
+<section id="gate">
+  <div class="promise">
+    <b>Reviewer credentials</b>
+    <p class="muted" style="margin:6px 0 0">The review token authorises every request on this page. It is held
+    for this browser tab only, sent as a header — never in a URL — and forgotten when the tab closes.
+    Your name is recorded on every decision you make.</p>
+    <form id="gate-form" autocomplete="off">
+      <label class="lab" for="f-reviewer">Your name <span class="req">recorded in the audit trail</span></label>
+      <input id="f-reviewer" type="text" autocomplete="off" spellcheck="false" placeholder="e.g. Ruth Alvarez" />
+      <label class="lab" for="f-token">Review token</label>
+      <div class="row">
+        <div><input id="f-token" type="password" autocomplete="off" spellcheck="false" placeholder="DEVELOPER_REVIEW_TOKEN" /></div>
+        <div class="shrink"><button type="button" class="btn" id="f-show">Show</button></div>
+        <div class="shrink"><button type="submit" class="btn primary">Open the queue</button></div>
+      </div>
+      <p class="err" id="gate-err" hidden></p>
+    </form>
+  </div>
+</section>
+
+<!-- ---- the queue ---- -->
+<section id="queue" hidden>
+  <div class="row" style="margin-top:18px">
+    <div class="muted" id="who"></div>
+    <div class="shrink"><button class="btn" id="refresh">Refresh</button></div>
+    <div class="shrink"><button class="btn" id="forget">Forget token</button></div>
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="Queue status">
+    <button class="tab" role="tab" data-status="pending" aria-selected="true">Pending</button>
+    <button class="tab" role="tab" data-status="reviewing" aria-selected="false">Reviewing</button>
+    <button class="tab" role="tab" data-status="resolved" aria-selected="false">Resolved</button>
+  </div>
+
+  <p class="muted" id="queue-note" hidden></p>
+  <div id="list"></div>
+</section>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // A page that can suspend accounts should never render inside someone else's
+  // frame. Clickjacking a "Suspend" button is a one-click account takedown.
+  if (window.top !== window.self) {
+    document.body.textContent = 'Moderation review cannot be embedded.';
+    return;
+  }
+
+  // ---------------------------------------------------------------------------
+  // The single most important function on this page.
+  //
+  // Every string below that came from a member — a report reason, a post body, a
+  // display name, a verse reference, an error hint from the server — passes
+  // through here before it touches innerHTML. There is no exception, no "this
+  // one is a UUID so it's fine". A reviewer's tab holds the review token; an XSS
+  // here is a moderator takeover, so the rule is mechanical rather than clever.
+  // Attributes are always double-quoted, so escaping " and ' is sufficient.
+  // ---------------------------------------------------------------------------
+  function escapeHtml(s) {
+    return String(s === null || s === undefined ? '' : s)
+      .replace(/[&<>"'`]/g, function (c) {
+        return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;', '`':'&#96;' }[c];
+      });
+  }
+
+  // Post photos are data: URLs. The server already enforces jpeg/png/webp and a
+  // size cap, but a reviewer's browser is the wrong place to trust that, so the
+  // shape is checked again before anything reaches an <img>. Anything else is
+  // shown as a note instead of rendered.
+  var SAFE_IMAGE = /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+  // SQLite writes `datetime('now')` as "2026-08-12 09:11:00" — UTC with no zone
+  // marker, which most browsers would read as local time and shift by hours.
+  // reviewed_at is a real ISO string. Normalise both before parsing.
+  function parseTs(value) {
+    var s = String(value || '').trim();
+    if (!s) return null;
+    var iso = s.replace(' ', 'T');
+    if (!/(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(iso)) iso += 'Z';
+    var d = new Date(iso);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  function whenText(value) {
+    var d = parseTs(value);
+    if (!d) return String(value || 'unknown');
+    var mins = Math.round((Date.now() - d.getTime()) / 60000);
+    var rel = mins < 1 ? 'just now'
+            : mins < 60 ? mins + ' min ago'
+            : mins < 1440 ? Math.round(mins / 60) + ' h ago'
+            : Math.round(mins / 1440) + ' d ago';
+    return d.toLocaleString() + ' · ' + rel;
+  }
+
+  var state = { token: '', reviewer: '', status: 'pending', reports: [], targets: {} };
+
+  var $ = function (id) { return document.getElementById(id); };
+  var gate = $('gate'), queue = $('queue'), list = $('list');
+
+  // ---- transport -----------------------------------------------------------
+  // The token travels as a header on every call and is never placed in a URL,
+  // a query string, or a log line.
+  function api(path, opts) {
+    var o = opts || {};
+    var headers = { 'x-developer-review-token': state.token };
+    if (o.body) headers['content-type'] = 'application/json';
+    return fetch(path, {
+      method: o.method || 'GET',
+      headers: headers,
+      credentials: 'same-origin',
+      body: o.body ? JSON.stringify(o.body) : undefined
+    }).then(function (res) {
+      var ct = res.headers.get('content-type') || '';
+      if (ct.indexOf('application/json') === -1) {
+        // A non-JSON response means the route is not mounted on this build —
+        // that is a deployment fact, not an authorisation failure.
+        return { ok: false, status: res.status, body: null, json: false };
+      }
+      return res.json().then(function (body) {
+        return { ok: res.ok, status: res.status, body: body, json: true };
+      }, function () {
+        return { ok: false, status: res.status, body: null, json: false };
+      });
+    }, function () {
+      return { ok: false, status: 0, body: null, json: false, offline: true };
+    });
+  }
+
+  // ---- gate ----------------------------------------------------------------
+  $('f-show').onclick = function () {
+    var f = $('f-token');
+    f.type = f.type === 'password' ? 'text' : 'password';
+    this.textContent = f.type === 'password' ? 'Show' : 'Hide';
+  };
+
+  $('gate-form').onsubmit = function (e) {
+    e.preventDefault();
+    var err = $('gate-err');
+    var reviewer = $('f-reviewer').value.trim();
+    var token = $('f-token').value;
+    if (reviewer.length < 2) return fail(err, 'Enter the name that should appear in the audit trail.');
+    if (!token) return fail(err, 'A review token is required.');
+    err.hidden = true;
+    state.reviewer = reviewer;
+    state.token = token;
+    try {
+      sessionStorage.setItem('ff_mod_reviewer', reviewer);
+      sessionStorage.setItem('ff_mod_token', token);
+    } catch (ignore) { /* private mode — the page still works for this visit */ }
+    load();
+  };
+
+  function fail(el, message) { el.textContent = message; el.hidden = false; return false; }
+
+  $('forget').onclick = function () {
+    state.token = '';
+    state.reports = [];
+    state.targets = {};
+    try {
+      sessionStorage.removeItem('ff_mod_token');
+      sessionStorage.removeItem('ff_mod_reviewer');
+    } catch (ignore) { /* nothing stored */ }
+    $('f-token').value = '';
+    queue.hidden = true;
+    gate.hidden = false;
+    list.innerHTML = '';
+  };
+
+  $('refresh').onclick = function () { load(); };
+
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (tab) {
+    tab.onclick = function () {
+      state.status = tab.getAttribute('data-status');
+      Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (t) {
+        t.setAttribute('aria-selected', String(t === tab));
+      });
+      load();
+    };
+  });
+
+  // ---- load ----------------------------------------------------------------
+  function load() {
+    list.innerHTML = '<p class="muted">Loading the queue…</p>';
+    gate.hidden = true;
+    queue.hidden = false;
+    $('who').innerHTML = 'Reviewing as <b>' + escapeHtml(state.reviewer) + '</b>';
+    state.targets = {};
+
+    api('/api/moderation/queue?status=' + encodeURIComponent(state.status)).then(function (r) {
+      if (r.offline) return showGateError('Could not reach the server. Check the connection and try again.');
+      // reviewerAuthorized() answers 404, not 403, so an unknown token and a
+      // missing route look identical from here. Say so plainly rather than
+      // guessing which one it was.
+      if (r.status === 404) {
+        return showGateError('Not authorised. This queue answers 404 to anyone without a valid review token, ' +
+          'so a wrong token and a hidden route look the same. Check the token against DEVELOPER_REVIEW_TOKEN on the server.');
+      }
+      if (!r.ok || !r.body || !Array.isArray(r.body.reports)) {
+        return showGateError('The queue could not be read (HTTP ' + escapeHtml(r.status) + ').');
+      }
+      state.reports = r.body.reports;
+      render();
+    });
+  }
+
+  function showGateError(message) {
+    queue.hidden = true;
+    gate.hidden = false;
+    $('gate-err').textContent = message;
+    $('gate-err').hidden = false;
+  }
+
+  // ---- render --------------------------------------------------------------
+  function render() {
+    var note = $('queue-note');
+    if (state.status === 'reviewing' && !state.reports.length) {
+      note.textContent = 'Nothing claims a report into "reviewing" yet — reports move straight from pending to resolved.';
+      note.hidden = false;
+    } else if (state.reports.length >= 100) {
+      note.textContent = 'Showing the oldest 100 reports. Resolve some to see the rest.';
+      note.hidden = false;
+    } else {
+      note.hidden = true;
+    }
+
+    if (!state.reports.length) {
+      list.innerHTML = '<div class="empty"><div class="big">' +
+        (state.status === 'pending' ? 'Nothing is waiting.' : 'Nothing here.') + '</div>' +
+        '<div>The ' + escapeHtml(state.status) + ' queue is empty.' +
+        (state.status === 'pending' ? ' Every report has been read and answered.' : '') + '</div></div>';
+      return;
+    }
+
+    // Indices, not identifiers, carry state through the DOM. Nothing
+    // member-controlled is ever used as an element id or a selector.
+    list.innerHTML = state.reports.map(reportCard).join('');
+  }
+
+  function reportCard(rep, i) {
+    var isPost = rep.report_type === 'post';
+    var resolved = rep.status === 'resolved';
+    var h = '';
+
+    h += '<article class="report' + (resolved ? ' resolved' : '') + '">';
+    h += '<div class="rhead">';
+    h += '<span class="badge' + (isPost ? '' : ' user') + '">' + escapeHtml(rep.report_type) + ' report</span>';
+    h += '<span class="pill">' + escapeHtml(rep.status) + '</span>';
+    h += '<time>' + escapeHtml(whenText(rep.created_at)) + '</time>';
+    h += '</div>';
+
+    h += '<dl class="meta">';
+    h += '<div><dt>' + (isPost ? 'Post' : 'Account') + '</dt><dd><code>' + escapeHtml(rep.target_id) + '</code></dd></div>';
+    h += '<div><dt>Reporter</dt><dd><code>' + escapeHtml(rep.reporter_id) + '</code></dd></div>';
+    h += '<div><dt>Report</dt><dd><code>' + escapeHtml(rep.id) + '</code></dd></div>';
+    h += '</dl>';
+
+    h += '<div class="reason"><b>Reported because</b>' + escapeHtml(rep.reason) + '</div>';
+
+    h += '<div class="target" data-target="' + i + '">';
+    h += '<button class="btn" data-act="load_target" data-i="' + i + '">Show the reported ' +
+         (isPost ? 'post' : 'account') + '</button>';
+    h += '</div>';
+
+    if (resolved) {
+      h += '<div class="actions">';
+      h += '<p class="kv"><b>Decision</b> ' + escapeHtml(rep.review_note || '(no note recorded)') + '</p>';
+      h += '<p class="kv">Reviewed by ' + escapeHtml(rep.reviewer || 'unknown') +
+           ' · ' + escapeHtml(whenText(rep.reviewed_at)) + '</p>';
+      h += '</div>';
+    } else {
+      h += '<div class="actions">';
+      h += '<label class="lab">Review note <span class="req">required — this becomes the audit record</span></label>';
+      h += '<textarea class="note" rows="2" maxlength="800" data-i="' + i +
+           '" placeholder="What you saw, and why this decision."></textarea>';
+      h += '<div class="btns">';
+      h += '<button class="btn ok" data-act="no_violation" data-i="' + i + '">No violation</button>';
+      h += '<button class="btn warn" data-act="content_removed" data-i="' + i + '">Remove content</button>';
+      h += '<button class="btn danger" data-act="ask_suspend" data-i="' + i + '">Suspend account…</button>';
+      h += '</div>';
+      h += '<div class="confirm" data-confirm="' + i + '" hidden>';
+      h += '<p><b>Suspension revokes every active session</b> and locks the account out. ' +
+           'The member is notified, and for a post report this falls on the post’s author. ' +
+           'It is the heaviest action here. Type <code>SUSPEND</code> to confirm.</p>';
+      h += '<div class="row"><div><input type="text" class="confirm-input" autocomplete="off" spellcheck="false" placeholder="SUSPEND" /></div>';
+      h += '<div class="shrink"><button class="btn danger solid" data-act="account_suspended" data-i="' + i + '">Suspend this account</button></div>';
+      h += '<div class="shrink"><button class="btn" data-act="cancel_suspend" data-i="' + i + '">Cancel</button></div></div>';
+      h += '</div>';
+      h += '<p class="err" hidden></p><p class="done" hidden></p>';
+      h += '</div>';
+    }
+
+    h += '</article>';
+    return h;
+  }
+
+  // ---- the reported content ------------------------------------------------
+  // Preferred source is a reviewer-scoped endpoint that can see friends-only and
+  // private posts. Where that is not deployed, fall back to the public share
+  // endpoint, which by design returns only PUBLIC posts — so the page degrades
+  // to an honest "cannot show this" rather than breaking.
+  function loadTarget(i, box) {
+    var rep = state.reports[i];
+    if (!rep) return;
+    box.innerHTML = '<p class="muted">Fetching the reported content…</p>';
+
+    api('/api/moderation/queue/' + encodeURIComponent(rep.id) + '/target').then(function (r) {
+      if (r.ok && r.body) return renderTarget(box, rep, r.body, 'reviewer');
+      if (rep.report_type !== 'post') {
+        return renderTargetMissing(box, 'No account detail endpoint is available on this build. ' +
+          'The account id above is the whole record this page can see.');
+      }
+      return fetch('/api/public/post/' + encodeURIComponent(rep.target_id), { credentials: 'same-origin' })
+        .then(function (res) { return res.ok ? res.json() : null; }, function () { return null; })
+        .then(function (post) {
+          if (post) return renderTarget(box, rep, { post: post }, 'public');
+          renderTargetMissing(box, 'This post is not publicly shared, so the public endpoint will not return it, ' +
+            'and the reviewer content endpoint is not deployed on this server. Judge from the report reason alone, ' +
+            'or add GET /api/moderation/queue/:id/target.');
+        });
+    });
+  }
+
+  function renderTargetMissing(box, message) {
+    box.innerHTML = '<p class="muted">' + escapeHtml(message) + '</p>';
+  }
+
+  function renderTarget(box, rep, data, source) {
+    var post = data.post || null;
+    var user = data.user || null;
+    var h = '';
+
+    if (post) {
+      h += '<p class="kv"><b>' + escapeHtml(post.author || post.display_name || 'unknown member') + '</b>' +
+           (post.author_id ? ' · <code>' + escapeHtml(post.author_id) + '</code>' : '') +
+           ' · ' + escapeHtml(whenText(post.created_at)) +
+           (post.visibility ? ' · ' + escapeHtml(post.visibility) : '') + '</p>';
+      h += '<div class="content">' + escapeHtml(post.content || '(no text in this post)') + '</div>';
+      if (post.verse || post.verse_reference) {
+        var ref = post.verse ? post.verse.reference : post.verse_reference;
+        var text = post.verse ? post.verse.text : post.verse_text;
+        h += '<p class="verse">' + escapeHtml(ref) + ' — ' + escapeHtml(text) + '</p>';
+      }
+      if (post.photo_category) h += '<p class="kv">Photo category: ' + escapeHtml(post.photo_category) + '</p>';
+    } else if (user) {
+      h += '<p class="kv"><b>' + escapeHtml(user.display_name || 'unnamed member') + '</b> · <code>' +
+           escapeHtml(user.id || rep.target_id) + '</code></p>';
+      if (user.church) h += '<p class="kv">Church: ' + escapeHtml(user.church) + '</p>';
+      if (user.created_at) h += '<p class="kv">Joined ' + escapeHtml(whenText(user.created_at)) + '</p>';
+      if (user.post_count !== undefined) h += '<p class="kv">Posts: ' + escapeHtml(user.post_count) + '</p>';
+      if (user.suspended_at) {
+        h += '<p class="kv"><b>Already suspended</b> ' + escapeHtml(whenText(user.suspended_at)) +
+             ' — ' + escapeHtml(user.suspension_reason || 'no reason recorded') + '</p>';
+      }
+      if (Array.isArray(user.recent_posts) && user.recent_posts.length) {
+        h += '<p class="kv" style="margin-top:8px"><b>Recent posts</b></p>';
+        h += user.recent_posts.map(function (p) {
+          return '<div class="content">' + escapeHtml(p.content || '(no text)') +
+                 '<span class="kv"> — ' + escapeHtml(whenText(p.created_at)) + '</span></div>';
+        }).join('');
+      }
+    } else {
+      return renderTargetMissing(box, 'The server returned nothing for this target.');
+    }
+
+    if (data.prior_reports !== undefined) {
+      h += '<p class="kv">Prior reports against this target: ' + escapeHtml(data.prior_reports) + '</p>';
+    }
+    if (source === 'public') {
+      h += '<p class="kv">Read from the public share endpoint — only publicly shared posts appear here.</p>';
+    }
+
+    // Media stays behind a click. A reviewer should choose the moment they look
+    // at something a stranger reported, not be shown it on page load.
+    var photo = post && post.photo_data ? String(post.photo_data) : '';
+    if (photo) {
+      h += SAFE_IMAGE.test(photo)
+        ? '<div class="media"><button class="btn" data-act="reveal">Reveal the attached photo</button></div>'
+        : '<p class="kv">An attached photo was rejected by the image check on this page and will not be rendered.</p>';
+    }
+
+    box.innerHTML = h;
+
+    if (photo && SAFE_IMAGE.test(photo)) {
+      var media = box.querySelector('.media');
+      media.querySelector('button').onclick = function () {
+        // Built as a node with an assigned src — never through innerHTML.
+        var img = document.createElement('img');
+        img.alt = 'Photo attached to the reported post';
+        img.src = photo;
+        media.innerHTML = '';
+        media.appendChild(img);
+      };
+    }
+  }
+
+  // ---- decisions -----------------------------------------------------------
+  var DECISIONS = { no_violation: 1, content_removed: 1, account_suspended: 1 };
+
+  list.addEventListener('click', function (e) {
+    var btn = e.target.closest ? e.target.closest('button[data-act]') : null;
+    if (!btn) return;
+    var act = btn.getAttribute('data-act');
+    var card = btn.closest('article.report');
+    if (act === 'reveal') return;
+
+    var i = Number(btn.getAttribute('data-i'));
+    if (!state.reports[i]) return;
+
+    if (act === 'load_target') return loadTarget(i, card.querySelector('.target'));
+
+    var confirmBox = card.querySelector('.confirm');
+    if (act === 'ask_suspend') {
+      confirmBox.hidden = false;
+      confirmBox.querySelector('.confirm-input').focus();
+      return;
+    }
+    if (act === 'cancel_suspend') {
+      confirmBox.hidden = true;
+      confirmBox.querySelector('.confirm-input').value = '';
+      return;
+    }
+    if (!DECISIONS[act]) return;
+
+    var errEl = card.querySelector('.err');
+    var doneEl = card.querySelector('.done');
+    var note = card.querySelector('.note').value.trim();
+    errEl.hidden = true;
+
+    if (note.length < 4) return fail(errEl, 'Write a note first. A decision without a reason is not a record.');
+    if (act === 'account_suspended' && confirmBox.querySelector('.confirm-input').value.trim() !== 'SUSPEND') {
+      return fail(errEl, 'Type SUSPEND exactly to confirm. Suspension revokes every session the member has open.');
+    }
+
+    Array.prototype.forEach.call(card.querySelectorAll('button'), function (b) { b.disabled = true; });
+    doneEl.hidden = false;
+    doneEl.textContent = 'Submitting…';
+
+    api('/api/moderation/queue/' + encodeURIComponent(state.reports[i].id) + '/review', {
+      method: 'POST',
+      body: { decision: act, reviewer: state.reviewer, note: note }
+    }).then(function (r) {
+      if (r.ok && r.body && r.body.ok) {
+        doneEl.textContent = 'Recorded: ' + act.replace(/_/g, ' ') + '. Refreshing the queue…';
+        return setTimeout(load, 900);
+      }
+      Array.prototype.forEach.call(card.querySelectorAll('button'), function (b) { b.disabled = false; });
+      doneEl.hidden = true;
+      var reason = r.body && r.body.error ? r.body.error : 'HTTP ' + r.status;
+      fail(errEl, r.status === 404
+        ? 'The server did not accept this — the report may already be resolved, or the token has stopped being valid.'
+        : 'The decision was not recorded (' + reason + '). Nothing has changed.');
+    });
+  });
+
+  // ---- resume within the tab ----------------------------------------------
+  try {
+    var savedToken = sessionStorage.getItem('ff_mod_token');
+    var savedReviewer = sessionStorage.getItem('ff_mod_reviewer');
+    if (savedReviewer) $('f-reviewer').value = savedReviewer;
+    if (savedToken && savedReviewer) {
+      state.token = savedToken;
+      state.reviewer = savedReviewer;
+      load();
+    }
+  } catch (ignore) { /* storage unavailable — the gate simply asks again */ }
+})();
+</script>
+</body>
+</html>

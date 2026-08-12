@@ -5,7 +5,7 @@
  */
 'use strict';
 
-const SHELL_CACHE = 'functioning-faith-shell-v14';
+const SHELL_CACHE = 'functioning-faith-shell-v15';
 const SHELL = [
   '/',
   '/styles.css?v=group-pulse-v1',
@@ -30,10 +30,20 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin || url.pathname.startsWith('/api') || url.pathname === '/sw.js') return;
 
+  // Never store an error or opaque response. A cached 500 would be served back
+  // as the offline page, and on the cache-first path below it would outlive the
+  // outage entirely — the site would stay broken for that visitor until the
+  // cache name changed. Only a real, same-origin 200 is worth keeping.
+  const cacheable = (response) => response && response.ok && response.type === 'basic';
+  const store = (response) => {
+    if (!cacheable(response)) return;
+    const copy = response.clone();
+    caches.open(SHELL_CACHE).then(cache => cache.put(request, copy)).catch(() => {});
+  };
+
   if (request.mode === 'navigate') {
     event.respondWith(fetch(request).then(response => {
-      const copy = response.clone();
-      caches.open(SHELL_CACHE).then(cache => cache.put(request, copy)).catch(() => {});
+      store(response);
       return response;
     }).catch(() => caches.match(request).then(cached => cached || caches.match('/'))));
     return;
@@ -43,8 +53,7 @@ self.addEventListener('fetch', (event) => {
   // the browser's normal behavior and can never trap a newly deployed build.
   if (!url.searchParams.has('v')) return;
   event.respondWith(caches.match(request).then(cached => cached || fetch(request).then(response => {
-    const copy = response.clone();
-    caches.open(SHELL_CACHE).then(cache => cache.put(request, copy)).catch(() => {});
+    store(response);
     return response;
   })));
 });
