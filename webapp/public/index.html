@@ -36,7 +36,7 @@
      independent safety net: if app-intro.js fails to load or throws before
      reaching its own reveal, the app must not stay hidden forever. -->
 <style>#app{visibility:hidden}</style>
-<script>setTimeout(function(){var a=document.getElementById('app');if(a)a.style.visibility='visible';},6000);</script>
+<script src="/fouc-safety.js" defer></script>
 </head>
 <body>
 <div id="app">
@@ -129,5 +129,7 @@
 <script src="/app-intro.js" defer></script>
 <script src="/native.js" defer></script>
 <script src="/farewell.js" defer></script>
+<script src="/pause-moment.js" defer></script>
+<script src="/visual-polish.js" defer></script>
 </body>
 </html>
