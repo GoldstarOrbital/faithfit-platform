@@ -7,6 +7,7 @@ const db = require('./lib/db');
 const { seed } = require('./lib/seed');
 const apiRoutes = require('./routes/api');
 const { startPodcastRefresh } = require('./lib/podcasts');
+const { startNewsRefresh } = require('./lib/news');
 const youtube = require('./lib/youtube');
 const { startVideoLibraryRefresh } = require('./lib/videos');
 const developerWebhooks = require('./lib/webhooks');
@@ -53,6 +54,7 @@ daily.start();
 reminders.start();
 // Ingest real podcast episodes from public RSS feeds (background, non-blocking).
 startPodcastRefresh();
+startNewsRefresh();
 // Church devotionals from YouTube — true no-op (not even a timer) unless
 // Alex has set YOUTUBE_API_KEY, since it requires his own Google Cloud project.
 if (youtube.isConfigured()) youtube.startDevotionalRefresh();

@@ -971,6 +971,8 @@ const EXPLORE_SECTIONS = [
     icon: '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7.5" opacity="0.55"/><circle cx="12" cy="12" r="10.5" opacity="0.28"/>' },
   { key: 'motivation',  name: 'Motivation',  blurb: 'Short encouragement for the middle of a hard week.',
     icon: '<path d="M13 2L5 13h6l-1 9 8-11h-6z"/>' },
+  { key: 'news',        name: 'News',        blurb: 'Christian news headlines from independent outlets.',
+    icon: '<path d="M4 4.5h13a2.5 2.5 0 012.5 2.5v11a1 1 0 01-1 1H6a2 2 0 01-2-2v-12.5z"/><path d="M4 6.5v10a2 2 0 002 2M8 8h6M8 11.5h6M8 15h4"/>' },
 ];
 
 function exploreIcon(paths) {
@@ -1131,6 +1133,21 @@ async function renderExplore(main) {
     await renderReelsTab(body);
   } else if (state.exploreTab === 'scripture') {
     await renderScriptureTab(body);
+  } else if (state.exploreTab === 'news') {
+    const { items, sources } = await api('/news?limit=40');
+    const fmtDate = iso => { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); };
+    body.innerHTML = `<h2>News</h2>
+      <p class="muted" style="margin-top:-6px;margin-bottom:12px">Headlines from ${sources.map(escapeHtml).join(', ')} — link out to read the full story at the source.</p>` +
+      (items.length ? items.map(n => `
+        <a class="card glass news-card" href="${escapeHtml(n.link)}" target="_blank" rel="noopener" style="display:flex;gap:12px;text-decoration:none;color:inherit;align-items:flex-start">
+          ${n.image_url ? `<img src="${escapeHtml(n.image_url)}" alt="" style="width:84px;height:84px;object-fit:cover;border-radius:10px;flex-shrink:0" loading="lazy">` : ''}
+          <div>
+            <div class="episode-meta">${escapeHtml(n.source)}${n.published_at ? ' · ' + fmtDate(n.published_at) : ''}</div>
+            <div class="episode-title" style="margin-top:2px">${escapeHtml(n.title)}</div>
+            ${n.summary ? `<div class="muted" style="margin-top:4px;font-size:0.9em">${escapeHtml(n.summary)}</div>` : ''}
+          </div>
+        </a>
+      `).join('') : `<div class="muted">Headlines loading — check back shortly.</div>`);
   }
 }
 

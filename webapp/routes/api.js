@@ -38,6 +38,7 @@ const { fetchChurchWebsiteEmbeds, isHttpUrl } = require('../lib/church-website')
 const webhooks = require('../lib/webhooks');
 const accountSecurity = require('../lib/account-security');
 const developerVerification = require('../lib/developer-verification');
+const news = require('../lib/news');
 
 // Load real, public-domain Bible text (KJV/WEB) into bible_verses once at startup.
 loadBibleData();
@@ -2792,6 +2793,10 @@ router.get('/podcasts', (req, res) => {
     ORDER BY (published_at IS NULL), published_at DESC LIMIT ?
   `);
   res.json(podcasts.map(p => ({ ...p, episodes: epStmt.all(p.id, limit) })));
+});
+
+router.get('/news', (req, res) => {
+  res.json({ items: news.list({ limit: req.query.limit }), sources: news.FEEDS.map(f => f.source) });
 });
 
 router.post('/breathing/complete', requireAuth, (req, res) => {
