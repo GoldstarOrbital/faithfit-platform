@@ -176,7 +176,7 @@ app.use(express.static(path.join(__dirname, 'public'), {
     // app bundle on every visit. The service worker itself must always update.
     if (filePath.endsWith('sw.js')) {
       res.setHeader('Cache-Control', 'no-cache');
-    } else if (res.req && res.req.query && res.req.query.v && /\.(?:js|css|png|svg|woff2?)$/i.test(filePath)) {
+    } else if (res.req && res.req.query && res.req.query.v && /\.(?:js|css|png|svg|woff2?|mp4)$/i.test(filePath)) {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     }
   },

@@ -15,6 +15,28 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='27' fill='none' stroke='%232d2013' stroke-width='5.5' stroke-dasharray='76 94' transform='rotate(96 32 32)'/%3E%3Ccircle cx='32' cy='32' r='27' fill='none' stroke='%23d9ab55' stroke-width='5.5' stroke-dasharray='76 94' transform='rotate(-84 32 32)'/%3E%3Cpath d='M39.5 19V52M30 30.5H49' stroke='%23d9ab55' stroke-width='5.5' fill='none'/%3E%3Cpath d='M37 15.5h-3.5a7.5 7.5 0 0 0-7.5 7.5V47M19 30.5H33' stroke='%232d2013' stroke-width='5.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E" />
 <link rel="stylesheet" href="/styles.css?v=group-pulse-v1" />
+<!-- Keep ?v= in sync with VERSION in public/app-intro.js: it's what makes
+     server.js cache these immutably and public/sw.js cache-first them.
+     Preloaded unconditionally (even on a session where the intro won't
+     show) so the very first load -- the one time it matters -- has bytes
+     already in flight instead of waiting on app-intro.js's deferred start;
+     every load after that resolves from cache at effectively no cost. -->
+<link rel="preload" as="video" type="video/mp4" href="/intro.mp4?v=v1" />
+<link rel="preload" as="video" type="video/mp4" href="/intro-b.mp4?v=v1" />
+<!-- Hides the app root at the CSS level, before ANY script runs, so there is
+     no flash of the homepage before app-intro.js's overlay covers it -- a
+     <style> tag blocks first paint on its own, which is earlier and more
+     reliable than any script (even a synchronous one) could manage. app.js
+     is not deferred and paints #app almost immediately; app-intro.js IS
+     deferred, so without this, the homepage was visible for one paint before
+     the overlay landed on top of it.
+     Revealed by app-intro.js the moment it takes over (overlay already
+     covers the screen by then) or on its early-return paths (already shown
+     this session, reduced motion). The inline script below is an
+     independent safety net: if app-intro.js fails to load or throws before
+     reaching its own reveal, the app must not stay hidden forever. -->
+<style>#app{visibility:hidden}</style>
+<script>setTimeout(function(){var a=document.getElementById('app');if(a)a.style.visibility='visible';},6000);</script>
 </head>
 <body>
 <div id="app">

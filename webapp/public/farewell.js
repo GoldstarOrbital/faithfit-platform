@@ -22,6 +22,17 @@
  * all -- there is no reliable way to guarantee audio plays past the moment
  * a page is torn down, on any platform. That's an accepted limitation, not
  * a bug to chase.
+ *
+ * WHY A "PRIME ON FIRST GESTURE" STEP EXISTS BELOW: verified directly in a
+ * fresh browser session that speechSynthesis.speak() is silently dropped --
+ * no error, nothing spoken -- when navigator.userActivation.hasBeenActive is
+ * still false, which it is until any real tap/click/key happens anywhere on
+ * the page. A leave triggered by switching tabs seconds after opening the
+ * app, before ever touching anything in it, hits exactly that state. So the
+ * very first genuine gesture anywhere in the app fires one silent (volume 0)
+ * speak()+cancel() to register activation with the engine; the real "Amen"
+ * on actually leaving then has a real chance of being heard instead of
+ * being dropped by the same policy that blocks autoplaying audio.
  */
 'use strict';
 
@@ -31,6 +42,21 @@
   function muted() {
     try { return localStorage.getItem('ff-intro-sound') === 'off'; } catch (e) { return false; }
   }
+
+  var primed = false;
+  function primeOnce() {
+    if (primed) return;
+    primed = true;
+    try {
+      var warm = new SpeechSynthesisUtterance(' ');
+      warm.volume = 0;
+      speechSynthesis.speak(warm);
+      speechSynthesis.cancel();
+    } catch (e) { /* best-effort */ }
+  }
+  ['pointerdown', 'keydown', 'touchstart'].forEach(function (name) {
+    document.addEventListener(name, primeOnce, { passive: true, once: true });
+  });
 
   var spokenForThisLeave = false;
 
