@@ -58,46 +58,45 @@
   }
 
   // --- The motif -------------------------------------------------------------
-  // Original composition, D Dorian: a minor scale with a raised sixth. That one
-  // interval — the B natural over a D — is what makes a tune read as pastoral
-  // and old-world instead of merely sad, and it is doing most of the work here.
+  // Second pass. The first version was a perky, evenly-spaced flute tune over a
+  // rhythmic plucked arpeggio — pleasant, but it reads as a jingle: a clear
+  // beginning-middle-end melody with a "high point" and a bouncy backing line.
+  // That is the wrong register entirely for a doorway into a quiet app.
   //
-  // A wooden flute carries the line, a plucked string walks underneath it a
-  // half-beat behind, and an open fifth drones under both. Frequencies are equal
-  // temperament from A4 = 440. Times are seconds from the start of the phrase.
-  const D3 = 146.83, G3 = 196.00, A3 = 220.00, B3 = 246.94, C4 = 261.63,
+  // What actually reads as "a scene out of Middle-earth" — Rivendell, not a
+  // marching song — is mostly SPACE: a long, slow-swelling drone/pad under
+  // almost nothing, three or four widely-spaced tones rather than a tune, and
+  // real reverb depth. Still D Dorian (the raised sixth is still what makes it
+  // read as old-world rather than merely minor), but the melodic line is now
+  // static and unhurried instead of a run.
+  const D3 = 146.83, A3 = 220.00, B3 = 246.94,
         D4 = 293.66, F4 = 349.23, A4 = 440.00, B4 = 493.88,
-        D5 = 587.33, E5 = 659.25, F5 = 698.46;
+        D5 = 587.33;
 
-  // The flute line: [frequency, start, sounding length]
+  // The flute line: [frequency, start, sounding length]. Four long, widely
+  // spaced tones over eight seconds — this is a held breath, not a run.
   const FLUTE = [
-    [A4, 0.00, 0.34],   // a pickup from below — walking up to the door
-    [D5, 0.32, 0.44],   // and it opens
-    [E5, 0.74, 0.26],
-    [F5, 0.98, 0.30],   // the high point, and it is not held
-    [E5, 1.26, 0.24],
-    [D5, 1.48, 0.40],
-    [B4, 1.86, 0.30],   // the raised sixth: the whole colour of the piece
-    [A4, 2.14, 0.26],
-    [D5, 2.38, 0.90],   // home, and breathe out
+    [A4, 0.00, 1.60],   // enter from nothing, and stay
+    [D5, 2.20, 2.00],   // a fifth up — the only real "movement" in the piece
+    [B4, 4.60, 1.80],   // the raised sixth, sitting a long time
+    [A4, 6.60, 1.90],   // settles back down, and is gone
   ];
 
-  // The plucked counter-line: [frequency, start]. It arpeggiates the same
-  // harmony the flute is sitting on, a step behind, so the two never collide.
+  // The plucked line is now three isolated low tones, seconds apart — felt as
+  // punctuation under the drone, not a rhythm section.
   const PLUCK = [
-    [D3, 0.00], [A3, 0.30], [D4, 0.60], [F4, 0.90],
-    [A3, 1.20], [C4, 1.50], [G3, 1.80], [B3, 2.10],
-    [A3, 2.36], [D3, 2.62], [D4, 2.62],
+    [D3, 0.40], [F4, 3.40], [A3, 6.20],
   ];
 
   const DRONE = [D3, A3];      // an open fifth — felt more than heard
-  const DRONE_UNTIL = 4.20;    // the drone outlives the melody, then fades
-  const PIECE_END = 4.70;      // master fade completes here
-  const FADE_FROM = 4.30;
+  const DRONE_UNTIL = 7.80;    // the drone outlives the melody, then fades
+  const PIECE_END = 8.60;      // master fade completes here
+  const FADE_FROM = 7.60;
 
-  // Peak master level. The voices below top out around 0.5 combined, so this
-  // lands near -15 dBFS: audible on a phone speaker, startling on nothing.
-  const MASTER_LEVEL = 0.32;
+  // Peak master level, a touch lower than before: this is meant to sit at the
+  // edge of hearing, not announce itself. The voices below top out around 0.4
+  // combined, so this lands nearer -18 dBFS.
+  const MASTER_LEVEL = 0.26;
 
   // --- Synthesis -------------------------------------------------------------
   // Every envelope starts and ends at 0.0001 rather than 0, because
@@ -289,17 +288,19 @@
     master.gain.linearRampToValueAtTime(0, t0 + PIECE_END);
 
     const dry = audio.createGain();
-    dry.gain.value = 0.78;
+    dry.gain.value = 0.62; // more of the signal now comes through the hall, not direct
     master.connect(dry);
     dry.connect(audio.destination);
 
     // Reverb is a nicety. If ConvolverNode is missing or the buffer will not
-    // build, the dry path alone still sounds fine.
+    // build, the dry path alone still sounds fine. A longer, slower-decaying
+    // tail than before -- this piece is meant to sound like it is happening
+    // somewhere spacious, not close to the microphone.
     try {
       const verb = audio.createConvolver();
-      verb.buffer = impulseResponse(audio, 1.6, 2.6);
+      verb.buffer = impulseResponse(audio, 3.2, 3.4);
       const wet = audio.createGain();
-      wet.gain.value = 0.30;
+      wet.gain.value = 0.46;
       master.connect(verb);
       verb.connect(wet);
       wet.connect(audio.destination);
