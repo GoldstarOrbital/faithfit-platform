@@ -13,9 +13,20 @@
     "verify:public-share": "node scripts/verify-public-share.js"
   },
   "dependencies": {
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/geolocation": "^8.2.1",
+    "@capacitor/push-notifications": "^8.1.2",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3",
     "compression": "^1.8.1",
     "cookie-session": "^2.1.0",
     "express": "^4.19.2",
     "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/ios": "^8.5.0"
   }
 }

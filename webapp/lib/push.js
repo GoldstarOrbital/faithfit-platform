@@ -79,6 +79,32 @@ function init() {
       ok INTEGER NOT NULL DEFAULT 1
     );
     CREATE INDEX IF NOT EXISTS idx_push_log_user ON push_log(user_id, sent_at);
+
+    -- Native APNs/FCM device tokens, registered by public/native.js when the
+    -- app is running inside the Capacitor wrapper (see capacitor.config.json).
+    -- Kept in a separate table from push_subscriptions because a device token
+    -- is not a Web Push subscription: it has no p256dh/auth keypair, and
+    -- delivering to it needs a different transport entirely.
+    --
+    -- Storage here is complete; ACTUAL DELIVERY IS NOT WIRED. Sending to an
+    -- iOS token needs an APNs auth key (.p8 + Team ID + Key ID from an Apple
+    -- Developer account); sending to an Android token needs a Firebase
+    -- service-account credential. Neither exists yet. sendNative() below
+    -- degrades exactly like every other optional integration in this app
+    -- (gloo.js, youversion.js): registration works today, delivery logs
+    -- "not configured" until real credentials are set.
+    CREATE TABLE IF NOT EXISTS native_push_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      platform TEXT NOT NULL CHECK (platform IN ('ios','android')),
+      token TEXT NOT NULL,
+      categories TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_sent_at TEXT,
+      failures INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(platform, token)
+    );
+    CREATE INDEX IF NOT EXISTS idx_native_push_user ON native_push_tokens(user_id);
   `);
 
   if (isConfigured()) {
@@ -173,6 +199,35 @@ async function send(userId, category, payload) {
   return { sent };
 }
 
+/** Store (or refresh) a native APNs/FCM device token. Idempotent on token. */
+function registerNativeToken(userId, platform, token, categories) {
+  if (!userId || !['ios', 'android'].includes(platform) || !token) return null;
+  const cats = JSON.stringify(normaliseCategories(categories));
+  const id = require('crypto').randomUUID();
+  db.prepare(`INSERT INTO native_push_tokens (id, user_id, platform, token, categories)
+              VALUES (?,?,?,?,?)
+              ON CONFLICT(platform, token) DO UPDATE SET user_id = excluded.user_id,
+                categories = excluded.categories, failures = 0`)
+    .run(id, userId, platform, token, cats);
+  return { registered: true };
+}
+
+function unregisterNativeToken(userId, token) {
+  const r = db.prepare('DELETE FROM native_push_tokens WHERE user_id = ? AND token = ?').run(userId, token);
+  return r.changes > 0;
+}
+
+/**
+ * Would-be native delivery. Always returns { sent: 0, skipped: 'not_configured' }
+ * today -- see the schema comment above for exactly what is missing (an APNs
+ * auth key, a Firebase service account) and why this cannot be faked. Kept as
+ * a real function with the real signature so wiring actual delivery later is
+ * "implement the two HTTP calls," not "first figure out where this goes."
+ */
+async function sendNative(_userId, _category, _payload) {
+  return { sent: 0, skipped: 'not_configured' };
+}
+
 function history(userId, limit) {
   return db.prepare('SELECT category, title, body, url, sent_at FROM push_log WHERE user_id = ? ORDER BY sent_at DESC LIMIT ?')
     .all(userId, Math.min(50, Number(limit) || 20));
@@ -188,4 +243,5 @@ function start() {
 module.exports = {
   start, init, isConfigured, publicKey, subscribe, unsubscribe, setCategories,
   get, send, history, CATEGORIES, DEFAULT_CATEGORIES,
+  registerNativeToken, unregisterNativeToken, sendNative,
 };

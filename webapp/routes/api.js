@@ -4071,6 +4071,20 @@ router.post('/push/unsubscribe', requireAuth, (req, res) => {
   res.json({ subscriptions: push.get(req.session.userId) });
 });
 
+// Called by public/native.js only inside the Capacitor wrapper. Web visitors
+// never hit this route -- window.Capacitor doesn't exist for them.
+router.post('/push/native-register', requireAuth, (req, res) => {
+  const { platform, token, categories } = req.body || {};
+  const result = push.registerNativeToken(req.session.userId, platform, token, categories);
+  if (!result) return res.status(400).json({ error: 'invalid_token' });
+  res.json(result);
+});
+
+router.post('/push/native-unregister', requireAuth, (req, res) => {
+  push.unregisterNativeToken(req.session.userId, (req.body || {}).token);
+  res.json({ ok: true });
+});
+
 // Send one to yourself, so permission and delivery can be proven immediately
 // rather than by waiting until tomorrow morning.
 router.post('/push/test', requireAuth, async (req, res) => {
