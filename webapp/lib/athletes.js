@@ -13,6 +13,7 @@
  */
 'use strict';
 
+const { randomBytes, randomUUID, createHash } = require('crypto');
 const db = require('./db');
 
 const SPORTS = [
@@ -34,10 +35,30 @@ function init() {
       highlight_url TEXT,
       bio TEXT,
       is_public INTEGER NOT NULL DEFAULT 0,
+      school_email TEXT,
+      school_email_verified_at TEXT,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_athlete_profiles_public ON athlete_profiles(is_public, sport, grad_year);
+
+    CREATE TABLE IF NOT EXISTS athlete_email_verifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
+  // Additive migration for installations that created athlete_profiles before verification existed.
+  const cols = db.prepare('PRAGMA table_info(athlete_profiles)').all().map(c => c.name);
+  if (!cols.includes('school_email')) db.exec('ALTER TABLE athlete_profiles ADD COLUMN school_email TEXT');
+  if (!cols.includes('school_email_verified_at')) db.exec('ALTER TABLE athlete_profiles ADD COLUMN school_email_verified_at TEXT');
+}
+
+function hash(value) {
+  return createHash('sha256').update(String(value || '')).digest('hex');
 }
 
 function isValidUrl(u) {
@@ -94,9 +115,63 @@ function upsert(userId, fields) {
   return { profile: get(userId) };
 }
 
-/** Public directory search -- no auth, since scouts are not expected to have an account. */
+/**
+ * Sends a confirmation link to a school email address. Best-effort, same
+ * contract as password reset: silently returns { queued:false } if Resend
+ * isn't configured, so the app degrades rather than erroring for anyone
+ * running without an email provider set up.
+ *
+ * There is no curated highschool-domain registry to check against -- unlike
+ * .edu for the developer-verification flow, highschools don't share one --
+ * so what this actually proves is narrower and stated as such: the address
+ * is real and this athlete controls it, not that the school itself is
+ * accredited or that the domain belongs to a school at all.
+ */
+async function requestEmailVerification(userId, email, baseUrl) {
+  const mail = String(email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) return { error: 'invalid_email' };
+  if (!get(userId)) return { error: 'profile_not_found', hint: 'Save your sport and other details first.' };
+  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) return { queued: false };
+
+  const token = randomBytes(32).toString('base64url');
+  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  db.prepare('DELETE FROM athlete_email_verifications WHERE user_id = ? OR expires_at < datetime(\'now\')').run(userId);
+  db.prepare('INSERT INTO athlete_email_verifications (id, user_id, email, token_hash, expires_at) VALUES (?,?,?,?,?)')
+    .run(randomUUID(), userId, mail, hash(token), expires);
+
+  const link = `${String(baseUrl).replace(/\/$/, '')}/api/athlete-profile/verify-email/confirm?token=${encodeURIComponent(token)}`;
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      from: process.env.EMAIL_FROM,
+      to: [mail],
+      subject: 'Verify your school email for Functioning Faith recruiting',
+      html: `<p>Confirm this is your school email to make your Functioning Faith athlete recruiting profile visible in the public directory.</p><p><a href="${link}">Verify my school email</a></p><p>This link expires in 24 hours. If you did not request this, no action is needed.</p>`,
+    }),
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!response.ok) throw new Error('verification_email_failed');
+  return { queued: true, email: mail };
+}
+
+/** Consumes a verification token. Returns the userId on success, or null. */
+function confirmEmailVerification(token) {
+  const row = db.prepare(
+    "SELECT * FROM athlete_email_verifications WHERE token_hash = ? AND used_at IS NULL AND expires_at > datetime('now')"
+  ).get(hash(String(token || '')));
+  if (!row) return null;
+  db.prepare('UPDATE athlete_email_verifications SET used_at = datetime(\'now\') WHERE id = ?').run(row.id);
+  db.prepare("UPDATE athlete_profiles SET school_email = ?, school_email_verified_at = datetime('now') WHERE user_id = ?")
+    .run(row.email, row.user_id);
+  return row.user_id;
+}
+
+/** Public directory search -- no auth, since scouts are not expected to have an account.
+ *  Requires a verified school email, not just is_public, so a public listing means
+ *  someone confirmed a real inbox they control -- not just flipped a toggle. */
 function search({ sport, grad_year, q, limit = 40 } = {}) {
-  const clauses = ['ap.is_public = 1'];
+  const clauses = ['ap.is_public = 1', 'ap.school_email_verified_at IS NOT NULL'];
   const params = {};
   if (sport) { clauses.push('ap.sport = @sport'); params.sport = String(sport).slice(0, 40); }
   if (grad_year) { clauses.push('ap.grad_year = @grad_year'); params.grad_year = Number(grad_year); }
@@ -115,10 +190,10 @@ function search({ sport, grad_year, q, limit = 40 } = {}) {
 
 function publicProfile(userId) {
   const p = get(userId);
-  if (!p || !p.is_public) return null;
+  if (!p || !p.is_public || !p.school_email_verified_at) return null;
   const u = db.prepare('SELECT display_name, CASE WHEN avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar FROM users WHERE id = ?').get(userId);
   if (!u) return null;
   return { ...p, display_name: u.display_name, has_avatar: !!u.has_avatar, stats: recentStats(userId) };
 }
 
-module.exports = { init, get, upsert, search, publicProfile, recentStats, SPORTS };
+module.exports = { init, get, upsert, search, publicProfile, recentStats, SPORTS, requestEmailVerification, confirmEmailVerification };

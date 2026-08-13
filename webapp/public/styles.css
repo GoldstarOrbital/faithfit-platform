@@ -1858,7 +1858,7 @@ button.start-degraded { background: var(--hearth, #b8863b); }
 .settings-subsection { margin-top:16px; padding-top:14px; border-top:1px solid rgba(45,32,19,.12); }
 .developer-checklist { padding-left:22px; font-size:.84rem; color:var(--muted); }
 #developer-verification-card details, #pending-church-card { margin-top:12px; }
-#developer-verification-card input, #developer-verification-card textarea, #pending-church-card input { width:100%; margin-top:8px; }
+#developer-verification-card input:not([type=checkbox]), #developer-verification-card textarea, #pending-church-card input { width:100%; margin-top:8px; }
 .verified-mark { display:inline-grid; place-items:center; width:17px; height:17px; margin-left:4px; border-radius:50%; background:#2f6f5d; color:white; font-size:.68rem; font-weight:800; vertical-align:1px; }
 .dm-link-warning { margin-top:5px; padding:7px 9px; border-radius:10px; background:#fff0cf; color:#6b4300; font-size:.7rem; line-height:1.35; }
 .dm-e2e-tag { font-size:.62rem; letter-spacing:.03em; text-transform:uppercase; color:var(--ink-3,#8a7a5e); margin-bottom:3px; opacity:.75; }

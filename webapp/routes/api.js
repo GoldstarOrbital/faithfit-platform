@@ -3987,7 +3987,15 @@ function requireVerifiedDeveloper(req, res, next) {
   catch (err) { res.status(403).json({ error: err.code || 'developer_verification_required', verification: err.verification || developerVerification.get(req.session.userId) }); }
 }
 
+// The review token is a single shared secret with no per-user identity behind
+// it, so unlike a password there is no account to lock out -- without a rate
+// limit here, it is guessable by brute force over the network at whatever
+// rate the attacker's connection allows. 20 attempts/minute per IP is plenty
+// for a real reviewer (who types or pastes the token once per browser
+// session) and hostile to guessing a token of any real length.
+const reviewerAuthWindow = new Map();
 function reviewerAuthorized(req) {
+  if (!allowWindow(reviewerAuthWindow, req.ip || 'unknown', 20, 60_000)) return false;
   const expected = process.env.DEVELOPER_REVIEW_TOKEN;
   const supplied = String(req.get('x-developer-review-token') || '');
   if (!expected || supplied.length !== expected.length) return false;
@@ -5268,13 +5276,41 @@ router.get('/bible/passage', async (req, res) => {
 // what the athlete explicitly marked public (is_public=1) is ever returned.
 
 router.get('/athlete-profile/me', requireAuth, (req, res) => {
-  res.json({ profile: athletes.get(req.session.userId), sports: athletes.SPORTS });
+  const profile = athletes.get(req.session.userId);
+  res.json({
+    profile,
+    visible: !!(profile && profile.is_public && profile.school_email_verified_at),
+    sports: athletes.SPORTS,
+  });
 });
 
 router.put('/athlete-profile', requireAuth, (req, res) => {
   const r = athletes.upsert(req.session.userId, req.body || {});
   if (r.error) return res.status(400).json(r);
   res.json(r);
+});
+
+// A public listing requires a verified school email -- see lib/athletes.js
+// for why that's a narrower claim than "verified as a real school." The
+// confirm link below is deliberately unauthenticated: the token itself is
+// the credential, the same pattern as the password-reset link.
+router.post('/athlete-profile/verify-email', requireAuth, async (req, res) => {
+  try {
+    const r = await athletes.requestEmailVerification(req.session.userId, req.body && req.body.email, baseUrl(req));
+    if (r.error) return res.status(400).json(r);
+    res.json(r);
+  } catch (err) {
+    res.status(502).json({ error: 'verification_email_failed' });
+  }
+});
+
+router.get('/athlete-profile/verify-email/confirm', (req, res) => {
+  const userId = athletes.confirmEmailVerification(req.query.token);
+  res.setHeader('content-type', 'text/html');
+  if (!userId) {
+    return res.status(400).send('<!doctype html><meta charset="utf-8"><title>Link expired</title><body style="font-family:system-ui;max-width:480px;margin:60px auto;text-align:center"><h2>This link has expired or was already used.</h2><p>Go back to Profile Settings in Functioning Faith and send a new verification email.</p></body>');
+  }
+  res.send('<!doctype html><meta charset="utf-8"><title>School email verified</title><body style="font-family:system-ui;max-width:480px;margin:60px auto;text-align:center"><h2>School email verified.</h2><p>Your athlete recruiting profile is now visible in the public directory, if you\'ve turned it on in Profile Settings.</p><p><a href="/">Back to Functioning Faith</a></p></body>');
 });
 
 router.get('/athletes/search', (req, res) => {

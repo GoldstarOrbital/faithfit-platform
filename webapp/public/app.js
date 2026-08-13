@@ -444,7 +444,7 @@ async function renderHome(main) {
     ${rec ? `
     <div class="card glass foryou-card">
       <div class="foryou-head">✦ For you</div>
-      ${rec.verse ? `<div class="verse-card verse-tappable" style="margin-bottom:10px" data-verse-ref="${escapeHtml(rec.verse.reference)}"><div class="verse-ref">${rec.verse.reference}</div><div class="verse-text">${escapeHtml(rec.verse.text)}</div><div class="verse-convo" data-convo-for="${escapeHtml(rec.verse.reference)}">💬 Start the conversation</div></div>` : ''}
+      ${rec.verse ? `<div class="verse-card verse-tappable" style="margin-bottom:10px" data-verse-ref="${escapeHtml(rec.verse.reference)}"><div class="verse-ref">${escapeHtml(rec.verse.reference)}</div><div class="verse-text">${escapeHtml(rec.verse.text)}</div><div class="verse-convo" data-convo-for="${escapeHtml(rec.verse.reference)}">💬 Start the conversation</div></div>` : ''}
       <div class="foryou-grid">
         ${rec.podcast ? `<div class="foryou-item"><div class="foryou-label">🎙️ Listen</div><div class="foryou-title">${escapeHtml(rec.podcast.title)}</div><div class="muted" style="font-size:0.74rem">${escapeHtml(rec.podcast.show)}</div>${rec.podcast.audio_url ? `<audio controls preload="none" src="${escapeHtml(rec.podcast.audio_url)}" style="width:100%;margin-top:6px;height:32px"></audio>` : ''}</div>` : ''}
         ${rec.challenge ? `<div class="foryou-item foryou-challenge" data-join-key="${rec.challenge.key}"><div class="foryou-label">🏆 Try a challenge</div><div class="foryou-title">${escapeHtml(rec.challenge.name)}</div><div class="muted" style="font-size:0.74rem">${escapeHtml(rec.challenge.description || '')}</div><button class="follow-btn" style="margin-top:8px" data-join-key="${rec.challenge.key}">Join</button></div>` : ''}
@@ -514,7 +514,7 @@ async function renderHome(main) {
         </div>` : ''}
       ${p.photo_data ? `<div class="post-photo"><img src="${escapeHtml(p.photo_data)}" alt="${escapeHtml(p.photo_category || 'photo')}" style="width:100%;border-radius:10px;margin-top:8px;display:block" /><div class="muted" style="font-size:0.72rem;margin-top:4px">${{nature:'🌿 Nature',animal:'🐾 Animal',group:'👥 Group of people'}[p.photo_category] || ''}</div></div>` : ''}
       ${p.video_data ? `<div class="post-photo"><video src="${escapeHtml(p.video_data)}" controls preload="none" playsinline style="width:100%;border-radius:10px;margin-top:8px;display:block;background:#000"></video><div class="muted" style="font-size:0.72rem;margin-top:4px">${{workout:'🏃 Workout',nature:'🌿 Nature',animal:'🐾 Animal',group:'👥 Group of people'}[p.video_category] || ''}</div></div>` : ''}
-      ${p.verse_reference ? `<div class="verse-card verse-tappable" data-verse-ref="${escapeHtml(p.verse_reference)}"><div class="verse-ref">${p.verse_reference}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div><div class="verse-convo" data-convo-for="${escapeHtml(p.verse_reference)}">💬 Start the conversation</div></div>` : ''}
+      ${p.verse_reference ? `<div class="verse-card verse-tappable" data-verse-ref="${escapeHtml(p.verse_reference)}"><div class="verse-ref">${escapeHtml(p.verse_reference)}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div><div class="verse-convo" data-convo-for="${escapeHtml(p.verse_reference)}">💬 Start the conversation</div></div>` : ''}
       <div class="action-row">
         <button class="action-btn ${p.liked_by_me ? 'liked' : ''}" data-like="${p.id}">${p.liked_by_me ? '❤️' : '🤍'} <span class="n">${p.like_count}</span> kudos</button>
         <button class="action-btn ${p.saved_by_me ? 'saved' : ''}" data-save-post="${p.id}" aria-pressed="${p.saved_by_me ? 'true' : 'false'}">${p.saved_by_me ? '🔖 Saved' : '🔖 Save'}</button>
@@ -656,7 +656,7 @@ async function renderUserProfile(userId) {
           </div>
         </div>
       </div>
-      ${u.bio_verse_ref ? `<div class="verse-card"><div class="verse-ref">${u.bio_verse_ref}</div><div class="verse-text">${escapeHtml(u.bio_verse_text || '')}</div></div>` : ''}
+      ${u.bio_verse_ref ? `<div class="verse-card"><div class="verse-ref">${escapeHtml(u.bio_verse_ref)}</div><div class="verse-text">${escapeHtml(u.bio_verse_text || '')}</div></div>` : ''}
       ${u.bio_link_url ? `<a href="${escapeHtml(u.bio_link_url)}" target="_blank" rel="noopener noreferrer" class="ghost" style="display:inline-block;margin-top:10px;text-decoration:none">${escapeHtml(u.bio_link_label || 'Link ↗')}</a>` : ''}
     </div>
     ${!data.is_me ? `<div class="profile-safety"><button class="ghost" id="profile-block">${data.is_blocked ? 'Unblock member' : 'Block member'}</button><button class="ghost" id="profile-report">Report member</button></div>` : ''}
@@ -677,7 +677,7 @@ async function renderUserProfile(userId) {
           <div class="stat"><div class="v">${p.calories ?? '—'}</div><div class="l">kcal</div></div>
           <div class="stat"><div class="v">${p.avg_hr ?? '—'}</div><div class="l">avg hr</div></div>
         </div>` : ''}
-      ${p.verse_reference ? `<div class="verse-card verse-tappable" data-verse-ref="${escapeHtml(p.verse_reference)}"><div class="verse-ref">${p.verse_reference}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div><div class="verse-convo" data-convo-for="${escapeHtml(p.verse_reference)}">💬 Start the conversation</div></div>` : ''}
+      ${p.verse_reference ? `<div class="verse-card verse-tappable" data-verse-ref="${escapeHtml(p.verse_reference)}"><div class="verse-ref">${escapeHtml(p.verse_reference)}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div><div class="verse-convo" data-convo-for="${escapeHtml(p.verse_reference)}">💬 Start the conversation</div></div>` : ''}
     </div>`).join('');
 
   document.getElementById('profile-back').onclick = () => { state.tab = 'home'; render(); };
@@ -1719,6 +1719,7 @@ async function renderProfile(main) {
       <div class="accomplishments-head"><div><h3>Accomplishments</h3><div class="muted">Every milestone, earned or still ahead.</div></div><span id="badge-count" class="premium-badge">Loading</span></div>
       <div id="badge-shelf" class="badge-shelf"><span class="muted">Loading accomplishments…</span></div>
       <button class="ghost" id="saved-posts-open" style="width:100%;margin-top:12px">🔖 View saved posts</button>
+      <button class="ghost" id="goto-creator-tab" style="width:100%;margin-top:8px">🎬 Submit content as a creator</button>
       <a class="ghost" href="https://gofund.me/d6fe1b099" target="_blank" rel="noopener" style="display:block;width:100%;margin-top:8px;text-align:center;text-decoration:none;box-sizing:border-box">🌻 Support Functioning Faith</a>
     </div>
     <div class="card glass profile-panel" data-profile-group="overview">
@@ -1826,7 +1827,7 @@ async function renderProfile(main) {
       <div class="muted" style="margin-top:10px">Passkeys/biometric login: ${securityCapabilities.passkeys_biometric?'available':'not enabled'} · SMS 2FA: ${securityCapabilities.sms_mfa?'available':'not enabled'} · DMs use HTTPS and access controls; end-to-end encryption is ${securityCapabilities.end_to_end_encrypted_dms?'enabled':'not claimed'}.</div>
     </div>
     <div class="card glass profile-panel" data-profile-group="integrations" id="developer-verification-card">
-      <h2>Verified developer</h2><p class="muted">Status: <strong>${escapeHtml(developerStatus.status||'not_applied')}</strong>. Developer keys and webhooks require a verified .edu identity, verified church relationship, review, and the current accountability terms.</p>
+      <h2>Creator &amp; Verified developer</h2><p class="muted">Status: <strong>${escapeHtml(developerStatus.status||'not_applied')}</strong>. Content uploads (reels), developer keys, and webhooks all live here once verified. Verification requires a .edu identity, a verified church relationship, review, and the current accountability terms — this exists to keep what gets published accountable to a real institution, not to make it hard to find.</p>
       ${developerStatus.status==='verified'?`<div class="badge-pill">✓ Verified developer</div>
         <details style="margin-top:10px"><summary><strong>Submit a reel</strong></summary>
           <p class="muted" style="margin:6px 0">A YouTube or Vimeo link, reviewed before it can appear. Approved reels show up in Explore → Reels alongside everything else, ranked above other sources.</p>
@@ -2028,6 +2029,10 @@ async function renderProfile(main) {
   if(newChurch)newChurch.onclick=async()=>{const r=await api('/developer/churches',{method:'POST',body:{name:document.getElementById('dev-new-church-name').value,address:document.getElementById('dev-new-church-address').value,contact_email:document.getElementById('dev-new-church-email').value,website_url:document.getElementById('dev-new-church-site').value}});const status=document.getElementById('dev-new-church-status');if(r.error){status.textContent=r.hint||r.error;return;}status.textContent=`Pending church submitted. Record ID: ${r.church.id}`;const idField=document.getElementById('dev-church-id');if(idField)idField.value=r.church.id;};
   showProfileView('overview');
   document.getElementById('saved-posts-open').onclick = () => renderSavedPosts(main);
+  document.getElementById('goto-creator-tab').onclick = () => {
+    showProfileView('integrations');
+    document.getElementById('developer-verification-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
   // The profile screen builds its avatar inline rather than through
   // avatarHtml, so its ring needs filling explicitly.
   hydrateXpRings(main);
@@ -3005,7 +3010,7 @@ function renderShareForm(main, ctx) {
       <h2>Workout complete 🎉</h2>
       <p class="muted">${s.calories ?? '—'} kcal · avg HR ${s.avg_hr ?? '—'}${distMsg}</p>
       ${renderEffortResult(s)}
-      ${ctx.verse ? `<div class="verse-card" style="margin:10px 0"><div class="verse-ref">${ctx.verse.reference}</div><div class="verse-text">${escapeHtml(ctx.verse.snippet || '')}</div></div>` : ''}
+      ${ctx.verse ? `<div class="verse-card" style="margin:10px 0"><div class="verse-ref">${escapeHtml(ctx.verse.reference)}</div><div class="verse-text">${escapeHtml(ctx.verse.snippet || '')}</div></div>` : ''}
       <label class="field-label">Add a caption or reflection</label>
       <textarea class="input" id="share-caption" rows="3" placeholder="How did it go? What did this verse mean today?"></textarea>
       <button class="ghost" id="gloo-reflect" type="button" style="margin-top:6px">Reflect with Gloo</button>
