@@ -30,6 +30,7 @@ const breathwork = require('../lib/breathwork');
 const dms = require('../lib/dms');
 const athletes = require('../lib/athletes');
 const coaches = require('../lib/coaches');
+const schools = require('../lib/schools');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
 const wearables = require('../lib/wearables');
@@ -4116,6 +4117,11 @@ router.post('/admin/ops/run', async (req, res) => {
       return { news: n, podcasts: p };
     }],
     ['retention_sweep', () => retention.runOnce()],
+    // Only actually hits the network (a handful of paginated requests to
+    // the Urban Institute's school directory) if the local copy is more
+    // than 30 days old or has never been synced -- see schools.isStale().
+    // A no-op on every other hourly run.
+    ['schools_sync', () => schools.syncIfStale()],
   ];
   for (const [name, fn] of tasks) {
     try { results[name] = await fn(); }
@@ -5532,6 +5538,28 @@ router.get('/athletes/:userId', (req, res) => {
   const profile = athletes.publicProfile(req.params.userId);
   if (!profile) return res.status(404).json({ error: 'not_found' });
   res.json({ profile });
+});
+
+// US high school directory (lib/schools.js) -- public, no auth, same
+// reasoning as the athlete directory itself: a coach searching for a
+// school, or a scout following a roster link, isn't assumed to have an
+// account. Typeahead search, then a school-scoped view of who on the
+// platform is signed up there (same public+verified gate as the general
+// athlete directory -- nothing here bypasses that).
+router.get('/schools/search', (req, res) => {
+  res.json({ schools: schools.search(req.query.q, req.query.state), last_synced: schools.lastSync() });
+});
+
+router.get('/schools/:ncessch', (req, res) => {
+  const school = schools.get(req.params.ncessch);
+  if (!school) return res.status(404).json({ error: 'not_found' });
+  res.json({ school });
+});
+
+router.get('/schools/:ncessch/athletes', (req, res) => {
+  const school = schools.get(req.params.ncessch);
+  if (!school) return res.status(404).json({ error: 'not_found' });
+  res.json({ school, athletes: athletes.search({ ...req.query, school_nces_id: req.params.ncessch }) });
 });
 
 // --- Coaches -----------------------------------------------------------

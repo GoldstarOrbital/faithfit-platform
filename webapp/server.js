@@ -32,6 +32,7 @@ const visits = require('./lib/visits');
 const launchNotify = require('./lib/launch-notify');
 const athletes = require('./lib/athletes');
 const coaches = require('./lib/coaches');
+const schools = require('./lib/schools');
 
 seed();
 accountSecurity.init();
@@ -41,6 +42,7 @@ visits.init();
 launchNotify.init();
 athletes.init();
 coaches.init();
+schools.init();
 developerVerification.init();
 developerVerification.startNotifications();
 // Create the webhook tables and attach the dispatcher to the domain event bus.

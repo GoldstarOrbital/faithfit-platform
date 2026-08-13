@@ -2436,7 +2436,10 @@ async function wireAthleteProfile() {
     <label class="field-label">Graduating class</label>
     <input id="ap-grad-year" type="number" min="2020" max="2035" placeholder="e.g. 2027" value="${p.grad_year || ''}">
     <label class="field-label">School</label>
-    <input id="ap-school" type="text" maxlength="120" placeholder="e.g. Lincoln High School" value="${escapeHtml(p.school || '')}">
+    <div class="muted" style="font-size:.72rem;margin:-2px 0 4px">Start typing to find your real school (synced from the US Dept. of Education's public school directory). Don't see it — a private school, or just not matched? Keep typing and it's saved as plain text either way.</div>
+    <input id="ap-school" type="text" maxlength="120" placeholder="e.g. Lincoln High School" value="${escapeHtml(p.school || '')}" autocomplete="off">
+    <input type="hidden" id="ap-school-nces-id" value="${escapeHtml(p.school_nces_id || '')}">
+    <div id="ap-school-suggestions" style="position:relative"></div>
     <label class="field-label">Height (cm)</label>
     <input id="ap-height" type="number" min="100" max="230" placeholder="e.g. 180" value="${p.height_cm || ''}">
     <label class="field-label">Weight (kg)</label>
@@ -2549,6 +2552,7 @@ async function wireAthleteProfile() {
   try { existingStatValues = JSON.parse(p.sport_stats || '{}') || {}; } catch { existingStatValues = {}; }
   renderSportStatFields(p.sport, existingStatValues);
   document.getElementById('ap-sport').onchange = (e) => renderSportStatFields(e.target.value, {});
+  wireSchoolTypeahead(document.getElementById('ap-school'), document.getElementById('ap-school-nces-id'), document.getElementById('ap-school-suggestions'));
 
   wireCsvStatImport();
 
@@ -2566,6 +2570,7 @@ async function wireAthleteProfile() {
       position: document.getElementById('ap-position').value,
       grad_year: document.getElementById('ap-grad-year').value || null,
       school: document.getElementById('ap-school').value,
+      school_nces_id: document.getElementById('ap-school-nces-id').value || null,
       height_cm: document.getElementById('ap-height').value || null,
       weight_kg: document.getElementById('ap-weight').value || null,
       handedness: document.getElementById('ap-handedness').value || null,
@@ -2621,6 +2626,40 @@ async function wireAthleteProfile() {
 
 // Videos, teams, awards: three small owned lists with the same
 // load-render-wire shape, plus a read-only endorsements list underneath.
+/**
+ * A small, reusable school-name typeahead over the real US high school
+ * directory (lib/schools.js, synced from the US Dept. of Education).
+ * Picking a suggestion sets the hidden nces-id field; typing without
+ * picking one leaves it empty, which is a deliberate fallback -- the
+ * directory only covers public schools, so a private-school athlete (or
+ * anyone whose school isn't matched yet) still gets a working plain-text
+ * field exactly like before this existed.
+ */
+function wireSchoolTypeahead(input, hiddenIdField, box) {
+  if (!input || !hiddenIdField || !box) return;
+  let debounceTimer = null;
+  input.addEventListener('input', () => {
+    hiddenIdField.value = ''; // any manual edit invalidates a previous pick
+    clearTimeout(debounceTimer);
+    const q = input.value.trim();
+    if (q.length < 3) { box.innerHTML = ''; return; }
+    debounceTimer = setTimeout(async () => {
+      let data;
+      try { data = await api('/schools/search?q=' + encodeURIComponent(q)); } catch { return; }
+      if (!data.schools.length) { box.innerHTML = ''; return; }
+      box.innerHTML = `<div class="card glass" style="position:absolute;z-index:5;width:100%;max-height:220px;overflow-y:auto;padding:4px">
+        ${data.schools.map(s => `<div class="comment" data-pick-school="${escapeHtml(s.ncessch)}" data-pick-name="${escapeHtml(s.name)}" style="cursor:pointer;padding:6px 8px"><b>${escapeHtml(s.name)}</b><div class="muted" style="font-size:.76rem">${escapeHtml(s.city || '')}${s.state ? ', ' + escapeHtml(s.state) : ''}</div></div>`).join('')}
+      </div>`;
+      box.querySelectorAll('[data-pick-school]').forEach(el => el.onclick = () => {
+        input.value = el.dataset.pickName;
+        hiddenIdField.value = el.dataset.pickSchool;
+        box.innerHTML = '';
+      });
+    }, 250);
+  });
+  input.addEventListener('blur', () => setTimeout(() => { box.innerHTML = ''; }, 200)); // let a click land first
+}
+
 /** "Profile strength," not a binary public/private switch -- a number and a
  *  ranked to-do list of what actually gets an athlete found (verified
  *  email, video, filled-in stats, an endorsement), scored server-side in
@@ -2867,6 +2906,13 @@ async function wireCoachProfile() {
       <div id="cp-match-results" style="margin-top:10px"></div>
     </div>
     <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
+      <h3 style="margin:0 0 6px">Browse by school</h3>
+      <div class="muted" style="font-size:.82rem;margin-bottom:8px">Search any US high school (synced from the US Dept. of Education's public directory) and see who from there is signed up and public.</div>
+      <input id="cp-school-search" type="text" placeholder="Start typing a school name…" autocomplete="off">
+      <div id="cp-school-suggestions" style="position:relative"></div>
+      <div id="cp-school-results" style="margin-top:8px"></div>
+    </div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
       <h3 style="margin:0 0 6px">Saved searches &amp; alerts</h3>
       <div class="muted" style="font-size:.82rem;margin-bottom:8px">Get notified the moment a new athlete matching your filters goes public.</div>
       <div id="cp-searches-list" class="muted">Loading…</div>
@@ -2913,6 +2959,51 @@ async function wireCoachProfile() {
         : `Check ${email} for a verification link (expires in 24 hours).`;
     } catch (e) { status.textContent = e.message || 'Could not send that.'; }
   };
+
+  const schoolSearchInput = document.getElementById('cp-school-search');
+  const schoolSuggestBox = document.getElementById('cp-school-suggestions');
+  if (schoolSearchInput) {
+    let schoolDebounce = null;
+    schoolSearchInput.addEventListener('input', () => {
+      clearTimeout(schoolDebounce);
+      const q = schoolSearchInput.value.trim();
+      if (q.length < 3) { schoolSuggestBox.innerHTML = ''; return; }
+      schoolDebounce = setTimeout(async () => {
+        let data;
+        try { data = await api('/schools/search?q=' + encodeURIComponent(q)); } catch { return; }
+        if (!data.schools.length) { schoolSuggestBox.innerHTML = ''; return; }
+        schoolSuggestBox.innerHTML = `<div class="card glass" style="position:absolute;z-index:5;width:100%;max-height:220px;overflow-y:auto;padding:4px">
+          ${data.schools.map(s => `<div class="comment" data-pick-school="${escapeHtml(s.ncessch)}" data-pick-name="${escapeHtml(s.name)}" style="cursor:pointer;padding:6px 8px"><b>${escapeHtml(s.name)}</b><div class="muted" style="font-size:.76rem">${escapeHtml(s.city || '')}${s.state ? ', ' + escapeHtml(s.state) : ''}</div></div>`).join('')}
+        </div>`;
+        schoolSuggestBox.querySelectorAll('[data-pick-school]').forEach(el => el.onclick = async () => {
+          schoolSearchInput.value = el.dataset.pickName;
+          schoolSuggestBox.innerHTML = '';
+          const resultsBox = document.getElementById('cp-school-results');
+          resultsBox.innerHTML = '<div class="muted">Loading…</div>';
+          let schoolData;
+          try { schoolData = await api(`/schools/${encodeURIComponent(el.dataset.pickSchool)}/athletes?sport=${encodeURIComponent(p.sport || '')}`); }
+          catch { resultsBox.innerHTML = '<div class="muted">Could not load.</div>'; return; }
+          if (!schoolData.athletes.length) { resultsBox.innerHTML = `<div class="muted">No public, verified athletes from ${escapeHtml(el.dataset.pickName)} yet${p.sport ? ' in ' + escapeHtml(p.sport) : ''}.</div>`; return; }
+          resultsBox.innerHTML = schoolData.athletes.map(a => `
+            <div class="card glass" style="padding:12px;margin-bottom:8px">
+              <div style="font-weight:700">${escapeHtml(a.display_name)}</div>
+              <div class="muted" style="font-size:.82rem">${escapeHtml(a.sport)}${a.position ? ' · ' + escapeHtml(a.position) : ''}${a.grad_year ? ' · Class of ' + escapeHtml(String(a.grad_year)) : ''}</div>
+              <div class="muted" style="font-size:.78rem;margin-top:4px">${a.stats.workouts_90d} workouts / 90d · ${a.stats.distance_km_90d} km / 90d</div>
+              <button class="ghost" data-school-dm="${escapeHtml(a.user_id)}" style="margin-top:8px">Message</button>
+            </div>`).join('');
+          resultsBox.querySelectorAll('[data-school-dm]').forEach(btn => btn.onclick = async () => {
+            btn.disabled = true; btn.textContent = 'Opening…';
+            try {
+              const r = await api('/coach/dms/with/' + encodeURIComponent(btn.dataset.schoolDm), { method: 'POST' });
+              if (r.error) { showToast(r.hint || 'Could not open a conversation.', true); btn.disabled = false; btn.textContent = 'Message'; return; }
+              renderThread(r.thread_id);
+            } catch { showToast('Could not open a conversation.', true); btn.disabled = false; btn.textContent = 'Message'; }
+          });
+        });
+      }, 250);
+    });
+    schoolSearchInput.addEventListener('blur', () => setTimeout(() => { schoolSuggestBox.innerHTML = ''; }, 200));
+  }
 
   const matchBtn = document.getElementById('cp-match');
   if (matchBtn) matchBtn.onclick = async () => {

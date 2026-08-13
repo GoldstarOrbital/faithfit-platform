@@ -16,6 +16,7 @@
 const { randomBytes, randomUUID, createHash } = require('crypto');
 const db = require('./db');
 const gloo = require('./gloo');
+const schools = require('./schools');
 
 const SPORTS = [
   'Football', 'Basketball', 'Baseball', 'Softball', 'Soccer', 'Track & Field',
@@ -150,6 +151,12 @@ function init() {
   // importer below).
   if (!cols.includes('maxpreps_url')) db.exec('ALTER TABLE athlete_profiles ADD COLUMN maxpreps_url TEXT');
   if (!cols.includes('gamechanger_url')) db.exec('ALTER TABLE athlete_profiles ADD COLUMN gamechanger_url TEXT');
+  // Links to schools.ncessch (lib/schools.js) when the athlete picked a
+  // real, synced school rather than typing a name freehand. Nullable and
+  // additive on purpose: the free-text `school` column stays the display
+  // value either way (kept in sync with the picked school's real name when
+  // this is set), so nothing that already reads `school` needed to change.
+  if (!cols.includes('school_nces_id')) db.exec('ALTER TABLE athlete_profiles ADD COLUMN school_nces_id TEXT');
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS athlete_videos (
@@ -312,9 +319,20 @@ function upsert(userId, fields) {
     insSource.run(userId, key, sources[key] === 'csv' ? 'csv' : 'manual');
   }
 
+  // Picking a real synced school (school_nces_id) is authoritative: the
+  // display name comes from the schools table, not whatever the client
+  // sent, so it can never drift from the real record. Typing a school name
+  // freehand (no id) still works exactly as before -- this is additive,
+  // not a requirement.
+  let school = String(fields.school || '').trim().slice(0, 120) || null;
+  let school_nces_id = null;
+  if (fields.school_nces_id) {
+    const picked = schools.get(String(fields.school_nces_id));
+    if (picked) { school_nces_id = picked.ncessch; school = picked.name; }
+  }
+
   const row = {
     position: String(fields.position || '').trim().slice(0, 60) || null,
-    school: String(fields.school || '').trim().slice(0, 120) || null,
     height_cm: Number.isFinite(Number(fields.height_cm)) && fields.height_cm ? Math.round(Number(fields.height_cm)) : null,
     weight_kg: Number.isFinite(Number(fields.weight_kg)) && fields.weight_kg ? Math.round(Number(fields.weight_kg)) : null,
     bio: String(fields.bio || '').trim().slice(0, 500) || null,
@@ -322,13 +340,13 @@ function upsert(userId, fields) {
   };
 
   db.prepare(`
-    INSERT INTO athlete_profiles (user_id, sport, position, grad_year, school, height_cm, weight_kg, highlight_url, maxpreps_url, gamechanger_url, bio, is_public, handedness, sport_stats, updated_at)
-    VALUES (@user_id, @sport, @position, @grad_year, @school, @height_cm, @weight_kg, @highlight_url, @maxpreps_url, @gamechanger_url, @bio, @is_public, @handedness, @sport_stats, datetime('now'))
+    INSERT INTO athlete_profiles (user_id, sport, position, grad_year, school, school_nces_id, height_cm, weight_kg, highlight_url, maxpreps_url, gamechanger_url, bio, is_public, handedness, sport_stats, updated_at)
+    VALUES (@user_id, @sport, @position, @grad_year, @school, @school_nces_id, @height_cm, @weight_kg, @highlight_url, @maxpreps_url, @gamechanger_url, @bio, @is_public, @handedness, @sport_stats, datetime('now'))
     ON CONFLICT(user_id) DO UPDATE SET
-      sport=@sport, position=@position, grad_year=@grad_year, school=@school, height_cm=@height_cm,
+      sport=@sport, position=@position, grad_year=@grad_year, school=@school, school_nces_id=@school_nces_id, height_cm=@height_cm,
       weight_kg=@weight_kg, highlight_url=@highlight_url, maxpreps_url=@maxpreps_url, gamechanger_url=@gamechanger_url,
       bio=@bio, is_public=@is_public, handedness=@handedness, sport_stats=@sport_stats, updated_at=datetime('now')
-  `).run({ user_id: userId, sport, grad_year, highlight_url, maxpreps_url, gamechanger_url, handedness, sport_stats, ...row });
+  `).run({ user_id: userId, sport, grad_year, school, school_nces_id, highlight_url, maxpreps_url, gamechanger_url, handedness, sport_stats, ...row });
 
   return { profile: get(userId) };
 }
@@ -464,15 +482,16 @@ function confirmEmailVerification(token) {
 /** Public directory search -- no auth, since scouts are not expected to have an account.
  *  Requires a verified school email, not just is_public, so a public listing means
  *  someone confirmed a real inbox they control -- not just flipped a toggle. */
-function search({ sport, grad_year, q, limit = 40 } = {}) {
+function search({ sport, grad_year, q, school_nces_id, limit = 40 } = {}) {
   const clauses = ['ap.is_public = 1', 'ap.school_email_verified_at IS NOT NULL'];
   const params = {};
   if (sport) { clauses.push('ap.sport = @sport'); params.sport = String(sport).slice(0, 40); }
   if (grad_year) { clauses.push('ap.grad_year = @grad_year'); params.grad_year = Number(grad_year); }
+  if (school_nces_id) { clauses.push('ap.school_nces_id = @school_nces_id'); params.school_nces_id = String(school_nces_id); }
   if (q) { clauses.push("(u.display_name LIKE @q ESCAPE '\\' OR ap.school LIKE @q ESCAPE '\\')"); params.q = '%' + String(q).slice(0, 60).replace(/[\\%_]/g, c => '\\' + c) + '%'; }
 
   const rows = db.prepare(`
-    SELECT ap.user_id, ap.sport, ap.position, ap.grad_year, ap.school, ap.highlight_url, ap.bio, ap.handedness,
+    SELECT ap.user_id, ap.sport, ap.position, ap.grad_year, ap.school, ap.school_nces_id, ap.highlight_url, ap.bio, ap.handedness,
            u.display_name, CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar,
            (SELECT COUNT(*) FROM athlete_videos v WHERE v.user_id = ap.user_id) AS video_count,
            (SELECT COUNT(*) FROM athlete_endorsements e WHERE e.athlete_user_id = ap.user_id) AS endorsement_count,
