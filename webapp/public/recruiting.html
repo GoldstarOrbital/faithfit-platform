@@ -12,6 +12,16 @@
   .rc-stats div{color:var(--muted,#7a6c53)}
   .rc-stats b{color:inherit}
   .recruit-empty{text-align:center;padding:30px 10px}
+  .rc-badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .rc-badges span{font-size:.68rem;padding:3px 8px;border-radius:20px;background:var(--parch-1,#e9dcc0);color:var(--muted,#7a6c53)}
+  .rc-detail{margin-top:10px;padding-top:10px;border-top:1px solid var(--hairline,rgba(0,0,0,.08))}
+  .rc-stat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin-top:6px}
+  .rc-stat-grid div{font-size:.78rem}
+  .rc-stat-grid b{display:block;font-size:.95rem}
+  .rc-stat-grid span{color:var(--muted,#7a6c53)}
+  .rc-section-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted,#7a6c53);margin-top:10px}
+  .rc-list{margin:4px 0 0;padding-left:18px;font-size:.85rem}
+  .rc-endorsement{margin-top:6px;font-size:.85rem;padding:8px;border-radius:10px;background:var(--parch-1,#e9dcc0)}
 </style>
 </head>
 <body>
@@ -30,5 +40,5 @@
 
   <div id="results" class="muted">Loading…</div>
 </main>
-<script src="/recruiting.js?v=v2"></script>
+<script src="/recruiting.js?v=v3"></script>
 </body></html>

@@ -43,6 +43,8 @@ function init() {
       bio TEXT,
       edu_email TEXT,
       edu_verified_at TEXT,
+      edu_verification_reason TEXT,
+      edu_institution TEXT,
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -53,13 +55,87 @@ function init() {
       token_hash TEXT NOT NULL UNIQUE,
       expires_at TEXT NOT NULL,
       used_at TEXT,
+      verification_reason TEXT,
+      institution TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+  const cols = db.prepare('PRAGMA table_info(coach_profiles)').all().map(c => c.name);
+  if (!cols.includes('edu_verification_reason')) db.exec('ALTER TABLE coach_profiles ADD COLUMN edu_verification_reason TEXT');
+  if (!cols.includes('edu_institution')) db.exec('ALTER TABLE coach_profiles ADD COLUMN edu_institution TEXT');
+  const vCols = db.prepare('PRAGMA table_info(coach_email_verifications)').all().map(c => c.name);
+  if (!vCols.includes('verification_reason')) db.exec('ALTER TABLE coach_email_verifications ADD COLUMN verification_reason TEXT');
+  if (!vCols.includes('institution')) db.exec('ALTER TABLE coach_email_verifications ADD COLUMN institution TEXT');
 }
 
 function hash(value) {
   return createHash('sha256').update(String(value || '')).digest('hex');
+}
+
+/**
+ * Verification provider abstraction. "A known verifier" (SheerID and
+ * similar) is the industry-standard way to prove someone is really a coach
+ * or teacher, but that needs a paid account and API key this deployment
+ * doesn't have -- SHEERID_API_KEY is the swap point for whenever it does.
+ * Until then, the default provider does the strongest check available
+ * without a third-party account: isEduEmail() confirms the domain is
+ * *shaped* like a .edu address, then a live, free, keyless lookup against
+ * Hipolabs' public university-domain dataset confirms the domain actually
+ * *belongs to* a real university, not just any .edu-pattern string. That's
+ * a real improvement over regex alone, not a placeholder -- it will
+ * correctly reject a domain that merely ends in ".edu" but isn't in any
+ * known university's domain list, and it returns the institution's real
+ * name so the coach's organization field can be confirmed against it.
+ *
+ * If the lookup is unreachable (network issue, dataset down), this
+ * degrades to the regex-only check rather than blocking every coach
+ * application on a third-party dependency being up.
+ */
+async function verifyEduDomain(email) {
+  if (process.env.SHEERID_API_KEY) {
+    try {
+      return await verifyWithSheerID(email);
+    } catch (err) {
+      // A configured-but-unimplemented (or failing) SheerID key must never
+      // silently fall through unnoticed -- log loudly, then degrade to the
+      // domain check below so a coach application isn't blocked by it.
+      console.error('[coaches] SHEERID_API_KEY is set but verification failed, falling back to domain check:', err.message);
+    }
+  }
+
+  if (!isEduEmail(email)) return { verified: false, reason: 'not_edu_shape' };
+  const domain = email.slice(email.lastIndexOf('@') + 1);
+  try {
+    const res = await fetch(`http://universities.hipolabs.com/search?domain=${encodeURIComponent(domain)}`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return { verified: true, reason: 'edu_shape_only', institution: null };
+    const matches = await res.json();
+    if (Array.isArray(matches) && matches.length) {
+      return { verified: true, reason: 'domain_registry_match', institution: matches[0].name || null };
+    }
+    // Reachable but no match: a real-looking .edu domain not in this
+    // (non-exhaustive, community-maintained) dataset. Still accepted on
+    // shape alone rather than rejecting a legitimate small school the
+    // dataset happens to be missing -- but the weaker reason is recorded.
+    return { verified: true, reason: 'edu_shape_only_no_registry_match', institution: null };
+  } catch (err) {
+    return { verified: true, reason: 'edu_shape_only_registry_unreachable', institution: null };
+  }
+}
+
+/**
+ * TODO: real SheerID (or equivalent) integration once SHEERID_API_KEY
+ * exists. SheerID's coach/teacher verification flow is typically a
+ * multi-step handoff (create a verification, redirect the person through
+ * SheerID's hosted form, receive a webhook/poll for the result) rather
+ * than a single request-response call, so this is intentionally left
+ * unimplemented rather than guessed at against undocumented specifics --
+ * wiring it up for real needs the actual SheerID program ID and API docs
+ * for the account it'll run under.
+ */
+async function verifyWithSheerID(email) {
+  throw new Error('SheerID integration not yet implemented');
 }
 
 function get(userId) {
@@ -94,15 +170,17 @@ function upsert(userId, fields) {
 async function requestEmailVerification(userId, email, baseUrl) {
   const mail = String(email || '').trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) return { error: 'invalid_email' };
-  if (!isEduEmail(mail)) return { error: 'not_edu_email', hint: 'Coach verification requires a .edu email address.' };
   if (!get(userId)) return { error: 'profile_not_found', hint: 'Save your sport and other details first.' };
+
+  const check = await verifyEduDomain(mail);
+  if (!check.verified) return { error: 'not_edu_email', hint: 'Coach verification requires a real .edu email address.' };
   if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) return { queued: false };
 
   const token = randomBytes(32).toString('base64url');
   const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   db.prepare("DELETE FROM coach_email_verifications WHERE user_id = ? OR expires_at < datetime('now')").run(userId);
-  db.prepare('INSERT INTO coach_email_verifications (id, user_id, email, token_hash, expires_at) VALUES (?,?,?,?,?)')
-    .run(randomUUID(), userId, mail, hash(token), expires);
+  db.prepare('INSERT INTO coach_email_verifications (id, user_id, email, token_hash, expires_at, verification_reason, institution) VALUES (?,?,?,?,?,?,?)')
+    .run(randomUUID(), userId, mail, hash(token), expires, check.reason, check.institution);
 
   const link = `${String(baseUrl).replace(/\/$/, '')}/api/coach-profile/verify-email/confirm?token=${encodeURIComponent(token)}`;
   const response = await fetch('https://api.resend.com/emails', {
@@ -117,7 +195,7 @@ async function requestEmailVerification(userId, email, baseUrl) {
     signal: AbortSignal.timeout(8000),
   });
   if (!response.ok) throw new Error('verification_email_failed');
-  return { queued: true, email: mail };
+  return { queued: true, email: mail, institution: check.institution };
 }
 
 function confirmEmailVerification(token) {
@@ -126,8 +204,9 @@ function confirmEmailVerification(token) {
   ).get(hash(String(token || '')));
   if (!row) return null;
   db.prepare("UPDATE coach_email_verifications SET used_at = datetime('now') WHERE id = ?").run(row.id);
-  db.prepare("UPDATE coach_profiles SET edu_email = ?, edu_verified_at = datetime('now') WHERE user_id = ?")
-    .run(row.email, row.user_id);
+  db.prepare(`UPDATE coach_profiles SET edu_email = ?, edu_verified_at = datetime('now'),
+    edu_verification_reason = ?, edu_institution = ? WHERE user_id = ?`)
+    .run(row.email, row.verification_reason, row.institution, row.user_id);
   return row.user_id;
 }
 

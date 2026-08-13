@@ -993,6 +993,30 @@ router.get('/feed', (req, res) => {
   res.json({ posts: withSocial, next_cursor: withSocial.length === limit ? withSocial[withSocial.length - 1].created_at : null });
 });
 
+// A compact, dedicated read for the home page's "Friends' workouts" widget --
+// only real workout posts (not every post) from people the viewer actually
+// follows, respecting the exact same visibility/block/mute rules as the
+// main feed rather than a looser variant of them.
+router.get('/feed/friends-workouts', requireAuth, (req, res) => {
+  const meId = req.session.userId;
+  const limit = Math.max(1, Math.min(10, Number(req.query.limit) || 5));
+  const rows = db.prepare(`
+    SELECT p.id, p.user_id author_id, u.display_name author,
+           CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS author_has_avatar,
+           w.type workout_type, w.distance_km, w.calories, w.avg_hr, w.start_time, w.end_time, p.created_at
+    FROM posts p
+    JOIN users u ON u.id = p.user_id
+    JOIN workouts w ON w.id = p.workout_id
+    WHERE p.workout_id IS NOT NULL
+      AND EXISTS (SELECT 1 FROM followers f WHERE f.follower_id = @me AND f.followee_id = p.user_id)
+      AND (p.visibility = 'public' OR (p.visibility = 'followers'))
+      AND NOT EXISTS (SELECT 1 FROM dm_blocks b WHERE (b.blocker_id=@me AND b.blocked_id=p.user_id) OR (b.blocker_id=p.user_id AND b.blocked_id=@me))
+      AND NOT EXISTS (SELECT 1 FROM account_relationship_controls rc WHERE rc.actor_id=@me AND rc.subject_id=p.user_id AND rc.control='mute')
+    ORDER BY p.created_at DESC LIMIT @limit
+  `).all({ me: meId, limit });
+  res.json({ workouts: rows });
+});
+
 // Comments are fetched only when a member opens a thread. This keeps the feed
 // fast while retaining the same visibility rules as the post itself.
 function postVisibleTo(post, viewerId) {
@@ -5393,6 +5417,46 @@ router.get('/athlete-profile/analysis', requireAuth, async (req, res) => {
   const r = await athletes.analyze(req.session.userId);
   if (r.error) return res.status(400).json(r);
   res.json(r);
+});
+
+router.get('/athlete-profile/sport-fields/:sport', requireAuth, (req, res) => {
+  res.json({ fields: athletes.SPORT_STAT_FIELDS[req.params.sport] || [] });
+});
+
+router.get('/athlete-profile/videos', requireAuth, (req, res) => res.json({ videos: athletes.listVideos(req.session.userId) }));
+router.post('/athlete-profile/videos', requireAuth, (req, res) => {
+  const r = athletes.addVideo(req.session.userId, req.body || {});
+  if (r.error) return res.status(400).json(r);
+  res.status(201).json(r);
+});
+router.delete('/athlete-profile/videos/:id', requireAuth, (req, res) => res.json(athletes.removeVideo(req.session.userId, req.params.id)));
+
+router.get('/athlete-profile/teams', requireAuth, (req, res) => res.json({ teams: athletes.listTeams(req.session.userId) }));
+router.post('/athlete-profile/teams', requireAuth, (req, res) => {
+  const r = athletes.addTeam(req.session.userId, req.body || {});
+  if (r.error) return res.status(400).json(r);
+  res.status(201).json(r);
+});
+router.delete('/athlete-profile/teams/:id', requireAuth, (req, res) => res.json(athletes.removeTeam(req.session.userId, req.params.id)));
+
+router.get('/athlete-profile/awards', requireAuth, (req, res) => res.json({ awards: athletes.listAwards(req.session.userId) }));
+router.get('/athlete-profile/endorsements', requireAuth, (req, res) => res.json({ endorsements: athletes.listEndorsements(req.session.userId) }));
+router.post('/athlete-profile/awards', requireAuth, (req, res) => {
+  const r = athletes.addAward(req.session.userId, req.body || {});
+  if (r.error) return res.status(400).json(r);
+  res.status(201).json(r);
+});
+router.delete('/athlete-profile/awards/:id', requireAuth, (req, res) => res.json(athletes.removeAward(req.session.userId, req.params.id)));
+
+// Coach endorsements: the coach must be .edu-verified, and the coach_user_id
+// stamped on the endorsement always comes from the caller's own session --
+// never from the request body -- so an athlete cannot write a fake
+// endorsement "from" a coach who never wrote one.
+router.post('/athlete-profile/:athleteId/endorse', requireAuth, (req, res) => {
+  if (!coaches.isVerified(req.session.userId)) return res.status(403).json({ error: 'coach_not_verified' });
+  const r = athletes.endorse(req.session.userId, req.params.athleteId, req.body && req.body.quote);
+  if (r.error) return res.status(400).json(r);
+  res.status(201).json(r);
 });
 
 // A public listing requires a verified school email -- see lib/athletes.js

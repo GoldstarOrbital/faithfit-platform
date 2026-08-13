@@ -403,7 +403,7 @@ async function renderHome(main) {
   const posts = Array.isArray(feedData) ? feedData : (feedData.posts || []);
   const users = critical[1];
   const secondary = state.homeCache && state.homeCache.secondary;
-  const [suggested, rec, devo, churchVideos, homeReels, homeJourneys, homeMotivation] = secondary || [[], null, null, null, [], [], null];
+  const [suggested, rec, devo, churchVideos, homeReels, homeJourneys, homeMotivation, friendsWorkouts] = secondary || [[], null, null, null, [], [], null, []];
   if (!cacheMatchesScope) state.homeCache = { posts, users, nextCursor: Array.isArray(feedData) ? null : feedData.next_cursor, secondary: null, scope: state.feedScope };
   const firstName = escapeHtml((state.me && state.me.user && state.me.user.display_name || 'friend').split(' ')[0]);
   main.innerHTML = `
@@ -445,11 +445,33 @@ async function renderHome(main) {
             <span class="home-explore-tile-sub">${j.progress_km ? `${j.progress_km} / ${j.total_km} km` : `${j.total_km} km · ${escapeHtml(j.world || '')}`}</span>
           </button>`;
         })() : ''}
-        ${homeReels?.videos?.slice(0, 3).map(v => `
+        ${homeReels?.videos?.slice(0, 2).map(v => `
           <button class="home-explore-tile home-explore-tile-reel" data-home-tab="explore" data-home-explore="reels" style="${v.thumbnail_url ? `background-image:linear-gradient(0deg,rgba(20,14,8,.75),rgba(20,14,8,.1)),url('${escapeHtml(v.thumbnail_url)}');background-size:cover;background-position:center` : ''}">
             <span class="home-explore-tile-icon">▶</span>
             <span class="home-explore-tile-label">${escapeHtml((v.title || 'Reel').slice(0, 40))}</span>
           </button>`).join('') || ''}
+        <button class="home-explore-tile" data-home-tab="explore" data-home-explore="groups">
+          <span class="home-explore-tile-icon">👥</span>
+          <span class="home-explore-tile-label">Groups</span>
+          <span class="home-explore-tile-sub">Find or start one</span>
+        </button>
+        <button class="home-explore-tile" data-home-tab="explore" data-home-explore="scripture">
+          <span class="home-explore-tile-icon">📖</span>
+          <span class="home-explore-tile-label">Scripture</span>
+          <span class="home-explore-tile-sub">Search & discuss a verse</span>
+        </button>
+      </div>
+    </div>` : ''}
+    ${friendsWorkouts && friendsWorkouts.length ? `
+    <div class="card glass" style="padding:14px">
+      <div class="foryou-head" style="margin-bottom:8px">🏃 Friends' workouts</div>
+      <div class="home-explore-rail">
+        ${friendsWorkouts.map(w => `
+          <button class="home-explore-tile" data-user="${escapeHtml(w.author_id)}">
+            <span class="home-explore-tile-icon">${{Run:'🏃',Walk:'🚶',Hike:'🥾','Trail Run':'⛰️',Cycle:'🚴',Swim:'🏊',Row:'🚣',Strength:'🏋️',Yoga:'🧘',Pickleball:'🏓',Tennis:'🎾',Basketball:'🏀'}[w.workout_type] || '💪'}</span>
+            <span class="home-explore-tile-label">${escapeHtml(w.author)}</span>
+            <span class="home-explore-tile-sub">${escapeHtml(w.workout_type || 'Workout')}${w.distance_km ? ' · ' + w.distance_km + ' km' : ''} · ${timeAgo(w.created_at)} ago</span>
+          </button>`).join('')}
       </div>
     </div>` : ''}
     <div class="social-section-label"><span>${state.feedScope === 'following' ? 'Following' : 'Community'}</span><span>${users.length ? users.length + ' nearby' : 'Your people'}</span></div>
@@ -495,6 +517,7 @@ async function renderHome(main) {
     if (btn.dataset.homeExplore) state.exploreTab = btn.dataset.homeExplore;
     setTab(btn.dataset.homeTab);
   });
+  main.querySelectorAll('.home-explore-tile[data-user]').forEach(btn => btn.onclick = () => renderUserProfile(btn.dataset.user));
   hydrateAvatars(main);
   wireChurchVideoThumbs(main);
   wireVerseCards(main);
@@ -690,6 +713,7 @@ async function renderHome(main) {
       api('/reels').catch(() => null),
       api('/journeys').catch(() => []),
       api('/motivation').catch(() => null),
+      api('/feed/friends-workouts?limit=5').then(r => r.workouts || []).catch(() => []),
     ]).then(data => {
       if (state.homeCache !== cache) return;
       cache.secondary = data;
@@ -2267,6 +2291,18 @@ async function wireAthleteProfile() {
     <input id="ap-grad-year" type="number" min="2020" max="2035" placeholder="e.g. 2027" value="${p.grad_year || ''}">
     <label class="field-label">School</label>
     <input id="ap-school" type="text" maxlength="120" placeholder="e.g. Lincoln High School" value="${escapeHtml(p.school || '')}">
+    <label class="field-label">Height (cm)</label>
+    <input id="ap-height" type="number" min="100" max="230" placeholder="e.g. 180" value="${p.height_cm || ''}">
+    <label class="field-label">Weight (kg)</label>
+    <input id="ap-weight" type="number" min="30" max="200" placeholder="e.g. 75" value="${p.weight_kg || ''}">
+    <label class="field-label">Handedness</label>
+    <select id="ap-handedness">
+      <option value="">— Not set —</option>
+      <option value="right"${p.handedness === 'right' ? ' selected' : ''}>Right-handed</option>
+      <option value="left"${p.handedness === 'left' ? ' selected' : ''}>Left-handed</option>
+      <option value="switch"${p.handedness === 'switch' ? ' selected' : ''}>Switch / ambidextrous</option>
+    </select>
+    <div id="ap-sport-stats-fields" style="margin-top:6px"></div>
     <label class="field-label">Highlight video link (YouTube, Hudl, etc.)</label>
     <input id="ap-highlight" type="url" maxlength="300" placeholder="https://" value="${escapeHtml(p.highlight_url || '')}">
     <label class="field-label">Short bio</label>
@@ -2288,16 +2324,77 @@ async function wireAthleteProfile() {
     ${p.sport ? `<div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
       <button class="ghost" id="ap-analyze" style="width:100%">🤖 Analyze my recent training</button>
       <div id="ap-analysis" style="margin-top:8px"></div>
+    </div>` : ''}
+    ${p.user_id ? `
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
+      <h3 style="margin:0 0 6px">Videos</h3>
+      <div id="ap-videos-list" class="muted">Loading…</div>
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <input id="ap-video-url" type="url" placeholder="https://…" style="flex:2">
+        <input id="ap-video-title" type="text" maxlength="120" placeholder="Title (optional)" style="flex:1">
+        <button class="ghost" id="ap-video-add">Add</button>
+      </div>
+    </div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
+      <h3 style="margin:0 0 6px">Past teams</h3>
+      <div id="ap-teams-list" class="muted">Loading…</div>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        <input id="ap-team-name" type="text" maxlength="120" placeholder="Team name" style="flex:2;min-width:120px">
+        <input id="ap-team-level" type="text" maxlength="60" placeholder="Level (JV, Varsity, Club…)" style="flex:1;min-width:100px">
+        <input id="ap-team-season" type="text" maxlength="20" placeholder="Season (2024-25)" style="flex:1;min-width:100px">
+        <button class="ghost" id="ap-team-add">Add</button>
+      </div>
+    </div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
+      <h3 style="margin:0 0 6px">Awards</h3>
+      <div id="ap-awards-list" class="muted">Loading…</div>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        <input id="ap-award-title" type="text" maxlength="160" placeholder="Award title" style="flex:2;min-width:140px">
+        <input id="ap-award-year" type="number" min="1950" max="2035" placeholder="Year" style="flex:0 0 80px">
+        <input id="ap-award-issuer" type="text" maxlength="120" placeholder="Issued by (optional)" style="flex:1;min-width:100px">
+        <button class="ghost" id="ap-award-add">Add</button>
+      </div>
+    </div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
+      <h3 style="margin:0 0 6px">Coach endorsements</h3>
+      <div id="ap-endorsements-list" class="muted">Loading…</div>
     </div>` : ''}`;
+
+  async function renderSportStatFields(sport, existingStats) {
+    const box = document.getElementById('ap-sport-stats-fields');
+    if (!box) return;
+    if (!sport) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div class="muted">Loading stat fields…</div>';
+    let fields;
+    try { fields = (await api('/athlete-profile/sport-fields/' + encodeURIComponent(sport))).fields; } catch { box.innerHTML = ''; return; }
+    if (!fields.length) { box.innerHTML = ''; return; }
+    box.innerHTML = fields.map(f => `
+      <label class="field-label">${escapeHtml(f.label)}${f.unit ? ' (' + escapeHtml(f.unit) + ')' : ''}</label>
+      <input type="text" maxlength="40" data-stat-key="${escapeHtml(f.key)}" value="${escapeHtml((existingStats && existingStats[f.key]) || '')}">
+    `).join('');
+  }
+  // /athlete-profile/me returns the raw stored row -- sport_stats is a JSON
+  // string here (unlike the public profile view, which parses it against
+  // that sport's field labels). Parse it plainly for pre-filling the form.
+  let existingStatValues = {};
+  try { existingStatValues = JSON.parse(p.sport_stats || '{}') || {}; } catch { existingStatValues = {}; }
+  renderSportStatFields(p.sport, existingStatValues);
+  document.getElementById('ap-sport').onchange = (e) => renderSportStatFields(e.target.value, {});
 
   document.getElementById('ap-save').onclick = async () => {
     const status = document.getElementById('ap-status');
     status.textContent = 'Saving…';
+    const sport_stats = {};
+    document.querySelectorAll('#ap-sport-stats-fields [data-stat-key]').forEach(input => { sport_stats[input.dataset.statKey] = input.value; });
     const body = {
       sport: document.getElementById('ap-sport').value,
       position: document.getElementById('ap-position').value,
       grad_year: document.getElementById('ap-grad-year').value || null,
       school: document.getElementById('ap-school').value,
+      height_cm: document.getElementById('ap-height').value || null,
+      weight_kg: document.getElementById('ap-weight').value || null,
+      handedness: document.getElementById('ap-handedness').value || null,
+      sport_stats,
       highlight_url: document.getElementById('ap-highlight').value.trim() || null,
       bio: document.getElementById('ap-bio').value,
       is_public: document.getElementById('ap-public').checked,
@@ -2340,6 +2437,83 @@ async function wireAthleteProfile() {
       ${a.suggestion ? `<div style="margin-top:6px"><strong>Try:</strong> ${escapeHtml(a.suggestion)}</div>` : ''}
     </div>`;
   };
+
+  if (p.user_id) wireAthleteLists();
+}
+
+// Videos, teams, awards: three small owned lists with the same
+// load-render-wire shape, plus a read-only endorsements list underneath.
+async function wireAthleteLists() {
+  async function refreshVideos() {
+    const box = document.getElementById('ap-videos-list');
+    if (!box) return;
+    const { videos } = await api('/athlete-profile/videos').catch(() => ({ videos: [] }));
+    box.innerHTML = videos.length ? videos.map(v => `
+      <div class="toggle-row"><span><a href="${escapeHtml(v.url)}" target="_blank" rel="noopener">${escapeHtml(v.title || v.url)}</a></span>
+      <button class="ghost" data-remove-video="${escapeHtml(v.id)}">Remove</button></div>`).join('')
+      : '<div class="muted">No videos yet.</div>';
+    box.querySelectorAll('[data-remove-video]').forEach(btn => btn.onclick = async () => { await api('/athlete-profile/videos/' + btn.dataset.removeVideo, { method: 'DELETE' }); refreshVideos(); });
+  }
+  async function refreshTeams() {
+    const box = document.getElementById('ap-teams-list');
+    if (!box) return;
+    const { teams } = await api('/athlete-profile/teams').catch(() => ({ teams: [] }));
+    box.innerHTML = teams.length ? teams.map(t => `
+      <div class="toggle-row"><span>${escapeHtml(t.team_name)}${t.level ? ' · ' + escapeHtml(t.level) : ''}${t.season ? ' · ' + escapeHtml(t.season) : ''}</span>
+      <button class="ghost" data-remove-team="${escapeHtml(t.id)}">Remove</button></div>`).join('')
+      : '<div class="muted">No past teams added yet.</div>';
+    box.querySelectorAll('[data-remove-team]').forEach(btn => btn.onclick = async () => { await api('/athlete-profile/teams/' + btn.dataset.removeTeam, { method: 'DELETE' }); refreshTeams(); });
+  }
+  async function refreshAwards() {
+    const box = document.getElementById('ap-awards-list');
+    if (!box) return;
+    const { awards } = await api('/athlete-profile/awards').catch(() => ({ awards: [] }));
+    box.innerHTML = awards.length ? awards.map(a => `
+      <div class="toggle-row"><span>${escapeHtml(a.title)}${a.year ? ' · ' + a.year : ''}${a.issuer ? ' · ' + escapeHtml(a.issuer) : ''}</span>
+      <button class="ghost" data-remove-award="${escapeHtml(a.id)}">Remove</button></div>`).join('')
+      : '<div class="muted">No awards added yet.</div>';
+    box.querySelectorAll('[data-remove-award]').forEach(btn => btn.onclick = async () => { await api('/athlete-profile/awards/' + btn.dataset.removeAward, { method: 'DELETE' }); refreshAwards(); });
+  }
+  async function refreshEndorsements() {
+    const box = document.getElementById('ap-endorsements-list');
+    if (!box) return;
+    const { endorsements } = await api('/athlete-profile/endorsements').catch(() => ({ endorsements: [] }));
+    box.innerHTML = endorsements.length ? endorsements.map(e => `
+      <div class="comment"><b>${escapeHtml(e.coach_name)}</b>${e.coach_organization ? ' · ' + escapeHtml(e.coach_organization) : ''}<div>${escapeHtml(e.quote)}</div></div>`).join('')
+      : '<div class="muted">No coach endorsements yet — these appear once a verified coach writes one for you.</div>';
+  }
+
+  document.getElementById('ap-video-add').onclick = async () => {
+    const url = document.getElementById('ap-video-url').value.trim();
+    const title = document.getElementById('ap-video-title').value.trim();
+    if (!url) return;
+    const r = await api('/athlete-profile/videos', { method: 'POST', body: { url, title } });
+    if (r.error) { showToast(r.hint || r.error, true); return; }
+    document.getElementById('ap-video-url').value = ''; document.getElementById('ap-video-title').value = '';
+    refreshVideos();
+  };
+  document.getElementById('ap-team-add').onclick = async () => {
+    const team_name = document.getElementById('ap-team-name').value.trim();
+    if (!team_name) return;
+    const r = await api('/athlete-profile/teams', { method: 'POST', body: {
+      team_name, level: document.getElementById('ap-team-level').value.trim(), season: document.getElementById('ap-team-season').value.trim(),
+    } });
+    if (r.error) { showToast(r.hint || r.error, true); return; }
+    document.getElementById('ap-team-name').value = ''; document.getElementById('ap-team-level').value = ''; document.getElementById('ap-team-season').value = '';
+    refreshTeams();
+  };
+  document.getElementById('ap-award-add').onclick = async () => {
+    const title = document.getElementById('ap-award-title').value.trim();
+    if (!title) return;
+    const r = await api('/athlete-profile/awards', { method: 'POST', body: {
+      title, year: document.getElementById('ap-award-year').value || null, issuer: document.getElementById('ap-award-issuer').value.trim(),
+    } });
+    if (r.error) { showToast(r.hint || r.error, true); return; }
+    document.getElementById('ap-award-title').value = ''; document.getElementById('ap-award-year').value = ''; document.getElementById('ap-award-issuer').value = '';
+    refreshAwards();
+  };
+
+  refreshVideos(); refreshTeams(); refreshAwards(); refreshEndorsements();
 }
 
 async function wireCoachProfile() {
@@ -2423,7 +2597,10 @@ async function wireCoachProfile() {
           <div class="muted" style="font-size:.82rem">${escapeHtml(a.sport)}${a.position ? ' · ' + escapeHtml(a.position) : ''}${a.grad_year ? ' · Class of ' + escapeHtml(String(a.grad_year)) : ''}${a.school ? ' · ' + escapeHtml(a.school) : ''}</div>
           ${a.match_reason ? `<div style="font-size:.84rem;margin-top:4px">🤖 ${escapeHtml(a.match_reason)}</div>` : ''}
           <div class="muted" style="font-size:.78rem;margin-top:4px">${a.stats.workouts_90d} workouts / 90d · ${a.stats.distance_km_90d} km / 90d</div>
-          <button class="ghost" data-coach-dm="${escapeHtml(a.user_id)}" style="margin-top:8px">Message</button>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button class="ghost" data-coach-dm="${escapeHtml(a.user_id)}">Message</button>
+            <button class="ghost" data-coach-endorse="${escapeHtml(a.user_id)}">Write endorsement</button>
+          </div>
         </div>`).join('');
     results.querySelectorAll('[data-coach-dm]').forEach(btn => btn.onclick = async () => {
       btn.disabled = true; btn.textContent = 'Opening…';
@@ -2432,6 +2609,13 @@ async function wireCoachProfile() {
         if (r.error) { showToast(r.hint || 'Could not open a conversation.', true); btn.disabled = false; btn.textContent = 'Message'; return; }
         renderThread(r.thread_id);
       } catch (e) { showToast('Could not open a conversation.', true); btn.disabled = false; btn.textContent = 'Message'; }
+    });
+    results.querySelectorAll('[data-coach-endorse]').forEach(btn => btn.onclick = async () => {
+      const quote = prompt('Write a short endorsement for this athlete (visible on their public profile):');
+      if (!quote) return;
+      const r = await api('/athlete-profile/' + encodeURIComponent(btn.dataset.coachEndorse) + '/endorse', { method: 'POST', body: { quote } });
+      if (r.error) { showToast(r.hint || r.error, true); return; }
+      showToast('Endorsement saved.');
     });
   };
 }
