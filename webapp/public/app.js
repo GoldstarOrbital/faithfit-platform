@@ -1020,7 +1020,7 @@ const EXPLORE_SECTIONS = [
     icon: '<path d="M13 2L5 13h6l-1 9 8-11h-6z"/>' },
   { key: 'news',        name: 'News',        blurb: 'Christian news headlines from independent outlets.',
     icon: '<path d="M4 4.5h13a2.5 2.5 0 012.5 2.5v11a1 1 0 01-1 1H6a2 2 0 01-2-2v-12.5z"/><path d="M4 6.5v10a2 2 0 002 2M8 8h6M8 11.5h6M8 15h4"/>' },
-  { key: 'recruiting',  name: 'Recruiting',  blurb: 'Public athlete stat profiles, searchable by coaches and scouts.', external: '/recruiting.html',
+  { key: 'recruiting',  name: 'Recruiting',  blurb: 'Athlete stat profiles and coach connections, by sport.',
     icon: '<path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16l-5.2 3.1 1-5.8-4.3-4.1 5.9-.9z"/>' },
 ];
 
@@ -1238,7 +1238,119 @@ async function renderExplore(main) {
           </div>
         </a>
       `).join('') : `<div class="muted">Headlines loading — check back shortly.</div>`);
+  } else if (state.exploreTab === 'recruiting') {
+    await renderRecruitingTab(body);
   }
+}
+
+/**
+ * Recruiting lives here now, not in Profile Settings -- first visit asks
+ * "coach or player" and everything after (profile setup, .edu/school-email
+ * verification, browsing) happens in place. Reuses wireAthleteProfile() /
+ * wireCoachProfile() unchanged: both already look up their mount points by
+ * id via getElementById rather than a scoped query, so building that same
+ * mount structure here is enough -- no duplicated form logic.
+ *
+ * Contact is one-directional by role, on purpose: a coach can message any
+ * public, verified athlete (the existing /coach/dms/with/:id bypass); an
+ * athlete browsing other athletes here gets no message button at all --
+ * player-to-player contact was never the point of this surface, and
+ * nothing here adds a path for it. A coach has no directory of other
+ * coaches to browse in the first place.
+ */
+async function renderRecruitingTab(body) {
+  let athleteData = null, coachData = null;
+  try { athleteData = await api('/athlete-profile/me'); } catch {}
+  try { coachData = await api('/coach-profile/me'); } catch {}
+  const hasAthleteProfile = !!(athleteData && athleteData.profile && athleteData.profile.sport);
+  const hasCoachProfile = !!(coachData && coachData.profile && coachData.profile.sport);
+  const savedRole = state.me && state.me.user && state.me.user.recruiting_role;
+  const myRole = hasCoachProfile ? 'coach' : (hasAthleteProfile ? 'athlete' : (state.recruitingRole || savedRole || null));
+
+  if (!myRole) {
+    body.innerHTML = `
+      <h2>Recruiting</h2>
+      <p class="muted" style="margin-top:-6px 0 14px">Athlete stat profiles and coach connections, by sport. Are you a coach or a player?</p>
+      <div style="display:flex;gap:12px;margin-top:14px">
+        <button class="card glass" id="rec-role-athlete" style="flex:1;padding:22px 14px;text-align:center;cursor:pointer;border:none;font:inherit;color:inherit">
+          <div style="font-size:1.8rem">🏅</div><div style="font-weight:700;margin-top:8px">I'm a Player</div>
+          <div class="muted" style="font-size:.8rem;margin-top:4px">Build a stat profile coaches can find</div>
+        </button>
+        <button class="card glass" id="rec-role-coach" style="flex:1;padding:22px 14px;text-align:center;cursor:pointer;border:none;font:inherit;color:inherit">
+          <div style="font-size:1.8rem">📋</div><div style="font-weight:700;margin-top:8px">I'm a Coach</div>
+          <div class="muted" style="font-size:.8rem;margin-top:4px">Verify your .edu email and find athletes</div>
+        </button>
+      </div>`;
+    const chooseRole = async (role) => {
+      state.recruitingRole = role;
+      if (state.me && state.me.user) state.me.user.recruiting_role = role;
+      api('/recruiting-role', { method: 'PUT', body: { role } }).catch(() => {});
+      renderRecruitingTab(body);
+    };
+    document.getElementById('rec-role-athlete').onclick = () => chooseRole('athlete');
+    document.getElementById('rec-role-coach').onclick = () => chooseRole('coach');
+    return;
+  }
+
+  body.innerHTML = `
+    <h2 style="margin-bottom:2px">Recruiting</h2>
+    <p class="muted" style="margin-top:0 0 12px">${myRole === 'coach' ? 'Your coach profile' : 'Your athlete profile'}</p>
+    <div class="card glass profile-panel" id="athlete-profile-card" style="${myRole === 'athlete' ? '' : 'display:none'}">
+      <div id="athlete-profile-section">Loading…</div>
+    </div>
+    <div class="card glass profile-panel" id="coach-profile-card" style="${myRole === 'coach' ? '' : 'display:none'}">
+      <div id="coach-profile-section">Loading…</div>
+    </div>
+    <div class="card glass" style="margin-top:14px">
+      <h3 style="margin-top:0">Browse athletes</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <select id="rec-sport"><option value="">All sports</option></select>
+        <input id="rec-year" type="number" min="2020" max="2035" placeholder="Graduating class" style="max-width:140px">
+        <input id="rec-q" type="text" placeholder="Name or school" style="flex:1;min-width:140px">
+        <button class="ghost" id="rec-search">Search</button>
+      </div>
+      <div id="rec-results" class="muted">Loading…</div>
+    </div>`;
+
+  if (myRole === 'athlete') wireAthleteProfile();
+  if (myRole === 'coach') wireCoachProfile();
+
+  async function searchDirectory() {
+    const results = document.getElementById('rec-results');
+    results.innerHTML = 'Loading…';
+    const p = new URLSearchParams();
+    const sport = document.getElementById('rec-sport').value;
+    const year = document.getElementById('rec-year').value;
+    const q = document.getElementById('rec-q').value;
+    if (sport) p.set('sport', sport);
+    if (year) p.set('grad_year', year);
+    if (q) p.set('q', q);
+    let data;
+    try { data = await api('/athletes/search?' + p.toString()); } catch { results.innerHTML = '<div class="muted">Could not load the directory.</div>'; return; }
+    const sportSel = document.getElementById('rec-sport');
+    if (sportSel.options.length <= 1) data.sports.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; sportSel.appendChild(o); });
+    if (!data.athletes.length) { results.innerHTML = '<div class="muted">No public profiles match yet.</div>'; return; }
+    results.innerHTML = data.athletes.map(a => `
+      <div class="card glass" style="padding:12px;margin-bottom:8px">
+        <div style="font-weight:700">${escapeHtml(a.display_name)}</div>
+        <div class="muted" style="font-size:.82rem">${escapeHtml(a.sport)}${a.position ? ' · ' + escapeHtml(a.position) : ''}${a.grad_year ? ' · Class of ' + escapeHtml(String(a.grad_year)) : ''}${a.school ? ' · ' + escapeHtml(a.school) : ''}</div>
+        <div class="muted" style="font-size:.78rem;margin-top:4px">${a.stats.workouts_90d} workouts / 90d · ${a.stats.distance_km_90d} km / 90d</div>
+        ${myRole === 'coach' ? `<button class="ghost" data-rec-dm="${escapeHtml(a.user_id)}" style="margin-top:8px">Message</button>` : ''}
+      </div>`).join('');
+    if (myRole === 'coach') {
+      results.querySelectorAll('[data-rec-dm]').forEach(btn => btn.onclick = async () => {
+        btn.disabled = true; btn.textContent = 'Opening…';
+        try {
+          const r = await api('/coach/dms/with/' + encodeURIComponent(btn.dataset.recDm), { method: 'POST' });
+          if (r.error) { showToast(r.hint || 'Could not open a conversation.', true); btn.disabled = false; btn.textContent = 'Message'; return; }
+          renderThread(r.thread_id);
+        } catch { showToast('Could not open a conversation.', true); btn.disabled = false; btn.textContent = 'Message'; }
+      });
+    }
+  }
+  document.getElementById('rec-search').onclick = searchDirectory;
+  document.getElementById('rec-q').addEventListener('keydown', e => { if (e.key === 'Enter') searchDirectory(); });
+  searchDirectory();
 }
 
 // --- Reel sound ------------------------------------------------------------
@@ -1860,6 +1972,10 @@ async function renderProfile(main) {
       <h2>Profile Details</h2>
       <div class="muted" style="margin-bottom:10px">Your bio can only be a Bible verse — pick one from our verified library. Other fields are optional.</div>
       <div id="verse-preview" class="verse-preview">${me.user.bio_verse_ref ? `📖 <strong>${me.user.bio_verse_ref}</strong> — "${me.user.bio_verse_text}"` : 'No verse selected yet.'}</div>
+      <label class="field-label">Username</label>
+      <div class="muted" style="font-size:.76rem;margin:-2px 0 4px">Your unique name across Functioning Faith — how people find and mention you. No two members can share one.</div>
+      <input id="p-username" type="text" maxlength="40" placeholder="Your name" value="${escapeHtml(me.user.display_name || '')}">
+      <div id="p-username-status" class="muted" style="margin:2px 0 8px"></div>
       <label class="field-label">Bio verse</label>
       <select id="p-verse"><option value="">— Select a verse —</option></select>
       <label class="field-label">Job</label>
@@ -1892,16 +2008,6 @@ async function renderProfile(main) {
       ${renderHeartRateFields(me.user)}
       <button class="primary" id="p-save" style="width:100%;margin-top:10px">Save Profile</button>
       <div id="p-status" class="muted" style="margin-top:6px"></div>
-    </div>
-    <div class="card glass profile-panel" data-profile-group="settings" id="athlete-profile-card">
-      <h2>Athlete Recruiting Profile</h2>
-      <div class="muted" style="margin-bottom:10px">Highschool and college athletes: make a public page college coaches can find, showing your sport, position, class year, and real training stats pulled straight from your logged workouts — nothing self-reported.</div>
-      <div id="athlete-profile-section">Loading…</div>
-    </div>
-    <div class="card glass profile-panel" data-profile-group="settings" id="coach-profile-card">
-      <h2>Coach Profile</h2>
-      <div class="muted" style="margin-bottom:10px">Coaches: verify a .edu email to unlock the recruiting directory, AI-assisted matching for your sport, and the ability to message any publicly listed athlete directly.</div>
-      <div id="coach-profile-section">Loading…</div>
     </div>
     <div class="card glass profile-panel" data-profile-group="settings">
       <h2>Find your church</h2>
@@ -2244,6 +2350,7 @@ async function renderProfile(main) {
     status.textContent = 'Saving…';
     try {
       const body = {
+        display_name: document.getElementById('p-username').value,
         bio_verse_ref: versePicker.value || null,
         job: document.getElementById('p-job').value,
         church: document.getElementById('p-church').value,
@@ -2256,8 +2363,12 @@ async function renderProfile(main) {
         ...heartRateFieldValues(),
       };
       const res = await api('/profile', { method: 'PUT', body });
+      const usernameStatus = document.getElementById('p-username-status');
+      if (usernameStatus) usernameStatus.textContent = '';
       if (res.error) {
-        status.textContent = res.hint || ('Could not save: ' + res.error);
+        const msg = res.hint || res.message || ('Could not save: ' + res.error);
+        if (usernameStatus && (res.error === 'name_taken' || String(res.error).startsWith('name_'))) usernameStatus.textContent = msg;
+        else status.textContent = msg;
       } else {
         status.textContent = 'Saved.';
         render();
@@ -2270,8 +2381,6 @@ async function renderProfile(main) {
   wireChurchFinder(me);
   wireAvatarUpload();
   loadPartnerInvites();
-  wireAthleteProfile();
-  wireCoachProfile();
 }
 
 async function wireAthleteProfile() {

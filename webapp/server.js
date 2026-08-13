@@ -47,7 +47,10 @@ developerVerification.startNotifications();
 developerWebhooks.start();
 segments.init();
 overlay.init();
-// Names are unique from here on; existing duplicates are reported, not renamed.
+// Every account gets a real, unique display name -- blanks are backfilled
+// and any pre-existing duplicate is disambiguated (oldest account keeps the
+// name) -- before the uniqueness rule is enforced at the database level.
+usernames.backfillAndDedup();
 usernames.ensureUniqueIndex();
 dms.init();
 // YouVersion Platform: lifts scripture beyond the 22 locally ingested books.

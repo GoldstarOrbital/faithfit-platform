@@ -5497,6 +5497,16 @@ router.get('/athletes/:userId', (req, res) => {
 // here is .edu-verified status, matching, and the DM bypass) requires a
 // real .edu email confirmed by a one-time link -- see lib/coaches.js.
 
+// The recruiting tab's first-visit choice ("are you a coach or a player"),
+// saved as soon as it's made -- see lib/db.js for why this exists
+// separately from whether a full athlete/coach profile has been saved yet.
+router.put('/recruiting-role', requireAuth, (req, res) => {
+  const role = req.body && req.body.role;
+  if (role !== 'athlete' && role !== 'coach') return res.status(400).json({ error: 'invalid_role' });
+  db.prepare('UPDATE users SET recruiting_role = ? WHERE id = ?').run(role, req.session.userId);
+  res.json({ ok: true, role });
+});
+
 router.get('/coach-profile/me', requireAuth, (req, res) => {
   res.json({ profile: coaches.get(req.session.userId), sports: athletes.SPORTS });
 });

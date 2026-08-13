@@ -834,4 +834,9 @@ CREATE INDEX IF NOT EXISTS idx_verse_reflections_thread ON verse_reflections(thr
 const userColsE2e = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
 if (!userColsE2e.includes('e2e_public_key')) db.exec('ALTER TABLE users ADD COLUMN e2e_public_key TEXT');
 
+// The recruiting tab's first-visit "coach or player" choice, saved the
+// moment someone picks -- not only once they finish filling out a profile,
+// so navigating away mid-setup doesn't ask again.
+if (!userColsE2e.includes('recruiting_role')) db.exec('ALTER TABLE users ADD COLUMN recruiting_role TEXT');
+
 module.exports = db;

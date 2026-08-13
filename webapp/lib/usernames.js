@@ -108,4 +108,57 @@ function ensureUniqueIndex() {
   }
 }
 
-module.exports = { normalise, key, validate, isTaken, check, suggest, ensureUniqueIndex, MIN, MAX };
+/**
+ * Guarantees every account -- seeded, OAuth, or old enough to predate a rule
+ * that was added after it was created -- actually has a usable, unique
+ * display name before ensureUniqueIndex() tries to enforce that at the
+ * database level. Two passes:
+ *
+ *   1. Backfill: any NULL or blank display_name becomes "Member" plus the
+ *      nearest free suffix. A real person can rename themselves from
+ *      Settings afterward; what matters here is that nobody has no name
+ *      at all, which the unique index can't even evaluate.
+ *   2. Dedup: for any name shared by more than one account, the oldest
+ *      account (by created_at) keeps it as-is; every other account is
+ *      renamed to the nearest free variant of that same name. Nobody's
+ *      name is silently changed to something unrelated -- it stays
+ *      recognizably theirs, just disambiguated.
+ *
+ * Idempotent and safe to run on every boot: an install with no gaps and no
+ * collisions does nothing.
+ */
+function backfillAndDedup() {
+  let renamed = 0;
+
+  const blank = db.prepare(
+    `SELECT id FROM users WHERE display_name IS NULL OR trim(display_name) = ''`
+  ).all();
+  for (const u of blank) {
+    const name = suggest('Member', u.id);
+    db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(name, u.id);
+    renamed++;
+  }
+
+  const dupeGroups = db.prepare(
+    `SELECT lower(trim(display_name)) AS k, COUNT(*) AS c
+     FROM users WHERE display_name IS NOT NULL AND trim(display_name) != ''
+     GROUP BY k HAVING c > 1`
+  ).all();
+  for (const g of dupeGroups) {
+    const members = db.prepare(
+      `SELECT id, display_name FROM users WHERE lower(trim(display_name)) = ? ORDER BY created_at ASC, id ASC`
+    ).all(g.k);
+    // members[0] keeps the name; everyone else gets the next free variant.
+    for (let i = 1; i < members.length; i++) {
+      const m = members[i];
+      const name = suggest(m.display_name, m.id);
+      db.prepare('UPDATE users SET display_name = ? WHERE id = ?').run(name, m.id);
+      renamed++;
+    }
+  }
+
+  if (renamed) console.log(`[usernames] backfilled/deduplicated ${renamed} account name(s)`);
+  return { renamed };
+}
+
+module.exports = { normalise, key, validate, isTaken, check, suggest, ensureUniqueIndex, backfillAndDedup, MIN, MAX };
