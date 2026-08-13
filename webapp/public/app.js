@@ -2412,8 +2412,17 @@ async function wireAthleteProfile() {
       <option value="switch"${p.handedness === 'switch' ? ' selected' : ''}>Switch / ambidextrous</option>
     </select>
     <div id="ap-sport-stats-fields" style="margin-top:6px"></div>
+    <div style="margin:8px 0 4px">
+      <button class="ghost" type="button" id="ap-csv-toggle">📄 Import stats from a CSV file</button>
+      <div class="muted" style="font-size:.72rem;margin-top:4px">Neither MaxPreps nor GameChanger offers a way to connect your account automatically — GameChanger's own stat export is a CSV file, which you can upload here. Works with any spreadsheet, really: export from either site (or Excel/Sheets), pick which column is which stat, and it fills in the fields below.</div>
+      <div id="ap-csv-box" style="display:none;margin-top:8px"></div>
+    </div>
     <label class="field-label">Highlight video link (YouTube, Hudl, etc.)</label>
     <input id="ap-highlight" type="url" maxlength="300" placeholder="https://" value="${escapeHtml(p.highlight_url || '')}">
+    <label class="field-label">MaxPreps profile link (optional)</label>
+    <input id="ap-maxpreps" type="url" maxlength="300" placeholder="https://www.maxpreps.com/..." value="${escapeHtml(p.maxpreps_url || '')}">
+    <label class="field-label">GameChanger profile link (optional)</label>
+    <input id="ap-gamechanger" type="url" maxlength="300" placeholder="https://web.gc.com/..." value="${escapeHtml(p.gamechanger_url || '')}">
     <label class="field-label">Short bio</label>
     <input id="ap-bio" type="text" maxlength="500" placeholder="A sentence or two about your season and goals" value="${escapeHtml(p.bio || '')}">
     <label class="field-label">School email</label>
@@ -2490,6 +2499,8 @@ async function wireAthleteProfile() {
   renderSportStatFields(p.sport, existingStatValues);
   document.getElementById('ap-sport').onchange = (e) => renderSportStatFields(e.target.value, {});
 
+  wireCsvStatImport();
+
   document.getElementById('ap-save').onclick = async () => {
     const status = document.getElementById('ap-status');
     status.textContent = 'Saving…';
@@ -2505,6 +2516,8 @@ async function wireAthleteProfile() {
       handedness: document.getElementById('ap-handedness').value || null,
       sport_stats,
       highlight_url: document.getElementById('ap-highlight').value.trim() || null,
+      maxpreps_url: document.getElementById('ap-maxpreps').value.trim() || null,
+      gamechanger_url: document.getElementById('ap-gamechanger').value.trim() || null,
       bio: document.getElementById('ap-bio').value,
       is_public: document.getElementById('ap-public').checked,
     };
@@ -2623,6 +2636,102 @@ async function wireAthleteLists() {
   };
 
   refreshVideos(); refreshTeams(); refreshAwards(); refreshEndorsements();
+}
+
+/**
+ * A minimal CSV parser -- handles quoted fields (including embedded commas
+ * and escaped "" quotes) and \r\n line endings, which covers real
+ * spreadsheet exports (GameChanger, MaxPreps, Excel, Sheets) without
+ * pulling in a library for something this small.
+ */
+function parseCsv(text) {
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; }
+      } else field += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ',') { row.push(field); field = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field); field = '';
+      if (row.some(x => x !== '')) rows.push(row);
+      row = [];
+    } else field += c;
+  }
+  if (field !== '' || row.length) { row.push(field); if (row.some(x => x !== '')) rows.push(row); }
+  return rows;
+}
+
+/**
+ * Client-side only -- no server round-trip for the parse/mapping step.
+ * Someone picks a CSV (their own GameChanger/MaxPreps export, or any
+ * spreadsheet), maps its columns to this sport's known stat fields, picks
+ * which row is theirs if there's more than one, and Apply fills in the
+ * same input fields the manual form uses -- Save still goes through the
+ * normal, whitelist-validated PUT /athlete-profile path. Nothing about the
+ * import bypasses that.
+ */
+function wireCsvStatImport() {
+  const toggleBtn = document.getElementById('ap-csv-toggle');
+  const box = document.getElementById('ap-csv-box');
+  if (!toggleBtn || !box) return;
+
+  toggleBtn.onclick = () => {
+    const opening = box.style.display === 'none';
+    box.style.display = opening ? 'block' : 'none';
+    if (opening && !box.dataset.wired) {
+      box.dataset.wired = '1';
+      box.innerHTML = `<input type="file" id="ap-csv-file" accept=".csv,text/csv"><div id="ap-csv-result" style="margin-top:8px"></div>`;
+      document.getElementById('ap-csv-file').onchange = async (e) => {
+        const file = e.target.files[0];
+        const result = document.getElementById('ap-csv-result');
+        if (!file) return;
+        const text = await file.text();
+        const rows = parseCsv(text);
+        if (rows.length < 2) { result.innerHTML = '<div class="muted">Could not find a header row and at least one data row in that file.</div>'; return; }
+        const [headers, ...dataRows] = rows;
+        const fields = [...document.querySelectorAll('#ap-sport-stats-fields [data-stat-key]')].map(inp => ({ key: inp.dataset.statKey, label: inp.previousElementSibling ? inp.previousElementSibling.textContent : inp.dataset.statKey }));
+        if (!fields.length) { result.innerHTML = '<div class="muted">Pick a sport above first — there are no stat fields to map into yet.</div>'; return; }
+
+        result.innerHTML = `
+          ${dataRows.length > 1 ? `<label class="field-label">Which row is you?</label>
+          <select id="ap-csv-row">${dataRows.map((r, i) => `<option value="${i}">${escapeHtml(r.slice(0, 3).join(' · '))}</option>`).join('')}</select>` : ''}
+          <label class="field-label">Map columns to stats</label>
+          ${headers.map((h, i) => `
+            <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+              <span style="flex:1;font-size:.82rem" title="${escapeHtml(h)}">${escapeHtml(h.slice(0, 30))}</span>
+              <select data-csv-col="${i}" style="flex:1">
+                <option value="">— Ignore —</option>
+                ${fields.map(f => `<option value="${escapeHtml(f.key)}">${escapeHtml(f.label)}</option>`).join('')}
+              </select>
+            </div>`).join('')}
+          <button class="primary" id="ap-csv-apply" style="width:100%;margin-top:10px">Apply to stat fields</button>
+          <div id="ap-csv-status" class="muted" style="margin-top:4px"></div>`;
+
+        document.getElementById('ap-csv-apply').onclick = () => {
+          const rowIdx = document.getElementById('ap-csv-row') ? Number(document.getElementById('ap-csv-row').value) : 0;
+          const rowData = dataRows[rowIdx] || dataRows[0];
+          let applied = 0;
+          document.querySelectorAll('[data-csv-col]').forEach(sel => {
+            const statKey = sel.value;
+            if (!statKey) return;
+            const colIdx = Number(sel.dataset.csvCol);
+            const value = (rowData[colIdx] || '').trim();
+            if (!value) return;
+            const target = document.querySelector(`#ap-sport-stats-fields [data-stat-key="${statKey}"]`);
+            if (target) { target.value = value; applied++; }
+          });
+          document.getElementById('ap-csv-status').textContent = applied
+            ? `Filled in ${applied} field(s) below — review them, then hit Save Athlete Profile.`
+            : 'No columns were mapped to a stat field.';
+        };
+      };
+    }
+  };
 }
 
 async function wireCoachProfile() {

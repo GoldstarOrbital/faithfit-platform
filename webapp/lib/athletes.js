@@ -141,6 +141,15 @@ function init() {
   if (!cols.includes('school_email_verified_at')) db.exec('ALTER TABLE athlete_profiles ADD COLUMN school_email_verified_at TEXT');
   if (!cols.includes('handedness')) db.exec('ALTER TABLE athlete_profiles ADD COLUMN handedness TEXT');
   if (!cols.includes('sport_stats')) db.exec('ALTER TABLE athlete_profiles ADD COLUMN sport_stats TEXT');
+  // Neither MaxPreps nor GameChanger offers a public API to sync stats from
+  // automatically (confirmed as of 2026 -- MaxPreps' only integration path
+  // is a closed stat-import-partner program, GameChanger's only official
+  // export is CSV/PDF). These are just reference links so a coach can click
+  // through and verify stats at the source; actual numbers still come from
+  // the athlete's own sport_stats fields (fillable by hand or via the CSV
+  // importer below).
+  if (!cols.includes('maxpreps_url')) db.exec('ALTER TABLE athlete_profiles ADD COLUMN maxpreps_url TEXT');
+  if (!cols.includes('gamechanger_url')) db.exec('ALTER TABLE athlete_profiles ADD COLUMN gamechanger_url TEXT');
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS athlete_videos (
@@ -238,6 +247,10 @@ function upsert(userId, fields) {
   if (!sport) return { error: 'sport_required' };
   const highlight_url = String(fields.highlight_url || '').trim().slice(0, 300) || null;
   if (!isValidUrl(highlight_url)) return { error: 'invalid_highlight_url', hint: 'Use a link starting with https://' };
+  const maxpreps_url = String(fields.maxpreps_url || '').trim().slice(0, 300) || null;
+  if (!isValidUrl(maxpreps_url)) return { error: 'invalid_maxpreps_url', hint: 'Use a link starting with https://' };
+  const gamechanger_url = String(fields.gamechanger_url || '').trim().slice(0, 300) || null;
+  if (!isValidUrl(gamechanger_url)) return { error: 'invalid_gamechanger_url', hint: 'Use a link starting with https://' };
 
   const grad_year = Number(fields.grad_year) || null;
   if (grad_year && (grad_year < 2020 || grad_year > 2035)) return { error: 'invalid_grad_year' };
@@ -255,13 +268,13 @@ function upsert(userId, fields) {
   };
 
   db.prepare(`
-    INSERT INTO athlete_profiles (user_id, sport, position, grad_year, school, height_cm, weight_kg, highlight_url, bio, is_public, handedness, sport_stats, updated_at)
-    VALUES (@user_id, @sport, @position, @grad_year, @school, @height_cm, @weight_kg, @highlight_url, @bio, @is_public, @handedness, @sport_stats, datetime('now'))
+    INSERT INTO athlete_profiles (user_id, sport, position, grad_year, school, height_cm, weight_kg, highlight_url, maxpreps_url, gamechanger_url, bio, is_public, handedness, sport_stats, updated_at)
+    VALUES (@user_id, @sport, @position, @grad_year, @school, @height_cm, @weight_kg, @highlight_url, @maxpreps_url, @gamechanger_url, @bio, @is_public, @handedness, @sport_stats, datetime('now'))
     ON CONFLICT(user_id) DO UPDATE SET
       sport=@sport, position=@position, grad_year=@grad_year, school=@school, height_cm=@height_cm,
-      weight_kg=@weight_kg, highlight_url=@highlight_url, bio=@bio, is_public=@is_public,
-      handedness=@handedness, sport_stats=@sport_stats, updated_at=datetime('now')
-  `).run({ user_id: userId, sport, grad_year, highlight_url, handedness, sport_stats, ...row });
+      weight_kg=@weight_kg, highlight_url=@highlight_url, maxpreps_url=@maxpreps_url, gamechanger_url=@gamechanger_url,
+      bio=@bio, is_public=@is_public, handedness=@handedness, sport_stats=@sport_stats, updated_at=datetime('now')
+  `).run({ user_id: userId, sport, grad_year, highlight_url, maxpreps_url, gamechanger_url, handedness, sport_stats, ...row });
 
   return { profile: get(userId) };
 }
