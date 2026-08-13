@@ -1768,6 +1768,11 @@ async function renderProfile(main) {
       <div class="muted" style="margin-bottom:10px">Highschool and college athletes: make a public page college coaches can find, showing your sport, position, class year, and real training stats pulled straight from your logged workouts — nothing self-reported.</div>
       <div id="athlete-profile-section">Loading…</div>
     </div>
+    <div class="card glass profile-panel" data-profile-group="settings" id="coach-profile-card">
+      <h2>Coach Profile</h2>
+      <div class="muted" style="margin-bottom:10px">Coaches: verify a .edu email to unlock the recruiting directory, AI-assisted matching for your sport, and the ability to message any publicly listed athlete directly.</div>
+      <div id="coach-profile-section">Loading…</div>
+    </div>
     <div class="card glass profile-panel" data-profile-group="settings">
       <h2>Find your church</h2>
       <div class="muted" style="margin-bottom:10px">Search real churches near you using OpenStreetMap — pick the one you attend.</div>
@@ -2136,6 +2141,7 @@ async function renderProfile(main) {
   wireAvatarUpload();
   loadPartnerInvites();
   wireAthleteProfile();
+  wireCoachProfile();
 }
 
 async function wireAthleteProfile() {
@@ -2172,7 +2178,11 @@ async function wireAthleteProfile() {
       ? `<div class="muted" style="margin:4px 0 8px">Live at <a href="/recruiting.html?athlete=${encodeURIComponent(p.user_id)}" target="_blank" rel="noopener">${location.origin}/recruiting.html?athlete=${escapeHtml(p.user_id)}</a></div>`
       : (p.is_public ? `<div class="muted" style="margin:4px 0 8px">⚠ Not visible yet — verify your school email above to actually appear in the directory.</div>` : '')}
     <button class="primary" id="ap-save" style="width:100%;margin-top:6px">Save Athlete Profile</button>
-    <div id="ap-status" class="muted" style="margin-top:6px"></div>`;
+    <div id="ap-status" class="muted" style="margin-top:6px"></div>
+    ${p.sport ? `<div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
+      <button class="ghost" id="ap-analyze" style="width:100%">🤖 Analyze my recent training</button>
+      <div id="ap-analysis" style="margin-top:8px"></div>
+    </div>` : ''}`;
 
   document.getElementById('ap-save').onclick = async () => {
     const status = document.getElementById('ap-status');
@@ -2206,6 +2216,117 @@ async function wireAthleteProfile() {
         ? 'Email verification is not configured on this server yet.'
         : `Check ${email} for a verification link (expires in 24 hours).`;
     } catch (e) { status.textContent = e.message || 'Could not send that.'; }
+  };
+
+  const analyzeBtn = document.getElementById('ap-analyze');
+  if (analyzeBtn) analyzeBtn.onclick = async () => {
+    const box = document.getElementById('ap-analysis');
+    box.innerHTML = '<div class="muted">Asking Gloo…</div>';
+    let r;
+    try { r = await api('/athlete-profile/analysis'); } catch { box.innerHTML = '<div class="muted">Could not load analysis.</div>'; return; }
+    if (r.error) { box.innerHTML = `<div class="muted">${escapeHtml(r.hint || r.error)}</div>`; return; }
+    if (!r.available) { box.innerHTML = '<div class="muted">AI analysis is not configured on this server yet.</div>'; return; }
+    if (!r.generated) { box.innerHTML = '<div class="muted">Could not generate an analysis right now — try again shortly.</div>'; return; }
+    const a = r.analysis;
+    box.innerHTML = `<div class="card glass" style="padding:12px">
+      <div>${escapeHtml(a.summary || '')}</div>
+      ${a.strength ? `<div style="margin-top:8px"><strong>Pattern:</strong> ${escapeHtml(a.strength)}</div>` : ''}
+      ${a.suggestion ? `<div style="margin-top:6px"><strong>Try:</strong> ${escapeHtml(a.suggestion)}</div>` : ''}
+    </div>`;
+  };
+}
+
+async function wireCoachProfile() {
+  const mount = document.getElementById('coach-profile-section');
+  if (!mount) return;
+  let data;
+  try { data = await api('/coach-profile/me'); } catch { mount.innerHTML = '<div class="muted">Could not load.</div>'; return; }
+  const p = data.profile || {};
+  const sportOptions = data.sports.map(s => `<option value="${escapeHtml(s)}"${p.sport === s ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('');
+  const verified = !!p.edu_verified_at;
+
+  mount.innerHTML = `
+    <label class="field-label">Sport you coach</label>
+    <select id="cp-sport"><option value="">— Select —</option>${sportOptions}</select>
+    <label class="field-label">Organization / school</label>
+    <input id="cp-org" type="text" maxlength="120" placeholder="e.g. Lincoln University Athletics" value="${escapeHtml(p.organization || '')}">
+    <label class="field-label">Title</label>
+    <input id="cp-title" type="text" maxlength="80" placeholder="e.g. Assistant Coach" value="${escapeHtml(p.title || '')}">
+    <label class="field-label">Short bio</label>
+    <input id="cp-bio" type="text" maxlength="500" placeholder="A sentence or two about your program" value="${escapeHtml(p.bio || '')}">
+    <button class="primary" id="cp-save" style="width:100%;margin-top:6px">Save Coach Profile</button>
+    <div id="cp-status" class="muted" style="margin-top:6px"></div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
+      <label class="field-label">.edu email</label>
+      <div class="muted" style="font-size:.76rem;margin:-2px 0 4px">Coach access (the athlete directory, AI matching, and messaging athletes) requires a verified .edu address.</div>
+      <input id="cp-edu-email" type="email" maxlength="160" placeholder="coach@university.edu" value="${escapeHtml(p.edu_email || '')}">
+      <button class="ghost" id="cp-verify-email" style="width:100%;margin-top:6px">${verified ? '✓ .edu verified — re-verify a different address' : 'Send verification email'}</button>
+      <div id="cp-verify-status" class="muted" style="margin-top:4px">${verified ? `Verified ${new Date(p.edu_verified_at).toLocaleDateString()}.` : ''}</div>
+    </div>
+    ${verified ? `
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
+      <h3 style="margin:0 0 6px">Find athletes</h3>
+      <div class="muted" style="font-size:.82rem;margin-bottom:8px">Gloo ranks real, public, verified profiles in your sport — never invented, always grounded in their actual logged training stats.</div>
+      <button class="ghost" id="cp-match" style="width:100%">Find best-fit athletes for ${escapeHtml(p.sport || 'your sport')}</button>
+      <div id="cp-match-results" style="margin-top:10px"></div>
+    </div>` : ''}`;
+
+  document.getElementById('cp-save').onclick = async () => {
+    const status = document.getElementById('cp-status');
+    status.textContent = 'Saving…';
+    const body = {
+      sport: document.getElementById('cp-sport').value,
+      organization: document.getElementById('cp-org').value,
+      title: document.getElementById('cp-title').value,
+      bio: document.getElementById('cp-bio').value,
+    };
+    try {
+      const res = await api('/coach-profile', { method: 'PUT', body });
+      if (res.error) { status.textContent = res.hint || ('Could not save: ' + res.error); return; }
+      status.textContent = 'Saved.';
+      wireCoachProfile();
+    } catch (e) { status.textContent = e.message || 'Could not save.'; }
+  };
+
+  document.getElementById('cp-verify-email').onclick = async () => {
+    const status = document.getElementById('cp-verify-status');
+    const email = document.getElementById('cp-edu-email').value.trim();
+    if (!email) { status.textContent = 'Enter your .edu email first.'; return; }
+    status.textContent = 'Sending…';
+    try {
+      const res = await api('/coach-profile/verify-email', { method: 'POST', body: { email } });
+      if (res.error) { status.textContent = res.hint || ('Could not send: ' + res.error); return; }
+      status.textContent = res.queued === false
+        ? 'Email verification is not configured on this server yet.'
+        : `Check ${email} for a verification link (expires in 24 hours).`;
+    } catch (e) { status.textContent = e.message || 'Could not send that.'; }
+  };
+
+  const matchBtn = document.getElementById('cp-match');
+  if (matchBtn) matchBtn.onclick = async () => {
+    const results = document.getElementById('cp-match-results');
+    results.innerHTML = '<div class="muted">Asking Gloo…</div>';
+    let match;
+    try { match = await api('/coach/match'); } catch { results.innerHTML = '<div class="muted">Could not load matches.</div>'; return; }
+    if (match.error) { results.innerHTML = `<div class="muted">${escapeHtml(match.hint || match.error)}</div>`; return; }
+    if (!match.matches.length) { results.innerHTML = '<div class="muted">No public, verified athletes in this sport yet.</div>'; return; }
+    results.innerHTML = (match.ranked_by_ai ? '' : '<div class="muted" style="margin-bottom:6px">Showing candidates unranked (AI matching unavailable right now).</div>')
+      + match.matches.map(a => `
+        <div class="card glass" style="padding:12px;margin-bottom:8px">
+          <div style="font-weight:700">${escapeHtml(a.display_name)}</div>
+          <div class="muted" style="font-size:.82rem">${escapeHtml(a.sport)}${a.position ? ' · ' + escapeHtml(a.position) : ''}${a.grad_year ? ' · Class of ' + escapeHtml(String(a.grad_year)) : ''}${a.school ? ' · ' + escapeHtml(a.school) : ''}</div>
+          ${a.match_reason ? `<div style="font-size:.84rem;margin-top:4px">🤖 ${escapeHtml(a.match_reason)}</div>` : ''}
+          <div class="muted" style="font-size:.78rem;margin-top:4px">${a.stats.workouts_90d} workouts / 90d · ${a.stats.distance_km_90d} km / 90d</div>
+          <button class="ghost" data-coach-dm="${escapeHtml(a.user_id)}" style="margin-top:8px">Message</button>
+        </div>`).join('');
+    results.querySelectorAll('[data-coach-dm]').forEach(btn => btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = 'Opening…';
+      try {
+        const r = await api('/coach/dms/with/' + encodeURIComponent(btn.dataset.coachDm), { method: 'POST' });
+        if (r.error) { showToast(r.hint || 'Could not open a conversation.', true); btn.disabled = false; btn.textContent = 'Message'; return; }
+        renderThread(r.thread_id);
+      } catch (e) { showToast('Could not open a conversation.', true); btn.disabled = false; btn.textContent = 'Message'; }
+    });
   };
 }
 

@@ -15,6 +15,7 @@
 
 const { randomBytes, randomUUID, createHash } = require('crypto');
 const db = require('./db');
+const gloo = require('./gloo');
 
 const SPORTS = [
   'Football', 'Basketball', 'Baseball', 'Softball', 'Soccer', 'Track & Field',
@@ -196,4 +197,39 @@ function publicProfile(userId) {
   return { ...p, display_name: u.display_name, has_avatar: !!u.has_avatar, stats: recentStats(userId) };
 }
 
-module.exports = { init, get, upsert, search, publicProfile, recentStats, SPORTS, requestEmailVerification, confirmEmailVerification };
+/**
+ * A short, Gloo-generated read on an athlete's own recent training, for the
+ * athlete themselves -- not for a coach, and not part of any public listing.
+ * Grounded the same way coach matching is: the model gets only this one
+ * athlete's real profile fields and real 90-day stats, told explicitly to
+ * reason only from what it's given, no records/rankings/comparisons to
+ * anyone else. Falls back to a plain, honest message (not an error) when
+ * Gloo isn't configured or the reply doesn't parse -- an athlete without AI
+ * available should see "not available", not a broken screen.
+ */
+async function analyze(userId) {
+  const profile = get(userId);
+  if (!profile) return { error: 'profile_not_found', hint: 'Save your sport and other details first.' };
+  const stats = recentStats(userId);
+
+  if (!gloo.isConfigured()) {
+    return { analysis: null, available: false };
+  }
+
+  const out = await gloo.chatJson({
+    kind: 'athlete_self_analysis', userId, cache: true, cacheDays: 1, maxTokens: 350,
+    messages: [
+      { role: 'system', content: 'You give a highschool or college athlete a short, honest, encouraging read on their own recent training. '
+        + 'Reply with ONLY a JSON object: {"summary":"2-3 sentences, under 70 words","strength":"one sentence naming a real pattern in the data","suggestion":"one concrete, low-risk suggestion, under 30 words"}. '
+        + 'Base everything strictly on the stats given -- never invent records, comparisons to other athletes, injury advice, or numbers not provided. '
+        + 'If the data is sparse (few or no workouts), say that plainly rather than padding with generic praise.' },
+      { role: 'user', content: `Sport: ${profile.sport}${profile.position ? ', position ' + profile.position : ''}\n`
+        + `Last 90 days: ${stats.workouts_90d} workouts, ${stats.distance_km_90d} km total`
+        + (stats.avg_hr_90d ? `, average heart rate ${stats.avg_hr_90d}` : '') + '.' },
+    ],
+  });
+  if (!out || !out.json) return { analysis: null, available: true, generated: false };
+  return { analysis: out.json, available: true, generated: true, stats };
+}
+
+module.exports = { init, get, upsert, search, publicProfile, recentStats, analyze, SPORTS, requestEmailVerification, confirmEmailVerification };

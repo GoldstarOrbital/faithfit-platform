@@ -29,6 +29,7 @@ const companion = require('../lib/companion');
 const breathwork = require('../lib/breathwork');
 const dms = require('../lib/dms');
 const athletes = require('../lib/athletes');
+const coaches = require('../lib/coaches');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
 const wearables = require('../lib/wearables');
@@ -5290,6 +5291,12 @@ router.put('/athlete-profile', requireAuth, (req, res) => {
   res.json(r);
 });
 
+router.get('/athlete-profile/analysis', requireAuth, async (req, res) => {
+  const r = await athletes.analyze(req.session.userId);
+  if (r.error) return res.status(400).json(r);
+  res.json(r);
+});
+
 // A public listing requires a verified school email -- see lib/athletes.js
 // for why that's a narrower claim than "verified as a real school." The
 // confirm link below is deliberately unauthenticated: the token itself is
@@ -5321,6 +5328,56 @@ router.get('/athletes/:userId', (req, res) => {
   const profile = athletes.publicProfile(req.params.userId);
   if (!profile) return res.status(404).json({ error: 'not_found' });
   res.json({ profile });
+});
+
+// --- Coaches -----------------------------------------------------------
+// Coach access (browsing the directory is already public; what's gated
+// here is .edu-verified status, matching, and the DM bypass) requires a
+// real .edu email confirmed by a one-time link -- see lib/coaches.js.
+
+router.get('/coach-profile/me', requireAuth, (req, res) => {
+  res.json({ profile: coaches.get(req.session.userId), sports: athletes.SPORTS });
+});
+
+router.put('/coach-profile', requireAuth, (req, res) => {
+  const r = coaches.upsert(req.session.userId, req.body || {});
+  if (r.error) return res.status(400).json(r);
+  res.json(r);
+});
+
+router.post('/coach-profile/verify-email', requireAuth, async (req, res) => {
+  try {
+    const r = await coaches.requestEmailVerification(req.session.userId, req.body && req.body.email, baseUrl(req));
+    if (r.error) return res.status(400).json(r);
+    res.json(r);
+  } catch { res.status(502).json({ error: 'verification_email_failed' }); }
+});
+
+router.get('/coach-profile/verify-email/confirm', (req, res) => {
+  const userId = coaches.confirmEmailVerification(req.query.token);
+  res.redirect(userId ? '/?coach_verified=1' : '/?coach_verify_failed=1');
+});
+
+router.get('/coach/match', requireAuth, async (req, res) => {
+  const r = await coaches.matchAthletes(req.session.userId, { grad_year: req.query.grad_year, limit: req.query.limit });
+  if (r.error) return res.status(403).json(r);
+  res.json(r);
+});
+
+// Verified-coach DM entry point. Deliberately separate from the general
+// /dms/with/:userId route: this is the one place message_permission is
+// bypassed, and only after confirming (a) the caller is a verified coach
+// and (b) the target is a real, public, verified athlete profile -- not
+// just "any logged-in user", which the generic route would allow.
+router.post('/coach/dms/with/:athleteId', requireAuth, requireCommunityAccess, (req, res) => {
+  if (!coaches.isVerified(req.session.userId)) return res.status(403).json({ error: 'coach_not_verified' });
+  if (!athletes.publicProfile(req.params.athleteId)) return res.status(404).json({ error: 'athlete_not_found' });
+  const r = dms.openThread(req.session.userId, req.params.athleteId, { bypassMessagePermission: true });
+  if (r.error) {
+    const code = r.error === 'no_such_user' ? 404 : r.error === 'blocked' ? 403 : 400;
+    return res.status(code).json(r);
+  }
+  res.json({ thread_id: r.thread.id, user: { id: r.other.id, display_name: r.other.display_name } });
 });
 
 module.exports = router;

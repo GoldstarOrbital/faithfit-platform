@@ -1,0 +1,196 @@
+/**
+ * Coach profiles.
+ *
+ * A coach account is gated on the same kind of thing developer-verification
+ * already gates on -- a real, curated .edu email, confirmed by a one-time
+ * link the way password resets and athlete school-email verification both
+ * work. Unlike the athlete side, which has no highschool-domain registry to
+ * check against, isEduEmail() (from developer-verification.js) actually
+ * validates the domain shape, so this is a stronger claim: not just "this
+ * inbox is real" but "this inbox is a real .edu address."
+ *
+ * A verified coach can:
+ *   - see the same public, verified athlete directory anyone can search
+ *   - ask Gloo to rank the best-fit public athletes for their sport
+ *     (matchAthletes, in this file -- Gloo only ever ranks real candidates
+ *     already pulled from the database; it cannot invent an athlete)
+ *   - message any publicly-listed, verified athlete directly, bypassing
+ *     that athlete's normal message_permission setting -- the athlete
+ *     already opted into being found for recruiting, so a verified coach
+ *     reaching out is the expected outcome, not a privacy violation of it.
+ *
+ * What is deliberately NOT bypassed, even for a verified coach: an
+ * athlete's minor-message-protection check (see lib/dms.js) and any block
+ * or restrict a member has placed. Recruiting visibility is not the same
+ * thing as suspending the app's safety rules for minors, and nothing here
+ * treats it that way.
+ */
+'use strict';
+
+const { randomBytes, randomUUID, createHash } = require('crypto');
+const db = require('./db');
+const { isEduEmail } = require('./developer-verification');
+const athletes = require('./athletes');
+const gloo = require('./gloo');
+
+function init() {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS coach_profiles (
+      user_id TEXT PRIMARY KEY,
+      sport TEXT NOT NULL,
+      organization TEXT,
+      title TEXT,
+      bio TEXT,
+      edu_email TEXT,
+      edu_verified_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS coach_email_verifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+}
+
+function hash(value) {
+  return createHash('sha256').update(String(value || '')).digest('hex');
+}
+
+function get(userId) {
+  return db.prepare('SELECT * FROM coach_profiles WHERE user_id = ?').get(userId) || null;
+}
+
+function isVerified(userId) {
+  const row = get(userId);
+  return !!(row && row.edu_verified_at);
+}
+
+function upsert(userId, fields) {
+  const sport = String(fields.sport || '').trim().slice(0, 40);
+  if (!sport) return { error: 'sport_required' };
+  const row = {
+    organization: String(fields.organization || '').trim().slice(0, 120) || null,
+    title: String(fields.title || '').trim().slice(0, 80) || null,
+    bio: String(fields.bio || '').trim().slice(0, 500) || null,
+  };
+  db.prepare(`
+    INSERT INTO coach_profiles (user_id, sport, organization, title, bio, updated_at)
+    VALUES (@user_id, @sport, @organization, @title, @bio, datetime('now'))
+    ON CONFLICT(user_id) DO UPDATE SET
+      sport=@sport, organization=@organization, title=@title, bio=@bio, updated_at=datetime('now')
+  `).run({ user_id: userId, sport, ...row });
+  return { profile: get(userId) };
+}
+
+/** Same contract as athletes.requestEmailVerification: best-effort, silent
+ *  no-op if Resend isn't configured. Unlike that one, the domain must
+ *  actually be a .edu shape -- not just any address the person controls. */
+async function requestEmailVerification(userId, email, baseUrl) {
+  const mail = String(email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) return { error: 'invalid_email' };
+  if (!isEduEmail(mail)) return { error: 'not_edu_email', hint: 'Coach verification requires a .edu email address.' };
+  if (!get(userId)) return { error: 'profile_not_found', hint: 'Save your sport and other details first.' };
+  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM) return { queued: false };
+
+  const token = randomBytes(32).toString('base64url');
+  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  db.prepare("DELETE FROM coach_email_verifications WHERE user_id = ? OR expires_at < datetime('now')").run(userId);
+  db.prepare('INSERT INTO coach_email_verifications (id, user_id, email, token_hash, expires_at) VALUES (?,?,?,?,?)')
+    .run(randomUUID(), userId, mail, hash(token), expires);
+
+  const link = `${String(baseUrl).replace(/\/$/, '')}/api/coach-profile/verify-email/confirm?token=${encodeURIComponent(token)}`;
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      from: process.env.EMAIL_FROM,
+      to: [mail],
+      subject: 'Verify your .edu email for Functioning Faith coaching access',
+      html: `<p>Confirm this .edu address to unlock coach access on Functioning Faith: browsing verified public athlete profiles, AI-assisted matching for your sport, and messaging athletes directly.</p><p><a href="${link}">Verify my .edu email</a></p><p>This link expires in 24 hours. If you did not request this, no action is needed.</p>`,
+    }),
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!response.ok) throw new Error('verification_email_failed');
+  return { queued: true, email: mail };
+}
+
+function confirmEmailVerification(token) {
+  const row = db.prepare(
+    "SELECT * FROM coach_email_verifications WHERE token_hash = ? AND used_at IS NULL AND expires_at > datetime('now')"
+  ).get(hash(String(token || '')));
+  if (!row) return null;
+  db.prepare("UPDATE coach_email_verifications SET used_at = datetime('now') WHERE id = ?").run(row.id);
+  db.prepare("UPDATE coach_profiles SET edu_email = ?, edu_verified_at = datetime('now') WHERE user_id = ?")
+    .run(row.email, row.user_id);
+  return row.user_id;
+}
+
+/**
+ * Gloo-assisted ranking of real candidates. Gloo never sees anything beyond
+ * what's already public in the recruiting directory (display name, sport,
+ * position, grad year, school, bio, and the same real 90-day training stats
+ * shown in the directory itself) and is told explicitly to choose only from
+ * the numbered list it's given -- the response is matched back against that
+ * same candidate list by user_id, so a model that ignores the instruction
+ * and names someone else, or invents a person, produces a match that gets
+ * silently dropped rather than shown as if it were real. If Gloo is not
+ * configured, or every response fails that check, this returns the
+ * candidates in their default (most-recently-updated) order instead of
+ * failing the request -- a coach still gets a usable list, just unranked.
+ */
+async function matchAthletes(coachUserId, { grad_year, limit = 10 } = {}) {
+  const coach = get(coachUserId);
+  if (!coach || !coach.edu_verified_at) return { error: 'coach_not_verified' };
+
+  const candidates = athletes.search({ sport: coach.sport, grad_year, limit: 40 });
+  if (!candidates.length) return { matches: [], candidates_considered: 0, ranked_by_ai: false };
+
+  if (!gloo.isConfigured()) {
+    return { matches: candidates.slice(0, limit), candidates_considered: candidates.length, ranked_by_ai: false };
+  }
+
+  const listing = candidates.map((a, i) => ({
+    n: i + 1, user_id: a.user_id, name: a.display_name, position: a.position || null,
+    grad_year: a.grad_year || null, school: a.school || null,
+    workouts_90d: a.stats.workouts_90d, distance_km_90d: a.stats.distance_km_90d, avg_hr_90d: a.stats.avg_hr_90d,
+  }));
+
+  const out = await gloo.chatJson({
+    kind: 'coach_athlete_match', cache: true, cacheDays: 1, maxTokens: 500,
+    messages: [
+      { role: 'system', content: `You help a verified ${coach.sport} coach identify promising athletes from a real candidate list. `
+        + 'Reply with ONLY a JSON object: {"picks":[{"user_id":"...","reason":"one sentence, under 25 words, grounded only in the given stats"}]}. '
+        + 'Pick only from the numbered candidates given -- never invent a user_id or a person not in the list. '
+        + 'Base every reason strictly on the stats provided (training volume, distance, position, grad year) -- never invent achievements, records, or personality traits. '
+        + `Return at most ${Math.min(limit, 20)} picks, best fit first.` },
+      { role: 'user', content: `Candidates:\n${JSON.stringify(listing)}` },
+    ],
+  });
+
+  const byId = new Map(candidates.map(a => [a.user_id, a]));
+  const picks = out && out.json && Array.isArray(out.json.picks) ? out.json.picks : [];
+  const matches = [];
+  const seen = new Set();
+  for (const pick of picks) {
+    const athlete = pick && byId.get(pick.user_id);
+    if (!athlete || seen.has(pick.user_id)) continue; // not a real candidate, or a duplicate -- dropped, not shown
+    seen.add(pick.user_id);
+    matches.push({ ...athlete, match_reason: String(pick.reason || '').slice(0, 300) });
+    if (matches.length >= limit) break;
+  }
+
+  if (!matches.length) {
+    // The model returned nothing usable -- degrade to the honest unranked
+    // list rather than showing an empty result for a real candidate pool.
+    return { matches: candidates.slice(0, limit), candidates_considered: candidates.length, ranked_by_ai: false };
+  }
+  return { matches, candidates_considered: candidates.length, ranked_by_ai: true };
+}
+
+module.exports = { init, get, isVerified, upsert, requestEmailVerification, confirmEmailVerification, matchAthletes };

@@ -71,8 +71,21 @@ function isBlockedEitherWay(x, y) {
   ).get(x, y, y, x);
 }
 
-/** The thread for two people, created if this is their first message. */
-function openThread(me, otherId) {
+/**
+ * The thread for two people, created if this is their first message.
+ *
+ * opts.bypassMessagePermission: for a verified coach reaching a publicly
+ * listed, verified athlete -- see lib/coaches.js. It skips ONLY the
+ * message_permission gate (the athlete already opted into being found for
+ * recruiting, so a coach reaching out is the expected outcome of that, not
+ * a privacy violation of it). It does NOT skip the minor-message-protection
+ * check or a restrict control -- those are safety rules, not a privacy
+ * preference, and recruiting visibility does not suspend them. The caller
+ * is responsible for having actually confirmed coach verification and
+ * athlete public-listing status before setting this; this function does
+ * not check either.
+ */
+function openThread(me, otherId, opts = {}) {
   if (!otherId || otherId === me) return { error: 'invalid_recipient' };
   const other = db.prepare('SELECT id,display_name,message_permission,date_of_birth FROM users WHERE id=?').get(otherId);
   if (!other) return { error: 'no_such_user' };
@@ -88,8 +101,10 @@ function openThread(me, otherId) {
     const meDob = db.prepare('SELECT date_of_birth FROM users WHERE id=?').get(me)?.date_of_birth;
     const age = dob => { if(!dob) return null; const d=new Date(dob+'T00:00:00Z'),n=new Date(); let x=n.getUTCFullYear()-d.getUTCFullYear(); if(n.getUTCMonth()<d.getUTCMonth()||(n.getUTCMonth()===d.getUTCMonth()&&n.getUTCDate()<d.getUTCDate()))x--; return x; };
     const minor = [age(meDob), age(other.date_of_birth)].some(x => x != null && x < 18);
-    if (other.message_permission === 'nobody') return { error: 'messages_closed' };
-    if (other.message_permission !== 'everyone' && !connected) return { error: 'message_permission' };
+    if (!opts.bypassMessagePermission) {
+      if (other.message_permission === 'nobody') return { error: 'messages_closed' };
+      if (other.message_permission !== 'everyone' && !connected) return { error: 'message_permission' };
+    }
     if (minor && !mutual) return { error: 'minor_message_protection' };
     if (db.prepare("SELECT 1 FROM account_relationship_controls WHERE actor_id=? AND subject_id=? AND control='restrict'").get(otherId,me)) return { error: 'restricted' };
     try {
