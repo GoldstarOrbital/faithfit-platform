@@ -21,6 +21,14 @@
  * prefers-reduced-motion, and #app (hidden via CSS in index.html's <head>)
  * is revealed the instant this either completes or bails out -- never later
  * than that, and never dependent on a network request succeeding.
+ *
+ * Audio: alongside the existing ambient chime attempt, a real, licensed
+ * violin recording now plays too -- "Violin open string" by Clngre, CC
+ * BY-SA 3.0 / GFDL, Wikimedia Commons (full attribution in
+ * ATTRIBUTIONS.md). Only ~0.7s of it, trimmed at playback time via
+ * AudioBufferSourceNode's native start(when, offset, duration) rather than
+ * a separately-edited file. Same best-effort contract as the chime: never
+ * blocks or delays the visual, silent if autoplay is refused.
  */
 'use strict';
 
@@ -85,8 +93,48 @@
     // unless a real gesture already unlocked it. Fire-and-forget -- it must
     // never be why anything here waits.
     try { window.FFIntroSound && window.FFIntroSound.play(); } catch (e) { /* ignore */ }
+    playViolinSnippet();
 
     setTimeout(dismiss, TOTAL_MS);
+  }
+
+  // A real, licensed recording -- not a synthesized tone -- for this quick
+  // moment specifically. "Violin open string" by Clngre, CC BY-SA 3.0 /
+  // GFDL, from Wikimedia Commons (full attribution in ATTRIBUTIONS.md and
+  // the file header there). Only its first ~0.7s plays, via
+  // AudioBufferSourceNode's native start(when, offset, duration) -- no
+  // separate trimmed file, the browser does the trim. Same best-effort
+  // contract as the chime above: silent if autoplay is refused, never
+  // blocks or delays the visual, which is already scheduled independently.
+  function playViolinSnippet() {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      var ctx = new AC();
+      var finished = false;
+      var finish = function () {
+        if (finished) return;
+        finished = true;
+        try { var p = ctx.close(); if (p && p.catch) p.catch(function () {}); } catch (e) { /* already closing */ }
+      };
+      fetch('/violin-open-string.ogg?v=v1')
+        .then(function (r) { return r.arrayBuffer(); })
+        .then(function (buf) { return ctx.decodeAudioData(buf); })
+        .then(function (audioBuffer) {
+          var src = ctx.createBufferSource();
+          src.buffer = audioBuffer;
+          var gain = ctx.createGain();
+          gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.4, ctx.currentTime + 0.04);
+          gain.gain.setValueAtTime(0.4, ctx.currentTime + 0.55);
+          gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.7);
+          src.connect(gain); gain.connect(ctx.destination);
+          src.start(0, 0, 0.7);
+          src.onended = finish;
+          setTimeout(finish, 1000);
+        })
+        .catch(finish);
+    } catch (e) { /* best-effort */ }
   }
 
   if (document.readyState === 'loading') {

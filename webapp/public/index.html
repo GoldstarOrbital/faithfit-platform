@@ -29,6 +29,10 @@
      reaching its own reveal, the app must not stay hidden forever. -->
 <style>#app{visibility:hidden}</style>
 <script src="/fouc-safety.js" defer></script>
+<!-- The intro's brand mark is inline SVG (zero fetch), but its audio -- a
+     trimmed real recording, not a video -- is worth a head start. Tiny file
+     (~90KB); nothing else in the intro waits on it. -->
+<link rel="preload" as="audio" href="/violin-open-string.ogg?v=v1" />
 </head>
 <body>
 <div id="app">

@@ -28,12 +28,14 @@ const developerVerification = require('./lib/developer-verification');
 const media = require('./lib/media');
 const retention = require('./lib/retention');
 const admin = require('./lib/admin');
+const visits = require('./lib/visits');
 const launchNotify = require('./lib/launch-notify');
 
 seed();
 accountSecurity.init();
 admin.init();
 admin.ensureAdmin();
+visits.init();
 launchNotify.init();
 developerVerification.init();
 developerVerification.startNotifications();
@@ -174,6 +176,12 @@ app.get('/w/:id', (req, res) => {
 // Keep the human-friendly docs URL aligned with the links inside the app.
 app.get('/developers', (req, res) => res.sendFile(path.join(__dirname, 'public', 'developers.html')));
 
+// The real front door. Explicit route (ahead of express.static's implicit
+// index.html fallthrough below) purely so visit-tracking has somewhere to
+// attach that fires once per real page load -- never on the API calls or
+// asset requests that page load then makes.
+app.get('/', visits.track, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath, stat) {
     // Every cacheable script/style in index.html carries a version query. It
@@ -181,7 +189,7 @@ app.use(express.static(path.join(__dirname, 'public'), {
     // app bundle on every visit. The service worker itself must always update.
     if (filePath.endsWith('sw.js')) {
       res.setHeader('Cache-Control', 'no-cache');
-    } else if (res.req && res.req.query && res.req.query.v && /\.(?:js|css|png|svg|woff2?|mp4)$/i.test(filePath)) {
+    } else if (res.req && res.req.query && res.req.query.v && /\.(?:js|css|png|svg|woff2?|mp4|ogg)$/i.test(filePath)) {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     }
   },

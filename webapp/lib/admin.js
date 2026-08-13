@@ -10,6 +10,7 @@
 'use strict';
 
 const db = require('./db');
+const visits = require('./visits');
 
 const OWNER_EMAIL = 'alexmarcusgoldsmith@gmail.com';
 
@@ -49,6 +50,9 @@ function metrics() {
   const signups7d = one("SELECT COUNT(*) c FROM users WHERE created_at > datetime('now','-7 days')").c;
   const active24h = one("SELECT COUNT(DISTINCT user_id) c FROM user_sessions WHERE last_seen_at > datetime('now','-1 day')").c;
   const active7d = one("SELECT COUNT(DISTINCT user_id) c FROM user_sessions WHERE last_seen_at > datetime('now','-7 days')").c;
+  // Unauthenticated foot traffic -- distinct from active_24h/active_7d above,
+  // which only see people who actually signed in. See lib/visits.js.
+  const visitStats = visits.metrics();
 
   // "All systems go" -- the same optional integrations every part of this app
   // already degrades around, read back as a simple status list rather than a
@@ -68,6 +72,10 @@ function metrics() {
     signups_7d: signups7d,
     active_24h: active24h,
     active_7d: active7d,
+    unique_visitors_today: visitStats.unique_today,
+    unique_visitors_7d: visitStats.unique_7d,
+    unique_visitors_30d: visitStats.unique_30d,
+    unique_visitors_all_time: visitStats.unique_all_time,
     systems,
     all_systems_go: systems.every(s => s.ok),
     generated_at: new Date().toISOString(),

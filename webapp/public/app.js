@@ -1955,7 +1955,7 @@ async function renderProfile(main) {
   };
   const adminMetricsEl=document.getElementById('admin-metrics');
   if(adminMetricsEl){
-    api('/admin/metrics').then(m=>{
+    const paintAdminMetrics=()=>api('/admin/metrics').then(m=>{
       adminMetricsEl.innerHTML=`
         <div class="stat-tiles">
           <div class="stat-tile"><div class="stat-tile-v">${m.total_users}</div><div class="stat-tile-l">total signups</div></div>
@@ -1966,10 +1966,25 @@ async function renderProfile(main) {
           <div class="stat-tile"><div class="stat-tile-v">${m.active_24h}</div><div class="stat-tile-l">active 24h</div></div>
           <div class="stat-tile"><div class="stat-tile-v">${m.active_7d}</div><div class="stat-tile-l">active 7d</div></div>
         </div>
+        <div class="stat-tiles" style="margin-top:8px">
+          <div class="stat-tile"><div class="stat-tile-v">${m.unique_visitors_today}</div><div class="stat-tile-l">visitors today</div></div>
+          <div class="stat-tile"><div class="stat-tile-v">${m.unique_visitors_7d}</div><div class="stat-tile-l">visitors 7d</div></div>
+          <div class="stat-tile"><div class="stat-tile-v">${m.unique_visitors_all_time}</div><div class="stat-tile-l">visitors all-time</div></div>
+        </div>
         <div style="margin-top:10px;font-weight:600;color:${m.all_systems_go?'#3a7d44':'#a05a2c'}">${m.all_systems_go?'✅ All systems go':'⚠ Some integrations not configured'}</div>
         <div style="margin-top:4px;font-size:0.8rem">${m.systems.map(s=>`${s.ok?'✅':'⭕'} ${escapeHtml(s.name)}`).join('<br>')}</div>
+        <div class="muted" style="margin-top:8px;font-size:0.72rem">Updated ${new Date(m.generated_at).toLocaleTimeString()} · refreshes every minute while this page is open</div>
       `;
     }).catch(()=>{adminMetricsEl.textContent='Could not load metrics.';});
+    paintAdminMetrics();
+    // One live timer at a time -- this render function reruns on every visit
+    // to Profile, and without clearing the previous interval first, each
+    // visit would stack another one silently polling in the background.
+    if(window.__ffAdminMetricsTimer) clearInterval(window.__ffAdminMetricsTimer);
+    window.__ffAdminMetricsTimer=setInterval(()=>{
+      if(!document.getElementById('admin-metrics')){clearInterval(window.__ffAdminMetricsTimer);return;}
+      paintAdminMetrics();
+    },60000);
     const launchStatsEl=document.getElementById('admin-launch-stats');
     const refreshLaunchStats=()=>api('/admin/launch-notify/stats').then(s=>{launchStatsEl.textContent=`${s.total} signed up, ${s.pending} not yet notified.`;}).catch(()=>{launchStatsEl.textContent='Could not load.';});
     refreshLaunchStats();
