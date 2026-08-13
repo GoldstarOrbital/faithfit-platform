@@ -2918,6 +2918,18 @@ router.get('/admin/metrics', requireAdmin, (req, res) => {
   res.json(admin.metrics());
 });
 
+router.get('/admin/content-counts', requireAdmin, (req, res) => {
+  res.json(admin.contentCounts());
+});
+
+router.get('/admin/trend', requireAdmin, (req, res) => {
+  res.json({ days: admin.dailyTrend(req.query.days) });
+});
+
+router.get('/admin/users', requireAdmin, (req, res) => {
+  res.json(admin.listUsers({ q: req.query.q, limit: req.query.limit, offset: req.query.offset }));
+});
+
 router.get('/admin/launch-notify/stats', requireAdmin, (req, res) => {
   res.json(launchNotify.stats());
 });

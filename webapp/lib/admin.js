@@ -37,6 +37,15 @@ function isAdmin(userId) {
 }
 
 function one(sql, ...args) { try { return db.prepare(sql).get(...args); } catch { return null; } }
+function all(sql, ...args) { try { return db.prepare(sql).all(...args); } catch { return []; } }
+// Content/feature tables are spread across many lib/*.js files built up over
+// this whole session -- wrapping every count in one() (which already
+// swallows errors) means a table that doesn't exist yet on an older DB just
+// reads as 0 instead of taking the whole dashboard down.
+function count(table, where = '') {
+  const row = one(`SELECT COUNT(*) c FROM ${table} ${where}`);
+  return row ? row.c : 0;
+}
 
 /**
  * Everything on the admin metrics card. Every number here is a real COUNT
@@ -82,4 +91,72 @@ function metrics() {
   };
 }
 
-module.exports = { init, ensureAdmin, isAdmin, metrics, OWNER_EMAIL };
+/** Platform-wide content/feature counts -- everything built up this session,
+ *  read back as real numbers instead of scattered across a dozen tabs. */
+function contentCounts() {
+  return {
+    workouts: count('workouts'),
+    posts: count('posts'),
+    groups: count('groups'),
+    dm_messages: count('dm_messages'),
+    athlete_profiles: count('athlete_profiles'),
+    athlete_profiles_public: count('athlete_profiles', "WHERE is_public = 1"),
+    coach_profiles: count('coach_profiles'),
+    coach_profiles_verified: count('coach_profiles', "WHERE edu_verified_at IS NOT NULL"),
+    schools_synced: count('schools'),
+    moderation_pending: count('moderation_queue', "WHERE status = 'pending'"),
+    webhook_endpoints: count('webhooks'),
+    api_keys: count('api_keys'),
+  };
+}
+
+/** Daily signups and daily active-user counts for the last `days` days, for
+ *  a simple trend line rather than just point-in-time snapshots. Always
+ *  returns one row per day (zero-filled), oldest first, so the client can
+ *  plot it directly without hole-filling. */
+function dailyTrend(days = 30) {
+  const n = Math.min(Math.max(Number(days) || 30, 7), 90);
+  const signupRows = all(`
+    SELECT date(created_at) d, COUNT(*) c FROM users
+    WHERE created_at > datetime('now', ?)
+    GROUP BY d
+  `, `-${n} days`);
+  const activeRows = all(`
+    SELECT date(last_seen_at) d, COUNT(DISTINCT user_id) c FROM user_sessions
+    WHERE last_seen_at > datetime('now', ?)
+    GROUP BY d
+  `, `-${n} days`);
+  const signupsByDay = Object.fromEntries(signupRows.map(r => [r.d, r.c]));
+  const activeByDay = Object.fromEntries(activeRows.map(r => [r.d, r.c]));
+  const out = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10);
+    out.push({ date: d, signups: signupsByDay[d] || 0, active: activeByDay[d] || 0 });
+  }
+  return out;
+}
+
+/** Paginated, searchable user directory for the admin dashboard -- not just
+ *  a count, an actual list. Search matches email or display name. */
+function listUsers({ q, limit = 50, offset = 0 } = {}) {
+  const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  const off = Math.max(Number(offset) || 0, 0);
+  const params = {};
+  let where = '';
+  if (q) {
+    where = 'WHERE u.email LIKE @q ESCAPE \'\\\' OR u.display_name LIKE @q ESCAPE \'\\\'';
+    params.q = '%' + String(q).slice(0, 80).replace(/[\\%_]/g, c => '\\' + c) + '%';
+  }
+  const rows = all(`
+    SELECT u.id, u.email, u.display_name, u.recruiting_role, u.is_admin, u.created_at,
+      (SELECT MAX(last_seen_at) FROM user_sessions WHERE user_id = u.id) AS last_seen_at
+    FROM users u
+    ${where}
+    ORDER BY u.created_at DESC
+    LIMIT @limit OFFSET @offset
+  `, { ...params, limit: lim, offset: off });
+  const total = one(`SELECT COUNT(*) c FROM users u ${where}`, params)?.c || 0;
+  return { users: rows, total, limit: lim, offset: off };
+}
+
+module.exports = { init, ensureAdmin, isAdmin, metrics, contentCounts, dailyTrend, listUsers, OWNER_EMAIL };

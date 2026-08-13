@@ -2148,6 +2148,20 @@ async function renderProfile(main) {
       <h2>Admin</h2>
       <div id="admin-metrics" class="muted">Loading…</div>
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
+        <h3 style="margin:0 0 6px">Growth, 30 days</h3>
+        <div id="admin-trend" class="muted">Loading…</div>
+      </div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
+        <h3 style="margin:0 0 6px">What's on the platform</h3>
+        <div id="admin-content-counts" class="muted">Loading…</div>
+      </div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
+        <h3 style="margin:0 0 6px">Users</h3>
+        <input id="admin-user-search" type="search" placeholder="Search by email or name…" style="margin-bottom:8px">
+        <div id="admin-user-list" class="muted">Loading…</div>
+        <div id="admin-user-page" class="muted" style="margin-top:6px;display:flex;gap:8px;align-items:center"></div>
+      </div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
         <h3 style="margin:0 0 6px">Launch notification</h3>
         <div id="admin-launch-stats" class="muted" style="margin-bottom:8px">Loading…</div>
         <input id="admin-appstore-url" type="url" placeholder="App Store URL (optional)">
@@ -2286,6 +2300,57 @@ async function renderProfile(main) {
       if(!document.getElementById('admin-metrics')){clearInterval(window.__ffAdminMetricsTimer);return;}
       paintAdminMetrics();
     },60000);
+    const trendEl=document.getElementById('admin-trend');
+    if(trendEl){
+      api('/admin/trend?days=30').then(({days})=>{
+        const w=280,h=64,pad=4;
+        const maxV=Math.max(1,...days.map(d=>Math.max(d.signups,d.active)));
+        const pt=(i,v)=>{const x=pad+(i/(days.length-1))*(w-pad*2);const y=h-pad-(v/maxV)*(h-pad*2);return `${x.toFixed(1)},${y.toFixed(1)}`;};
+        const signupsPts=days.map((d,i)=>pt(i,d.signups)).join(' ');
+        const activePts=days.map((d,i)=>pt(i,d.active)).join(' ');
+        const totalSignups=days.reduce((a,d)=>a+d.signups,0);
+        trendEl.innerHTML=`
+          <svg viewBox="0 0 ${w} ${h}" style="width:100%;height:${h}px;display:block">
+            <polyline points="${activePts}" fill="none" stroke="#7ba0c4" stroke-width="1.6"/>
+            <polyline points="${signupsPts}" fill="none" stroke="#d9ab55" stroke-width="1.6"/>
+          </svg>
+          <div style="font-size:0.72rem;margin-top:4px"><span style="color:#d9ab55">&#9679;</span> signups (${totalSignups} in 30d) &nbsp; <span style="color:#7ba0c4">&#9679;</span> active users/day</div>
+        `;
+      }).catch(()=>{trendEl.textContent='Could not load trend.';});
+    }
+    const contentCountsEl=document.getElementById('admin-content-counts');
+    if(contentCountsEl){
+      api('/admin/content-counts').then(c=>{
+        const tile=(v,l)=>`<div class="stat-tile"><div class="stat-tile-v">${v}</div><div class="stat-tile-l">${l}</div></div>`;
+        contentCountsEl.innerHTML=`
+          <div class="stat-tiles">${tile(c.workouts,'workouts')}${tile(c.posts,'posts')}${tile(c.groups,'groups')}</div>
+          <div class="stat-tiles" style="margin-top:8px">${tile(c.dm_messages,'DMs sent')}${tile(c.schools_synced,'schools synced')}${tile(c.moderation_pending,'reports pending')}</div>
+          <div class="stat-tiles" style="margin-top:8px">${tile(`${c.athlete_profiles_public}/${c.athlete_profiles}`,'public athlete profiles')}${tile(`${c.coach_profiles_verified}/${c.coach_profiles}`,'verified coach profiles')}${tile(c.api_keys,'API keys issued')}</div>
+        `;
+      }).catch(()=>{contentCountsEl.textContent='Could not load.';});
+    }
+    const userListEl=document.getElementById('admin-user-list');
+    const userPageEl=document.getElementById('admin-user-page');
+    const userSearchEl=document.getElementById('admin-user-search');
+    if(userListEl){
+      let offset=0; const limit=25; let q='';
+      const paintUsers=()=>api(`/admin/users?limit=${limit}&offset=${offset}${q?'&q='+encodeURIComponent(q):''}`).then(({users,total})=>{
+        userListEl.innerHTML=users.length?`<div style="max-height:280px;overflow-y:auto">${users.map(u=>`
+          <div style="padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.06);font-size:0.8rem">
+            <strong>${escapeHtml(u.display_name||'(no name)')}</strong>${u.is_admin?' <span title="Admin">&#9733;</span>':''}${u.recruiting_role?` &middot; ${escapeHtml(u.recruiting_role)}`:''}<br>
+            <span class="muted">${escapeHtml(u.email)} &middot; joined ${new Date(u.created_at).toLocaleDateString()}${u.last_seen_at?` &middot; last seen ${new Date(u.last_seen_at).toLocaleDateString()}`:''}</span>
+          </div>`).join('')}</div>`:'No users found.';
+        userPageEl.innerHTML=`<span>${total} total</span><button class="ghost" id="admin-user-prev" ${offset===0?'disabled':''}>&larr; Prev</button><button class="ghost" id="admin-user-next" ${offset+limit>=total?'disabled':''}>Next &rarr;</button>`;
+        const prev=document.getElementById('admin-user-prev'); if(prev) prev.onclick=()=>{offset=Math.max(0,offset-limit);paintUsers();};
+        const next=document.getElementById('admin-user-next'); if(next) next.onclick=()=>{offset+=limit;paintUsers();};
+      }).catch(()=>{userListEl.textContent='Could not load users.';});
+      paintUsers();
+      let searchTimer=null;
+      if(userSearchEl) userSearchEl.oninput=()=>{
+        clearTimeout(searchTimer);
+        searchTimer=setTimeout(()=>{q=userSearchEl.value.trim();offset=0;paintUsers();},300);
+      };
+    }
     const launchStatsEl=document.getElementById('admin-launch-stats');
     const refreshLaunchStats=()=>api('/admin/launch-notify/stats').then(s=>{launchStatsEl.textContent=`${s.total} signed up, ${s.pending} not yet notified.`;}).catch(()=>{launchStatsEl.textContent='Could not load.';});
     refreshLaunchStats();
