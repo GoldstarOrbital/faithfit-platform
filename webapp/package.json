@@ -7,7 +7,7 @@
     "node": ">=22.5.0"
   },
   "scripts": {
-    "start": "node server.js",
+    "start": "node start.js",
     "verify:native-auth": "node scripts/verify-native-auth.js",
     "verify:group-pulse": "node scripts/verify-group-pulse.js",
     "verify:public-share": "node scripts/verify-public-share.js"
