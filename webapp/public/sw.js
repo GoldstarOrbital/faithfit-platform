@@ -5,14 +5,23 @@
  */
 'use strict';
 
-const SHELL_CACHE = 'functioning-faith-shell-v15';
+const SHELL_CACHE = 'functioning-faith-shell-v16';
 const SHELL = [
   '/',
-  '/styles.css?v=group-pulse-v1',
+  '/styles.css?v=home-explore-v1',
   '/sensors.js?v=rider-v1',
   '/journey3d.js?v=rider-v1',
-  '/app.js?v=group-pulse-v1',
+  '/e2e-crypto.js?v=v2',
+  '/app.js?v=ff-buildout-19',
   '/journey-live.js?v=rider-v1',
+  '/easter-eggs.js?v=ff-buildout-19',
+  '/intro-sound.js?v=ff-buildout-19',
+  '/app-intro.js?v=ff-buildout-19',
+  '/native.js?v=ff-buildout-19',
+  '/farewell.js?v=ff-buildout-19',
+  '/pause-moment.js?v=ff-buildout-19',
+  '/visual-polish.js?v=ff-buildout-19',
+  '/fouc-safety.js?v=ff-buildout-19',
 ];
 
 self.addEventListener('install', (e) => e.waitUntil(
