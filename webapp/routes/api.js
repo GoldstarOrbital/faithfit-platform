@@ -28,6 +28,7 @@ const gloo = require('../lib/gloo');
 const companion = require('../lib/companion');
 const breathwork = require('../lib/breathwork');
 const dms = require('../lib/dms');
+const athletes = require('../lib/athletes');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
 const wearables = require('../lib/wearables');
@@ -4035,6 +4036,41 @@ router.get('/moderation/queue', (req,res) => {
   const status=['pending','reviewing','resolved'].includes(req.query.status)?req.query.status:'pending';
   res.json({reports:db.prepare('SELECT * FROM moderation_queue WHERE status=? ORDER BY created_at LIMIT 100').all(status)});
 });
+// Advisory only: a Gloo-suggested severity and category, computed on demand
+// so it never runs against reports nobody is looking at. The reviewer sees
+// it as a labelled suggestion alongside the raw report and still makes and
+// records the actual decision through /review below -- this endpoint cannot
+// resolve a report by itself, and nothing here is treated as ground truth.
+router.post('/moderation/queue/:id/suggest', async (req,res) => {
+  if(!reviewerAuthorized(req)) return res.status(404).json({error:'not_found'});
+  const report=db.prepare('SELECT * FROM moderation_queue WHERE id=?').get(req.params.id);
+  if(!report)return res.status(404).json({error:'report_not_found'});
+  if(!gloo.isConfigured()) return res.json({suggestion:null,configured:false});
+
+  let contentExcerpt = '';
+  if (report.report_type === 'post') {
+    const post = db.prepare('SELECT content FROM posts WHERE id=?').get(report.target_id);
+    contentExcerpt = post?.content || '(post no longer exists)';
+  } else if (report.report_type === 'user') {
+    contentExcerpt = '(a user account, not a single piece of content)';
+  } else {
+    contentExcerpt = '(no content excerpt available for report type: ' + report.report_type + ')';
+  }
+
+  const out = await gloo.chatJson({
+    kind: 'moderation_triage', cache: true, cacheDays: 3, maxTokens: 220,
+    messages: [
+      { role: 'system', content: 'You triage user reports for a faith-based fitness community app. '
+        + 'Reply with ONLY a JSON object: {"category":"harassment|spam|explicit_content|misinformation|self_harm_risk|other",'
+        + '"severity":"low|medium|high","reasoning":"one sentence, under 30 words","recommend_urgent_review":true|false}. '
+        + 'You are advisory only -- a human reviewer makes the actual decision. When unsure, prefer a lower-confidence, honest read over guessing.' },
+      { role: 'user', content: `Report type: ${report.report_type}\nReporter-stated reason: ${String(report.reason || '').slice(0,500)}\nReported content: ${String(contentExcerpt).slice(0,800)}` },
+    ],
+  });
+  if (!out || !out.json) return res.json({suggestion:null,configured:true});
+  res.json({suggestion:out.json, model:out.model});
+});
+
 router.post('/moderation/queue/:id/review', (req,res) => {
   if(!reviewerAuthorized(req)) return res.status(404).json({error:'not_found'});
   const report=db.prepare('SELECT * FROM moderation_queue WHERE id=?').get(req.params.id);
@@ -4932,6 +4968,29 @@ router.post('/dms/with/:userId', requireAuth, requireCommunityAccess, (req, res)
   res.json({ thread_id: r.thread.id, user: { id: r.other.id, display_name: r.other.display_name } });
 });
 
+// DM end-to-end encryption key exchange. Only the public half of each
+// person's ECDH keypair ever reaches the server -- the private key is
+// generated and stored client-side and is never sent here. Any authenticated
+// user may read anyone else's public key: that is the point of a public key,
+// and it carries no information about who someone has messaged.
+// These MUST be registered before the /dms/:threadId routes below -- Express
+// matches route patterns in registration order, so a wildcard :threadId
+// route declared first would swallow "keys" as a literal thread id.
+router.post('/dms/keys', requireAuth, (req, res) => {
+  const jwk = req.body && req.body.public_key;
+  if (!jwk || typeof jwk !== 'object' || jwk.kty !== 'EC' || jwk.crv !== 'P-256' || !jwk.x || !jwk.y) {
+    return res.status(400).json({ error: 'invalid_public_key' });
+  }
+  db.prepare('UPDATE users SET e2e_public_key = ? WHERE id = ?').run(JSON.stringify(jwk), req.session.userId);
+  res.json({ ok: true });
+});
+
+router.get('/dms/keys/:userId', requireAuth, (req, res) => {
+  const row = db.prepare('SELECT e2e_public_key FROM users WHERE id = ?').get(req.params.userId);
+  if (!row) return res.status(404).json({ error: 'user_not_found' });
+  res.json({ public_key: row.e2e_public_key ? JSON.parse(row.e2e_public_key) : null });
+});
+
 router.get('/dms/:threadId', requireAuth, (req, res) => {
   const data = dms.messages(req.session.userId, req.params.threadId);
   if (!data) return res.status(404).json({ error: 'not_found' });
@@ -4940,8 +4999,16 @@ router.get('/dms/:threadId', requireAuth, (req, res) => {
 
 router.post('/dms/:threadId', requireAuth, requireCommunityAccess, (req, res) => {
   if(!allowWindow(dmRateWindow,req.session.userId,30,60_000)) return res.status(429).json({error:'messaging_too_fast'});
-  const warning=linkWarning(req.body&&req.body.body);
-  const r = dms.send(req.session.userId, req.params.threadId, req.body && req.body.body,{metadata:warning?{link_warning:warning}:null});
+  // An end-to-end encrypted body is ciphertext -- the server cannot and must
+  // not try to read it, so the link-safety scan only runs on plaintext
+  // messages. This is a deliberate tradeoff of true E2E: the server-side
+  // link/abuse scanning that protects plaintext DMs does not see inside
+  // encrypted ones. The client shows its own best-effort warning before
+  // encrypting, but nothing here can verify that client-side check ran.
+  const isE2e = !!(req.body && req.body.e2e);
+  const warning = isE2e ? null : linkWarning(req.body&&req.body.body);
+  const r = dms.send(req.session.userId, req.params.threadId, req.body && req.body.body,
+    { kind: isE2e ? 'e2e' : 'text', metadata: warning?{link_warning:warning}:null });
   if (r.error) {
     const code = r.error === 'not_found' ? 404 : r.error === 'blocked' ? 403 : 400;
     return res.status(code).json(r);
@@ -4950,6 +5017,7 @@ router.post('/dms/:threadId', requireAuth, requireCommunityAccess, (req, res) =>
     { thread_id: req.params.threadId });
   res.status(201).json({ message: r.message, link_warning:warning });
 });
+
 
 router.post('/dms/:threadId/verse', requireAuth, async (req, res) => {
   const { row, error, hint } = await resolveVerseReferenceFull(req.body && req.body.reference);
@@ -5191,6 +5259,32 @@ router.get('/bible/passage', async (req, res) => {
     translation: v ? v.abbreviation : null,
     youversion_url: youversion.deepLink(ref, p.version_id),
   });
+});
+
+// --- Athlete recruiting profiles -------------------------------------------
+// The search/detail endpoints are deliberately unauthenticated: a college
+// scout looking for a highschool athlete's stats is not expected to have a
+// Functioning Faith account, and the whole point is to be findable. Only
+// what the athlete explicitly marked public (is_public=1) is ever returned.
+
+router.get('/athlete-profile/me', requireAuth, (req, res) => {
+  res.json({ profile: athletes.get(req.session.userId), sports: athletes.SPORTS });
+});
+
+router.put('/athlete-profile', requireAuth, (req, res) => {
+  const r = athletes.upsert(req.session.userId, req.body || {});
+  if (r.error) return res.status(400).json(r);
+  res.json(r);
+});
+
+router.get('/athletes/search', (req, res) => {
+  res.json({ athletes: athletes.search(req.query), sports: athletes.SPORTS });
+});
+
+router.get('/athletes/:userId', (req, res) => {
+  const profile = athletes.publicProfile(req.params.userId);
+  if (!profile) return res.status(404).json({ error: 'not_found' });
+  res.json({ profile });
 });
 
 module.exports = router;

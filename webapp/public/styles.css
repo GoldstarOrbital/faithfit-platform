@@ -1861,6 +1861,7 @@ button.start-degraded { background: var(--hearth, #b8863b); }
 #developer-verification-card input, #developer-verification-card textarea, #pending-church-card input { width:100%; margin-top:8px; }
 .verified-mark { display:inline-grid; place-items:center; width:17px; height:17px; margin-left:4px; border-radius:50%; background:#2f6f5d; color:white; font-size:.68rem; font-weight:800; vertical-align:1px; }
 .dm-link-warning { margin-top:5px; padding:7px 9px; border-radius:10px; background:#fff0cf; color:#6b4300; font-size:.7rem; line-height:1.35; }
+.dm-e2e-tag { font-size:.62rem; letter-spacing:.03em; text-transform:uppercase; color:var(--ink-3,#8a7a5e); margin-bottom:3px; opacity:.75; }
 .group-pulse-card { overflow:hidden; }
 .pulse-options { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:14px 0 10px; }
 .pulse-options button { min-height:44px; }

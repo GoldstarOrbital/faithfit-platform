@@ -822,4 +822,11 @@ CREATE TABLE IF NOT EXISTS verse_reflection_likes (
 CREATE INDEX IF NOT EXISTS idx_verse_reflections_thread ON verse_reflections(thread_id);
 `);
 
+// --- migration: DM end-to-end encryption public key (additive) ---
+// The private key never leaves the browser; this column holds only the
+// public half, which is not sensitive -- it exists so two people's clients
+// can derive a shared AES key locally via ECDH.
+const userColsE2e = db.prepare("PRAGMA table_info(users)").all().map(c => c.name);
+if (!userColsE2e.includes('e2e_public_key')) db.exec('ALTER TABLE users ADD COLUMN e2e_public_key TEXT');
+
 module.exports = db;

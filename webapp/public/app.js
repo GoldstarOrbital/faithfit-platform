@@ -70,7 +70,18 @@ async function apiRequest(path, opts = {}) {
 
 async function loadMe() {
   try { state.me = await api('/me'); } catch { state.me = null; }
-  if (state.me) { startNotifPolling(); }
+  if (state.me) {
+    startNotifPolling();
+    // Fire-and-forget: makes this device reachable for encrypted DMs. Never
+    // blocks sign-in on it -- worst case, key setup finishes by the time the
+    // person actually opens a conversation. setIdentity first: if a
+    // different account was just signed out of on this same browser, this
+    // keeps their keys from bleeding into this session.
+    if (window.FFCrypto) {
+      window.FFCrypto.setIdentity(state.me.user.id);
+      window.FFCrypto.publishPublicKey(api).catch(() => {});
+    }
+  }
   else if (typeof notifPollTimer !== 'undefined' && notifPollTimer) { clearInterval(notifPollTimer); notifPollTimer = null; }
 }
 
@@ -916,6 +927,8 @@ const EXPLORE_SECTIONS = [
     icon: '<path d="M13 2L5 13h6l-1 9 8-11h-6z"/>' },
   { key: 'news',        name: 'News',        blurb: 'Christian news headlines from independent outlets.',
     icon: '<path d="M4 4.5h13a2.5 2.5 0 012.5 2.5v11a1 1 0 01-1 1H6a2 2 0 01-2-2v-12.5z"/><path d="M4 6.5v10a2 2 0 002 2M8 8h6M8 11.5h6M8 15h4"/>' },
+  { key: 'recruiting',  name: 'Recruiting',  blurb: 'Public athlete stat profiles, searchable by coaches and scouts.', external: '/recruiting.html',
+    icon: '<path d="M12 3l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16l-5.2 3.1 1-5.8-4.3-4.1 5.9-.9z"/>' },
 ];
 
 function exploreIcon(paths) {
@@ -935,7 +948,11 @@ function renderExploreIndex(main) {
       + '</button>').join('')
     + '</div>';
   main.querySelectorAll('[data-esec]').forEach(b => {
-    b.onclick = () => { state.exploreTab = b.dataset.esec; renderExplore(main); };
+    const sec = EXPLORE_SECTIONS.find(x => x.key === b.dataset.esec);
+    b.onclick = () => {
+      if (sec && sec.external) { window.open(sec.external, '_blank', 'noopener'); return; }
+      state.exploreTab = b.dataset.esec; renderExplore(main);
+    };
   });
 }
 
@@ -1745,6 +1762,11 @@ async function renderProfile(main) {
       <button class="primary" id="p-save" style="width:100%;margin-top:10px">Save Profile</button>
       <div id="p-status" class="muted" style="margin-top:6px"></div>
     </div>
+    <div class="card glass profile-panel" data-profile-group="settings" id="athlete-profile-card">
+      <h2>Athlete Recruiting Profile</h2>
+      <div class="muted" style="margin-bottom:10px">Highschool and college athletes: make a public page college coaches can find, showing your sport, position, class year, and real training stats pulled straight from your logged workouts — nothing self-reported.</div>
+      <div id="athlete-profile-section">Loading…</div>
+    </div>
     <div class="card glass profile-panel" data-profile-group="settings">
       <h2>Find your church</h2>
       <div class="muted" style="margin-bottom:10px">Search real churches near you using OpenStreetMap — pick the one you attend.</div>
@@ -2108,6 +2130,57 @@ async function renderProfile(main) {
   wireChurchFinder(me);
   wireAvatarUpload();
   loadPartnerInvites();
+  wireAthleteProfile();
+}
+
+async function wireAthleteProfile() {
+  const mount = document.getElementById('athlete-profile-section');
+  if (!mount) return;
+  let data;
+  try { data = await api('/athlete-profile/me'); } catch { mount.innerHTML = '<div class="muted">Could not load.</div>'; return; }
+  const p = data.profile || {};
+  const sportOptions = data.sports.map(s => `<option value="${escapeHtml(s)}"${p.sport === s ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('');
+
+  mount.innerHTML = `
+    <label class="field-label">Sport</label>
+    <select id="ap-sport"><option value="">— Select —</option>${sportOptions}</select>
+    <label class="field-label">Position</label>
+    <input id="ap-position" type="text" maxlength="60" placeholder="e.g. Point Guard" value="${escapeHtml(p.position || '')}">
+    <label class="field-label">Graduating class</label>
+    <input id="ap-grad-year" type="number" min="2020" max="2035" placeholder="e.g. 2027" value="${p.grad_year || ''}">
+    <label class="field-label">School</label>
+    <input id="ap-school" type="text" maxlength="120" placeholder="e.g. Lincoln High School" value="${escapeHtml(p.school || '')}">
+    <label class="field-label">Highlight video link (YouTube, Hudl, etc.)</label>
+    <input id="ap-highlight" type="url" maxlength="300" placeholder="https://" value="${escapeHtml(p.highlight_url || '')}">
+    <label class="field-label">Short bio</label>
+    <input id="ap-bio" type="text" maxlength="500" placeholder="A sentence or two about your season and goals" value="${escapeHtml(p.bio || '')}">
+    <div class="toggle-row">
+      <span>Make this profile public in the recruiting directory</span>
+      <label class="switch"><input type="checkbox" id="ap-public" ${p.is_public ? 'checked' : ''}><span class="slider"></span></label>
+    </div>
+    ${p.is_public ? `<div class="muted" style="margin:4px 0 8px">Live at <a href="/recruiting.html?athlete=${encodeURIComponent(p.user_id)}" target="_blank" rel="noopener">${location.origin}/recruiting.html?athlete=${escapeHtml(p.user_id)}</a></div>` : ''}
+    <button class="primary" id="ap-save" style="width:100%;margin-top:6px">Save Athlete Profile</button>
+    <div id="ap-status" class="muted" style="margin-top:6px"></div>`;
+
+  document.getElementById('ap-save').onclick = async () => {
+    const status = document.getElementById('ap-status');
+    status.textContent = 'Saving…';
+    const body = {
+      sport: document.getElementById('ap-sport').value,
+      position: document.getElementById('ap-position').value,
+      grad_year: document.getElementById('ap-grad-year').value || null,
+      school: document.getElementById('ap-school').value,
+      highlight_url: document.getElementById('ap-highlight').value.trim() || null,
+      bio: document.getElementById('ap-bio').value,
+      is_public: document.getElementById('ap-public').checked,
+    };
+    try {
+      const res = await api('/athlete-profile', { method: 'PUT', body });
+      if (res.error) { status.textContent = res.hint || ('Could not save: ' + res.error); return; }
+      status.textContent = 'Saved.';
+      wireAthleteProfile();
+    } catch (e) { status.textContent = e.message || 'Could not save.'; }
+  };
 }
 
 // ---- Profile picture upload: resize client-side to max 400x400 JPEG @0.8 quality
@@ -5033,7 +5106,7 @@ async function renderInbox() {
     + '<span class="dm-row-main">'
     +   '<span class="dm-row-top"><span class="dm-row-name">' + escapeHtml(t.user.display_name) + '</span>'
     +   '<span class="dm-row-time">' + dmTime(t.last_message_at) + '</span></span>'
-    +   '<span class="dm-row-last">' + (t.last_from_me ? 'You: ' : '') + escapeHtml(t.last_body || '') + '</span>'
+    +   '<span class="dm-row-last">' + (t.last_from_me ? 'You: ' : '') + (t.last_kind === 'e2e' ? '🔒 Encrypted message' : escapeHtml(t.last_body || '')) + '</span>'
     + '</span>'
     + (t.unread ? '<span class="dm-unread">' + t.unread + '</span>' : '')
     + '</button>').join('');
@@ -5117,18 +5190,39 @@ async function renderThread(threadId) {
   const scroll = document.getElementById('dm-scroll');
   let lastId = null;
 
-  const paint = (msgs) => {
-    scroll.innerHTML = msgs.map(m => (m.kind === 'workout_invite' && m.metadata)
-      ? renderWorkoutInviteMessage(m)
-      : (m.kind === 'verse' && m.metadata) ? renderVerseMessage(m)
-      : '<div class="dm-msg' + (m.from_me ? ' mine' : '') + '">'
-      + '<div class="dm-bubble">' + escapeHtml(m.body) + '</div>'
-      + (m.metadata && m.metadata.link_warning ? '<div class="dm-link-warning">⚠ ' + escapeHtml(m.metadata.link_warning) + '</div>' : '')
-      + '<div class="dm-meta">' + dmTime(m.created_at) + (m.from_me && m.read ? ' · read' : '') + '</div></div>').join('');
+  // Derived once per thread open: the AES key shared with this other person,
+  // or null if either side has no public key on file yet (e.g. they haven't
+  // opened the app since this feature shipped). Encrypted messages from
+  // before this device had a key, or to/from someone without one, cannot be
+  // decrypted -- shown as a plain notice rather than garbage bytes.
+  const sharedKey = window.FFCrypto ? await window.FFCrypto.sharedKeyWith(data.user.id, api).catch(() => null) : null;
+
+  async function decryptBody(m) {
+    if (m.kind !== 'e2e') return m.body;
+    if (!sharedKey) return null;
+    try { return await window.FFCrypto.decrypt(sharedKey, m.body); }
+    catch { return null; }
+  }
+
+  const paint = async (msgs) => {
+    const rendered = await Promise.all(msgs.map(async m => {
+      if (m.kind === 'workout_invite' && m.metadata) return renderWorkoutInviteMessage(m);
+      if (m.kind === 'verse' && m.metadata) return renderVerseMessage(m);
+      const plain = await decryptBody(m);
+      const bodyHtml = plain == null
+        ? '<span class="muted">🔒 Could not decrypt this message on this device.</span>'
+        : escapeHtml(plain);
+      return '<div class="dm-msg' + (m.from_me ? ' mine' : '') + '">'
+        + (m.kind === 'e2e' ? '<div class="dm-e2e-tag">🔒 End-to-end encrypted</div>' : '')
+        + '<div class="dm-bubble">' + bodyHtml + '</div>'
+        + (m.metadata && m.metadata.link_warning ? '<div class="dm-link-warning">⚠ ' + escapeHtml(m.metadata.link_warning) + '</div>' : '')
+        + '<div class="dm-meta">' + dmTime(m.created_at) + (m.from_me && m.read ? ' · read' : '') + '</div></div>';
+    }));
+    scroll.innerHTML = rendered.join('');
     if (msgs.length) lastId = msgs[msgs.length - 1].id;
     scroll.scrollTop = scroll.scrollHeight;
   };
-  paint(data.messages);
+  await paint(data.messages);
   wireVerseDmCards(scroll);
 
   const inviteButton = document.getElementById('dm-invite');
@@ -5137,7 +5231,7 @@ async function renderThread(threadId) {
   if (verseButton) verseButton.onclick = async () => {
     const reference = prompt('Which verified verse should you send? Example: Philippians 4:13');
     if (!reference) return;
-    try { await api(`/dms/${encodeURIComponent(threadId)}/verse`, { method: 'POST', body: { reference } }); const fresh = await api(`/dms/${encodeURIComponent(threadId)}`); paint(fresh.messages); wireVerseDmCards(scroll); }
+    try { await api(`/dms/${encodeURIComponent(threadId)}/verse`, { method: 'POST', body: { reference } }); const fresh = await api(`/dms/${encodeURIComponent(threadId)}`); await paint(fresh.messages); wireVerseDmCards(scroll); }
     catch (e) { showToast(e.error === 'verse_not_found' ? 'That verse could not be verified.' : 'Could not send that verse.', true); }
   };
   wireWorkoutInviteCards(scroll);
@@ -5159,9 +5253,12 @@ async function renderThread(threadId) {
       if (!text) return;
       input.value = '';
       try {
-        await api('/dms/' + encodeURIComponent(threadId), { method: 'POST', body: { body: text } });
+        const payload = sharedKey
+          ? { body: await window.FFCrypto.encrypt(sharedKey, text), e2e: true }
+          : { body: text };
+        await api('/dms/' + encodeURIComponent(threadId), { method: 'POST', body: payload });
         const fresh = await api('/dms/' + encodeURIComponent(threadId));
-        paint(fresh.messages);
+        await paint(fresh.messages);
       } catch (err) {
         input.value = text;      // put it back rather than losing what they typed
         alert(err && err.error === 'blocked' ? 'Messages are turned off between you.' : 'Could not send that.');
@@ -5175,7 +5272,7 @@ async function renderThread(threadId) {
     try {
       const fresh = await api('/dms/' + encodeURIComponent(threadId));
       const newest = fresh.messages.length ? fresh.messages[fresh.messages.length - 1].id : null;
-      if (newest !== lastId) { paint(fresh.messages); wireWorkoutInviteCards(scroll); wireVerseDmCards(scroll); }
+      if (newest !== lastId) { await paint(fresh.messages); wireWorkoutInviteCards(scroll); wireVerseDmCards(scroll); }
     } catch { /* keep the thread open; the next tick retries */ }
   }, 5000);
 }

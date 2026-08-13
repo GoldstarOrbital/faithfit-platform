@@ -19,7 +19,11 @@
 const { randomUUID } = require('crypto');
 const db = require('./db');
 
-const MAX_LEN = 2000;
+// 4000 rather than 2000: an end-to-end encrypted body is base64(iv) + '.' +
+// base64(ciphertext), which runs ~1.4x the plaintext length before overhead,
+// so the old plaintext limit would silently truncate encrypted messages a
+// user could type in full.
+const MAX_LEN = 4000;
 
 function init() {
   db.exec(`
@@ -116,6 +120,7 @@ function inbox(me) {
   const rows = db.prepare(
     `SELECT t.*,
             (SELECT body FROM dm_messages m WHERE m.thread_id = t.id ORDER BY m.created_at DESC LIMIT 1) AS last_body,
+            (SELECT kind FROM dm_messages m WHERE m.thread_id = t.id ORDER BY m.created_at DESC LIMIT 1) AS last_kind,
             (SELECT sender_id FROM dm_messages m WHERE m.thread_id = t.id ORDER BY m.created_at DESC LIMIT 1) AS last_sender,
             (SELECT COUNT(*) FROM dm_messages m WHERE m.thread_id = t.id AND m.sender_id != ? AND m.read_at IS NULL) AS unread
      FROM dm_threads t
@@ -129,7 +134,12 @@ function inbox(me) {
     return {
       thread_id: t.id,
       user: { id: otherId, display_name: u.display_name || 'Someone', has_avatar: !!u.has_avatar },
-      last_body: t.last_body,
+      // The inbox preview is not worth deriving a shared key for on every
+      // poll of every thread -- an encrypted thread just shows a generic
+      // label here. The real content only ever gets decrypted once you open
+      // the thread itself, in renderThread.
+      last_body: t.last_kind === 'e2e' ? null : t.last_body,
+      last_kind: t.last_kind,
       last_from_me: t.last_sender === me,
       last_message_at: t.last_message_at,
       unread: t.unread,

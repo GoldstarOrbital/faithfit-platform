@@ -401,6 +401,12 @@ words or ends their session — read the content before you choose. ·
          (isPost ? 'post' : 'account') + '</button>';
     h += '</div>';
 
+    if (!resolved) {
+      h += '<div class="ai-suggest" data-ai="' + i + '">';
+      h += '<button class="btn" data-act="ai_suggest" data-i="' + i + '">Get AI triage suggestion</button>';
+      h += '</div>';
+    }
+
     if (resolved) {
       h += '<div class="actions">';
       h += '<p class="kv"><b>Decision</b> ' + escapeHtml(rep.review_note || '(no note recorded)') + '</p>';
@@ -457,6 +463,36 @@ words or ends their session — read the content before you choose. ·
             'and the reviewer content endpoint is not deployed on this server. Judge from the report reason alone, ' +
             'or add GET /api/moderation/queue/:id/target.');
         });
+    });
+  }
+
+  // Advisory only -- this never submits a decision, it just asks Gloo for a
+  // suggested category/severity read on the report so a reviewer has a
+  // starting point. The actual decision still goes through the review
+  // buttons above, with a human-written note.
+  function loadAiSuggestion(i, box, btn) {
+    var rep = state.reports[i];
+    if (!rep) return;
+    btn.disabled = true;
+    box.innerHTML = '<p class="muted">Asking Gloo…</p>';
+
+    api('/api/moderation/queue/' + encodeURIComponent(rep.id) + '/suggest', { method: 'POST' }).then(function (r) {
+      if (!r.ok) { box.innerHTML = '<p class="err" style="display:block">Could not get a suggestion (HTTP ' + r.status + ').</p>'; return; }
+      if (r.body && r.body.configured === false) { box.innerHTML = '<p class="muted">Gloo is not configured on this server.</p>'; return; }
+      var s = r.body && r.body.suggestion;
+      if (!s) { box.innerHTML = '<p class="muted">No suggestion available for this report.</p>'; return; }
+      var sevClass = s.severity === 'high' ? 'danger' : s.severity === 'medium' ? 'warn' : 'ok';
+      var h = '<div class="ai-suggest-result">';
+      h += '<p class="kv"><b>AI suggestion (advisory only)</b></p>';
+      h += '<p class="kv">Category: <code>' + escapeHtml(s.category || 'unknown') + '</code> &nbsp;·&nbsp; ' +
+           'Severity: <span class="pill ' + sevClass + '">' + escapeHtml(s.severity || 'unknown') + '</span>' +
+           (s.recommend_urgent_review ? ' &nbsp;·&nbsp; <b>Flagged urgent</b>' : '') + '</p>';
+      h += '<p class="muted">' + escapeHtml(s.reasoning || '') + '</p>';
+      h += '</div>';
+      box.innerHTML = h;
+    }).catch(function () {
+      box.innerHTML = '<p class="err" style="display:block">Could not reach the server.</p>';
+      btn.disabled = false;
     });
   }
 
@@ -547,6 +583,7 @@ words or ends their session — read the content before you choose. ·
     if (!state.reports[i]) return;
 
     if (act === 'load_target') return loadTarget(i, card.querySelector('.target'));
+    if (act === 'ai_suggest') return loadAiSuggestion(i, card.querySelector('.ai-suggest'), btn);
 
     var confirmBox = card.querySelector('.confirm');
     if (act === 'ask_suspend') {
