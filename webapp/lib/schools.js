@@ -104,16 +104,36 @@ async function syncFromSource() {
   }
   if (!rows.length) return null;
 
-  db.exec('DELETE FROM schools');
-  const ins = db.prepare(`
-    INSERT INTO schools (ncessch, name, city, state, zip, lat, lng, enrollment, status, synced_at)
-    VALUES (@ncessch, @name, @city, @state, @zip, @lat, @lng, @enrollment, @status, datetime('now'))
-  `);
-  for (const r of rows) ins.run(r);
-  db.prepare(`
-    INSERT INTO schools_sync_log (id, last_synced_at, school_count) VALUES (1, datetime('now'), ?)
-    ON CONFLICT(id) DO UPDATE SET last_synced_at = datetime('now'), school_count = excluded.school_count
-  `).run(rows.length);
+  // node:sqlite's DatabaseSync has no .transaction() helper (same lesson
+  // already learned once in lib/bible-load.js) -- an explicit BEGIN/COMMIT
+  // around the whole bulk write is not just faster than ~23,000 individual
+  // implicit commits, it's the difference between a few hundred
+  // milliseconds and something that blocks this process's single thread
+  // for so long the live app stops responding to real requests. That
+  // happened for real once while building this: an earlier version of
+  // this function ran the insert loop with no transaction wrapper at all,
+  // froze the whole web service for minutes, and left the table with a
+  // partial ~20,600 of 23,209 rows when the service had to be restarted
+  // to recover. Wrapping it fixes both problems at once -- atomic (no
+  // partial state possible) and fast enough to not be a production risk.
+  db.exec('BEGIN');
+  try {
+    db.exec('DELETE FROM schools');
+    const ins = db.prepare(`
+      INSERT INTO schools (ncessch, name, city, state, zip, lat, lng, enrollment, status, synced_at)
+      VALUES (@ncessch, @name, @city, @state, @zip, @lat, @lng, @enrollment, @status, datetime('now'))
+    `);
+    for (const r of rows) ins.run(r);
+    db.prepare(`
+      INSERT INTO schools_sync_log (id, last_synced_at, school_count) VALUES (1, datetime('now'), ?)
+      ON CONFLICT(id) DO UPDATE SET last_synced_at = datetime('now'), school_count = excluded.school_count
+    `).run(rows.length);
+    db.exec('COMMIT');
+  } catch (err) {
+    db.exec('ROLLBACK');
+    console.error('[schools] bulk write failed, rolled back:', err.message);
+    return null;
+  }
 
   console.log(`[schools] synced ${rows.length} US high schools`);
   return { synced: rows.length };
