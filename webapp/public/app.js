@@ -1332,11 +1332,15 @@ async function renderRecruitingTab(body) {
     if (!data.athletes.length) { results.innerHTML = '<div class="muted">No public profiles match yet.</div>'; return; }
     results.innerHTML = data.athletes.map(a => `
       <div class="card glass" style="padding:12px;margin-bottom:8px">
-        <div style="font-weight:700">${escapeHtml(a.display_name)}</div>
-        <div class="muted" style="font-size:.82rem">${escapeHtml(a.sport)}${a.position ? ' · ' + escapeHtml(a.position) : ''}${a.grad_year ? ' · Class of ' + escapeHtml(String(a.grad_year)) : ''}${a.school ? ' · ' + escapeHtml(a.school) : ''}</div>
-        <div class="muted" style="font-size:.78rem;margin-top:4px">${a.stats.workouts_90d} workouts / 90d · ${a.stats.distance_km_90d} km / 90d</div>
+        <div data-rec-expand="${escapeHtml(a.user_id)}" style="cursor:pointer">
+          <div style="font-weight:700">${escapeHtml(a.display_name)}</div>
+          <div class="muted" style="font-size:.82rem">${escapeHtml(a.sport)}${a.position ? ' · ' + escapeHtml(a.position) : ''}${a.grad_year ? ' · Class of ' + escapeHtml(String(a.grad_year)) : ''}${a.school ? ' · ' + escapeHtml(a.school) : ''}</div>
+          <div class="muted" style="font-size:.78rem;margin-top:4px">${a.stats.workouts_90d} workouts / 90d · ${a.stats.distance_km_90d} km / 90d</div>
+        </div>
+        <div id="rec-detail-${escapeHtml(a.user_id)}"></div>
         ${myRole === 'coach' ? `<button class="ghost" data-rec-dm="${escapeHtml(a.user_id)}" style="margin-top:8px">Message</button>` : ''}
       </div>`).join('');
+    results.querySelectorAll('[data-rec-expand]').forEach(el => el.onclick = () => toggleRecDetail(el.dataset.recExpand));
     if (myRole === 'coach') {
       results.querySelectorAll('[data-rec-dm]').forEach(btn => btn.onclick = async () => {
         btn.disabled = true; btn.textContent = 'Opening…';
@@ -1345,6 +1349,38 @@ async function renderRecruitingTab(body) {
           if (r.error) { showToast(r.hint || 'Could not open a conversation.', true); btn.disabled = false; btn.textContent = 'Message'; return; }
           renderThread(r.thread_id);
         } catch { showToast('Could not open a conversation.', true); btn.disabled = false; btn.textContent = 'Message'; }
+      });
+    }
+  }
+
+  async function toggleRecDetail(athleteId) {
+    const box = document.getElementById('rec-detail-' + athleteId);
+    if (!box) return;
+    if (box.dataset.loaded === '1') { box.style.display = box.style.display === 'none' ? 'block' : 'none'; return; }
+    box.innerHTML = '<div class="muted" style="margin-top:6px">Loading…</div>';
+    let data;
+    try { data = await api('/athletes/' + encodeURIComponent(athleteId)); } catch { box.innerHTML = '<div class="muted">Could not load.</div>'; return; }
+    const p = data.profile;
+    box.dataset.loaded = '1';
+    box.innerHTML = `
+      ${p.sport_stats.length ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin-top:8px">
+        ${p.sport_stats.map(f => `<div style="font-size:.78rem">
+          <b style="display:block;font-size:.95rem">${escapeHtml(f.value)}${f.unit ? ' ' + escapeHtml(f.unit) : ''}</b>
+          <span class="muted">${escapeHtml(f.label)}</span>
+          ${f.confirmed_by > 0 ? `<span style="display:block;color:#2f6f5d;font-weight:600;font-size:.68rem">✓ ${f.confirmed_by} coach${f.confirmed_by === 1 ? '' : 'es'}</span>` : (f.source === 'csv' ? '<span class="muted" style="display:block;font-size:.66rem">📄 CSV</span>' : '')}
+          ${myRole === 'coach' ? `<button class="ghost" data-confirm-stat="${escapeHtml(f.key)}" data-confirm-athlete="${escapeHtml(athleteId)}" style="font-size:.68rem;padding:2px 6px;margin-top:2px">Confirm</button>` : ''}
+        </div>`).join('')}
+      </div>` : ''}
+      ${p.additional_sports && p.additional_sports.length ? `<div class="muted" style="font-size:.78rem;margin-top:8px">Also plays: ${p.additional_sports.map(s => escapeHtml(s.sport) + (s.position ? ' (' + escapeHtml(s.position) + ')' : '')).join(', ')}</div>` : ''}
+      ${p.endorsements.length ? p.endorsements.map(e => `<div class="comment" style="margin-top:6px"><b>${escapeHtml(e.coach_name)}</b>${e.coach_organization ? ' · ' + escapeHtml(e.coach_organization) : ''}<div>${escapeHtml(e.quote)}</div></div>`).join('') : ''}
+    `;
+    if (myRole === 'coach') {
+      box.querySelectorAll('[data-confirm-stat]').forEach(btn => btn.onclick = async () => {
+        const r = await api(`/athlete-profile/${encodeURIComponent(btn.dataset.confirmAthlete)}/confirm-stat`, { method: 'POST', body: { stat_key: btn.dataset.confirmStat } });
+        if (r.error) { showToast(r.hint || r.error, true); return; }
+        showToast('Confirmed.');
+        box.dataset.loaded = '0';
+        toggleRecDetail(athleteId);
       });
     }
   }
@@ -2392,6 +2428,7 @@ async function wireAthleteProfile() {
   const sportOptions = data.sports.map(s => `<option value="${escapeHtml(s)}"${p.sport === s ? ' selected' : ''}>${escapeHtml(s)}</option>`).join('');
 
   mount.innerHTML = `
+    ${p.user_id ? '<div id="ap-score-box" class="muted">Loading profile strength…</div>' : ''}
     <label class="field-label">Sport</label>
     <select id="ap-sport"><option value="">— Select —</option>${sportOptions}</select>
     <label class="field-label">Position</label>
@@ -2454,6 +2491,16 @@ async function wireAthleteProfile() {
       </div>
     </div>
     <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
+      <h3 style="margin:0 0 6px">Also plays</h3>
+      <div class="muted" style="font-size:.78rem;margin-bottom:8px">Play more than one sport? Add it here — your primary sport above is what coaches search for you by, this is extra.</div>
+      <div id="ap-sports-list" class="muted">Loading…</div>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        <select id="ap-sport2-select" style="flex:1;min-width:120px">${data.sports.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('')}</select>
+        <input id="ap-sport2-position" type="text" maxlength="60" placeholder="Position (optional)" style="flex:1;min-width:120px">
+        <button class="ghost" id="ap-sport2-add">Add sport</button>
+      </div>
+    </div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
       <h3 style="margin:0 0 6px">Past teams</h3>
       <div id="ap-teams-list" class="muted">Loading…</div>
       <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
@@ -2490,6 +2537,10 @@ async function wireAthleteProfile() {
       <label class="field-label">${escapeHtml(f.label)}${f.unit ? ' (' + escapeHtml(f.unit) + ')' : ''}</label>
       <input type="text" maxlength="40" data-stat-key="${escapeHtml(f.key)}" value="${escapeHtml((existingStats && existingStats[f.key]) || '')}">
     `).join('');
+    // Hand-editing a value the CSV importer just filled in makes it manual
+    // again -- the source badge should never claim CSV provenance for a
+    // number someone then typed over.
+    box.querySelectorAll('[data-stat-key]').forEach(input => input.addEventListener('input', () => { delete input.dataset.source; }));
   }
   // /athlete-profile/me returns the raw stored row -- sport_stats is a JSON
   // string here (unlike the public profile view, which parses it against
@@ -2505,7 +2556,11 @@ async function wireAthleteProfile() {
     const status = document.getElementById('ap-status');
     status.textContent = 'Saving…';
     const sport_stats = {};
-    document.querySelectorAll('#ap-sport-stats-fields [data-stat-key]').forEach(input => { sport_stats[input.dataset.statKey] = input.value; });
+    const sport_stats_sources = {};
+    document.querySelectorAll('#ap-sport-stats-fields [data-stat-key]').forEach(input => {
+      sport_stats[input.dataset.statKey] = input.value;
+      if (input.dataset.source === 'csv') sport_stats_sources[input.dataset.statKey] = 'csv';
+    });
     const body = {
       sport: document.getElementById('ap-sport').value,
       position: document.getElementById('ap-position').value,
@@ -2515,6 +2570,7 @@ async function wireAthleteProfile() {
       weight_kg: document.getElementById('ap-weight').value || null,
       handedness: document.getElementById('ap-handedness').value || null,
       sport_stats,
+      sport_stats_sources,
       highlight_url: document.getElementById('ap-highlight').value.trim() || null,
       maxpreps_url: document.getElementById('ap-maxpreps').value.trim() || null,
       gamechanger_url: document.getElementById('ap-gamechanger').value.trim() || null,
@@ -2560,11 +2616,35 @@ async function wireAthleteProfile() {
     </div>`;
   };
 
-  if (p.user_id) wireAthleteLists();
+  if (p.user_id) { wireAthleteLists(); loadProfileScore(); }
 }
 
 // Videos, teams, awards: three small owned lists with the same
 // load-render-wire shape, plus a read-only endorsements list underneath.
+/** "Profile strength," not a binary public/private switch -- a number and a
+ *  ranked to-do list of what actually gets an athlete found (verified
+ *  email, video, filled-in stats, an endorsement), scored server-side in
+ *  athletes.profileScore(). */
+async function loadProfileScore() {
+  const box = document.getElementById('ap-score-box');
+  if (!box) return;
+  let data;
+  try { data = await api('/athlete-profile/score'); } catch { box.remove(); return; }
+  const pct = data.score;
+  const barColor = pct >= 75 ? '#3f8f5f' : pct >= 40 ? '#c98a2c' : '#b3462c';
+  const topMissing = data.missing.slice(0, 3);
+  box.innerHTML = `
+    <div class="card glass" style="padding:12px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <b>Profile strength</b><span style="font-weight:700;color:${barColor}">${pct}%</span>
+      </div>
+      <div style="height:6px;border-radius:4px;background:rgba(0,0,0,.08);margin-top:6px;overflow:hidden">
+        <div style="height:100%;width:${pct}%;background:${barColor};border-radius:4px"></div>
+      </div>
+      ${topMissing.length ? `<div class="muted" style="font-size:.78rem;margin-top:8px">To improve: ${topMissing.map(m => `${escapeHtml(m.label)} (+${m.points})`).join(' · ')}</div>` : '<div class="muted" style="font-size:.78rem;margin-top:8px">Your profile covers everything that matters most. 🎉</div>'}
+    </div>`;
+}
+
 async function wireAthleteLists() {
   async function refreshVideos() {
     const box = document.getElementById('ap-videos-list');
@@ -2604,6 +2684,24 @@ async function wireAthleteLists() {
       <div class="comment"><b>${escapeHtml(e.coach_name)}</b>${e.coach_organization ? ' · ' + escapeHtml(e.coach_organization) : ''}<div>${escapeHtml(e.quote)}</div></div>`).join('')
       : '<div class="muted">No coach endorsements yet — these appear once a verified coach writes one for you.</div>';
   }
+  async function refreshSports() {
+    const box = document.getElementById('ap-sports-list');
+    if (!box) return;
+    const { sports } = await api('/athlete-profile/sports').catch(() => ({ sports: [] }));
+    box.innerHTML = sports.length ? sports.map(s => `
+      <div class="toggle-row"><span>${escapeHtml(s.sport)}${s.position ? ' · ' + escapeHtml(s.position) : ''}</span>
+      <button class="ghost" data-remove-sport="${escapeHtml(s.id)}">Remove</button></div>`).join('')
+      : '<div class="muted">No additional sports added.</div>';
+    box.querySelectorAll('[data-remove-sport]').forEach(btn => btn.onclick = async () => { await api('/athlete-profile/sports/' + btn.dataset.removeSport, { method: 'DELETE' }); refreshSports(); });
+  }
+  document.getElementById('ap-sport2-add').onclick = async () => {
+    const sport = document.getElementById('ap-sport2-select').value;
+    const position = document.getElementById('ap-sport2-position').value.trim();
+    const r = await api('/athlete-profile/sports', { method: 'POST', body: { sport, position } });
+    if (r.error) { showToast(r.hint || r.error, true); return; }
+    document.getElementById('ap-sport2-position').value = '';
+    refreshSports();
+  };
 
   document.getElementById('ap-video-add').onclick = async () => {
     const url = document.getElementById('ap-video-url').value.trim();
@@ -2635,7 +2733,7 @@ async function wireAthleteLists() {
     refreshAwards();
   };
 
-  refreshVideos(); refreshTeams(); refreshAwards(); refreshEndorsements();
+  refreshVideos(); refreshTeams(); refreshAwards(); refreshEndorsements(); refreshSports();
 }
 
 /**
@@ -2723,7 +2821,7 @@ function wireCsvStatImport() {
             const value = (rowData[colIdx] || '').trim();
             if (!value) return;
             const target = document.querySelector(`#ap-sport-stats-fields [data-stat-key="${statKey}"]`);
-            if (target) { target.value = value; applied++; }
+            if (target) { target.value = value; target.dataset.source = 'csv'; applied++; }
           });
           document.getElementById('ap-csv-status').textContent = applied
             ? `Filled in ${applied} field(s) below — review them, then hit Save Athlete Profile.`
@@ -2767,6 +2865,22 @@ async function wireCoachProfile() {
       <div class="muted" style="font-size:.82rem;margin-bottom:8px">Gloo ranks real, public, verified profiles in your sport — never invented, always grounded in their actual logged training stats.</div>
       <button class="ghost" id="cp-match" style="width:100%">Find best-fit athletes for ${escapeHtml(p.sport || 'your sport')}</button>
       <div id="cp-match-results" style="margin-top:10px"></div>
+    </div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
+      <h3 style="margin:0 0 6px">Saved searches &amp; alerts</h3>
+      <div class="muted" style="font-size:.82rem;margin-bottom:8px">Get notified the moment a new athlete matching your filters goes public.</div>
+      <div id="cp-searches-list" class="muted">Loading…</div>
+      <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+        <select id="cp-search-sport" style="flex:1;min-width:110px">${sportOptions}</select>
+        <input id="cp-search-year" type="number" min="2020" max="2035" placeholder="Grad year (any)" style="flex:1;min-width:110px">
+        <input id="cp-search-position" type="text" maxlength="60" placeholder="Position (any)" style="flex:1;min-width:110px">
+        <button class="ghost" id="cp-search-add">Save search</button>
+      </div>
+    </div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
+      <h3 style="margin:0 0 6px">My roster</h3>
+      <div class="muted" style="font-size:.82rem;margin-bottom:8px">Publish a roster of your own athletes. Public link: <a href="/coach-roster.html?coach=${encodeURIComponent(p.user_id)}" target="_blank" rel="noopener">${location.origin}/coach-roster.html?coach=${escapeHtml(p.user_id)}</a></div>
+      <div id="cp-roster-list" class="muted">Loading…</div>
     </div>` : ''}`;
 
   document.getElementById('cp-save').onclick = async () => {
@@ -2815,9 +2929,10 @@ async function wireCoachProfile() {
           <div class="muted" style="font-size:.82rem">${escapeHtml(a.sport)}${a.position ? ' · ' + escapeHtml(a.position) : ''}${a.grad_year ? ' · Class of ' + escapeHtml(String(a.grad_year)) : ''}${a.school ? ' · ' + escapeHtml(a.school) : ''}</div>
           ${a.match_reason ? `<div style="font-size:.84rem;margin-top:4px">🤖 ${escapeHtml(a.match_reason)}</div>` : ''}
           <div class="muted" style="font-size:.78rem;margin-top:4px">${a.stats.workouts_90d} workouts / 90d · ${a.stats.distance_km_90d} km / 90d</div>
-          <div style="display:flex;gap:6px;margin-top:8px">
+          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
             <button class="ghost" data-coach-dm="${escapeHtml(a.user_id)}">Message</button>
             <button class="ghost" data-coach-endorse="${escapeHtml(a.user_id)}">Write endorsement</button>
+            <button class="ghost" data-coach-roster-add="${escapeHtml(a.user_id)}">Add to roster</button>
           </div>
         </div>`).join('');
     results.querySelectorAll('[data-coach-dm]').forEach(btn => btn.onclick = async () => {
@@ -2835,7 +2950,49 @@ async function wireCoachProfile() {
       if (r.error) { showToast(r.hint || r.error, true); return; }
       showToast('Endorsement saved.');
     });
+    results.querySelectorAll('[data-coach-roster-add]').forEach(btn => btn.onclick = async () => {
+      const r = await api('/coach/roster/' + encodeURIComponent(btn.dataset.coachRosterAdd), { method: 'POST', body: {} });
+      if (r.error) { showToast(r.hint || r.error, true); return; }
+      showToast('Added to your roster.');
+      refreshRoster();
+    });
   };
+
+  async function refreshSavedSearches() {
+    const box = document.getElementById('cp-searches-list');
+    if (!box) return;
+    const { searches } = await api('/coach/saved-searches').catch(() => ({ searches: [] }));
+    box.innerHTML = searches.length ? searches.map(s => `
+      <div class="toggle-row"><span>${escapeHtml(s.sport)}${s.grad_year ? ' · Class of ' + s.grad_year : ''}${s.position ? ' · ' + escapeHtml(s.position) : ''}</span>
+      <button class="ghost" data-remove-search="${escapeHtml(s.id)}">Remove</button></div>`).join('')
+      : '<div class="muted">No saved searches yet.</div>';
+    box.querySelectorAll('[data-remove-search]').forEach(btn => btn.onclick = async () => { await api('/coach/saved-searches/' + btn.dataset.removeSearch, { method: 'DELETE' }); refreshSavedSearches(); });
+  }
+  const addSearchBtn = document.getElementById('cp-search-add');
+  if (addSearchBtn) addSearchBtn.onclick = async () => {
+    const r = await api('/coach/saved-searches', { method: 'POST', body: {
+      sport: document.getElementById('cp-search-sport').value,
+      grad_year: document.getElementById('cp-search-year').value || null,
+      position: document.getElementById('cp-search-position').value.trim() || null,
+    } });
+    if (r.error) { showToast(r.hint || r.error, true); return; }
+    document.getElementById('cp-search-year').value = '';
+    document.getElementById('cp-search-position').value = '';
+    refreshSavedSearches();
+  };
+
+  async function refreshRoster() {
+    const box = document.getElementById('cp-roster-list');
+    if (!box) return;
+    const { roster } = await api('/coach/roster').catch(() => ({ roster: [] }));
+    box.innerHTML = roster.length ? roster.map(m => `
+      <div class="toggle-row"><span>${escapeHtml(m.athlete.display_name)}${m.position_on_team ? ' · ' + escapeHtml(m.position_on_team) : ''}${m.jersey_number ? ' · #' + escapeHtml(m.jersey_number) : ''}</span>
+      <button class="ghost" data-remove-roster="${escapeHtml(m.id)}">Remove</button></div>`).join('')
+      : '<div class="muted">No roster members yet — add athletes from your match results above.</div>';
+    box.querySelectorAll('[data-remove-roster]').forEach(btn => btn.onclick = async () => { await api('/coach/roster/' + btn.dataset.removeRoster, { method: 'DELETE' }); refreshRoster(); });
+  }
+
+  if (verified) { refreshSavedSearches(); refreshRoster(); }
 }
 
 // ---- Profile picture upload: resize client-side to max 400x400 JPEG @0.8 quality
@@ -3895,6 +4052,7 @@ async function openNotificationDestination(url) {
   if (kind === 'reel' && p.get('video_id')) { state.tab = 'explore'; state.exploreTab = 'reels'; state.reelTargetId = p.get('video_id'); return render(); }
   if (kind === 'story') { state.tab = 'home'; state.homeCache = null; return render(); }
   if (kind === 'challenges') { state.tab = 'explore'; state.exploreTab = 'challenges'; return render(); }
+  if (kind === 'recruiting') { state.tab = 'explore'; state.exploreTab = 'recruiting'; return render(); }
   if (kind === 'profile' && p.get('user_id')) return renderUserProfile(p.get('user_id'));
   if (kind === 'profile') { state.tab = 'profile'; return render(); }
   if (kind === 'stats') { state.tab = 'stats'; return render(); }

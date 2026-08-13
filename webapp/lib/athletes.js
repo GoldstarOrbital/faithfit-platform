@@ -194,6 +194,47 @@ function init() {
       UNIQUE(athlete_user_id, coach_user_id)
     );
     CREATE INDEX IF NOT EXISTS idx_athlete_endorsements_athlete ON athlete_endorsements(athlete_user_id);
+
+    -- Secondary sports beyond the primary one on athlete_profiles. The
+    -- primary sport stays where it is (it's what search/matching filter on
+    -- and nothing about that changes) -- this is purely additive, for a
+    -- recruit who plays more than one sport to show a second (or third)
+    -- with its own position and stats.
+    CREATE TABLE IF NOT EXISTS athlete_sports (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      sport TEXT NOT NULL,
+      position TEXT,
+      sport_stats TEXT,
+      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_id, sport)
+    );
+    CREATE INDEX IF NOT EXISTS idx_athlete_sports_user ON athlete_sports(user_id);
+
+    -- Per-stat-key provenance, separate from the stats themselves so the
+    -- sport_stats JSON shape never has to change. Defaults to 'manual' when
+    -- no row exists; a row is written for 'csv' when the value came through
+    -- the CSV importer. See app.js's CSV importer and PUT /athlete-profile.
+    CREATE TABLE IF NOT EXISTS athlete_stat_sources (
+      user_id TEXT NOT NULL,
+      stat_key TEXT NOT NULL,
+      source TEXT NOT NULL,
+      PRIMARY KEY (user_id, stat_key)
+    );
+
+    -- A verified coach vouching for one specific stat on an athlete's
+    -- profile -- distinct from an endorsement (a free-text quote about the
+    -- athlete as a whole). Multiple coaches can confirm the same stat;
+    -- the directory shows a count. One row per (athlete, coach, stat).
+    CREATE TABLE IF NOT EXISTS athlete_stat_confirmations (
+      id TEXT PRIMARY KEY,
+      athlete_user_id TEXT NOT NULL,
+      stat_key TEXT NOT NULL,
+      coach_user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(athlete_user_id, stat_key, coach_user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_stat_confirmations_athlete ON athlete_stat_confirmations(athlete_user_id, stat_key);
   `);
 }
 
@@ -256,7 +297,20 @@ function upsert(userId, fields) {
   if (grad_year && (grad_year < 2020 || grad_year > 2035)) return { error: 'invalid_grad_year' };
 
   const handedness = HANDEDNESS_VALUES.has(fields.handedness) ? fields.handedness : null;
-  const sport_stats = JSON.stringify(cleanSportStats(sport, fields.sport_stats));
+  const cleanedStats = cleanSportStats(sport, fields.sport_stats);
+  const sport_stats = JSON.stringify(cleanedStats);
+
+  // Provenance per stat key: 'csv' if the client says this value came from
+  // the CSV importer, 'manual' otherwise (the default, and what's assumed
+  // for every pre-existing profile that predates this table). Only keys
+  // actually present after whitelist cleaning get a row -- a dropped key
+  // can't have a source.
+  const sources = fields.sport_stats_sources && typeof fields.sport_stats_sources === 'object' ? fields.sport_stats_sources : {};
+  db.prepare('DELETE FROM athlete_stat_sources WHERE user_id = ?').run(userId);
+  const insSource = db.prepare('INSERT INTO athlete_stat_sources (user_id, stat_key, source) VALUES (?, ?, ?)');
+  for (const key of Object.keys(cleanedStats)) {
+    insSource.run(userId, key, sources[key] === 'csv' ? 'csv' : 'manual');
+  }
 
   const row = {
     position: String(fields.position || '').trim().slice(0, 60) || null,
@@ -431,11 +485,107 @@ function search({ sport, grad_year, q, limit = 40 } = {}) {
   return rows.map(r => ({ ...r, stats: recentStats(r.user_id) }));
 }
 
-function parseSportStats(json, sport) {
+/** Attaches provenance (manual vs CSV) and coach-confirmation count to each
+ *  stat, for the badges shown in the directory -- see athlete_stat_sources
+ *  and athlete_stat_confirmations in init(). A stat with no source row
+ *  (every profile saved before this table existed) reads as 'manual',
+ *  which is the honest default: nothing claims a provenance it doesn't have. */
+function parseSportStats(json, sport, userId) {
   let parsed = {};
   try { parsed = JSON.parse(json || '{}') || {}; } catch { parsed = {}; }
   const fields = SPORT_STAT_FIELDS[sport] || [];
-  return fields.filter(f => parsed[f.key]).map(f => ({ ...f, value: parsed[f.key] }));
+  const present = fields.filter(f => parsed[f.key]);
+  if (!present.length) return [];
+  const sourceRows = userId ? db.prepare('SELECT stat_key, source FROM athlete_stat_sources WHERE user_id = ?').all(userId) : [];
+  const sourceMap = new Map(sourceRows.map(r => [r.stat_key, r.source]));
+  const confirmRows = userId ? db.prepare('SELECT stat_key, COUNT(*) c FROM athlete_stat_confirmations WHERE athlete_user_id = ? GROUP BY stat_key').all(userId) : [];
+  const confirmMap = new Map(confirmRows.map(r => [r.stat_key, r.c]));
+  return present.map(f => ({
+    ...f, value: parsed[f.key],
+    source: sourceMap.get(f.key) || 'manual',
+    confirmed_by: confirmMap.get(f.key) || 0,
+  }));
+}
+
+function listSports(userId) {
+  return db.prepare('SELECT id, sport, position, sport_stats, added_at FROM athlete_sports WHERE user_id = ? ORDER BY added_at ASC').all(userId)
+    .map(r => ({ ...r, sport_stats: parseSportStats(r.sport_stats, r.sport, null) }));
+}
+function addSport(userId, { sport, position, sport_stats }) {
+  const primary = get(userId);
+  const clean = String(sport || '').trim().slice(0, 40);
+  if (!clean || !SPORT_STAT_FIELDS[clean]) return { error: 'invalid_sport' };
+  if (primary && primary.sport === clean) return { error: 'already_primary_sport', hint: 'This is already your primary sport.' };
+  const id = randomUUID();
+  db.prepare(`
+    INSERT INTO athlete_sports (id, user_id, sport, position, sport_stats)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(user_id, sport) DO UPDATE SET position = excluded.position, sport_stats = excluded.sport_stats
+  `).run(id, userId, clean, String(position || '').trim().slice(0, 60) || null, JSON.stringify(cleanSportStats(clean, sport_stats)));
+  return { sport: db.prepare('SELECT id, sport, position, sport_stats, added_at FROM athlete_sports WHERE user_id = ? AND sport = ?').get(userId, clean) };
+}
+function removeSport(userId, sportRowId) {
+  const r = db.prepare('DELETE FROM athlete_sports WHERE id = ? AND user_id = ?').run(sportRowId, userId);
+  return { ok: r.changes > 0 };
+}
+
+/**
+ * A coach vouching for one specific stat, not the whole profile. Requires
+ * the caller (routes/api.js) to have already checked coaches.isVerified --
+ * this function itself only enforces that the athlete profile is real and
+ * public, the same boundary endorse() uses.
+ */
+function confirmStat(coachUserId, athleteUserId, statKey) {
+  const profile = get(athleteUserId);
+  if (!publicProfile(athleteUserId)) return { error: 'athlete_not_found' };
+  const validKeys = new Set((SPORT_STAT_FIELDS[profile.sport] || []).map(f => f.key));
+  if (!validKeys.has(statKey)) return { error: 'invalid_stat_key' };
+  db.prepare(`
+    INSERT OR IGNORE INTO athlete_stat_confirmations (id, athlete_user_id, stat_key, coach_user_id)
+    VALUES (?, ?, ?, ?)
+  `).run(randomUUID(), athleteUserId, statKey, coachUserId);
+  const count = db.prepare('SELECT COUNT(*) c FROM athlete_stat_confirmations WHERE athlete_user_id = ? AND stat_key = ?').get(athleteUserId, statKey).c;
+  return { ok: true, confirmed_by: count };
+}
+
+/**
+ * Profile completeness, scored toward what actually gets an athlete found
+ * and trusted -- not a binary "public or not." Nudges (missing, in
+ * descending point order) tell the athlete exactly what to do next rather
+ * than just showing a number.
+ */
+const SCORE_WEIGHTS = [
+  { key: 'verified_email', points: 25, label: 'Verify your school email', check: p => !!p.school_email_verified_at },
+  { key: 'endorsement', points: 15, label: 'Get a coach endorsement', check: (p, ctx) => ctx.endorsements.length > 0 },
+  { key: 'video', points: 15, label: 'Add a highlight video', check: (p, ctx) => !!p.highlight_url || ctx.videos.length > 0 },
+  { key: 'stats', points: 15, label: 'Fill in your sport stats', check: (p, ctx) => ctx.statsFilledRatio >= 0.5, partial: (p, ctx) => ctx.statsFilledRatio },
+  { key: 'bio', points: 10, label: 'Write a short bio', check: p => !!(p.bio && p.bio.trim().length >= 20) },
+  { key: 'photo', points: 5, label: 'Add a profile photo', check: (p, ctx) => ctx.hasAvatar },
+  { key: 'physical', points: 5, label: 'Add height, weight, and handedness', check: p => !!(p.height_cm && p.weight_kg && p.handedness) },
+  { key: 'team', points: 5, label: 'Add a past team', label2: 'team', check: (p, ctx) => ctx.teams.length > 0 },
+  { key: 'award', points: 5, label: 'Add an award or honor', check: (p, ctx) => ctx.awards.length > 0 },
+];
+function profileScore(userId) {
+  const p = get(userId);
+  if (!p) return { score: 0, factors: [], missing: [] };
+  const fields = SPORT_STAT_FIELDS[p.sport] || [];
+  const filled = fields.length ? Object.keys(cleanSportStats(p.sport, JSON.parse(p.sport_stats || '{}') || {})).length : 0;
+  const ctx = {
+    videos: listVideos(userId), teams: listTeams(userId), awards: listAwards(userId), endorsements: listEndorsements(userId),
+    hasAvatar: !!db.prepare('SELECT 1 FROM users WHERE id = ? AND avatar_data IS NOT NULL').get(userId),
+    statsFilledRatio: fields.length ? filled / fields.length : 0,
+  };
+  let score = 0;
+  const factors = [], missing = [];
+  for (const w of SCORE_WEIGHTS) {
+    const earned = w.check(p, ctx);
+    const points = earned ? w.points : (w.partial ? Math.round(w.partial(p, ctx) * w.points) : 0);
+    score += points;
+    factors.push({ key: w.key, label: w.label, points, max_points: w.points, earned: !!earned });
+    if (!earned) missing.push({ key: w.key, label: w.label, points: w.points - points });
+  }
+  missing.sort((a, b) => b.points - a.points);
+  return { score: Math.min(100, score), factors, missing };
 }
 
 function publicProfile(userId) {
@@ -445,8 +595,9 @@ function publicProfile(userId) {
   if (!u) return null;
   return {
     ...p, display_name: u.display_name, has_avatar: !!u.has_avatar, stats: recentStats(userId),
-    sport_stats: parseSportStats(p.sport_stats, p.sport),
+    sport_stats: parseSportStats(p.sport_stats, p.sport, userId),
     videos: listVideos(userId), teams: listTeams(userId), awards: listAwards(userId), endorsements: listEndorsements(userId),
+    additional_sports: listSports(userId),
   };
 }
 
@@ -490,4 +641,5 @@ module.exports = {
   requestEmailVerification, confirmEmailVerification,
   listVideos, addVideo, removeVideo, listTeams, addTeam, removeTeam,
   listAwards, addAward, removeAward, listEndorsements, endorse,
+  listSports, addSport, removeSport, confirmStat, profileScore,
 };

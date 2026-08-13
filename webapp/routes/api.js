@@ -5407,9 +5407,28 @@ router.get('/athlete-profile/me', requireAuth, (req, res) => {
   });
 });
 
+// Notifies every coach whose saved search matches this athlete, but only
+// once the profile is actually visible in the directory (public AND
+// verified -- the same two conditions athletes.search()'s WHERE clause
+// checks). Called from both places that condition can newly become true:
+// verifying a school email, and toggling is_public on after already being
+// verified. Silently does nothing if the profile still isn't visible.
+function notifyMatchingCoaches(athleteUserId) {
+  const profile = athletes.publicProfile(athleteUserId);
+  if (!profile) return;
+  const matches = coaches.findMatchingCoaches({ sport: profile.sport, grad_year: profile.grad_year, position: profile.position });
+  for (const m of matches) {
+    if (m.coach_user_id === athleteUserId) continue;
+    notify(m.coach_user_id, 'recruiting_match', `${profile.display_name} (${profile.sport}${profile.grad_year ? ', class of ' + profile.grad_year : ''}) matches your saved search.`,
+      { url: '/?open=recruiting' });
+  }
+}
+
 router.put('/athlete-profile', requireAuth, (req, res) => {
+  const wasVisible = !!athletes.publicProfile(req.session.userId);
   const r = athletes.upsert(req.session.userId, req.body || {});
   if (r.error) return res.status(400).json(r);
+  if (!wasVisible) notifyMatchingCoaches(req.session.userId);
   res.json(r);
 });
 
@@ -5479,7 +5498,30 @@ router.get('/athlete-profile/verify-email/confirm', (req, res) => {
   if (!userId) {
     return res.status(400).send('<!doctype html><meta charset="utf-8"><title>Link expired</title><body style="font-family:system-ui;max-width:480px;margin:60px auto;text-align:center"><h2>This link has expired or was already used.</h2><p>Go back to Profile Settings in Functioning Faith and send a new verification email.</p></body>');
   }
+  notifyMatchingCoaches(userId);
   res.send('<!doctype html><meta charset="utf-8"><title>School email verified</title><body style="font-family:system-ui;max-width:480px;margin:60px auto;text-align:center"><h2>School email verified.</h2><p>Your athlete recruiting profile is now visible in the public directory, if you\'ve turned it on in Profile Settings.</p><p><a href="/">Back to Functioning Faith</a></p></body>');
+});
+
+router.get('/athlete-profile/score', requireAuth, (req, res) => {
+  res.json(athletes.profileScore(req.session.userId));
+});
+
+router.get('/athlete-profile/sports', requireAuth, (req, res) => res.json({ sports: athletes.listSports(req.session.userId) }));
+router.post('/athlete-profile/sports', requireAuth, (req, res) => {
+  const r = athletes.addSport(req.session.userId, req.body || {});
+  if (r.error) return res.status(400).json(r);
+  res.status(201).json(r);
+});
+router.delete('/athlete-profile/sports/:id', requireAuth, (req, res) => res.json(athletes.removeSport(req.session.userId, req.params.id)));
+
+// A coach vouching for one specific stat -- separate from an endorsement
+// (a free-text quote about the athlete as a whole). Requires the same
+// verified-coach gate as endorse() and the DM bypass.
+router.post('/athlete-profile/:athleteId/confirm-stat', requireAuth, (req, res) => {
+  if (!coaches.isVerified(req.session.userId)) return res.status(403).json({ error: 'coach_not_verified' });
+  const r = athletes.confirmStat(req.session.userId, req.params.athleteId, req.body && req.body.stat_key);
+  if (r.error) return res.status(400).json(r);
+  res.json(r);
 });
 
 router.get('/athletes/search', (req, res) => {
@@ -5550,6 +5592,49 @@ router.post('/coach/dms/with/:athleteId', requireAuth, requireCommunityAccess, (
     return res.status(code).json(r);
   }
   res.json({ thread_id: r.thread.id, user: { id: r.other.id, display_name: r.other.display_name } });
+});
+
+// Saved searches drive the "athlete goes public" alert -- notifyMatchingCoaches
+// above checks these whenever a profile newly becomes visible.
+router.get('/coach/saved-searches', requireAuth, (req, res) => {
+  if (!coaches.isVerified(req.session.userId)) return res.status(403).json({ error: 'coach_not_verified' });
+  res.json({ searches: coaches.listSavedSearches(req.session.userId) });
+});
+router.post('/coach/saved-searches', requireAuth, (req, res) => {
+  if (!coaches.isVerified(req.session.userId)) return res.status(403).json({ error: 'coach_not_verified' });
+  const r = coaches.addSavedSearch(req.session.userId, req.body || {});
+  if (r.error) return res.status(400).json(r);
+  res.status(201).json(r);
+});
+router.delete('/coach/saved-searches/:id', requireAuth, (req, res) => {
+  if (!coaches.isVerified(req.session.userId)) return res.status(403).json({ error: 'coach_not_verified' });
+  res.json(coaches.removeSavedSearch(req.session.userId, req.params.id));
+});
+
+// A verified coach's own roster of platform athletes -- see lib/coaches.js
+// for why membership requires the athlete to already be public+verified.
+router.get('/coach/roster', requireAuth, (req, res) => {
+  if (!coaches.isVerified(req.session.userId)) return res.status(403).json({ error: 'coach_not_verified' });
+  res.json({ roster: coaches.listRoster(req.session.userId) });
+});
+router.post('/coach/roster/:athleteId', requireAuth, (req, res) => {
+  if (!coaches.isVerified(req.session.userId)) return res.status(403).json({ error: 'coach_not_verified' });
+  const r = coaches.addRosterMember(req.session.userId, req.params.athleteId, req.body || {});
+  if (r.error) return res.status(400).json(r);
+  res.status(201).json(r);
+});
+router.delete('/coach/roster/:id', requireAuth, (req, res) => {
+  if (!coaches.isVerified(req.session.userId)) return res.status(403).json({ error: 'coach_not_verified' });
+  res.json(coaches.removeRosterMember(req.session.userId, req.params.id));
+});
+
+// Public roster page -- no auth, same reasoning as the athlete directory:
+// a scout or parent looking at a team roster isn't expected to have an
+// account.
+router.get('/coach/:coachUserId/roster', (req, res) => {
+  const r = coaches.publicRoster(req.params.coachUserId);
+  if (!r) return res.status(404).json({ error: 'not_found' });
+  res.json(r);
 });
 
 module.exports = router;

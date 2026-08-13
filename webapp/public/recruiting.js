@@ -38,7 +38,11 @@
     var h = '<div class="rc-detail">';
     if (p.height_cm || p.weight_kg) h += '<div class="muted" style="font-size:.8rem">' + [p.height_cm ? p.height_cm + ' cm' : null, p.weight_kg ? p.weight_kg + ' kg' : null].filter(Boolean).join(' · ') + '</div>';
     if (p.sport_stats && p.sport_stats.length) {
-      h += '<div class="rc-stat-grid">' + p.sport_stats.map(function (f) { return '<div><b>' + esc(f.value) + (f.unit ? ' ' + esc(f.unit) : '') + '</b><span>' + esc(f.label) + '</span></div>'; }).join('') + '</div>';
+      h += '<div class="rc-stat-grid">' + p.sport_stats.map(function (f) {
+        var badge = f.confirmed_by > 0 ? '<span class="rc-stat-confirmed" title="Confirmed by ' + f.confirmed_by + ' coach' + (f.confirmed_by === 1 ? '' : 'es') + '">✓ coach-confirmed</span>'
+          : (f.source === 'csv' ? '<span class="rc-stat-csv" title="Imported from a CSV file">📄 CSV</span>' : '');
+        return '<div><b>' + esc(f.value) + (f.unit ? ' ' + esc(f.unit) : '') + '</b><span>' + esc(f.label) + '</span>' + badge + '</div>';
+      }).join('') + '</div>';
     }
     if (p.teams && p.teams.length) {
       h += '<div class="rc-section-label">Past teams</div><ul class="rc-list">' + p.teams.map(function (t) { return '<li>' + esc(t.team_name) + (t.level ? ' · ' + esc(t.level) : '') + (t.season ? ' · ' + esc(t.season) : '') + '</li>'; }).join('') + '</ul>';

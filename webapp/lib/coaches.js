@@ -66,6 +66,95 @@ function init() {
   const vCols = db.prepare('PRAGMA table_info(coach_email_verifications)').all().map(c => c.name);
   if (!vCols.includes('verification_reason')) db.exec('ALTER TABLE coach_email_verifications ADD COLUMN verification_reason TEXT');
   if (!vCols.includes('institution')) db.exec('ALTER TABLE coach_email_verifications ADD COLUMN institution TEXT');
+
+  db.exec(`
+    -- A coach's standing filter. When an athlete profile newly goes public
+    -- (verified email + is_public), routes/api.js checks these and
+    -- notifies every coach whose search matches -- see findMatchingCoaches
+    -- below and the notify() call at the athlete verify-email/confirm and
+    -- PUT /athlete-profile routes.
+    CREATE TABLE IF NOT EXISTS coach_saved_searches (
+      id TEXT PRIMARY KEY,
+      coach_user_id TEXT NOT NULL,
+      sport TEXT NOT NULL,
+      grad_year INTEGER,
+      position TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_coach_saved_searches_sport ON coach_saved_searches(sport, grad_year);
+
+    -- A coach's own published roster. Deliberately limited to athletes who
+    -- are themselves public and verified (isVerified elsewhere never lets a
+    -- coach see anyone who isn't) -- a coach cannot use their roster to
+    -- publish someone else's private data.
+    CREATE TABLE IF NOT EXISTS coach_roster_members (
+      id TEXT PRIMARY KEY,
+      coach_user_id TEXT NOT NULL,
+      athlete_user_id TEXT NOT NULL,
+      jersey_number TEXT,
+      position_on_team TEXT,
+      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(coach_user_id, athlete_user_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_coach_roster_coach ON coach_roster_members(coach_user_id);
+  `);
+}
+
+function addSavedSearch(coachUserId, { sport, grad_year, position }) {
+  const clean = String(sport || '').trim().slice(0, 40);
+  if (!clean) return { error: 'sport_required' };
+  const gy = Number(grad_year) || null;
+  if (gy && (gy < 2020 || gy > 2035)) return { error: 'invalid_grad_year' };
+  const id = randomUUID();
+  db.prepare('INSERT INTO coach_saved_searches (id, coach_user_id, sport, grad_year, position) VALUES (?,?,?,?,?)')
+    .run(id, coachUserId, clean, gy, String(position || '').trim().slice(0, 60) || null);
+  return { search: db.prepare('SELECT * FROM coach_saved_searches WHERE id = ?').get(id) };
+}
+function listSavedSearches(coachUserId) {
+  return db.prepare('SELECT * FROM coach_saved_searches WHERE coach_user_id = ? ORDER BY created_at DESC').all(coachUserId);
+}
+function removeSavedSearch(coachUserId, id) {
+  const r = db.prepare('DELETE FROM coach_saved_searches WHERE id = ? AND coach_user_id = ?').run(id, coachUserId);
+  return { ok: r.changes > 0 };
+}
+
+/** Every distinct coach whose saved search matches this profile -- grad_year
+ *  and position are optional filters on the saved search (NULL = any). */
+function findMatchingCoaches({ sport, grad_year, position }) {
+  return db.prepare(`
+    SELECT DISTINCT coach_user_id FROM coach_saved_searches
+    WHERE sport = @sport
+      AND (grad_year IS NULL OR grad_year = @grad_year)
+      AND (position IS NULL OR lower(position) = lower(@position))
+  `).all({ sport, grad_year: grad_year || null, position: position || '' });
+}
+
+function addRosterMember(coachUserId, athleteUserId, { jersey_number, position_on_team }) {
+  if (!athletes.publicProfile(athleteUserId)) return { error: 'athlete_not_found' };
+  const id = randomUUID();
+  db.prepare(`
+    INSERT INTO coach_roster_members (id, coach_user_id, athlete_user_id, jersey_number, position_on_team)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(coach_user_id, athlete_user_id) DO UPDATE SET jersey_number = excluded.jersey_number, position_on_team = excluded.position_on_team
+  `).run(id, coachUserId, athleteUserId, String(jersey_number || '').trim().slice(0, 10) || null, String(position_on_team || '').trim().slice(0, 60) || null);
+  return { ok: true };
+}
+function removeRosterMember(coachUserId, memberId) {
+  const r = db.prepare('DELETE FROM coach_roster_members WHERE id = ? AND coach_user_id = ?').run(memberId, coachUserId);
+  return { ok: r.changes > 0 };
+}
+function listRoster(coachUserId) {
+  const rows = db.prepare('SELECT * FROM coach_roster_members WHERE coach_user_id = ? ORDER BY added_at ASC').all(coachUserId);
+  return rows.map(r => ({ ...r, athlete: athletes.publicProfile(r.athlete_user_id) })).filter(r => r.athlete);
+}
+/** The public roster page -- no auth, same reasoning as the athlete
+ *  directory: a scout looking at a team roster isn't expected to have an
+ *  account. Only a verified coach's roster is servable at all. */
+function publicRoster(coachUserId) {
+  const coach = get(coachUserId);
+  if (!coach || !coach.edu_verified_at) return null;
+  const u = db.prepare('SELECT display_name FROM users WHERE id = ?').get(coachUserId);
+  return { coach: { display_name: u?.display_name, organization: coach.organization, title: coach.title, sport: coach.sport }, roster: listRoster(coachUserId) };
 }
 
 function hash(value) {
@@ -272,4 +361,8 @@ async function matchAthletes(coachUserId, { grad_year, limit = 10 } = {}) {
   return { matches, candidates_considered: candidates.length, ranked_by_ai: true };
 }
 
-module.exports = { init, get, isVerified, upsert, requestEmailVerification, confirmEmailVerification, matchAthletes };
+module.exports = {
+  init, get, isVerified, upsert, requestEmailVerification, confirmEmailVerification, matchAthletes,
+  addSavedSearch, listSavedSearches, removeSavedSearch, findMatchingCoaches,
+  addRosterMember, removeRosterMember, listRoster, publicRoster,
+};
