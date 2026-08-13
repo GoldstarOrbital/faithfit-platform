@@ -2159,11 +2159,18 @@ async function wireAthleteProfile() {
     <input id="ap-highlight" type="url" maxlength="300" placeholder="https://" value="${escapeHtml(p.highlight_url || '')}">
     <label class="field-label">Short bio</label>
     <input id="ap-bio" type="text" maxlength="500" placeholder="A sentence or two about your season and goals" value="${escapeHtml(p.bio || '')}">
-    <div class="toggle-row">
+    <label class="field-label">School email</label>
+    <div class="muted" style="font-size:.76rem;margin:-2px 0 4px">Highschool and college athletes must verify a school email before their profile can appear in the public directory. We check that the address is real and yours, not that the school itself is accredited.</div>
+    <input id="ap-school-email" type="email" maxlength="160" placeholder="you@yourschool.edu" value="${escapeHtml(p.school_email || '')}">
+    <button class="ghost" id="ap-verify-email" style="width:100%;margin-top:6px">${p.school_email_verified_at ? '✓ School email verified — re-verify a different address' : 'Send verification email'}</button>
+    <div id="ap-verify-status" class="muted" style="margin-top:4px">${p.school_email_verified_at ? `Verified ${new Date(p.school_email_verified_at).toLocaleDateString()}.` : ''}</div>
+    <div class="toggle-row" style="margin-top:10px">
       <span>Make this profile public in the recruiting directory</span>
       <label class="switch"><input type="checkbox" id="ap-public" ${p.is_public ? 'checked' : ''}><span class="slider"></span></label>
     </div>
-    ${p.is_public ? `<div class="muted" style="margin:4px 0 8px">Live at <a href="/recruiting.html?athlete=${encodeURIComponent(p.user_id)}" target="_blank" rel="noopener">${location.origin}/recruiting.html?athlete=${escapeHtml(p.user_id)}</a></div>` : ''}
+    ${data.visible
+      ? `<div class="muted" style="margin:4px 0 8px">Live at <a href="/recruiting.html?athlete=${encodeURIComponent(p.user_id)}" target="_blank" rel="noopener">${location.origin}/recruiting.html?athlete=${escapeHtml(p.user_id)}</a></div>`
+      : (p.is_public ? `<div class="muted" style="margin:4px 0 8px">⚠ Not visible yet — verify your school email above to actually appear in the directory.</div>` : '')}
     <button class="primary" id="ap-save" style="width:100%;margin-top:6px">Save Athlete Profile</button>
     <div id="ap-status" class="muted" style="margin-top:6px"></div>`;
 
@@ -2185,6 +2192,20 @@ async function wireAthleteProfile() {
       status.textContent = 'Saved.';
       wireAthleteProfile();
     } catch (e) { status.textContent = e.message || 'Could not save.'; }
+  };
+
+  document.getElementById('ap-verify-email').onclick = async () => {
+    const status = document.getElementById('ap-verify-status');
+    const email = document.getElementById('ap-school-email').value.trim();
+    if (!email) { status.textContent = 'Enter your school email first.'; return; }
+    status.textContent = 'Sending…';
+    try {
+      const res = await api('/athlete-profile/verify-email', { method: 'POST', body: { email } });
+      if (res.error) { status.textContent = res.hint || ('Could not send: ' + res.error); return; }
+      status.textContent = res.queued === false
+        ? 'Email verification is not configured on this server yet.'
+        : `Check ${email} for a verification link (expires in 24 hours).`;
+    } catch (e) { status.textContent = e.message || 'Could not send that.'; }
   };
 }
 
