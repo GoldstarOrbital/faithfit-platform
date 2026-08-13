@@ -4043,6 +4043,63 @@ function reviewerAuthorized(req) {
   return require('crypto').timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
 }
 
+// A separate token from DEVELOPER_REVIEW_TOKEN on purpose -- the ops agent
+// (a second Railway service on its own schedule, see webapp/ops-agent.js)
+// should be able to run maintenance chores without also being able to
+// resolve moderation reports or suspend accounts. Least privilege between
+// two things that happen to both be "a service account with a shared
+// secret," not one token doing double duty.
+const opsAgentAuthWindow = new Map();
+function opsAgentAuthorized(req) {
+  if (!allowWindow(opsAgentAuthWindow, req.ip || 'unknown', 20, 60_000)) return false;
+  const expected = process.env.OPS_AGENT_TOKEN;
+  const supplied = String(req.get('x-ops-agent-token') || '');
+  if (!expected || supplied.length !== expected.length) return false;
+  return require('crypto').timingSafeEqual(Buffer.from(supplied), Buffer.from(expected));
+}
+
+// Same bounded, non-AI chores as webapp/ops-agent.js used to run via direct
+// SQLite access. Reworked to run in-process instead: a Railway volume can
+// only be attached to one service, so a second service opening the same
+// database file over a shared network volume was a real corruption risk,
+// not a hypothetical one. This endpoint lets a separate, stateless service
+// trigger the same maintenance over HTTPS instead -- no filesystem or
+// volume access needed on that side at all.
+router.post('/admin/ops/run', async (req, res) => {
+  if (!opsAgentAuthorized(req)) return res.status(404).json({ error: 'not_found' });
+  const results = {};
+  let failures = 0;
+  const tasks = [
+    ['purge_expired_stories', () => {
+      const r = db.prepare("DELETE FROM stories WHERE expires_at < datetime('now')").run();
+      return { deleted: r.changes };
+    }],
+    ['purge_expired_sessions', () => {
+      const idleMinutes = Math.max(15, Number(process.env.SESSION_IDLE_MINUTES) || 30);
+      const absoluteDays = Math.max(1, Number(process.env.SESSION_ABSOLUTE_DAYS) || 30);
+      const r = db.prepare(
+        `DELETE FROM user_sessions WHERE revoked_at IS NOT NULL
+           OR created_at < datetime('now', '-${absoluteDays} days')
+           OR last_seen_at < datetime('now', '-${idleMinutes} minutes')`
+      ).run();
+      return { deleted: r.changes };
+    }],
+    ['refresh_feeds', async () => {
+      const [n, p] = await Promise.all([
+        news.refreshNews().catch(err => ({ error: err.message })),
+        require('../lib/podcasts').refreshEpisodes().catch(err => ({ error: err.message })),
+      ]);
+      return { news: n, podcasts: p };
+    }],
+    ['retention_sweep', () => retention.runOnce()],
+  ];
+  for (const [name, fn] of tasks) {
+    try { results[name] = await fn(); }
+    catch (err) { failures++; results[name] = { error: err.message }; }
+  }
+  res.status(failures ? 207 : 200).json({ ok: failures === 0, results, finished_at: new Date().toISOString() });
+});
+
 router.get('/developer/verification', requireAuth, (req, res) => res.json(developerVerification.get(req.session.userId)));
 router.post('/developer/churches', requireAuth, requireCommunityAccess, (req, res) => {
   try { res.status(201).json({ church: developerVerification.createChurch(req.session.userId, req.body || {}) }); }
