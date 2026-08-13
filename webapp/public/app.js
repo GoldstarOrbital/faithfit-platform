@@ -219,7 +219,8 @@ async function renderSignIn() {
   const isRegister = signInMode === 'register';
   main.innerHTML = `
     <div class="card glass">
-      <h2>${isRegister ? 'Create your account' : 'Welcome back'}</h2>
+      <div class="home-kicker" style="margin-bottom:6px">${isRegister ? 'JOIN THE COMMUNITY' : 'WELCOME BACK'}</div>
+      <h2 style="margin-top:0">${isRegister ? 'Create your account' : 'Welcome back'}</h2>
       <p class="muted">${isRegister ? 'Faith and fitness, together. Free to join.' : 'Sign in to continue your journey.'}</p>
       ${oauthError ? `<p class="form-error">${OAUTH_ERROR_MESSAGES[oauthError] || 'Sign-in failed — please try again.'}</p>` : ''}
       ${providers.length ? `
@@ -243,7 +244,7 @@ async function renderSignIn() {
         <p class="form-error" id="auth-error" hidden></p>
         <button class="primary" type="submit" style="width:100%;margin-top:12px">${isRegister ? 'Create account' : 'Sign in'}</button>
       </form>
-      ${!isRegister?'<button class="ghost" id="forgot-password" style="width:100%;margin-top:8px">Forgot password?</button>':''}
+      ${!isRegister?'<button class="ghost" id="forgot-password" style="width:100%;margin-top:14px">Forgot password?</button>':''}
       <p class="muted" style="margin-top:14px;text-align:center">
         ${isRegister ? 'Already have an account?' : "Don't have an account yet?"}
         <a href="#" id="auth-toggle">${isRegister ? 'Sign in' : 'Create one'}</a>
