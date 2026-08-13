@@ -189,7 +189,16 @@ app.get('/developers', (req, res) => res.sendFile(path.join(__dirname, 'public',
 // index.html fallthrough below) purely so visit-tracking has somewhere to
 // attach that fires once per real page load -- never on the API calls or
 // asset requests that page load then makes.
-app.get('/', visits.track, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get('/', (req, res, next) => {
+  // The owner's own browsing (testing features, checking the live site)
+  // would otherwise inflate "unique visitors" with traffic that isn't a
+  // real prospective member. Anyone signed in as an admin is skipped --
+  // no visitor cookie set, no row recorded -- everyone else is tracked
+  // exactly as before, signed in or not.
+  const uid = req.session && req.session.userId;
+  if (uid && admin.isAdmin(uid)) return next();
+  return visits.track(req, res, next);
+}, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath, stat) {

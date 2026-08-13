@@ -57,8 +57,13 @@ function metrics() {
   const totalUsers = one('SELECT COUNT(*) c FROM users').c;
   const signups24h = one("SELECT COUNT(*) c FROM users WHERE created_at > datetime('now','-1 day')").c;
   const signups7d = one("SELECT COUNT(*) c FROM users WHERE created_at > datetime('now','-7 days')").c;
-  const active24h = one("SELECT COUNT(DISTINCT user_id) c FROM user_sessions WHERE last_seen_at > datetime('now','-1 day')").c;
-  const active7d = one("SELECT COUNT(DISTINCT user_id) c FROM user_sessions WHERE last_seen_at > datetime('now','-7 days')").c;
+  // Excludes admin accounts -- an owner testing their own app is not a
+  // member being active, and would otherwise inflate this every time they
+  // open it themselves.
+  const active24h = one(`SELECT COUNT(DISTINCT s.user_id) c FROM user_sessions s
+    JOIN users u ON u.id = s.user_id WHERE s.last_seen_at > datetime('now','-1 day') AND u.is_admin = 0`).c;
+  const active7d = one(`SELECT COUNT(DISTINCT s.user_id) c FROM user_sessions s
+    JOIN users u ON u.id = s.user_id WHERE s.last_seen_at > datetime('now','-7 days') AND u.is_admin = 0`).c;
   // Unauthenticated foot traffic -- distinct from active_24h/active_7d above,
   // which only see people who actually signed in. See lib/visits.js.
   const visitStats = visits.metrics();
@@ -122,8 +127,9 @@ function dailyTrend(days = 30) {
     GROUP BY d
   `, `-${n} days`);
   const activeRows = all(`
-    SELECT date(last_seen_at) d, COUNT(DISTINCT user_id) c FROM user_sessions
-    WHERE last_seen_at > datetime('now', ?)
+    SELECT date(s.last_seen_at) d, COUNT(DISTINCT s.user_id) c FROM user_sessions s
+    JOIN users u ON u.id = s.user_id
+    WHERE s.last_seen_at > datetime('now', ?) AND u.is_admin = 0
     GROUP BY d
   `, `-${n} days`);
   const signupsByDay = Object.fromEntries(signupRows.map(r => [r.d, r.c]));
