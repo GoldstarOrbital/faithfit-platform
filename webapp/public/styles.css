@@ -354,6 +354,17 @@ a:hover { color: var(--gold); }
 .suggest-head { font-family:'Cinzel',serif; font-size:0.92rem; color: var(--ink); margin-bottom:10px; }
 .suggest-rail { display:flex; gap:12px; overflow-x:auto; scrollbar-width:none; padding-bottom:4px; }
 .suggest-rail::-webkit-scrollbar { display:none; }
+.home-explore-rail { display:flex; gap:10px; overflow-x:auto; scrollbar-width:none; padding-bottom:10px; }
+.home-explore-rail::-webkit-scrollbar { display:none; }
+.home-explore-tile { flex:0 0 130px; height:110px; display:flex; flex-direction:column; justify-content:flex-end; gap:2px;
+  text-align:left; background:var(--parch-2); border:1px solid var(--hairline); border-radius:12px; padding:10px;
+  cursor:pointer; transition:box-shadow .2s, border-color .2s; font:inherit; color:inherit; }
+.home-explore-tile:hover { border-color:var(--gold,#d9ab55); box-shadow:0 2px 10px rgba(0,0,0,.08); }
+.home-explore-tile-icon { font-size:1.1rem; }
+.home-explore-tile-label { font-weight:700; font-size:.8rem; line-height:1.2; }
+.home-explore-tile-sub { font-size:.68rem; color:var(--muted); line-height:1.25; }
+.home-explore-tile-reel { background-color:#2b1e14; color:#fdf8ea; }
+.home-explore-tile-reel .home-explore-tile-label, .home-explore-tile-reel .home-explore-tile-icon { color:#fdf8ea; }
 .suggest-item { flex:0 0 132px; display:flex; flex-direction:column; align-items:center; gap:6px; text-align:center;
   background: var(--parch-2); border:1px solid var(--hairline); border-radius:12px; padding:14px 10px; cursor:pointer; transition: box-shadow .2s, border-color .2s; }
 .suggest-item:hover { border-color: var(--emerald); box-shadow: 0 0 14px var(--emerald-glow); }

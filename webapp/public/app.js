@@ -403,7 +403,7 @@ async function renderHome(main) {
   const posts = Array.isArray(feedData) ? feedData : (feedData.posts || []);
   const users = critical[1];
   const secondary = state.homeCache && state.homeCache.secondary;
-  const [suggested, rec, devo, churchVideos] = secondary || [[], null, null, null];
+  const [suggested, rec, devo, churchVideos, homeReels, homeJourneys, homeMotivation] = secondary || [[], null, null, null, [], [], null];
   if (!cacheMatchesScope) state.homeCache = { posts, users, nextCursor: Array.isArray(feedData) ? null : feedData.next_cursor, secondary: null, scope: state.feedScope };
   const firstName = escapeHtml((state.me && state.me.user && state.me.user.display_name || 'friend').split(' ')[0]);
   main.innerHTML = `
@@ -427,6 +427,30 @@ async function renderHome(main) {
       <p class="mission-prompt">Take a short movement break, notice your breath, and let this verse shape the next mile—not as a performance test, but as a practice of presence.</p>
       <div class="mission-actions"><button class="primary" data-home-tab="workout">Begin the mission</button><a class="ghost mission-read" href="https://www.bible.com/search/bible?query=${encodeURIComponent(rec.verse.reference)}" target="_blank" rel="noopener">Read in Bible ↗</a></div>
       <div class="mission-grounding">Functioning Faith coaching is generated from your activity context; Scripture text is always shown from the verified library.</div>
+    </div>` : ''}
+    ${(homeReels?.videos?.length || homeJourneys?.length || homeMotivation) ? `
+    <div class="card glass" style="padding:14px 14px 6px">
+      <div class="foryou-head" style="margin-bottom:8px">↗ From Explore</div>
+      <div class="home-explore-rail">
+        ${homeMotivation ? `<button class="home-explore-tile" data-home-tab="explore" data-home-explore="motivation">
+            <span class="home-explore-tile-icon">💬</span>
+            <span class="home-explore-tile-label">Motivation</span>
+            <span class="home-explore-tile-sub">${escapeHtml((homeMotivation.text || '').slice(0, 60))}${(homeMotivation.text || '').length > 60 ? '…' : ''}</span>
+          </button>` : ''}
+        ${homeJourneys && homeJourneys.length ? (() => {
+          const j = homeJourneys.find(x => x.progress_km > 0 && !x.completed_at) || homeJourneys[0];
+          return `<button class="home-explore-tile" data-home-tab="explore" data-home-explore="journeys">
+            <span class="home-explore-tile-icon">🗺️</span>
+            <span class="home-explore-tile-label">${escapeHtml(j.name || 'Journeys')}</span>
+            <span class="home-explore-tile-sub">${j.progress_km ? `${j.progress_km} / ${j.total_km} km` : `${j.total_km} km · ${escapeHtml(j.world || '')}`}</span>
+          </button>`;
+        })() : ''}
+        ${homeReels?.videos?.slice(0, 3).map(v => `
+          <button class="home-explore-tile home-explore-tile-reel" data-home-tab="explore" data-home-explore="reels" style="${v.thumbnail_url ? `background-image:linear-gradient(0deg,rgba(20,14,8,.75),rgba(20,14,8,.1)),url('${escapeHtml(v.thumbnail_url)}');background-size:cover;background-position:center` : ''}">
+            <span class="home-explore-tile-icon">▶</span>
+            <span class="home-explore-tile-label">${escapeHtml((v.title || 'Reel').slice(0, 40))}</span>
+          </button>`).join('') || ''}
+      </div>
     </div>` : ''}
     <div class="social-section-label"><span>${state.feedScope === 'following' ? 'Following' : 'Community'}</span><span>${users.length ? users.length + ' nearby' : 'Your people'}</span></div>
     <div class="feed-switch" role="tablist" aria-label="Feed view">
@@ -556,9 +580,30 @@ async function renderHome(main) {
   });
   postsEl.querySelectorAll('.post-user[data-user]').forEach(el => el.onclick = () => renderUserProfile(el.dataset.user));
   postsEl.querySelectorAll('[data-like]').forEach(btn => btn.onclick = async () => {
-    await api(`/posts/${btn.dataset.like}/like`, { method: 'POST' });
-    state.homeCache = null;
-    renderHome(main);
+    // In-place, optimistic -- a like used to force a full renderHome(), which
+    // reset scroll position and collapsed any comment thread the person had
+    // open just to update one heart icon. Update the DOM and the cache
+    // directly instead; only revert on an actual failure.
+    const postId = btn.dataset.like;
+    const countEl = btn.querySelector('.n');
+    const wasLiked = btn.classList.contains('liked');
+    const prevCount = Number(countEl.textContent) || 0;
+    btn.classList.toggle('liked', !wasLiked);
+    btn.firstChild.textContent = wasLiked ? '🤍 ' : '❤️ ';
+    countEl.textContent = wasLiked ? prevCount - 1 : prevCount + 1;
+    const cached = state.homeCache?.posts?.find(p => String(p.id) === String(postId));
+    try {
+      const r = await api(`/posts/${postId}/like`, { method: 'POST', throwOnError: true });
+      if (cached) { cached.liked_by_me = r.liked; cached.like_count = r.like_count; }
+      if (typeof r.like_count === 'number') countEl.textContent = r.like_count;
+      btn.classList.toggle('liked', !!r.liked);
+      btn.firstChild.textContent = r.liked ? '❤️ ' : '🤍 ';
+    } catch (e) {
+      btn.classList.toggle('liked', wasLiked);
+      btn.firstChild.textContent = wasLiked ? '❤️ ' : '🤍 ';
+      countEl.textContent = prevCount;
+      showToast('Could not save that like — try again.', true);
+    }
   });
   postsEl.querySelectorAll('[data-save-post]').forEach(btn => btn.onclick = async () => {
     const result = await api(`/posts/${encodeURIComponent(btn.dataset.savePost)}/save`, { method: 'POST', body: {}, throwOnError: true }).catch(() => null);
@@ -593,10 +638,31 @@ async function renderHome(main) {
     btn.innerHTML = `${result.liked ? '❤️' : '🤍'} <span>${result.like_count}</span>`;
   }); }
   function wireCommentSubmit(root) { root.querySelectorAll('[data-send-comment]').forEach(btn => btn.onclick = async () => {
+    // Appends the new comment in place instead of the full renderHome() this
+    // used to force -- that reset scroll position and re-collapsed the very
+    // thread someone had just posted into.
     const id = btn.dataset.sendComment; const input = document.getElementById(`comment-input-${id}`);
-    if (!input.value.trim()) return;
-    await api(`/posts/${id}/comments`, { method: 'POST', body: { content: input.value } });
-    state.homeCache = null; renderHome(main);
+    const text = input.value.trim();
+    if (!text) return;
+    btn.disabled = true;
+    try {
+      const comment = await api(`/posts/${id}/comments`, { method: 'POST', body: { content: text }, throwOnError: true });
+      const row = document.createElement('div');
+      row.className = 'comment comment-with-action';
+      row.innerHTML = `<div><b>${escapeHtml(comment.author)}</b>${escapeHtml(comment.content)}</div><button class="comment-like" data-comment-like="${escapeHtml(comment.id)}" aria-pressed="false">🤍 <span>0</span></button>`;
+      const inputRow = root.querySelector('.comment-input-row');
+      root.insertBefore(row, inputRow);
+      wireCommentLikes(row);
+      input.value = '';
+      const countEl = document.querySelector(`[data-comment-toggle="${id}"] .n`);
+      if (countEl) countEl.textContent = (Number(countEl.textContent) || 0) + 1;
+      const cached = state.homeCache?.posts?.find(p => String(p.id) === String(id));
+      if (cached) cached.comment_count = (cached.comment_count || 0) + 1;
+    } catch (e) {
+      showToast('Could not post that comment — try again.', true);
+    } finally {
+      btn.disabled = false;
+    }
   }); }
   postsEl.querySelectorAll('[data-vis]').forEach(sel => {
     if (sel.tagName !== 'SELECT') return;
@@ -621,6 +687,9 @@ async function renderHome(main) {
       api('/recommendations').catch(() => null),
       api('/devotionals/today').catch(() => null),
       api('/church/videos').catch(() => null),
+      api('/reels').catch(() => null),
+      api('/journeys').catch(() => []),
+      api('/motivation').catch(() => null),
     ]).then(data => {
       if (state.homeCache !== cache) return;
       cache.secondary = data;
@@ -1035,19 +1104,56 @@ async function renderExplore(main) {
         <input class="input" id="ng-church" maxlength="120" placeholder="Church or ministry (optional)" />
         <input class="input" id="ng-location" maxlength="120" placeholder="Location (city, park, gym…)" />
         <textarea class="input" id="ng-description" maxlength="500" rows="3" placeholder="What is this group about?"></textarea>
+        <div class="toggle-row">
+          <span>Private — only people with an invite link can join</span>
+          <label class="switch"><input type="checkbox" id="ng-private"><span class="slider"></span></label>
+        </div>
+        <div class="muted" style="font-size:.76rem;margin:-2px 0 8px">Public groups show up in search and "Find groups near you" for anyone. Private groups (e.g. just your friends) never appear there — the only way in is a link you share yourself.</div>
         <div id="ng-status" class="muted" style="margin:6px 0"></div><button class="primary" id="ng-submit" style="width:100%">Create group</button>
       </div>
+      <div class="card glass" id="nearby-groups-card">
+        <h3 style="margin-top:0">Find public groups near you</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <input class="input" id="ngb-sport" maxlength="50" placeholder="Sport or activity (optional, e.g. Pickleball)" style="flex:1;min-width:160px">
+          <button class="ghost" id="ngb-search">📍 Search near me</button>
+        </div>
+        <div id="nearby-groups-status" class="muted"></div>
+        <div id="nearby-groups-results"></div>
+      </div>
       <div class="card glass" id="recommended-groups"><div class="muted">Finding groups for you…</div></div>
-      ${groups.map(g => `<div class="card glass" data-group="${g.id}" style="cursor:pointer"><strong>${escapeHtml(g.name)}</strong><div class="muted">@${escapeHtml(g.username || '')} · ${g.member_count || 0} members${g.sport ? ' · ' + escapeHtml(g.sport) : ''}${g.location_name ? ' · ' + escapeHtml(g.location_name) : ''}</div><div class="muted">${escapeHtml(g.description || '')}</div></div>`).join('')}
+      ${groups.map(g => `<div class="card glass" data-group="${g.id}" style="cursor:pointer"><strong>${escapeHtml(g.name)}</strong>${g.visibility === 'private' ? ' <span class="muted" style="font-size:.72rem">🔒 private</span>' : ''}<div class="muted">@${escapeHtml(g.username || '')} · ${g.member_count || 0} members${g.sport ? ' · ' + escapeHtml(g.sport) : ''}${g.location_name ? ' · ' + escapeHtml(g.location_name) : ''}</div><div class="muted">${escapeHtml(g.description || '')}</div></div>`).join('')}
       <h2>Quests</h2>
       ${quests.map(q => `<div class="card glass"><strong>${q.name}</strong><div class="muted">${q.description} · theme: ${q.theme}</div></div>`).join('')}
     `;
     document.getElementById('new-group-btn').onclick = () => { const f = document.getElementById('new-group-form'); f.style.display = f.style.display === 'none' ? 'block' : 'none'; };
     document.getElementById('ng-submit').onclick = async () => {
       const status = document.getElementById('ng-status'); status.textContent = 'Creating…';
-      const r = await api('/groups', { method: 'POST', body: { name: document.getElementById('ng-name').value, username: document.getElementById('ng-username').value, sport: document.getElementById('ng-sport').value, church_name: document.getElementById('ng-church').value, location_name: document.getElementById('ng-location').value, description: document.getElementById('ng-description').value } });
+      const r = await api('/groups', { method: 'POST', body: { name: document.getElementById('ng-name').value, username: document.getElementById('ng-username').value, sport: document.getElementById('ng-sport').value, church_name: document.getElementById('ng-church').value, location_name: document.getElementById('ng-location').value, description: document.getElementById('ng-description').value, visibility: document.getElementById('ng-private').checked ? 'private' : 'public' } });
       if (r.error) { status.textContent = r.hint || r.error; return; }
       renderGroupDetail(r.group.id);
+    };
+    document.getElementById('ngb-search').onclick = () => {
+      const status = document.getElementById('nearby-groups-status');
+      const results = document.getElementById('nearby-groups-results');
+      if (!navigator.geolocation) { status.textContent = "Location isn't supported in this browser."; return; }
+      status.textContent = 'Getting your location…';
+      results.innerHTML = '';
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        status.textContent = 'Searching nearby public groups…';
+        try {
+          const { latitude, longitude } = pos.coords;
+          const sport = document.getElementById('ngb-sport').value.trim();
+          const r = await api(`/groups/nearby?lat=${latitude}&lng=${longitude}&radius_km=40${sport ? '&sport=' + encodeURIComponent(sport) : ''}`);
+          if (!r.groups.length) { status.textContent = 'No public groups found nearby yet — be the first to start one.'; return; }
+          status.textContent = `Found ${r.groups.length} nearby.`;
+          results.innerHTML = r.groups.map(g => `<div class="card glass" data-group="${g.id}" style="cursor:pointer;padding:10px;margin-top:6px">
+            <strong>${escapeHtml(g.name)}</strong>
+            <div class="muted">${g.distance_km} km away${g.sport ? ' · ' + escapeHtml(g.sport) : ''}${g.location_name ? ' · ' + escapeHtml(g.location_name) : ''} · ${g.member_count || 0} members</div>
+            ${g.description ? `<div class="muted" style="font-size:.82rem">${escapeHtml(g.description)}</div>` : ''}
+          </div>`).join('');
+          results.querySelectorAll('[data-group]').forEach(el => el.onclick = () => renderGroupDetail(el.dataset.group));
+        } catch { status.textContent = 'Could not search nearby groups.'; }
+      }, () => { status.textContent = 'Location permission denied — enable it to search nearby.'; });
     };
     api('/groups/recommended').then(r => { const el = document.getElementById('recommended-groups'); if (!r.groups.length) { el.remove(); return; } el.innerHTML = `<div class="field-label">${r.chosen_by === 'gloo' ? '✦ Gloo picks for you' : 'Suggested groups'}</div>` + r.groups.slice(0, 3).map(g => `<div class="comment" data-group="${g.id}" style="cursor:pointer"><b>${escapeHtml(g.name)}</b><div class="muted">@${escapeHtml(g.username || '')} · ${escapeHtml(g.reason || '')}</div></div>`).join(''); el.querySelectorAll('[data-group]').forEach(x => x.onclick = () => renderGroupDetail(x.dataset.group)); }).catch(() => document.getElementById('recommended-groups')?.remove());
     body.querySelectorAll('[data-group]').forEach(el => el.onclick = () => renderGroupDetail(el.dataset.group));
@@ -1460,7 +1566,7 @@ async function renderGroupDetail(groupId) {
   main.innerHTML = `
     <button class="ghost back-btn" id="group-back">← Back</button>
     <div class="card glass">
-      <h2 style="margin-top:0">${escapeHtml(g.name)}</h2>
+      <h2 style="margin-top:0">${escapeHtml(g.name)}${g.visibility === 'private' ? ' <span class="muted" style="font-size:.72rem">🔒 private</span>' : ''}</h2>
       <div class="muted" style="margin-bottom:6px">@${escapeHtml(g.username || '')}${g.sport ? ' · ' + escapeHtml(g.sport) : ''}${g.location_name ? ' · ' + escapeHtml(g.location_name) : ''}</div>
       ${g.church_name ? `<div class="muted" style="margin-bottom:6px">⛪ ${escapeHtml(g.church_name)}</div>` : ''}
       <div style="margin-bottom:10px">${escapeHtml(g.description || '')}</div>

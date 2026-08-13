@@ -70,6 +70,9 @@ const ACTIVITY_TYPES = [
   { type: 'Yoga', icon: '🧘', d: false },
   { type: 'Pilates', icon: '🤸', d: false },
   { type: 'Climbing', icon: '🧗', d: false },
+  { type: 'Pickleball', icon: '🏓', d: true },
+  { type: 'Tennis', icon: '🎾', d: false },
+  { type: 'Basketball', icon: '🏀', d: false },
   { type: 'Skiing', icon: '⛷️', d: true },
   { type: 'Workout', icon: '💪', d: false },
 ];
@@ -1995,9 +1998,14 @@ router.post('/users/:id/report', requireAuth, (req, res) => {
 
 // ---- explore ----
 router.get('/explore', (req, res) => {
+  // Private groups are excluded here for everyone but their own members --
+  // this is the general discovery listing, and "private" only means
+  // anything if it isn't just handed to every visitor regardless.
+  const me = req.session.userId;
   const groups = db.prepare(`SELECT g.*, COUNT(gm.user_id) AS member_count
     FROM groups g LEFT JOIN group_members gm ON gm.group_id = g.id
-    GROUP BY g.id ORDER BY g.name`).all();
+    WHERE g.visibility = 'public' OR EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = g.id AND m.user_id = ?)
+    GROUP BY g.id ORDER BY g.name`).all(me || null);
   const quests = db.prepare('SELECT * FROM quests').all();
   res.json({ groups, quests });
 });
@@ -2019,21 +2027,48 @@ function groupInvitePayload(group, token) {
 }
 
 router.post('/groups', requireAuth, requireCommunityAccess, (req, res) => {
-  const { name, description, username, church_osm_id, church_name, location_name, lat, lng, sport } = req.body || {};
+  const { name, description, username, church_osm_id, church_name, location_name, lat, lng, sport, visibility } = req.body || {};
   const cleanName = String(name || '').trim().slice(0, 80);
   const handle = groupUsername(username || name);
+  const vis = visibility === 'private' ? 'private' : 'public';
   if (!cleanName) return res.status(400).json({ error: 'name_required' });
   if (!/^[a-z0-9][a-z0-9_-]{2,29}$/.test(handle)) return res.status(400).json({ error: 'invalid_username', hint: 'Use 3–30 lowercase letters, numbers, hyphens, or underscores.' });
   if (db.prepare('SELECT 1 FROM groups WHERE username = ?').get(handle)) return res.status(409).json({ error: 'username_taken' });
   const id = randomUUID();
   db.prepare(`INSERT INTO groups (id, name, description, username, creator_id, church_osm_id, church_name,
-    location_name, lat, lng, sport, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
+    location_name, lat, lng, sport, visibility, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
     .run(id, cleanName, String(description || '').trim().slice(0, 500) || null, handle, req.session.userId,
       church_osm_id ? String(church_osm_id).slice(0, 80) : null, church_name ? String(church_name).trim().slice(0, 120) : null,
       location_name ? String(location_name).trim().slice(0, 120) : null, Number.isFinite(Number(lat)) ? Number(lat) : null,
-      Number.isFinite(Number(lng)) ? Number(lng) : null, sport ? String(sport).trim().slice(0, 50) : null);
+      Number.isFinite(Number(lng)) ? Number(lng) : null, sport ? String(sport).trim().slice(0, 50) : null, vis);
   db.prepare("INSERT INTO group_members (group_id, user_id, role) VALUES (?, ?, 'admin')").run(id, req.session.userId);
   res.status(201).json({ group: db.prepare('SELECT * FROM groups WHERE id = ?').get(id), is_admin: true });
+});
+
+// Public groups near a point -- only groups with lat/lng set and
+// visibility='public' are discoverable this way. Private groups never show
+// up here regardless of distance; they're found only through an invite link.
+router.get('/groups/nearby', requireAuth, (req, res) => {
+  const lat = Number(req.query.lat), lng = Number(req.query.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return res.status(400).json({ error: 'lat_lng_required' });
+  const radiusKm = Math.min(200, Math.max(1, Number(req.query.radius_km) || 25));
+  const sport = req.query.sport ? String(req.query.sport).trim().slice(0, 50) : null;
+
+  const rows = db.prepare(`
+    SELECT g.*, COUNT(gm.user_id) AS member_count
+    FROM groups g LEFT JOIN group_members gm ON gm.group_id = g.id
+    WHERE g.visibility = 'public' AND g.lat IS NOT NULL AND g.lng IS NOT NULL
+      ${sport ? 'AND g.sport = @sport' : ''}
+    GROUP BY g.id
+  `).all(sport ? { sport } : {});
+
+  const nearby = rows
+    .map(g => ({ ...g, distance_km: Math.round(haversineMetres([lat, lng], [g.lat, g.lng]) / 100) / 10 }))
+    .filter(g => g.distance_km <= radiusKm)
+    .sort((a, b) => a.distance_km - b.distance_km)
+    .slice(0, 50);
+
+  res.json({ groups: nearby });
 });
 
 router.get('/groups/username/:username', requireAuth, (req, res) => {
@@ -2126,8 +2161,13 @@ router.get('/groups/:id', requireAuth, (req, res) => {
 });
 
 router.post('/groups/:id/join', requireAuth, (req, res) => {
-  const group = db.prepare('SELECT id FROM groups WHERE id = ?').get(req.params.id);
+  const group = db.prepare('SELECT id, visibility FROM groups WHERE id = ?').get(req.params.id);
   if (!group) return res.status(404).json({ error: 'not_found' });
+  // A private group is joinable only through an invite link (POST
+  // /groups/invites/:token/join, already inserts membership directly) --
+  // this generic route is the "friends with your friends" open door and
+  // must not double as a way around that for a group marked private.
+  if (group.visibility === 'private') return res.status(403).json({ error: 'private_group_requires_invite' });
   db.prepare('INSERT OR IGNORE INTO group_members (group_id, user_id) VALUES (?, ?)').run(group.id, req.session.userId);
   res.json({ ok: true });
 });
@@ -4890,8 +4930,9 @@ router.get('/search', requireAuth, (req, res) => {
 
   add('groups', 'Groups', db.prepare(
     `SELECT id, name, username, description FROM groups
-     WHERE name LIKE ? ESCAPE '\\' OR username LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\'
-     ORDER BY length(name) LIMIT ?`).all(like, like, like, limit)
+     WHERE (name LIKE @like ESCAPE '\\' OR username LIKE @like ESCAPE '\\' OR description LIKE @like ESCAPE '\\')
+       AND (visibility = 'public' OR EXISTS (SELECT 1 FROM group_members m WHERE m.group_id = groups.id AND m.user_id = @me))
+     ORDER BY length(name) LIMIT @limit`).all({ like, me: req.session.userId, limit })
     .map(g => ({ id: g.id, title: g.name, subtitle: g.username ? '@' + g.username + ' · ' + (g.description || '') : g.description })));
 
   try {

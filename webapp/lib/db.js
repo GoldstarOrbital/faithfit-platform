@@ -205,6 +205,11 @@ addGroupCol('lng', 'lng REAL');
 addGroupCol('sport', 'sport TEXT');
 addGroupCol('gloo_synced_at', 'gloo_synced_at TEXT');
 addGroupCol('created_at', 'created_at TEXT');
+// 'public' (findable in search/nearby by anyone) or 'private' (joinable only
+// via an invite link -- see group_invites, already used for both). Existing
+// groups default to 'public', matching how they behaved before this column
+// existed (findable via /explore and search with no gate at all).
+addGroupCol('visibility', "visibility TEXT NOT NULL DEFAULT 'public'");
 db.exec("UPDATE groups SET created_at = datetime('now') WHERE created_at IS NULL");
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_username ON groups(username) WHERE username IS NOT NULL');
 
