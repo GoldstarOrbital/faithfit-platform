@@ -1001,6 +1001,22 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
 .reel-scripture { display:flex; align-items:center; gap:6px; margin-top:9px; padding:6px 9px; border:1px solid rgba(255,227,160,.5); border-radius:10px; color:#fff3cf; background:rgba(43,30,18,.5); font:inherit; font-size:.71rem; font-weight:800; text-shadow:none; cursor:pointer; }
 .reel-scripture:hover, .reel-scripture:focus-visible { background:rgba(43,30,18,.76); border-color:#ffe3a0; }
 .reel-scripture:focus-visible { outline:2px solid #fff; outline-offset:2px; }
+.reel-discussion-backdrop { position:fixed; z-index:100; inset:0; display:flex; align-items:flex-end; justify-content:center; padding:16px; background:rgba(20,14,10,.66); backdrop-filter:blur(7px); }
+.reel-discussion { width:min(100%,520px); max-height:calc(100svh - 32px); overflow:auto; padding:18px; border-radius:24px; color:var(--ink); background:var(--parch); box-shadow:0 20px 56px rgba(0,0,0,.35); }
+.reel-discussion h2 { margin:2px 0 0; }
+.reel-discussion-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.reel-discussion-head .ghost { min-width:42px; min-height:42px; padding:0; font-size:1.35rem; }
+.reel-discussion-list { display:flex; flex-direction:column; gap:8px; margin-top:14px; }
+.reel-comment { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; padding:10px 11px; border-radius:14px; background:rgba(43,30,18,.055); }
+.reel-comment b, .reel-comment span, .reel-comment small { display:block; }
+.reel-comment b { font-size:.78rem; }
+.reel-comment span { margin-top:2px; font-size:.86rem; line-height:1.4; white-space:pre-wrap; }
+.reel-comment small { margin-top:4px; color:var(--muted); font-size:.67rem; }
+.reel-comment-delete { flex:0 0 auto; min-width:34px; min-height:34px; padding:0; }
+.reel-discussion-empty { padding:14px; border:1px dashed var(--line); border-radius:14px; color:var(--muted); font-size:.82rem; line-height:1.4; text-align:center; }
+.reel-comment-form { display:flex; gap:8px; margin-top:4px; }
+.reel-comment-form input { min-width:0; flex:1; border:1px solid var(--line); border-radius:12px; padding:10px 11px; color:var(--ink); background:#fffdf7; font:inherit; }
+.reel-comment-form button { flex:0 0 auto; min-height:42px; padding:8px 12px; }
 .reel-card.is-active .reel-play { display:none; }
 .reel-studio-backdrop { position:fixed; z-index:100; inset:0; display:flex; align-items:flex-end; justify-content:center; padding:16px; background:rgba(20,14,10,.66); backdrop-filter:blur(7px); }
 .reel-studio { width:min(100%,520px); max-height:calc(100svh - 32px); overflow:auto; padding:18px; border-radius:24px; color:var(--ink); background:var(--parch); box-shadow:0 20px 56px rgba(0,0,0,.35); }

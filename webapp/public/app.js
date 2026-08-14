@@ -2017,6 +2017,57 @@ function reelShareButton() {
   return '<button type="button" class="reel-action" data-reel-action="share" aria-label="Share reel"><span class="reel-action-icon">↗</span><span>Share</span></button>';
 }
 
+// Original Reels are posts first, so their conversation uses the exact same
+// visibility, block, rate-limit, moderation, and notification rules as the
+// rest of the community. Curated third-party clips deliberately do not grow a
+// detached anonymous comment section: there is no creator relationship there
+// to steward or notify.
+function openReelDiscussion(postId) {
+  const host = document.createElement('div');
+  host.className = 'reel-discussion-backdrop';
+  host.innerHTML = `<section class="reel-discussion" role="dialog" aria-modal="true" aria-label="Reel conversation">
+    <div class="reel-discussion-head"><div><div class="video-kicker">FUNCTIONING FAITH ORIGINAL</div><h2>Encourage the creator</h2></div><button type="button" class="ghost" data-reel-discussion-close aria-label="Close conversation">×</button></div>
+    <p class="muted">Keep this focused on the shared moment. The creator and people already in the conversation can be notified.</p>
+    <div class="reel-discussion-list" data-reel-discussion-list><div class="muted">Loading conversation…</div></div>
+  </section>`;
+  document.body.appendChild(host);
+  const list = host.querySelector('[data-reel-discussion-list]');
+  const close = () => { document.removeEventListener('keydown', onKey); host.remove(); };
+  const onKey = e => { if (e.key === 'Escape') close(); };
+  document.addEventListener('keydown', onKey);
+  host.querySelector('[data-reel-discussion-close]').onclick = close;
+  host.addEventListener('click', e => { if (e.target === host) close(); });
+
+  const paint = comments => {
+    list.innerHTML = `${comments.length
+      ? comments.map(c => `<div class="reel-comment" data-reel-comment="${escapeHtml(c.id)}"><div><b>${escapeHtml(c.author)}</b><span>${escapeHtml(c.content)}</span><small>${escapeHtml(timeAgo(c.created_at))} ago</small></div>${c.can_delete ? '<button type="button" class="ghost reel-comment-delete" data-reel-comment-delete="' + escapeHtml(c.id) + '" aria-label="Delete your comment">🗑</button>' : ''}</div>`).join('')
+      : '<div class="reel-discussion-empty">Be the first to offer a thoughtful encouragement.</div>'}
+      <form class="reel-comment-form" data-reel-comment-form><input maxlength="500" autocomplete="off" aria-label="Add an encouragement" placeholder="Offer encouragement…"><button type="submit" class="primary">Send</button></form>`;
+    list.querySelector('[data-reel-comment-form]').onsubmit = async e => {
+      e.preventDefault();
+      const input = e.currentTarget.querySelector('input');
+      const content = input.value.trim();
+      if (!content) return;
+      const button = e.currentTarget.querySelector('button');
+      button.disabled = true;
+      const out = await api(`/posts/${encodeURIComponent(postId)}/comments`, { method: 'POST', body: { content } }).catch(() => ({ error: 'network' }));
+      button.disabled = false;
+      if (out.error) { showToast(out.hint || 'Could not send that encouragement.', true); return; }
+      paint([...comments, { ...out, can_delete: true }]);
+    };
+    list.querySelectorAll('[data-reel-comment-delete]').forEach(button => button.onclick = async () => {
+      if (!confirm('Delete this comment?')) return;
+      button.disabled = true;
+      const out = await api(`/comments/${encodeURIComponent(button.dataset.reelCommentDelete)}`, { method: 'DELETE' }).catch(() => ({ error: 'network' }));
+      if (out.error) { button.disabled = false; showToast('Could not delete that comment.', true); return; }
+      paint(comments.filter(c => c.id !== button.dataset.reelCommentDelete));
+    });
+  };
+  api(`/posts/${encodeURIComponent(postId)}/comments`).then(out => paint(out.comments || [])).catch(() => {
+    list.innerHTML = '<div class="reel-discussion-empty">This conversation is unavailable.</div>';
+  });
+}
+
 // Standalone short-form feed: Reels is intentionally separate from Videos so
 // it behaves like a scrollable social surface, not another category shelf.
 async function renderReelsTab(body) {
@@ -2061,7 +2112,7 @@ async function renderReelsTab(body) {
     <div class="reel-frame video-thumb-wrap" data-reel-frame="${escapeHtml(v.video_id)}">${v.provider === 'functioning_faith'
       ? `<video src="${escapeHtml(v.video_data || '')}" muted loop playsinline preload="metadata" aria-label="${escapeHtml(v.title || 'Functioning Faith reel')}"></video>${reelSoundButton(reelsSoundOn())}`
       : `<img loading="lazy" src="${escapeHtml(v.thumbnail_url || ((v.provider || 'youtube') === 'youtube' ? `https://i.ytimg.com/vi/${encodeURIComponent(v.video_id)}/hqdefault.jpg` : ''))}" alt="${escapeHtml(v.title || 'Functioning Faith reel')}" /><span class="reel-play">▶</span>${reelSoundButton(reelsSoundOn())}`}</div>
-    <div class="reel-actions" aria-label="Reel actions">${reelActionButton('like', v.liked_by_me, v.like_count)}${reelActionButton('save', v.saved_by_me, v.save_count)}${reelShareButton()}</div>
+    <div class="reel-actions" aria-label="Reel actions">${reelActionButton('like', v.liked_by_me, v.like_count)}${reelActionButton('save', v.saved_by_me, v.save_count)}${v.source_kind === 'functioning_faith' ? `<button type="button" class="reel-action" data-reel-discuss="${escapeHtml(v.video_id)}" aria-label="Discuss this Reel"><span class="reel-action-icon">💬</span><span>Discuss</span></button>` : ''}${reelShareButton()}</div>
     <div class="reel-overlay"><div class="reel-meta"><span class="video-audience">${escapeHtml(labels[v.category] || 'Faith + movement')}</span><span class="reel-source">${escapeHtml(sourceLabel(v))}</span></div><div class="reel-title">${escapeHtml(v.title || 'Short encouragement')}</div><div class="muted">${escapeHtml(v.channel_title || '')}</div>${v.verse_reference ? `<button type="button" class="reel-scripture" data-reel-verse-ref="${escapeHtml(v.verse_reference)}">Open ${escapeHtml(v.verse_reference)} <span aria-hidden="true">→</span></button>` : ''}${v.source_url && ['instagram','tiktok'].includes(v.provider) ? `<a class="reel-external-link" href="${escapeHtml(v.source_url)}" target="_blank" rel="noopener noreferrer">Open original on ${escapeHtml(v.provider)}</a>` : ''}</div>
   </article>`).join('');
   let activeCard = null;
@@ -2102,6 +2153,8 @@ async function renderReelsTab(body) {
   list.addEventListener('click', (e) => {
     const verse = e.target.closest('[data-reel-verse-ref]');
     if (verse) { e.stopPropagation(); e.preventDefault(); renderVerseThread(verse.dataset.reelVerseRef); return; }
+    const discuss = e.target.closest('[data-reel-discuss]');
+    if (discuss) { e.stopPropagation(); e.preventDefault(); openReelDiscussion(discuss.dataset.reelDiscuss); return; }
     const action = e.target.closest('[data-reel-action]');
     if (action) {
       e.stopPropagation();

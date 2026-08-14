@@ -18,5 +18,9 @@ assert.match(app, /\/impression/, 'the client must report an actual opened Reel'
 assert.match(app, /data-reel-verse-ref/, 'a Scripture-paired Reel needs an open-verse action');
 assert.match(app, /renderVerseThread\(verse\.dataset\.reelVerseRef\)/, 'opening a Reel verse must use the canonical Scripture thread');
 assert.match(css, /\.reel-scripture/, 'the Scripture action needs visible Reel styling');
+assert.match(app, /function openReelDiscussion\(postId\)/, 'owned Reels need a community conversation sheet');
+assert.match(app, /data-reel-discuss/, 'only Functioning Faith originals should expose a discussion action');
+assert.match(app, /\/posts\/\$\{encodeURIComponent\(postId\)\}\/comments/, 'Reel discussion must reuse protected post comments');
+assert.match(css, /\.reel-discussion-backdrop/, 'the discussion sheet needs a focused mobile-safe presentation');
 
-console.log(JSON.stringify({ actual_view_freshness: true, owned_reel_scripture: true, source_transparency: true }));
+console.log(JSON.stringify({ actual_view_freshness: true, owned_reel_scripture: true, source_transparency: true, original_reel_conversation: true }));
