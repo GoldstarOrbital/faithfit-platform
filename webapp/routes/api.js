@@ -2909,7 +2909,7 @@ router.delete('/me', requireAuth, (req, res) => {
     'push_log', 'user_reminders', 'motivation_seen', 'wearable_metrics',
     'overlay_tokens', 'overlay_state', 'user_sessions', 'account_security_events',
     'user_mfa', 'mfa_backup_codes', 'password_reset_tokens', 'native_auth_codes', 'developer_applications',
-    'developer_content_submissions', 'developer_enforcement_cases', 'reel_impressions', 'reel_reactions',
+    'developer_content_submissions', 'developer_enforcement_cases', 'reel_impressions', 'reel_reactions', 'reel_hides',
   ];
   try {
     db.exec('BEGIN');
@@ -3791,8 +3791,17 @@ router.get('/reels', requireAuth, async (req, res) => {
   `).all();
 
   const seen = new Set();
-  const videos = [...owned, ...curated.videos, ...library, ...curatedChurch]
+  let videos = [...owned, ...curated.videos, ...library, ...curatedChurch]
     .filter(v => v.video_id && !seen.has(v.video_id) && (seen.add(v.video_id), true));
+
+  // This is strictly the requesting member's preference. It has no effect on
+  // community visibility, creator metrics, or another member's recommendations.
+  if (videos.length) {
+    const hiddenIds = new Set(db.prepare(`SELECT video_id FROM reel_hides
+      WHERE user_id = ? AND video_id IN (${videos.map(() => '?').join(',')})`)
+      .all(req.session.userId, ...videos.map(v => String(v.video_id))).map(row => row.video_id));
+    videos = videos.filter(video => !hiddenIds.has(String(video.video_id)));
+  }
 
   // Engagement is joined after the catalogue is assembled because church
   // videos can be live candidates rather than rows in `videos`. That keeps the
@@ -3869,6 +3878,22 @@ router.post('/reels/:videoId/reaction', requireAuth, (req, res) => {
   }
   const count = db.prepare('SELECT COUNT(*) AS count FROM reel_reactions WHERE video_id = ? AND kind = ?').get(videoId, kind).count;
   res.json({ kind, active: !current, count: Number(count) });
+});
+
+// A quiet preference control, not a report or a penalty. A hidden Reel is
+// excluded only from this member's feed; the action is idempotent so retries
+// and a double tap cannot create more than one record.
+router.post('/reels/:videoId/not-interested', requireAuth, (req, res) => {
+  const videoId = String(req.params.videoId || '').trim().slice(0, 120);
+  if (!/^[A-Za-z0-9_-]{6,120}$/.test(videoId)) return res.status(400).json({ error: 'invalid_reel' });
+  try {
+    db.prepare('INSERT OR IGNORE INTO reel_hides (user_id, video_id) VALUES (?, ?)')
+      .run(req.session.userId, videoId);
+  } catch (err) {
+    console.error('[reels] not interested failed:', err.message);
+    return res.status(500).json({ error: 'reel_preference_failed' });
+  }
+  res.json({ hidden: true });
 });
 
 // ---- AI sermon summary ("10 minute podcast review") ----

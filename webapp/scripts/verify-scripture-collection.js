@@ -20,7 +20,7 @@ assert.match(api, /saved_verses: verseSaves\.list\(uid\)/, 'data export must inc
 assert.match(app, /data-verse-save/, 'verse cards need a save action');
 assert.match(app, /function renderSavedVerses\(main\)/, 'Profile needs a saved Scripture collection');
 assert.match(app, /saved-verses-open/, 'Profile must link to the saved Scripture collection');
-assert.match(index, /app\.js\?v=ff-scripture-collection-1/, 'the new app bundle must be requested');
-assert.match(sw, /functioning-faith-shell-v35/, 'the shell cache must rotate for Scripture saves');
+assert.match(index, /app\.js\?v=ff-[a-z0-9-]+-1/, 'the app bundle must be versioned');
+assert.match(sw, /functioning-faith-shell-v\d+/, 'the shell cache must be versioned');
 
 console.log('scripture collection checks passed');

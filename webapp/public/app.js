@@ -2140,7 +2140,7 @@ async function renderReelsTab(body) {
     <div class="reel-frame video-thumb-wrap" data-reel-frame="${escapeHtml(v.video_id)}">${v.provider === 'functioning_faith'
       ? `<video src="${escapeHtml(v.video_data || '')}" muted loop playsinline preload="metadata" aria-label="${escapeHtml(v.title || 'Functioning Faith reel')}"></video>${reelSoundButton(reelsSoundOn())}`
       : `<img loading="lazy" src="${escapeHtml(v.thumbnail_url || ((v.provider || 'youtube') === 'youtube' ? `https://i.ytimg.com/vi/${encodeURIComponent(v.video_id)}/hqdefault.jpg` : ''))}" alt="${escapeHtml(v.title || 'Functioning Faith reel')}" /><span class="reel-play">▶</span>${reelSoundButton(reelsSoundOn())}`}</div>
-    <div class="reel-actions" aria-label="Reel actions">${reelActionButton('like', v.liked_by_me, v.like_count)}${reelActionButton('save', v.saved_by_me, v.save_count)}${v.source_kind === 'functioning_faith' ? `<button type="button" class="reel-action" data-reel-discuss="${escapeHtml(v.video_id)}" aria-label="Discuss this Reel"><span class="reel-action-icon">💬</span><span>Discuss</span></button>` : ''}${reelShareButton()}</div>
+    <div class="reel-actions" aria-label="Reel actions">${reelActionButton('like', v.liked_by_me, v.like_count)}${reelActionButton('save', v.saved_by_me, v.save_count)}${v.source_kind === 'functioning_faith' ? `<button type="button" class="reel-action" data-reel-discuss="${escapeHtml(v.video_id)}" aria-label="Discuss this Reel"><span class="reel-action-icon">💬</span><span>Discuss</span></button>` : ''}${reelShareButton()}${state.reelsView === 'for_you' ? '<button type="button" class="reel-action reel-not-interested" data-reel-not-interested aria-label="Show fewer Reels like this"><span class="reel-action-icon">×</span><span>Not for me</span></button>' : ''}</div>
     <div class="reel-overlay"><div class="reel-meta"><span class="video-audience">${escapeHtml(labels[v.category] || 'Faith + movement')}</span><span class="reel-source">${escapeHtml(sourceLabel(v))}</span></div><div class="reel-title">${escapeHtml(v.title || 'Short encouragement')}</div><div class="muted">${escapeHtml(v.channel_title || '')}</div>${v.verse_reference ? `<button type="button" class="reel-scripture" data-reel-verse-ref="${escapeHtml(v.verse_reference)}">Open ${escapeHtml(v.verse_reference)} <span aria-hidden="true">→</span></button>` : ''}${v.source_url && ['instagram','tiktok'].includes(v.provider) ? `<a class="reel-external-link" href="${escapeHtml(v.source_url)}" target="_blank" rel="noopener noreferrer">Open original on ${escapeHtml(v.provider)}</a>` : ''}</div>
   </article>`).join('');
   let activeCard = null;
@@ -2183,6 +2183,24 @@ async function renderReelsTab(body) {
     if (verse) { e.stopPropagation(); e.preventDefault(); renderVerseThread(verse.dataset.reelVerseRef); return; }
     const discuss = e.target.closest('[data-reel-discuss]');
     if (discuss) { e.stopPropagation(); e.preventDefault(); openReelDiscussion(discuss.dataset.reelDiscuss); return; }
+    const notInterested = e.target.closest('[data-reel-not-interested]');
+    if (notInterested) {
+      e.stopPropagation();
+      e.preventDefault();
+      const card = notInterested.closest('[data-reel-card]');
+      const id = card?.dataset.reelCard;
+      if (!id) return;
+      notInterested.disabled = true;
+      api(`/reels/${encodeURIComponent(id)}/not-interested`, { method: 'POST', throwOnError: true }).then(() => {
+        const next = card.nextElementSibling || card.previousElementSibling;
+        const wasActive = activeCard === card;
+        card.remove();
+        if (wasActive && next?.matches?.('[data-reel-card]')) activate(next);
+        if (!list.querySelector('[data-reel-card]')) renderReelsTab(body);
+        showToast('Got it. We will show less like that.');
+      }).catch(() => { notInterested.disabled = false; showToast('Could not update your Reel preferences.', true); });
+      return;
+    }
     const action = e.target.closest('[data-reel-action]');
     if (action) {
       e.stopPropagation();

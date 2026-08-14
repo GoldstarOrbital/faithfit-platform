@@ -23,7 +23,8 @@
     "verify:group-calendar": "node scripts/verify-group-calendar.js",
     "verify:workout-encouragement": "node scripts/verify-workout-encouragement.js",
     "verify:social-activity": "node scripts/verify-social-activity.js",
-    "verify:scripture-collection": "node scripts/verify-scripture-collection.js"
+    "verify:scripture-collection": "node scripts/verify-scripture-collection.js",
+    "verify:reel-tuning": "node scripts/verify-reel-tuning.js"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.1",

@@ -82,6 +82,17 @@ function init() {
     );
     CREATE INDEX IF NOT EXISTS idx_reel_reactions_video ON reel_reactions(video_id, kind);
 
+    -- A member's "not for me" choices are private preference data. They are
+    -- deliberately separate from reactions: hiding a clip must not reduce a
+    -- creator's counts or alter what anyone else sees.
+    CREATE TABLE IF NOT EXISTS reel_hides (
+      user_id TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_id, video_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_reel_hides_user ON reel_hides(user_id, created_at);
+
     -- When each catalogue query last ran, so an expensive search is not repeated
     -- on every cycle.
     CREATE TABLE IF NOT EXISTS reel_query_runs (
@@ -330,8 +341,10 @@ function feed(userId, opts = {}) {
       FROM videos v
      WHERE v.dead_at IS NULL
        AND v.category IN (${Object.keys(CATEGORIES).map(() => '?').join(',')})
+       AND NOT EXISTS (SELECT 1 FROM reel_hides h
+                        WHERE h.user_id = ? AND h.video_id = v.video_id)
        ${familySafe ? 'AND COALESCE(v.language_flag,0) = 0' : ''}
-  `).all(userId, ...Object.keys(CATEGORIES));
+  `).all(userId, ...Object.keys(CATEGORIES), userId);
 
   const now = Date.now();
   const cutoff = now - SEEN_COOLDOWN_DAYS * 86400000;

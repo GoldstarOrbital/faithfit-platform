@@ -990,6 +990,8 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
 .reel-action:active { transform:scale(.92); }
 .reel-action.is-active { color:#ffb29e; background:rgba(87,39,28,.78); border-color:rgba(255,178,158,.6); }
 .reel-action.is-confirmed { color:#b6f2ce; border-color:#b6f2ce; }
+.reel-not-interested { font-size:.56rem; color:rgba(255,255,255,.86); }
+.reel-not-interested:hover, .reel-not-interested:focus-visible { color:#fff; }
 .reel-action-icon { font-size:1.2rem; line-height:1; }
 .reel-action:focus-visible { outline:2px solid #fff; outline-offset:2px; }
 .reel-overlay { position:absolute; z-index:2; left:16px; right:16px; bottom:18px; color:#fff; text-shadow:0 1px 8px rgba(0,0,0,.55); }
