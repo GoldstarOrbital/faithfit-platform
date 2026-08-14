@@ -1897,6 +1897,86 @@ function reelSoundButton(on) {
          '" aria-label="' + (on ? 'Mute' : 'Unmute') + '">' + (on ? '🔊' : '🔇') + '</button>';
 }
 
+// --- Reel studio -----------------------------------------------------------
+// The studio is intentionally small: choose a short clip or make one in the
+// browser, state how it serves people, and publish it with a verse. The server
+// independently validates real file bytes, a 60-second ceiling, and the same
+// non-solo category rule that protects photo posts.
+function openReelStudio(onPublished) {
+  const host = document.createElement('div');
+  host.className = 'reel-studio-backdrop';
+  host.innerHTML = `<section class="reel-studio" role="dialog" aria-modal="true" aria-label="Create a Reel">
+    <div class="reel-studio-head"><div><div class="video-kicker">FUNCTIONING FAITH ORIGINAL</div><h2>Create a Reel</h2></div><button class="ghost" data-reel-close aria-label="Close">×</button></div>
+    <p class="muted">Up to 60 seconds. Show a workout, nature, animals, or a group—never a solo vanity clip. Every Reel is paired with verified Scripture.</p>
+    <input id="reel-file" type="file" accept="video/mp4,video/webm" style="display:none">
+    <input id="reel-camera-file" type="file" accept="video/mp4,video/webm" capture="environment" style="display:none">
+    <div class="reel-studio-actions"><button class="ghost" id="reel-choose">Choose video</button><button class="ghost" id="reel-camera">Use phone camera</button><button class="primary" id="reel-record">Record here</button></div>
+    <div id="reel-preview" class="reel-studio-preview" hidden></div>
+    <label class="field-label" for="reel-caption">What encouragement or lesson does this offer?</label>
+    <textarea id="reel-caption" rows="3" maxlength="500" placeholder="A short, community-serving caption…"></textarea>
+    <label class="field-label" for="reel-category">What is in the clip?</label>
+    <select id="reel-category"><option value="workout">Workout or gear</option><option value="nature">Nature</option><option value="animal">Animal</option><option value="group">Group of people</option></select>
+    <label class="terms-check"><input id="reel-attest" type="checkbox"><span>I have the rights to share this, it serves the community, and it is not a solo vanity clip.</span></label>
+    <div id="reel-studio-status" class="muted" aria-live="polite"></div>
+    <button class="primary" id="reel-publish" style="width:100%;margin-top:10px">Publish Reel</button>
+  </section>`;
+  document.body.appendChild(host);
+  const $ = id => host.querySelector(id);
+  let videoData = null, recorder = null, stream = null, stopTimer = null;
+  const stopStream = () => { if (stopTimer) clearTimeout(stopTimer); stopTimer = null; if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; };
+  const close = () => { try { if (recorder && recorder.state !== 'inactive') recorder.stop(); } catch {} stopStream(); host.remove(); };
+  const status = text => { $('#reel-studio-status').textContent = text || ''; };
+  const setFile = file => {
+    if (!file) return;
+    if (!/^video\/(mp4|webm)$/.test(file.type || '')) { status('Choose an MP4 or WebM video.'); return; }
+    if (file.size > 4 * 1024 * 1024) { status('Keep the Reel under 4MB—trim it or record a shorter clip.'); return; }
+    const reader = new FileReader();
+    status('Preparing your Reel…');
+    reader.onload = () => {
+      videoData = reader.result;
+      const box = $('#reel-preview'); box.hidden = false;
+      box.innerHTML = `<video src="${escapeHtml(videoData)}" controls muted playsinline></video><div class="muted">${escapeHtml(file.name || 'Recorded Reel')} · ${(file.size / 1024 / 1024).toFixed(1)}MB</div>`;
+      status('Ready to publish.');
+    };
+    reader.onerror = () => status('Could not read that video.');
+    reader.readAsDataURL(file);
+  };
+  $('[data-reel-close]').onclick = close;
+  host.addEventListener('click', e => { if (e.target === host) close(); });
+  $('#reel-choose').onclick = () => $('#reel-file').click();
+  $('#reel-camera').onclick = () => $('#reel-camera-file').click();
+  $('#reel-file').onchange = () => setFile($('#reel-file').files?.[0]);
+  $('#reel-camera-file').onchange = () => setFile($('#reel-camera-file').files?.[0]);
+  $('#reel-record').onclick = async () => {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { status('In-browser recording is not supported here. Use your phone camera instead.'); return; }
+    if (recorder && recorder.state === 'recording') { recorder.stop(); return; }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 720 }, height: { ideal: 1280 } }, audio: true });
+      const preview = $('#reel-preview'); preview.hidden = false;
+      const live = document.createElement('video'); live.autoplay = true; live.muted = true; live.playsInline = true; live.srcObject = stream;
+      preview.innerHTML = ''; preview.appendChild(live);
+      const chunks = [];
+      const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus') ? 'video/webm;codecs=vp8,opus' : 'video/webm';
+      recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 900000 });
+      recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+      recorder.onstop = () => { const file = new File([new Blob(chunks, { type: mime })], 'functioning-faith-reel.webm', { type: mime }); stopStream(); $('#reel-record').textContent = 'Record here'; setFile(file); };
+      recorder.start(500); $('#reel-record').textContent = 'Stop recording'; status('Recording… it will stop at 60 seconds.');
+      stopTimer = setTimeout(() => { if (recorder?.state === 'recording') recorder.stop(); }, 60000);
+    } catch { stopStream(); status('Camera or microphone permission was not granted.'); }
+  };
+  $('#reel-publish').onclick = async () => {
+    const caption = $('#reel-caption').value.trim();
+    if (!videoData) { status('Choose or record a Reel first.'); return; }
+    if (!caption) { status('Add a short caption so Scripture can be matched thoughtfully.'); return; }
+    if (!$('#reel-attest').checked) { status('Confirm the rights and community-purpose standard.'); return; }
+    const btn = $('#reel-publish'); btn.disabled = true; status('Matching verified Scripture and publishing…');
+    const result = await api('/posts', { method: 'POST', body: { content: caption, visibility: 'public', video_data: videoData, video_category: $('#reel-category').value } }).catch(() => ({ error: 'network' }));
+    btn.disabled = false;
+    if (result.error) { status(result.hint || 'Could not publish this Reel.'); return; }
+    close(); if (typeof onPublished === 'function') onPublished();
+  };
+}
+
 async function renderMemberList(main, userId, kind, displayName) {
   main.innerHTML = `<button class="ghost back-btn" id="member-list-back">← Back to ${escapeHtml(displayName)}'s profile</button><div class="card glass"><span class="eyebrow">Community</span><h2>${kind === 'followers' ? 'Followers' : 'Following'}</h2><p class="muted">People connected to ${escapeHtml(displayName)}.</p></div><div id="member-list" class="member-list"><div class="card glass muted">Loading…</div></div>`;
   let data;
@@ -1928,9 +2008,12 @@ function reelShareButton() {
 async function renderReelsTab(body) {
   body.innerHTML = `<div class="reels-hero"><div class="video-kicker">FUNCTIONING FAITH REELS</div><h2>Small moments. Big encouragement.</h2><p>One mixed feed for faith, movement, meals, family, and your church. Swipe up for the next moment.</p>
     <div class="reels-feed-note">Shorts + food + church content · Gloo-curated when available</div>
+    <button class="reel-create-btn" id="reel-create-open">＋ Create a Reel</button>
     <div class="reel-view-switch" role="tablist" aria-label="Reel feed"><button type="button" role="tab" aria-selected="${state.reelsView === 'for_you'}" class="${state.reelsView === 'for_you' ? 'active' : ''}" data-reels-view="for_you">For you</button><button type="button" role="tab" aria-selected="${state.reelsView === 'saved'}" class="${state.reelsView === 'saved' ? 'active' : ''}" data-reels-view="saved">Saved</button></div></div>
     <div id="reels-list"><div class="muted">Loading reels…</div></div>`;
   body.querySelectorAll('[data-reels-view]').forEach(btn => btn.onclick = () => { state.reelsView = btn.dataset.reelsView; renderReelsTab(body); });
+  const createReel = body.querySelector('#reel-create-open');
+  if (createReel) createReel.onclick = () => openReelStudio(() => renderReelsTab(body));
   let payload = { videos: [] };
   if (state.reelsView === 'saved') {
     try { payload = await api('/reels/saved'); } catch { payload.videos = []; }
@@ -1958,7 +2041,9 @@ async function renderReelsTab(body) {
   if (!videos.length) { list.innerHTML = `<div class="card glass"><p class="muted">${state.reelsView === 'saved' ? 'Your saved Reels will appear here. Tap 🔖 on anything you want to come back to.' : 'No reels in this filter yet. Fresh videos will appear here as the library refreshes.'}</p></div>`; return; }
   const labels = { food: 'Food + fitness', kids: 'Kids + family', fitness: 'Faith + movement', christian: 'Scripture + formation', motivational: 'Purpose + perseverance', veggietales: 'Kids + family', nickbare: 'Training + discipline', church: 'Your church', instagram: 'Instagram · external', tiktok: 'TikTok · external', youtube: 'YouTube · external' };
   list.innerHTML = videos.map(v => `<article class="reel-card" data-reel-card="${escapeHtml(v.video_id)}" data-reel-provider="${escapeHtml(v.provider || 'youtube')}" data-reel-source-url="${escapeHtml(v.source_url || '')}">
-    <div class="reel-frame video-thumb-wrap" data-reel-frame="${escapeHtml(v.video_id)}"><img loading="lazy" src="${escapeHtml(v.thumbnail_url || ((v.provider || 'youtube') === 'youtube' ? `https://i.ytimg.com/vi/${encodeURIComponent(v.video_id)}/hqdefault.jpg` : ''))}" alt="${escapeHtml(v.title || 'Functioning Faith reel')}" /><span class="reel-play">▶</span>${reelSoundButton(reelsSoundOn())}</div>
+    <div class="reel-frame video-thumb-wrap" data-reel-frame="${escapeHtml(v.video_id)}">${v.provider === 'functioning_faith'
+      ? `<video src="${escapeHtml(v.video_data || '')}" muted loop playsinline preload="metadata" aria-label="${escapeHtml(v.title || 'Functioning Faith reel')}"></video>${reelSoundButton(reelsSoundOn())}`
+      : `<img loading="lazy" src="${escapeHtml(v.thumbnail_url || ((v.provider || 'youtube') === 'youtube' ? `https://i.ytimg.com/vi/${encodeURIComponent(v.video_id)}/hqdefault.jpg` : ''))}" alt="${escapeHtml(v.title || 'Functioning Faith reel')}" /><span class="reel-play">▶</span>${reelSoundButton(reelsSoundOn())}`}</div>
     <div class="reel-actions" aria-label="Reel actions">${reelActionButton('like', v.liked_by_me, v.like_count)}${reelActionButton('save', v.saved_by_me, v.save_count)}${reelShareButton()}</div>
     <div class="reel-overlay"><span class="video-audience">${escapeHtml(labels[v.category] || 'Faith + movement')}</span>${v.source_kind === 'functioning_faith' ? '<span class="reel-original-badge">Functioning Faith original</span>' : ''}<div class="reel-title">${escapeHtml(v.title || 'Short encouragement')}</div><div class="muted">${escapeHtml(v.channel_title || '')}</div>${v.source_url && ['instagram','tiktok'].includes(v.provider) ? `<a class="reel-external-link" href="${escapeHtml(v.source_url)}" target="_blank" rel="noopener noreferrer">Open original on ${escapeHtml(v.provider)}</a>` : ''}</div>
   </article>`).join('');
@@ -1967,11 +2052,17 @@ async function renderReelsTab(body) {
     if (activeCard && activeCard !== card) {
       activeCard.classList.remove('is-active');
       const oldFrame = activeCard.querySelector('[data-reel-frame]');
-      if (oldFrame) oldFrame.innerHTML = `<img loading="lazy" src="${escapeHtml(oldFrame.dataset.thumbnail || '')}" alt="" /><span class="reel-play">▶</span>${reelSoundButton(reelsSoundOn())}`;
+      if (oldFrame && activeCard.dataset.reelProvider === 'functioning_faith') oldFrame.querySelector('video')?.pause();
+      else if (oldFrame) oldFrame.innerHTML = `<img loading="lazy" src="${escapeHtml(oldFrame.dataset.thumbnail || '')}" alt="" /><span class="reel-play">▶</span>${reelSoundButton(reelsSoundOn())}`;
     }
     activeCard = card;
     card.classList.add('is-active');
     const frame = card.querySelector('[data-reel-frame]');
+    if (card.dataset.reelProvider === 'functioning_faith') {
+      const ownVideo = frame.querySelector('video');
+      if (ownVideo) { ownVideo.muted = !reelsSoundOn(); ownVideo.play().catch(() => {}); }
+      return;
+    }
     if (frame.querySelector('iframe')) return;
     const id = card.dataset.reelCard;
     frame.dataset.thumbnail = frame.querySelector('img')?.src || '';
@@ -2025,8 +2116,11 @@ async function renderReelsTab(body) {
     setReelsSound(on);
 
     // Update the reel that is playing right now without restarting it.
-    const iframe = btn.parentElement && btn.parentElement.querySelector('iframe');
+    const frame = btn.parentElement;
+    const iframe = frame && frame.querySelector('iframe');
+    const ownVideo = frame && frame.querySelector('video');
     if (iframe) reelCommand(iframe, on ? 'unMute' : 'mute');
+    if (ownVideo) { ownVideo.muted = !on; if (on) ownVideo.play().catch(() => {}); }
 
     // And bring every button on screen into agreement, so the control never
     // contradicts what is actually audible.

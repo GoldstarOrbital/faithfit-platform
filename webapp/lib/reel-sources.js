@@ -130,6 +130,22 @@ const CATEGORIES = {
     ],
   },
 
+  christian: {
+    label: 'Scripture + formation',
+    weight: 3,
+    channels: [
+      // Official channel linked directly from Philip Anthony Mitchell's own
+      // messages page. We embed it through YouTube; no downloading, reposting,
+      // or Functioning Faith branding is applied to the creator's work.
+      '2819 Church official',
+      'BibleProject official',
+    ],
+    queries: [
+      'Christian discipleship short official',
+      'Bible teaching encouragement short official',
+    ],
+  },
+
   food: {
     label: 'Fuel + meals',
     weight: 2,

@@ -99,7 +99,10 @@ app.use(compression());
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self), bluetooth=(self)');
+  // Camera and microphone remain opt-in browser permissions. They are enabled
+  // only for Functioning Faith itself so the Reels studio can record a short
+  // clip after a member explicitly chooses "Record".
+  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=(self), bluetooth=(self)');
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   if (productionMode) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://challenges.cloudflare.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https:; media-src 'self' data: https:; frame-src https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com https://challenges.cloudflare.com; connect-src 'self' https://*.googleapis.com https://api.gloo.us https://api.scripture.api.bible; object-src 'none'; base-uri 'self'; form-action 'self' https://accounts.google.com https://appleid.apple.com; frame-ancestors 'self'");
@@ -107,7 +110,9 @@ app.use((req, res, next) => {
 });
 // Photos are resized in the browser before being sent as a data URL. Keep the
 // parser above the 250KB image cap so valid photo posts reach the route.
-app.use(express.json({ limit: '400kb' }));
+// Photos stay tiny, but a verified short MP4/WebM can be up to 4MB. The media
+// validator is still the authority on type, duration, and exact byte cap.
+app.use(express.json({ limit: '6mb' }));
 app.use(express.urlencoded({ extended: false })); // Apple posts its OAuth callback as form_post
 app.use(cookieSession({
   name: 'faithfit_session',

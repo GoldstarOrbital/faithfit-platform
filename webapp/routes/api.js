@@ -3597,8 +3597,22 @@ router.get('/reels', requireAuth, async (req, res) => {
   try { curated = reels.feed(req.session.userId, { limit: 30, familySafe: req.query.safe !== 'off' }); }
   catch (err) { console.error('[reels] feed failed:', err.message); }
 
+  // Member-made Reels are deliberately first-class, but only public clips that
+  // passed the byte/container/category gate at POST /posts enter this surface.
+  // A post never becomes a Reel merely because someone attached arbitrary data.
+  const owned = db.prepare(`
+    SELECT p.id AS video_id, p.content AS title, p.content AS description,
+           NULL AS thumbnail_url, u.display_name AS channel_title,
+           p.created_at AS published_at, p.video_category AS category,
+           'functioning_faith' AS provider, p.video_data, 'functioning_faith' AS source_kind
+      FROM posts p JOIN users u ON u.id = p.user_id
+     WHERE p.visibility = 'public' AND p.video_data IS NOT NULL
+       AND p.video_category IN ('workout','nature','animal','group')
+     ORDER BY p.created_at DESC LIMIT 12
+  `).all();
+
   const seen = new Set();
-  const videos = [...curated.videos, ...library, ...curatedChurch]
+  const videos = [...owned, ...curated.videos, ...library, ...curatedChurch]
     .filter(v => v.video_id && !seen.has(v.video_id) && (seen.add(v.video_id), true));
 
   // Engagement is joined after the catalogue is assembled because church

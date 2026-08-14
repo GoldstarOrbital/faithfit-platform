@@ -960,6 +960,8 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
 .reels-hero p { margin:0; color:rgba(245,255,248,.78); font-size:.8rem; line-height:1.45; }
 .reels-filters { margin-bottom:12px; position:relative; z-index:2; }
 .reels-feed-note { margin-top:10px; color:rgba(245,255,248,.72); font-size:.68rem; font-weight:700; }
+.reel-create-btn { margin-top:12px; border:1px solid rgba(255,255,255,.28); border-radius:12px; padding:9px 12px; color:var(--forest); background:#fff8e7; font:inherit; font-size:.76rem; font-weight:850; cursor:pointer; }
+.reel-create-btn:hover { transform:translateY(-1px); box-shadow:0 5px 14px rgba(0,0,0,.18); }
 .reel-view-switch { display:flex; gap:5px; margin-top:12px; padding:3px; width:max-content; border:1px solid rgba(255,255,255,.16); border-radius:999px; background:rgba(0,0,0,.18); }
 .reel-view-switch button { border:0; border-radius:999px; padding:7px 13px; color:rgba(255,255,255,.72); background:transparent; font-size:.72rem; font-weight:800; cursor:pointer; }
 .reel-view-switch button.active { color:var(--forest); background:#fff8e7; }
@@ -968,7 +970,7 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
 #reels-list::-webkit-scrollbar { display:none; }
 .reel-card { position:relative; flex:0 0 100%; min-height:100%; scroll-snap-align:start; scroll-snap-stop:always; overflow:hidden; cursor:pointer; background:#160f0b; }
 .reel-frame { position:absolute; inset:0; overflow:hidden; background:linear-gradient(155deg,var(--forest),var(--walnut-0)); }
-.reel-frame img, .reel-frame iframe { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border:0; display:block; }
+.reel-frame img, .reel-frame iframe, .reel-frame video { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border:0; display:block; }
 .reel-frame:after { content:""; position:absolute; inset:0; pointer-events:none; background:linear-gradient(180deg,rgba(0,0,0,.12) 0%,transparent 38%,rgba(0,0,0,.82) 100%); }
 .reel-play { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:2.5rem; text-shadow:0 2px 12px rgba(0,0,0,.65); pointer-events:none; opacity:.88; }
 /* A real two-way control now, not a one-way "tap for sound" label: it sits
@@ -995,6 +997,17 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
 .reel-overlay .video-audience { color:#fff; background:rgba(70,192,127,.8); text-shadow:none; }
 .reel-title { margin-top:9px; font-size:1.04rem; font-weight:850; line-height:1.28; }
 .reel-card.is-active .reel-play { display:none; }
+.reel-studio-backdrop { position:fixed; z-index:100; inset:0; display:flex; align-items:flex-end; justify-content:center; padding:16px; background:rgba(20,14,10,.66); backdrop-filter:blur(7px); }
+.reel-studio { width:min(100%,520px); max-height:calc(100svh - 32px); overflow:auto; padding:18px; border-radius:24px; color:var(--ink); background:var(--parch); box-shadow:0 20px 56px rgba(0,0,0,.35); }
+.reel-studio h2 { margin:2px 0 0; }
+.reel-studio-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.reel-studio-head .ghost { min-width:42px; min-height:42px; padding:0; font-size:1.35rem; }
+.reel-studio-actions { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin:12px 0; }
+.reel-studio-actions button { min-height:44px; padding:7px; font-size:.75rem; }
+.reel-studio-preview { margin:10px 0; border-radius:14px; overflow:hidden; background:#160f0b; }
+.reel-studio-preview video { width:100%; max-height:42svh; display:block; background:#000; }
+.reel-studio-preview .muted { padding:7px 9px; font-size:.7rem; color:rgba(255,255,255,.76); }
+.reel-studio .field-label { display:block; margin-top:12px; }
 .integration-list { display:flex; flex-direction:column; gap:8px; margin:10px 0; }
 .integration-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 0; border-top:1px solid var(--line); }
 .integration-row strong { font-size:.88rem; }

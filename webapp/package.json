@@ -11,7 +11,9 @@
     "verify:native-auth": "node scripts/verify-native-auth.js",
     "verify:group-pulse": "node scripts/verify-group-pulse.js",
     "verify:public-share": "node scripts/verify-public-share.js",
-    "verify:journey-world": "node scripts/verify-journey-world.js"
+    "verify:journey-world": "node scripts/verify-journey-world.js",
+    "verify:reel-studio": "node scripts/verify-reel-studio.js",
+    "verify:athletic-signal": "node scripts/verify-athletic-signal.js"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.1",
