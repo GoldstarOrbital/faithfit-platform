@@ -5,10 +5,10 @@
  */
 'use strict';
 
-const SHELL_CACHE = 'functioning-faith-shell-v23';
+const SHELL_CACHE = 'functioning-faith-shell-v24';
 const SHELL = [
   '/',
-  '/styles.css?v=ff-topics-26',
+  '/styles.css?v=ff-a2hs-1',
   '/sensors.js?v=rider-v1',
   '/journey3d.js?v=rider-v1',
   '/e2e-crypto.js?v=v2',
@@ -21,6 +21,7 @@ const SHELL = [
   '/farewell.js?v=ff-polish-20',
   '/pause-moment.js?v=ff-polish-20',
   '/visual-polish.js?v=ff-polish-20',
+  '/install-shortcut.js?v=pwa-v1',
   '/fouc-safety.js?v=ff-polish-20',
 ];
 
