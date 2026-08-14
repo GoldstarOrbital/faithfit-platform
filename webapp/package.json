@@ -21,7 +21,8 @@
     "verify:group-location": "node scripts/verify-group-location.js",
     "verify:group-lookup": "node scripts/verify-group-lookup.js",
     "verify:group-calendar": "node scripts/verify-group-calendar.js",
-    "verify:workout-encouragement": "node scripts/verify-workout-encouragement.js"
+    "verify:workout-encouragement": "node scripts/verify-workout-encouragement.js",
+    "verify:social-activity": "node scripts/verify-social-activity.js"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.1",

@@ -800,6 +800,7 @@ async function renderHome(main) {
           </button>
           <button class="workout-kudos ${w.kudos_by_me ? 'given' : ''}" data-workout-kudos="${escapeHtml(w.workout_id)}" aria-pressed="${w.kudos_by_me ? 'true' : 'false'}">${w.kudos_by_me ? '✦ Kudos sent' : '✦ Give kudos'} <span>${w.kudos_count || 0}</span></button>
           <button class="workout-encourage" data-workout-encourage="${escapeHtml(w.author_id)}" data-workout-encourage-name="${escapeHtml(w.author)}" data-workout-encourage-type="${escapeHtml(w.workout_type || 'workout')}">Share Scripture</button>
+          <button class="workout-activity-link" data-shared-workout="${escapeHtml(w.workout_id)}">View activity</button>
           </div>`).join('')}
       </div>
     </div>` : ''}
@@ -927,6 +928,7 @@ async function renderHome(main) {
   main.querySelectorAll('[data-workout-encourage]').forEach(btn => btn.onclick = () => {
     openWorkoutEncouragement(btn.dataset.workoutEncourage, btn.dataset.workoutEncourageName, btn.dataset.workoutEncourageType);
   });
+  main.querySelectorAll('[data-shared-workout]').forEach(btn => btn.onclick = () => renderSharedWorkoutDetail(btn.dataset.sharedWorkout));
   const myId = state.me && state.me.user && state.me.user.id;
   const visLabel = { private: '🔒 Only me', followers: '👥 Followers', public: '🌍 Public' };
   const postsEl = document.getElementById('posts');
@@ -7474,6 +7476,65 @@ async function renderWorkoutDetail(id) {
     state.tab = 'stats';
     document.querySelectorAll('nav button').forEach(b => b.style.display = '');
     render();
+  };
+}
+
+// Read-only detail for an activity someone deliberately shared. The API gives
+// this screen only the published projection: never the original GPS trace,
+// private note, partner list, HR trace, or other health data.
+async function renderSharedWorkoutDetail(id) {
+  const main = document.getElementById('main');
+  document.querySelectorAll('nav button').forEach(b => b.style.display = 'none');
+  main.innerHTML = '<div class="card glass" style="text-align:center">Loading activity…</div>';
+  let data;
+  try { data = await api('/workouts/' + encodeURIComponent(id) + '/social'); }
+  catch {
+    main.innerHTML = '<button class="ghost back-btn" id="swd-back">← Back</button><div class="card glass">That shared activity is not available.</div>';
+    document.getElementById('swd-back').onclick = () => { state.tab = 'home'; document.querySelectorAll('nav button').forEach(b => b.style.display = ''); render(); };
+    return;
+  }
+  const w = data.activity;
+  const stat = (value, label) => `<div class="wd-stat"><div class="wd-stat-v">${value}</div><div class="wd-stat-l">${label}</div></div>`;
+  main.innerHTML = `<button class="ghost back-btn" id="swd-back">← Back</button>
+    <article class="card glass shared-workout-detail">
+      <button class="shared-workout-author" data-shared-activity-author="${escapeHtml(w.author_id)}">${avatarHtml({ id: w.author_id, display_name: w.author, has_avatar: w.author_has_avatar }, 'avatar-sm')}<span><strong>${escapeHtml(w.author)}</strong><small>${escapeHtml(fmtWhen(w.start_time))}</small></span></button>
+      <div class="wd-head"><h2 style="margin:0">${escapeHtml(w.type || 'Workout')}</h2><span class="shared-workout-audience">${w.visibility === 'followers' ? 'Followers' : 'Public'}</span></div>
+      ${w.caption ? `<div class="wd-note">${linkifyText(w.caption)}</div>` : ''}
+      <div class="wd-stats">
+        ${stat(w.distance_km > 0 ? fmtKm(w.distance_km) : '—', 'km')}
+        ${stat(fmtDuration(w.duration_sec), 'time')}
+        ${stat(fmtPace(w.pace_min_per_km) || '—', 'pace /km')}
+        ${stat(w.calories ?? '—', 'kcal')}
+        ${stat(w.avg_hr ?? '—', 'avg bpm')}
+      </div>
+      ${w.route ? `<div class="route-banner wd-route">${realRouteSvg(w.route)}<span class="badge-overlay">Published route</span></div>` : '<div class="muted wd-none">Route was kept private.</div>'}
+      ${w.verse_reference ? `<div class="verse-card verse-tappable" data-verse-ref="${escapeHtml(w.verse_reference)}"><div class="verse-ref">${escapeHtml(w.verse_reference)}</div><div class="verse-text">${escapeHtml(w.verse_text || '')}</div><div class="verse-convo" data-convo-for="${escapeHtml(w.verse_reference)}">💬 Join the conversation</div></div>` : ''}
+      <div class="shared-workout-actions">
+        ${w.can_encourage ? `<button class="workout-kudos ${w.kudos_by_me ? 'given' : ''}" id="swd-kudos" aria-pressed="${w.kudos_by_me ? 'true' : 'false'}">${w.kudos_by_me ? '✦ Kudos sent' : '✦ Give kudos'} <span>${w.kudos_count || 0}</span></button><button class="workout-encourage" id="swd-encourage">Share Scripture</button>` : ''}
+        ${w.visibility === 'public' ? '<button class="ghost" id="swd-copy">Copy public link</button>' : ''}
+      </div>
+      <p class="shared-workout-privacy">Only the details ${escapeHtml(w.author)} chose to share are shown here.</p>
+    </article>`;
+  hydrateAvatars(main);
+  wireVerseCards(main);
+  wireHashtags(main);
+  document.getElementById('swd-back').onclick = () => { state.tab = 'home'; document.querySelectorAll('nav button').forEach(b => b.style.display = ''); render(); };
+  main.querySelector('[data-shared-activity-author]').onclick = () => renderUserProfile(w.author_id);
+  const kudos = document.getElementById('swd-kudos');
+  if (kudos) kudos.onclick = async () => {
+    kudos.disabled = true;
+    const result = await api(`/workouts/${encodeURIComponent(w.id)}/kudos`, { method: 'POST', body: {} }).catch(() => ({ error: 'network' }));
+    kudos.disabled = false;
+    if (result.error) { showToast('Could not send kudos—try again.', true); return; }
+    kudos.classList.toggle('given', !!result.given); kudos.setAttribute('aria-pressed', result.given ? 'true' : 'false');
+    kudos.childNodes[0].textContent = result.given ? '✦ Kudos sent ' : '✦ Give kudos '; kudos.querySelector('span').textContent = result.count;
+  };
+  const encourage = document.getElementById('swd-encourage');
+  if (encourage) encourage.onclick = () => openWorkoutEncouragement(w.author_id, w.author, w.type);
+  const copy = document.getElementById('swd-copy');
+  if (copy) copy.onclick = async () => {
+    const url = `${location.origin}/w/${w.post_id}`;
+    try { await navigator.clipboard.writeText(url); copy.textContent = 'Link copied'; } catch { prompt('Copy this public link:', url); }
   };
 }
 

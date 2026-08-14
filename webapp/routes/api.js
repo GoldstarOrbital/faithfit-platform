@@ -5726,6 +5726,50 @@ router.get('/workouts', requireAuth, (req, res) => {
   });
 });
 
+// The social view is deliberately a separate, read-only projection of an
+// activity someone has actually posted. It never falls back to the private
+// workout record, and the only route it returns is the same author-trimmed
+// route used in the feed. This makes a friend activity feel complete without
+// turning a shared card into an accidental health-data endpoint.
+router.get('/workouts/:id/social', requireAuth, (req, res) => {
+  const me = req.session.userId;
+  const post = db.prepare(`
+    SELECT p.id post_id, p.user_id, p.content, p.visibility, p.show_route, p.route_privacy_m,
+           w.id workout_id, w.gps_path, w.type, w.start_time, w.end_time, w.duration_sec,
+           w.distance_km, w.calories, w.avg_hr, u.display_name author,
+           CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS author_has_avatar,
+           v.reference verse_reference, v.text verse_text
+      FROM posts p
+      JOIN workouts w ON w.id = p.workout_id
+      JOIN users u ON u.id = p.user_id
+ LEFT JOIN scripture_verses v ON v.id = p.verse_id
+     WHERE p.workout_id = ?
+     ORDER BY p.created_at DESC
+     LIMIT 1
+  `).get(req.params.id);
+  if (!post || !postVisibleTo(post, me)) return res.status(404).json({ error: 'not_found' });
+  if (db.prepare("SELECT 1 FROM account_relationship_controls WHERE actor_id=? AND subject_id=? AND control='mute'").get(me, post.user_id)) {
+    return res.status(404).json({ error: 'not_found' });
+  }
+
+  const followsAuthor = !!db.prepare('SELECT 1 FROM followers WHERE follower_id=? AND followee_id=?').get(me, post.user_id);
+  const mins = post.duration_sec > 0 ? post.duration_sec / 60 : null;
+  const pace = mins && post.distance_km > 0.05 ? Math.round((mins / post.distance_km) * 100) / 100 : null;
+  const route = publishedRoute(post);
+  const kudosCount = db.prepare('SELECT COUNT(*) AS c FROM workout_kudos WHERE workout_id = ?').get(post.workout_id).c;
+  const kudosByMe = !!db.prepare('SELECT 1 FROM workout_kudos WHERE workout_id = ? AND user_id = ?').get(post.workout_id, me);
+
+  res.json({ activity: {
+    id: post.workout_id, post_id: post.post_id, author_id: post.user_id, author: post.author,
+    author_has_avatar: !!post.author_has_avatar, visibility: post.visibility, caption: post.content || '',
+    type: post.type, start_time: post.start_time, duration_sec: post.duration_sec,
+    distance_km: post.distance_km, calories: post.calories, avg_hr: post.avg_hr,
+    pace_min_per_km: pace, verse_reference: post.verse_reference, verse_text: post.verse_text,
+    route, kudos_count: Number(kudosCount || 0), kudos_by_me: kudosByMe,
+    can_encourage: post.user_id !== me && followsAuthor,
+  } });
+});
+
 router.get('/workouts/:id', requireAuth, (req, res) => {
   const uid = req.session.userId;
   const w = db.prepare('SELECT * FROM workouts WHERE id = ? AND user_id = ?').get(req.params.id, uid);
