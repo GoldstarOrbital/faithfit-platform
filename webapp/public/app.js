@@ -2021,7 +2021,7 @@ function reelShareButton() {
 // it behaves like a scrollable social surface, not another category shelf.
 async function renderReelsTab(body) {
   body.innerHTML = `<div class="reels-hero"><div class="video-kicker">FUNCTIONING FAITH REELS</div><h2>Small moments. Big encouragement.</h2><p>One mixed feed for faith, movement, meals, family, and your church. Swipe up for the next moment.</p>
-    <div class="reels-feed-note">Shorts + food + church content · Gloo-curated when available</div>
+    <div class="reels-feed-note">Shorts + food + church content · fresh when you actually watch</div>
     <button class="reel-create-btn" id="reel-create-open">＋ Create a Reel</button>
     <div class="reel-view-switch" role="tablist" aria-label="Reel feed"><button type="button" role="tab" aria-selected="${state.reelsView === 'for_you'}" class="${state.reelsView === 'for_you' ? 'active' : ''}" data-reels-view="for_you">For you</button><button type="button" role="tab" aria-selected="${state.reelsView === 'saved'}" class="${state.reelsView === 'saved' ? 'active' : ''}" data-reels-view="saved">Saved</button></div></div>
     <div id="reels-list"><div class="muted">Loading reels…</div></div>`;
@@ -2054,12 +2054,15 @@ async function renderReelsTab(body) {
   const list = document.getElementById('reels-list');
   if (!videos.length) { list.innerHTML = `<div class="card glass"><p class="muted">${state.reelsView === 'saved' ? 'Your saved Reels will appear here. Tap 🔖 on anything you want to come back to.' : 'No reels in this filter yet. Fresh videos will appear here as the library refreshes.'}</p></div>`; return; }
   const labels = { food: 'Food + fitness', kids: 'Kids + family', fitness: 'Faith + movement', christian: 'Scripture + formation', motivational: 'Purpose + perseverance', veggietales: 'Kids + family', nickbare: 'Training + discipline', church: 'Your church', instagram: 'Instagram · external', tiktok: 'TikTok · external', youtube: 'YouTube · external' };
-  list.innerHTML = videos.map(v => `<article class="reel-card" data-reel-card="${escapeHtml(v.video_id)}" data-reel-provider="${escapeHtml(v.provider || 'youtube')}" data-reel-source-url="${escapeHtml(v.source_url || '')}">
+  const sourceLabel = v => v.source_kind === 'functioning_faith' ? 'Functioning Faith original'
+    : v.source_kind === 'church' ? 'From your church'
+      : v.source_kind === 'channel' ? 'Official channel' : 'Curated for this community';
+  list.innerHTML = videos.map(v => `<article class="reel-card" data-reel-card="${escapeHtml(v.video_id)}" data-reel-provider="${escapeHtml(v.provider || 'youtube')}" data-reel-source-url="${escapeHtml(v.source_url || '')}" data-reel-track-impression="${['channel', 'seed', 'query'].includes(v.source_kind) ? 'true' : 'false'}">
     <div class="reel-frame video-thumb-wrap" data-reel-frame="${escapeHtml(v.video_id)}">${v.provider === 'functioning_faith'
       ? `<video src="${escapeHtml(v.video_data || '')}" muted loop playsinline preload="metadata" aria-label="${escapeHtml(v.title || 'Functioning Faith reel')}"></video>${reelSoundButton(reelsSoundOn())}`
       : `<img loading="lazy" src="${escapeHtml(v.thumbnail_url || ((v.provider || 'youtube') === 'youtube' ? `https://i.ytimg.com/vi/${encodeURIComponent(v.video_id)}/hqdefault.jpg` : ''))}" alt="${escapeHtml(v.title || 'Functioning Faith reel')}" /><span class="reel-play">▶</span>${reelSoundButton(reelsSoundOn())}`}</div>
     <div class="reel-actions" aria-label="Reel actions">${reelActionButton('like', v.liked_by_me, v.like_count)}${reelActionButton('save', v.saved_by_me, v.save_count)}${reelShareButton()}</div>
-    <div class="reel-overlay"><span class="video-audience">${escapeHtml(labels[v.category] || 'Faith + movement')}</span>${v.source_kind === 'functioning_faith' ? '<span class="reel-original-badge">Functioning Faith original</span>' : ''}<div class="reel-title">${escapeHtml(v.title || 'Short encouragement')}</div><div class="muted">${escapeHtml(v.channel_title || '')}</div>${v.source_url && ['instagram','tiktok'].includes(v.provider) ? `<a class="reel-external-link" href="${escapeHtml(v.source_url)}" target="_blank" rel="noopener noreferrer">Open original on ${escapeHtml(v.provider)}</a>` : ''}</div>
+    <div class="reel-overlay"><div class="reel-meta"><span class="video-audience">${escapeHtml(labels[v.category] || 'Faith + movement')}</span><span class="reel-source">${escapeHtml(sourceLabel(v))}</span></div><div class="reel-title">${escapeHtml(v.title || 'Short encouragement')}</div><div class="muted">${escapeHtml(v.channel_title || '')}</div>${v.verse_reference ? `<button type="button" class="reel-scripture" data-reel-verse-ref="${escapeHtml(v.verse_reference)}">Open ${escapeHtml(v.verse_reference)} <span aria-hidden="true">→</span></button>` : ''}${v.source_url && ['instagram','tiktok'].includes(v.provider) ? `<a class="reel-external-link" href="${escapeHtml(v.source_url)}" target="_blank" rel="noopener noreferrer">Open original on ${escapeHtml(v.provider)}</a>` : ''}</div>
   </article>`).join('');
   let activeCard = null;
   const activate = card => {
@@ -2071,6 +2074,10 @@ async function renderReelsTab(body) {
     }
     activeCard = card;
     card.classList.add('is-active');
+    if (card.dataset.reelTrackImpression === 'true' && !card.dataset.reelImpressionRecorded) {
+      card.dataset.reelImpressionRecorded = 'true';
+      api(`/reels/${encodeURIComponent(card.dataset.reelCard)}/impression`, { method: 'POST' }).catch(() => {});
+    }
     const frame = card.querySelector('[data-reel-frame]');
     if (card.dataset.reelProvider === 'functioning_faith') {
       const ownVideo = frame.querySelector('video');
@@ -2093,6 +2100,8 @@ async function renderReelsTab(body) {
   // One delegated handler for every sound button, present and future — the
   // frames are rebuilt as reels scroll, so per-element handlers would be lost.
   list.addEventListener('click', (e) => {
+    const verse = e.target.closest('[data-reel-verse-ref]');
+    if (verse) { e.stopPropagation(); e.preventDefault(); renderVerseThread(verse.dataset.reelVerseRef); return; }
     const action = e.target.closest('[data-reel-action]');
     if (action) {
       e.stopPropagation();

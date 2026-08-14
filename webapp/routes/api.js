@@ -3696,12 +3696,23 @@ router.get('/videos', (req, res) => {
 // ranking so a member can return to something intentionally bookmarked.
 router.get('/reels/saved', requireAuth, (req, res) => {
   const rows = db.prepare(`
-    SELECT r.video_id, v.title, v.description, v.thumbnail_url, v.channel_title,
-           v.published_at, v.category, r.created_at
+    SELECT r.video_id, COALESCE(p.content, v.title) AS title,
+           COALESCE(p.content, v.description) AS description,
+           v.thumbnail_url, COALESCE(u.display_name, v.channel_title) AS channel_title,
+           COALESCE(p.created_at, v.published_at) AS published_at,
+           COALESCE(p.video_category, v.category) AS category,
+           CASE WHEN p.id IS NOT NULL THEN 'functioning_faith' ELSE v.provider END AS provider,
+           v.source_url,
+           CASE WHEN p.id IS NOT NULL THEN 'functioning_faith' ELSE v.source_kind END AS source_kind,
+           p.video_data, sv.reference AS verse_reference, sv.text AS verse_text,
+           r.created_at
       FROM reel_reactions r
       LEFT JOIN videos v ON v.video_id = r.video_id
+      LEFT JOIN posts p ON p.id = r.video_id AND p.visibility = 'public' AND p.video_data IS NOT NULL
+      LEFT JOIN users u ON u.id = p.user_id
+      LEFT JOIN scripture_verses sv ON sv.id = p.verse_id
      WHERE r.user_id = ? AND r.kind = 'save'
-       AND (v.video_id IS NULL OR v.dead_at IS NULL)
+       AND ((v.video_id IS NOT NULL AND v.dead_at IS NULL) OR p.id IS NOT NULL)
      ORDER BY r.created_at DESC
      LIMIT 100
   `).all(req.session.userId);
@@ -3757,8 +3768,11 @@ router.get('/reels', requireAuth, async (req, res) => {
     SELECT p.id AS video_id, p.content AS title, p.content AS description,
            NULL AS thumbnail_url, u.display_name AS channel_title,
            p.created_at AS published_at, p.video_category AS category,
-           'functioning_faith' AS provider, p.video_data, 'functioning_faith' AS source_kind
-      FROM posts p JOIN users u ON u.id = p.user_id
+           'functioning_faith' AS provider, p.video_data, 'functioning_faith' AS source_kind,
+           v.reference AS verse_reference, v.text AS verse_text
+      FROM posts p
+      JOIN users u ON u.id = p.user_id
+      LEFT JOIN scripture_verses v ON v.id = p.verse_id
      WHERE p.visibility = 'public' AND p.video_data IS NOT NULL
        AND p.video_category IN ('workout','nature','animal','group')
      ORDER BY p.created_at DESC LIMIT 12
@@ -3793,10 +3807,6 @@ router.get('/reels', requireAuth, async (req, res) => {
     like_count: 0, save_count: 0, liked_by_me: false, saved_by_me: false,
   });
 
-  // Record what actually went out, so the next load is genuinely different.
-  try { reels.markSeen(req.session.userId, curated.videos.map(v => v.video_id)); }
-  catch (err) { console.error('[reels] markSeen failed:', err.message); }
-
   res.json({
     videos,
     church_name: church?.name || me?.church_name || null,
@@ -3807,6 +3817,23 @@ router.get('/reels', requireAuth, async (req, res) => {
     // client can say so rather than presenting them as new.
     recycled: !!curated.recycled,
   });
+});
+
+// A catalogue Reel becomes "seen" when a member opens it, not merely when it
+// happened to be in a response below the fold. That distinction keeps the
+// freshness promise honest and avoids burning through a whole feed on load.
+// Church uploads and Functioning Faith originals are intentionally excluded:
+// they are live/community material rather than ranked catalogue inventory.
+router.post('/reels/:videoId/impression', requireAuth, (req, res) => {
+  const videoId = String(req.params.videoId || '').trim().slice(0, 120);
+  if (!/^[A-Za-z0-9_-]{6,120}$/.test(videoId)) return res.status(400).json({ error: 'invalid_reel' });
+  const item = db.prepare(`SELECT video_id FROM videos
+    WHERE video_id = ? AND dead_at IS NULL
+      AND source_kind IN ('channel', 'seed', 'query') LIMIT 1`).get(videoId);
+  if (!item) return res.status(204).end();
+  try { reels.markSeen(req.session.userId, [item.video_id]); }
+  catch (err) { console.error('[reels] mark seen failed:', err.message); return res.status(500).json({ error: 'reel_impression_failed' }); }
+  res.json({ recorded: true });
 });
 
 // Reels are catalogue items rather than member-authored posts, so reactions
