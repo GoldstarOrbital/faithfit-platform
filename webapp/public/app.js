@@ -442,6 +442,222 @@ function realRouteSvg(points) {
     + '</svg>';
 }
 
+// ---- Moments: the 24-hour ephemeral rail. ----
+// The server side of this (POST/GET /stories, /stories/:id/view,
+// /stories/:id/reaction, DELETE) already existed in full -- expiry, visibility,
+// block-awareness, view receipts and emoji reactions -- but nothing in the app
+// ever called it, so no member could reach the feature. This is the surface.
+
+function myUserId() { return state.me && state.me.user && state.me.user.id; }
+
+/** Stories grouped per author, newest author first, with my own group pulled
+ *  to the front so "your moment" is always the first thing in the rail. */
+function groupStories(stories, myId) {
+  const byAuthor = new Map();
+  for (const s of stories || []) {
+    if (!byAuthor.has(s.user_id)) {
+      byAuthor.set(s.user_id, { user_id: s.user_id, author: s.author, has_avatar: s.author_has_avatar, items: [] });
+    }
+    byAuthor.get(s.user_id).items.push(s);
+  }
+  const groups = [...byAuthor.values()];
+  for (const g of groups) {
+    g.items.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))); // oldest first within an author, like every stories UI
+    g.all_viewed = g.items.every(i => i.viewed);
+  }
+  // Unviewed first (that is the whole point of the ring), then mine, then rest.
+  groups.sort((a, b) => (a.all_viewed - b.all_viewed) || (b.user_id === myId ? 1 : 0));
+  const mine = groups.filter(g => g.user_id === myId);
+  return [...mine, ...groups.filter(g => g.user_id !== myId)];
+}
+
+function storiesRailHtml(stories, myId) {
+  const groups = groupStories(stories, myId);
+  const iHaveOne = groups.some(g => g.user_id === myId);
+  return `
+    <div class="stories-rail" id="stories-rail">
+      ${iHaveOne ? '' : `
+        <button class="story-bubble story-bubble-new" data-story-compose="1">
+          <span class="story-ring story-ring-new"><span class="story-plus">＋</span></span>
+          <span class="story-name">Your moment</span>
+        </button>`}
+      ${groups.map(g => `
+        <button class="story-bubble" data-story-open="${escapeHtml(g.user_id)}">
+          <span class="story-ring ${g.all_viewed ? 'story-ring-seen' : ''}">
+            ${avatarHtml({ id: g.user_id, display_name: g.author, has_avatar: g.has_avatar }, 'avatar-sm story-avatar')}
+          </span>
+          <span class="story-name">${g.user_id === myId ? 'Your moment' : escapeHtml((g.author || '').split(' ')[0])}</span>
+        </button>`).join('')}
+      ${iHaveOne ? `
+        <button class="story-bubble story-bubble-new" data-story-compose="1">
+          <span class="story-ring story-ring-new"><span class="story-plus">＋</span></span>
+          <span class="story-name">Add</span>
+        </button>` : ''}
+    </div>`;
+}
+
+/** Full-screen viewer. Auto-advances, marks each story viewed as it lands,
+ *  and lets the author delete their own. */
+function openStoryViewer(groups, groupIndex) {
+  let gi = groupIndex, si = 0, timer = null, onKey = null;
+  const myId = myUserId();
+  const overlay = document.createElement('div');
+  overlay.className = 'story-viewer';
+  document.body.appendChild(overlay);
+  document.body.style.overflow = 'hidden';
+
+  const close = () => {
+    clearTimeout(timer);
+    // Every exit path comes through here, so the key handler is unbound once
+    // rather than only on the Escape path -- otherwise each open/close cycle
+    // would leave another listener hijacking the arrow keys.
+    if (onKey) document.removeEventListener('keydown', onKey);
+    overlay.remove();
+    document.body.style.overflow = '';
+    // Rings should go grey straight away rather than after a manual refresh.
+    if (state.homeCache) state.homeCache.secondary = null;
+    if (state.tab === 'home') renderHome(document.getElementById('main'));
+  };
+
+  const advance = () => {
+    const g = groups[gi];
+    if (si + 1 < g.items.length) { si++; return paint(); }
+    if (gi + 1 < groups.length) { gi++; si = 0; return paint(); }
+    close();
+  };
+  const back = () => {
+    if (si > 0) { si--; return paint(); }
+    if (gi > 0) { gi--; si = groups[gi].items.length - 1; return paint(); }
+  };
+
+  function paint() {
+    clearTimeout(timer);
+    const g = groups[gi];
+    const s = g.items[si];
+    const mine = s.user_id === myId;
+    overlay.innerHTML = `
+      <div class="story-stage">
+        <div class="story-progress">
+          ${g.items.map((_, i) => `<span class="story-progress-bar"><i style="width:${i < si ? '100%' : i === si ? '0' : '0'}${i === si ? ';animation:storyFill 6s linear forwards' : ''}"></i></span>`).join('')}
+        </div>
+        <div class="story-topbar">
+          ${avatarHtml({ id: g.user_id, display_name: g.author, has_avatar: g.has_avatar }, 'avatar-sm')}
+          <div class="story-topbar-name">${escapeHtml(g.author || '')}<span>${timeAgo(s.created_at)} ago</span></div>
+          ${mine ? `<button class="story-x" data-story-delete="${escapeHtml(s.id)}" title="Delete this moment">🗑</button>` : ''}
+          <button class="story-x" data-story-close="1" aria-label="Close">✕</button>
+        </div>
+        ${s.photo_data ? `<img class="story-photo" src="${escapeHtml(s.photo_data)}" alt="">` : ''}
+        ${s.content ? `<div class="story-text ${s.photo_data ? 'story-text-over' : ''}">${escapeHtml(s.content)}</div>` : ''}
+        <div class="story-nav story-nav-back" data-story-back="1"></div>
+        <div class="story-nav story-nav-fwd" data-story-fwd="1"></div>
+        ${mine ? `<div class="story-reactions story-reactions-count">${s.reaction_count || 0} reaction${s.reaction_count === 1 ? '' : 's'}</div>` : `
+        <div class="story-reactions">
+          ${['❤️','🙏','🔥','💪','👏'].map(e => `<button class="story-react ${s.my_reaction === e ? 'active' : ''}" data-story-react="${e}">${e}</button>`).join('')}
+        </div>`}
+      </div>`;
+    hydrateAvatars(overlay);
+
+    overlay.querySelector('[data-story-close]').onclick = close;
+    overlay.querySelector('[data-story-back]').onclick = back;
+    overlay.querySelector('[data-story-fwd]').onclick = advance;
+    const del = overlay.querySelector('[data-story-delete]');
+    if (del) del.onclick = async () => {
+      if (!confirm('Delete this moment?')) return;
+      await api(`/stories/${s.id}`, { method: 'DELETE' }).catch(() => null);
+      g.items.splice(si, 1);
+      if (!g.items.length) { groups.splice(gi, 1); if (!groups.length) return close(); gi = Math.min(gi, groups.length - 1); si = 0; }
+      else si = Math.min(si, g.items.length - 1);
+      paint();
+    };
+    overlay.querySelectorAll('[data-story-react]').forEach(btn => btn.onclick = async (e) => {
+      e.stopPropagation();
+      clearTimeout(timer); // don't advance out from under someone mid-tap
+      const r = await api(`/stories/${s.id}/reaction`, { method: 'POST', body: { emoji: btn.dataset.storyReact } }).catch(() => null);
+      if (r && !r.error) { s.my_reaction = r.emoji; s.reaction_count = r.reaction_count; }
+      paint();
+    });
+
+    if (!s.viewed) { s.viewed = true; api(`/stories/${s.id}/view`, { method: 'POST' }).catch(() => {}); }
+    timer = setTimeout(advance, 6000);
+  }
+
+  onKey = (e) => {
+    if (e.key === 'Escape') close(); // close() unbinds this listener itself
+    else if (e.key === 'ArrowRight') advance();
+    else if (e.key === 'ArrowLeft') back();
+  };
+  document.addEventListener('keydown', onKey);
+  paint();
+}
+
+/** Composer: short text and/or one photo, 24h, with the same visibility
+ *  choices the rest of the app uses. */
+function openStoryComposer() {
+  const overlay = document.createElement('div');
+  overlay.className = 'story-composer-wrap';
+  overlay.innerHTML = `
+    <div class="card glass story-composer">
+      <h2 style="margin:0 0 4px">Share a moment</h2>
+      <div class="muted" style="font-size:.78rem;margin-bottom:10px">Gone in 24 hours. A short encouragement, a verse that carried you today, or a photo from the road.</div>
+      <textarea id="story-text" maxlength="280" rows="3" placeholder="What is God doing in your training today?"></textarea>
+      <div class="story-composer-row">
+        <button class="ghost" id="story-photo-btn">📷 Add photo</button>
+        <select id="story-vis">
+          <option value="public">🌍 Public</option>
+          <option value="followers">👥 Followers</option>
+        </select>
+      </div>
+      <select id="story-photo-cat" style="display:none;margin-top:6px">
+        <option value="nature">Nature</option>
+        <option value="animal">Animals</option>
+        <option value="group">A group of people</option>
+        <option value="workout">Workout</option>
+      </select>
+      <input type="file" id="story-photo-file" accept="image/*" style="display:none">
+      <div id="story-photo-preview"></div>
+      <div class="muted" id="story-status" style="font-size:.76rem;min-height:1em;margin-top:6px"></div>
+      <div class="story-composer-row" style="margin-top:8px">
+        <button class="ghost" id="story-cancel" style="flex:1">Cancel</button>
+        <button class="primary" id="story-post" style="flex:1">Share</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  let photoData = null;
+  const status = overlay.querySelector('#story-status');
+  const fileInput = overlay.querySelector('#story-photo-file');
+  const catSel = overlay.querySelector('#story-photo-cat');
+  const closeC = () => overlay.remove();
+  overlay.querySelector('#story-cancel').onclick = closeC;
+  overlay.onclick = (e) => { if (e.target === overlay) closeC(); };
+  overlay.querySelector('#story-photo-btn').onclick = () => fileInput.click();
+  fileInput.onchange = async () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+    status.textContent = 'Processing photo…';
+    try {
+      photoData = await resizeImageFile(file, 900, 0.75);
+      overlay.querySelector('#story-photo-preview').innerHTML = `<img src="${photoData}" alt="" style="width:100%;border-radius:10px;margin-top:8px">`;
+      catSel.style.display = '';
+      status.textContent = 'Photos must be nature, animals, groups of people, or a workout.';
+    } catch { status.textContent = 'Could not read that image.'; }
+  };
+  overlay.querySelector('#story-post').onclick = async () => {
+    const btn = overlay.querySelector('#story-post');
+    btn.disabled = true; status.textContent = 'Sharing…';
+    const r = await api('/stories', { method: 'POST', body: {
+      content: overlay.querySelector('#story-text').value,
+      photo_data: photoData || undefined,
+      photo_category: photoData ? catSel.value : undefined,
+      visibility: overlay.querySelector('#story-vis').value,
+    }}).catch(() => ({ error: 'network' }));
+    btn.disabled = false;
+    if (r.error) { status.textContent = r.hint || 'Could not share that moment.'; return; }
+    closeC();
+    if (state.homeCache) state.homeCache.secondary = null;
+    renderHome(document.getElementById('main'));
+  };
+}
+
 async function renderHome(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
   const cacheMatchesScope = state.homeCache && state.homeCache.scope === state.feedScope;
@@ -450,7 +666,7 @@ async function renderHome(main) {
   const posts = Array.isArray(feedData) ? feedData : (feedData.posts || []);
   const users = critical[1];
   const secondary = state.homeCache && state.homeCache.secondary;
-  const [suggested, rec, devo, churchVideos, homeReels, homeJourneys, homeMotivation, friendsWorkouts] = secondary || [[], null, null, null, [], [], null, []];
+  const [suggested, rec, devo, churchVideos, homeReels, homeJourneys, homeMotivation, friendsWorkouts, homeStories] = secondary || [[], null, null, null, [], [], null, [], []];
   if (!cacheMatchesScope) state.homeCache = { posts, users, nextCursor: Array.isArray(feedData) ? null : feedData.next_cursor, secondary: null, scope: state.feedScope };
   const firstName = escapeHtml((state.me && state.me.user && state.me.user.display_name || 'friend').split(' ')[0]);
   main.innerHTML = `
@@ -466,6 +682,7 @@ async function renderHome(main) {
       <button class="home-action home-action-primary" data-home-tab="workout"><span>＋</span><b>Log activity</b><small>Keep your streak alive</small></button>
       <button class="home-action" data-home-tab="explore" data-home-explore="journeys"><span>↗</span><b>Explore routes</b><small>Ride Bible &amp; fantasy worlds</small></button>
     </div>
+    ${storiesRailHtml(homeStories, myUserId())}
     ${rec && rec.verse ? `
     <div class="card glass mission-card">
       <div class="mission-kicker"><span>✦ SCRIPTURE IN MOTION</span><span class="mission-live">TODAY</span></div>
@@ -565,6 +782,12 @@ async function renderHome(main) {
     setTab(btn.dataset.homeTab);
   });
   main.querySelectorAll('.home-explore-tile[data-user]').forEach(btn => btn.onclick = () => renderUserProfile(btn.dataset.user));
+  main.querySelectorAll('[data-story-compose]').forEach(btn => btn.onclick = () => openStoryComposer());
+  main.querySelectorAll('[data-story-open]').forEach(btn => btn.onclick = () => {
+    const groups = groupStories(homeStories, myUserId());
+    const idx = groups.findIndex(g => g.user_id === btn.dataset.storyOpen);
+    if (idx >= 0) openStoryViewer(groups, idx);
+  });
   hydrateAvatars(main);
   wireChurchVideoThumbs(main);
   wireVerseCards(main);
@@ -761,6 +984,7 @@ async function renderHome(main) {
       api('/journeys').catch(() => []),
       api('/motivation').catch(() => null),
       api('/feed/friends-workouts?limit=5').then(r => r.workouts || []).catch(() => []),
+      api('/stories').then(r => r.stories || []).catch(() => []),
     ]).then(data => {
       if (state.homeCache !== cache) return;
       cache.secondary = data;
