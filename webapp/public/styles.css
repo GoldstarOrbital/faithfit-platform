@@ -2095,3 +2095,4 @@ nav.tabbar button .icon { display: grid; place-items: center; min-height: 24px; 
 .composer-row select { flex:1; }
 .composer-cats { display:flex; flex-wrap:wrap; gap:10px; font-size:.8rem; }
 .composer-cats label { display:flex; align-items:center; gap:4px; }
+.profile-safety-note { font-size:.72rem; flex-basis:100%; margin-top:6px; line-height:1.45; }

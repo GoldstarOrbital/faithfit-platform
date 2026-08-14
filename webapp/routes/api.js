@@ -903,6 +903,32 @@ router.patch('/privacy', requireAuth, (req, res) => {
     res.json(settings);
   } catch (err) { res.status(400).json({ error: err.code || 'invalid_privacy_setting' }); }
 });
+// Everyone you have muted, restricted or blocked, in one place. Blocking was
+// already reachable from a profile, but unblocking meant navigating back to
+// the profile of the person you blocked -- which is exactly what blocking
+// makes hard to find. Mute and restrict were enforced server-side (feed
+// filtering at api.js:1015, DM open/send in lib/dms.js) with no button at all.
+router.get('/me/relationships', requireAuth, (req, res) => {
+  const me = req.session.userId;
+  const controls = db.prepare(`
+    SELECT rc.subject_id user_id, rc.control, rc.created_at, u.display_name,
+           CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar
+    FROM account_relationship_controls rc JOIN users u ON u.id = rc.subject_id
+    WHERE rc.actor_id = ? ORDER BY rc.created_at DESC
+  `).all(me);
+  const blocked = db.prepare(`
+    SELECT b.blocked_id user_id, 'block' AS control, b.created_at, u.display_name,
+           CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar
+    FROM dm_blocks b JOIN users u ON u.id = b.blocked_id
+    WHERE b.blocker_id = ? ORDER BY b.created_at DESC
+  `).all(me);
+  res.json({
+    muted: controls.filter(c => c.control === 'mute'),
+    restricted: controls.filter(c => c.control === 'restrict'),
+    blocked,
+  });
+});
+
 router.put('/users/:id/:control(mute|restrict)', requireAuth, (req, res) => {
   if (!db.prepare('SELECT 1 FROM users WHERE id=?').get(req.params.id)) return res.status(404).json({ error: 'user_not_found' });
   if (!accountSecurity.relationship(req.session.userId, req.params.id, req.params.control, true)) return res.status(400).json({ error: 'invalid_control' });
@@ -2043,7 +2069,13 @@ router.get('/users/:id', (req, res) => {
 
   posts.forEach(p => { if (p.photo_data && !validateDataUrlImage(p.photo_data).ok) p.photo_data = null; });
 
-  res.json({ user: u, stats, is_me, is_following, is_blocked: me ? dms.isBlockedEitherWay(me, u.id) : false, posts });
+  res.json({ user: u, stats, is_me, is_following,
+    is_blocked: me ? dms.isBlockedEitherWay(me, u.id) : false,
+    // Both are one-sided and silent by design -- the other person is never
+    // told -- so these reflect only what the viewer has done to them.
+    is_muted: me ? accountSecurity.hasRelationship(me, u.id, 'mute') : false,
+    is_restricted: me ? accountSecurity.hasRelationship(me, u.id, 'restrict') : false,
+    posts });
 });
 
 router.post('/users/:id/block', requireAuth, (req, res) => {

@@ -1155,7 +1155,13 @@ async function renderUserProfile(userId) {
       ${u.bio_verse_ref ? `<div class="verse-card"><div class="verse-ref">${escapeHtml(u.bio_verse_ref)}</div><div class="verse-text">${escapeHtml(u.bio_verse_text || '')}</div></div>` : ''}
       ${u.bio_link_url ? `<a href="${escapeHtml(u.bio_link_url)}" target="_blank" rel="noopener noreferrer" class="ghost" style="display:inline-block;margin-top:10px;text-decoration:none">${escapeHtml(u.bio_link_label || 'Link ↗')}</a>` : ''}
     </div>
-    ${!data.is_me ? `<div class="profile-safety"><button class="ghost" id="profile-block">${data.is_blocked ? 'Unblock member' : 'Block member'}</button><button class="ghost" id="profile-report">Report member</button></div>` : ''}
+    ${!data.is_me ? `<div class="profile-safety">
+      <button class="ghost" id="profile-mute">${data.is_muted ? 'Unmute' : 'Mute'}</button>
+      <button class="ghost" id="profile-restrict">${data.is_restricted ? 'Un-restrict' : 'Restrict'}</button>
+      <button class="ghost" id="profile-block">${data.is_blocked ? 'Unblock member' : 'Block member'}</button>
+      <button class="ghost" id="profile-report">Report member</button>
+      <div class="muted profile-safety-note">Mute hides their posts from your feed but keeps the follow. Restrict also stops them opening or sending you messages. Neither is ever shown to them — only blocking is obvious.</div>
+    </div>` : ''}
     <div id="profile-posts">${data.posts.length ? '' : '<p class="muted">No posts to show yet.</p>'}</div>
   `;
   hydrateAvatars(main);
@@ -1188,6 +1194,29 @@ async function renderUserProfile(userId) {
     const blocked = blockBtn.textContent.startsWith('Unblock');
     await api(`/users/${userId}/block`, { method: blocked ? 'DELETE' : 'POST' });
     blockBtn.textContent = blocked ? 'Block member' : 'Unblock member';
+  };
+  // Mute and restrict were enforced all along -- mute filters the feed
+  // (api.js), restrict blocks DM open and send (lib/dms.js) -- with nothing
+  // anywhere to switch them on. Until now blocking was the only safety tool a
+  // member could actually reach, which in a congregation is the one with real
+  // Sunday-morning consequences.
+  const muteBtn = document.getElementById('profile-mute');
+  if (muteBtn) muteBtn.onclick = async () => {
+    const on = muteBtn.textContent === 'Unmute';
+    muteBtn.disabled = true;
+    const r = await api(`/users/${userId}/mute`, { method: on ? 'DELETE' : 'PUT' }).catch(() => ({ error: 'network' }));
+    muteBtn.disabled = false;
+    if (r.error) return;
+    muteBtn.textContent = on ? 'Mute' : 'Unmute';
+  };
+  const restrictBtn = document.getElementById('profile-restrict');
+  if (restrictBtn) restrictBtn.onclick = async () => {
+    const on = restrictBtn.textContent === 'Un-restrict';
+    restrictBtn.disabled = true;
+    const r = await api(`/users/${userId}/restrict`, { method: on ? 'DELETE' : 'PUT' }).catch(() => ({ error: 'network' }));
+    restrictBtn.disabled = false;
+    if (r.error) return;
+    restrictBtn.textContent = on ? 'Restrict' : 'Un-restrict';
   };
   const reportBtn = document.getElementById('profile-report');
   if (reportBtn) reportBtn.onclick = async () => {
@@ -2602,6 +2631,11 @@ async function renderProfile(main) {
     <div class="card glass profile-panel" data-profile-group="integrations" id="pending-church-card">
       <h2>Church missing?</h2><p class="muted">Submit a pending church record for developer review. This does not verify that you represent it.</p><input id="dev-new-church-name" placeholder="Church name"><input id="dev-new-church-address" placeholder="Street address, city, state"><input id="dev-new-church-email" type="email" placeholder="Public church contact email"><input id="dev-new-church-site" type="url" placeholder="https://church.example"><button class="ghost" id="dev-new-church" style="width:100%;margin-top:8px">Submit pending church</button><div id="dev-new-church-status" class="muted"></div>
     </div>
+    <div class="card glass profile-panel" data-profile-group="settings" id="relationships-card">
+      <h2>Muted, restricted and blocked</h2>
+      <div class="muted" style="margin-bottom:10px">Everyone you have quietly stepped back from, in one place — so you can undo it without having to find their profile again.</div>
+      <div id="relationships-body" class="muted">Loading…</div>
+    </div>
     <div class="card glass profile-panel" data-profile-group="settings" id="nudges-card">
       <h2>Encouragement nudges</h2>
       <div class="muted" style="margin-bottom:10px">If you go quiet for a while, Functioning Faith may send you one gentle note. There is a hard lifetime cap, a minimum gap between them, and they are never sent at night. You can turn them off entirely and that choice is permanent unless you change it back.</div>
@@ -2746,6 +2780,40 @@ async function renderProfile(main) {
   // that it existed or to stop it short of disabling browser push wholesale.
   // Shipping an unreachable opt-out for a system that messages people is the
   // one thing that would undercut the ethical stance the module is built on.
+  const relBody = document.getElementById('relationships-body');
+  if (relBody) {
+    const UNDO = { mute: ['/mute', 'DELETE', 'Unmute'], restrict: ['/restrict', 'DELETE', 'Un-restrict'], block: ['/block', 'DELETE', 'Unblock'] };
+    const paintRelationships = () => api('/me/relationships').then(r => {
+      const groups = [
+        ['Muted', r.muted, 'Their posts are hidden from your feed. They are not told.'],
+        ['Restricted', r.restricted, 'They cannot open or send you messages. They are not told.'],
+        ['Blocked', r.blocked, 'You are hidden from each other entirely.'],
+      ].filter(([, list]) => list && list.length);
+      if (!groups.length) { relBody.innerHTML = 'You have not muted, restricted or blocked anyone.'; return; }
+      relBody.innerHTML = groups.map(([label, list, note]) => `
+        <div style="margin-bottom:12px">
+          <div class="field-label">${label}</div>
+          <div class="muted" style="font-size:.74rem;margin-bottom:6px">${note}</div>
+          ${list.map(p => `<div class="integration-row" data-rel-row="${escapeHtml(p.control)}:${escapeHtml(p.user_id)}">
+            <div class="post-user" data-user="${escapeHtml(p.user_id)}" style="display:flex;align-items:center;gap:8px;flex:1;cursor:pointer">
+              ${avatarHtml({ id: p.user_id, display_name: p.display_name, has_avatar: p.has_avatar }, 'avatar-sm')}
+              <span>${escapeHtml(p.display_name || 'Member')}</span>
+            </div>
+            <button class="ghost" data-rel-undo="${escapeHtml(p.control)}:${escapeHtml(p.user_id)}">${UNDO[p.control][2]}</button>
+          </div>`).join('')}
+        </div>`).join('');
+      hydrateAvatars(relBody);
+      relBody.querySelectorAll('.post-user[data-user]').forEach(el => el.onclick = () => renderUserProfile(el.dataset.user));
+      relBody.querySelectorAll('[data-rel-undo]').forEach(btn => btn.onclick = async () => {
+        const [control, uid] = btn.dataset.relUndo.split(':');
+        btn.disabled = true;
+        const r2 = await api(`/users/${uid}${UNDO[control][0]}`, { method: 'DELETE' }).catch(() => ({ error: 'network' }));
+        if (r2.error) { btn.disabled = false; return; }
+        paintRelationships();
+      });
+    }).catch(() => { relBody.textContent = 'Could not load this list.'; });
+    paintRelationships();
+  }
   const nudgesBody = document.getElementById('nudges-body');
   if (nudgesBody) {
     const paintNudges = () => api('/retention/state').then(s => {
