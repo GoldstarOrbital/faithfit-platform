@@ -58,7 +58,7 @@ async function apiRequest(path, opts = {}) {
     clearTimeout(timeout);
   }
   if (res.status === 401) { renderSignIn(); throw new Error('not_signed_in'); }
-  const payload = await res.json();
+  const payload = await res.json().catch(() => ({}));
   if (!res.ok && opts.throwOnError) {
     const message = payload.hint || payload.error || `Request failed (${res.status})`;
     const error = new Error(message);
@@ -85,15 +85,33 @@ async function loadMe() {
   else if (typeof notifPollTimer !== 'undefined' && notifPollTimer) { clearInterval(notifPollTimer); notifPollTimer = null; }
 }
 
+const TAB_LABELS = { home: 'Home', workout: 'Train', stats: 'Stats', explore: 'Explore', profile: 'Profile' };
+function announce(message) {
+  const status = document.getElementById('app-status');
+  if (!status || !message) return;
+  status.textContent = '';
+  requestAnimationFrame(() => { status.textContent = message; });
+}
+function syncTabA11y(tab) {
+  document.querySelectorAll('nav button[data-tab]').forEach(b => {
+    const active = b.dataset.tab === tab;
+    b.classList.toggle('active', active);
+    if (active) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
+}
+
 function setTab(tab) {
   if (state.activeWorkout && tab !== 'workout') { if (!confirm('Leave this screen? Your workout is still running.')) return; }
   state.tab = tab;
-  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  syncTabA11y(tab);
+  announce(`${TAB_LABELS[tab] || 'Screen'} opened`);
   render();
 }
 
 async function render() {
   const main = document.getElementById('main');
+  syncTabA11y(state.tab);
   if (!state.me) return renderSignIn();
   if (!state.me.user.terms_accepted_at || !state.me.user.date_of_birth) return renderAccountSetup(main);
   if (state.tab === 'home') return renderHome(main);
@@ -324,8 +342,19 @@ async function renderSignIn() {
   };
 
   main.querySelector('#demo-open').onclick = async () => {
-    const users = await api('/auth/demo-users');
-    main.innerHTML = `
+    const demoButton = main.querySelector('#demo-open');
+    const originalLabel = demoButton.textContent;
+    demoButton.disabled = true;
+    demoButton.textContent = 'Loading demo profiles…';
+    try {
+      const users = await api('/auth/demo-users');
+      if (!Array.isArray(users) || !users.length) {
+        demoButton.disabled = false;
+        demoButton.textContent = originalLabel;
+        showErr('Demo profiles are temporarily unavailable. Please try again shortly.');
+        return;
+      }
+      main.innerHTML = `
       <div class="card glass">
         <h2>Explore a demo profile</h2>
         <p class="muted">Example accounts with sample data — no password. Not real users.</p>
@@ -333,9 +362,27 @@ async function renderSignIn() {
         <button class="ghost" id="demo-back" style="width:100%;margin-top:6px">← Back to sign in</button>
       </div>`;
     main.querySelector('#demo-back').onclick = () => renderSignIn();
-    main.querySelectorAll('[data-demo]').forEach(btn => {
-      btn.onclick = async () => { await api('/auth/demo', { method: 'POST', body: { user_id: btn.dataset.demo } }); await loadMe(); render(); };
-    });
+      main.querySelectorAll('[data-demo]').forEach(btn => {
+        btn.onclick = async () => {
+          btn.disabled = true;
+          btn.setAttribute('aria-busy', 'true');
+          try {
+            const result = await api('/auth/demo', { method: 'POST', body: { user_id: btn.dataset.demo } });
+            if (result && result.error) throw new Error(result.hint || 'Demo sign-in is unavailable.');
+            await loadMe();
+            render();
+          } catch (err) {
+            btn.disabled = false;
+            btn.removeAttribute('aria-busy');
+            showToast(err.message || 'Demo sign-in failed. Please try again.', true);
+          }
+        };
+      });
+    } catch (err) {
+      demoButton.disabled = false;
+      demoButton.textContent = originalLabel;
+      showErr('Demo profiles are temporarily unavailable. Please try again shortly.');
+    }
   };
 }
 

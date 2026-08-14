@@ -1881,3 +1881,128 @@ button.start-degraded { background: var(--hearth, #b8863b); }
 .group-pulse-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .pulse-encourage { justify-self:start; margin-top:3px; padding:7px 10px; }
 @media (max-width:430px) { .pulse-options { grid-template-columns:1fr; } .group-pulse-card > .action-row { align-items:flex-start; flex-direction:column; } }
+
+
+/* ---------------------------------------------------------------------------
+   FF polish slice 2026-08: responsive product framing and interaction states.
+   Kept at the end intentionally so the new system wins over legacy overrides.
+   --------------------------------------------------------------------------- */
+:root {
+  --ff-space-1: 4px;
+  --ff-space-2: 8px;
+  --ff-space-3: 12px;
+  --ff-space-4: 16px;
+  --ff-space-5: 20px;
+  --ff-space-6: 24px;
+  --ff-space-7: 32px;
+  --ff-content-max: 1180px;
+  --ff-reading-max: 720px;
+  --ff-focus: #255f46;
+  --ff-focus-ring: 0 0 0 3px rgba(37,95,70,.24);
+  --ff-ease: cubic-bezier(.22,.61,.36,1);
+}
+
+body {
+  background-attachment: scroll;
+  text-rendering: optimizeLegibility;
+}
+
+#app {
+  width: 100%;
+  max-width: var(--ff-content-max);
+  min-height: 100svh;
+  background: color-mix(in srgb, var(--parch-0) 92%, transparent);
+}
+
+main {
+  width: 100%;
+  max-width: var(--ff-reading-max);
+  margin-inline: auto;
+  padding: clamp(16px, 3vw, 28px) clamp(14px, 3vw, 28px) 28px;
+}
+
+header.topbar {
+  width: 100%;
+  padding-inline: max(18px, calc((100% - var(--ff-content-max)) / 2 + 20px));
+}
+
+nav.tabbar {
+  width: min(100%, var(--ff-content-max));
+  max-width: var(--ff-content-max);
+  padding-inline: max(8px, calc((100% - var(--ff-content-max)) / 2 + 8px));
+}
+
+button, .btn, .primary, .ghost, .follow-btn, input, select, textarea, .input {
+  min-height: 44px;
+}
+
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, summary:focus-visible {
+  outline: 2px solid var(--ff-focus);
+  outline-offset: 3px;
+  box-shadow: var(--ff-focus-ring);
+}
+
+nav.tabbar button {
+  min-height: 52px;
+  padding-block: 8px 7px;
+  font-family: var(--ui, Inter, system-ui, sans-serif);
+  font-size: .72rem;
+  font-weight: 650;
+  letter-spacing: .01em;
+  transition: color .18s var(--ff-ease), background-color .18s var(--ff-ease), transform .18s var(--ff-ease);
+}
+
+nav.tabbar button:hover { color: var(--parch-2); background: rgba(255,255,255,.08); }
+nav.tabbar button:active { transform: scale(.97); }
+nav.tabbar button.active,
+nav.tabbar button[aria-current="page"] {
+  color: var(--parch-2);
+  background: linear-gradient(180deg, rgba(217,171,85,.18), rgba(111,143,67,.14));
+  box-shadow: inset 0 0 0 1px rgba(240,196,119,.2), 0 4px 12px rgba(0,0,0,.14);
+}
+nav.tabbar button .icon { display: grid; place-items: center; min-height: 24px; }
+
+.card, .home-action, .explore-tile {
+  transition: transform .22s var(--ff-ease), box-shadow .22s var(--ff-ease), border-color .22s ease;
+}
+
+@media (min-width: 900px) {
+  #app {
+    margin-block: 20px;
+    min-height: calc(100svh - 40px);
+    border: 1px solid rgba(74,58,40,.12);
+    border-radius: 28px;
+    overflow: clip;
+    box-shadow: 0 24px 80px rgba(43,30,18,.18);
+  }
+  header.topbar { position: sticky; }
+  main { min-height: calc(100svh - 164px); }
+  nav.tabbar { position: sticky; left: auto; bottom: 0; transform: none; margin-inline: auto; }
+}
+
+@media (max-width: 899px) {
+  #app { max-width: 680px; }
+  main { max-width: 680px; }
+}
+
+@media (max-width: 480px) {
+  #app { border-radius: 0; }
+  main { padding-inline: 14px; }
+  header.topbar { padding-inline: 14px; }
+  nav.tabbar { padding-inline: 6px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+@media (forced-colors: active) {
+  button, a, input, select, textarea { forced-color-adjust: auto; }
+  nav.tabbar button[aria-current="page"] { outline: 2px solid CanvasText; }
+}
