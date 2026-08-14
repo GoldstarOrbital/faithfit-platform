@@ -2096,3 +2096,11 @@ nav.tabbar button .icon { display: grid; place-items: center; min-height: 24px; 
 .composer-cats { display:flex; flex-wrap:wrap; gap:10px; font-size:.8rem; }
 .composer-cats label { display:flex; align-items:center; gap:4px; }
 .profile-safety-note { font-size:.72rem; flex-basis:100%; margin-top:6px; line-height:1.45; }
+
+/* ---- Topics ---- */
+.hashtag { color:var(--brass); text-decoration:none; font-weight:600; }
+.hashtag:hover { text-decoration:underline; }
+.tag-rail { display:flex; flex-wrap:wrap; gap:8px; }
+.tag-chip { background:var(--parch-2); border:1px solid rgba(45,32,19,.14); border-radius:999px;
+  padding:6px 12px; font-size:.8rem; cursor:pointer; color:var(--ink); }
+.tag-chip:hover { border-color:var(--brass); }

@@ -835,6 +835,7 @@ async function renderHome(main) {
           </div>`).join('')}
       </div>
     </div>` : ''}
+    <div id="trending-tags"></div>
     <div class="card glass composer-card" id="composer-card">
       <button class="composer-prompt" id="composer-open">
         ${avatarHtml({ id: myUserId(), display_name: (state.me && state.me.user && state.me.user.display_name) || '', has_avatar: !!(state.me && state.me.user && state.me.user.avatar_data) }, 'avatar-sm')}
@@ -876,6 +877,17 @@ async function renderHome(main) {
   });
   main.querySelectorAll('.home-explore-tile[data-user]').forEach(btn => btn.onclick = () => renderUserProfile(btn.dataset.user));
   wireComposer(main);
+  // Only render the topics rail when topics actually exist -- an empty
+  // "Trending" header on a young community reads as a broken feature.
+  api('/hashtags/trending?days=30&limit=10').then(({ tags }) => {
+    const el = document.getElementById('trending-tags');
+    if (!el || !tags || !tags.length) return;
+    el.innerHTML = `<div class="card glass" style="padding:12px">
+      <div class="foryou-head" style="margin-bottom:8px"># Topics people are using</div>
+      <div class="tag-rail">${tags.map(t => `<button class="tag-chip" data-hashtag="${escapeHtml(t.tag)}">#${escapeHtml(t.tag)} <span class="muted">${t.c}</span></button>`).join('')}</div>
+    </div>`;
+    wireHashtags(el);
+  }).catch(() => {});
   main.querySelectorAll('[data-story-compose]').forEach(btn => btn.onclick = () => openStoryComposer());
   main.querySelectorAll('[data-story-open]').forEach(btn => btn.onclick = () => {
     const groups = groupStories(homeStories, myUserId());
@@ -914,7 +926,7 @@ async function renderHome(main) {
           ${['public','followers','private'].map(v => `<option value="${v}" ${p.visibility===v?'selected':''}>${visLabel[v]}</option>`).join('')}
         </select>` : ''}
       </div>
-      <div class="post-content">${escapeHtml(p.content || '')}</div>
+      <div class="post-content">${linkifyText(p.content || '')}</div>
       ${p.workout_type ? `
         ${p.route ? `<div class="route-banner">${realRouteSvg(p.route)}<span class="badge-overlay">${escapeHtml(p.workout_type)}</span></div>` : ''}
         <div class="stat-row">
@@ -965,6 +977,7 @@ async function renderHome(main) {
     };
   }
   wireVerseCards(postsEl);
+  wireHashtags(postsEl);
   postsEl.querySelectorAll('[data-report]').forEach(btn => btn.onclick = async () => {
     const reason = prompt('Why are you reporting this post?');
     if (reason === null) return;
@@ -1170,7 +1183,7 @@ async function renderUserProfile(userId) {
   if (data.posts.length) pp.innerHTML = data.posts.map((p, i) => `
     <div class="card glass">
       <div class="post-time" style="margin-bottom:8px">${timeAgo(p.created_at)} ago</div>
-      ${p.content ? `<div class="post-content">${escapeHtml(p.content)}</div>` : ''}
+      ${p.content ? `<div class="post-content">${linkifyText(p.content)}</div>` : ''}
       ${p.photo_data ? `<img src="${escapeHtml(p.photo_data)}" alt="${escapeHtml(p.photo_category || 'photo')}" style="width:100%;border-radius:10px;margin-top:8px;display:block" />` : ''}
       ${p.video_data ? `<video src="${escapeHtml(p.video_data)}" controls preload="none" playsinline style="width:100%;border-radius:10px;margin-top:8px;display:block;background:#000"></video>` : ''}
       ${p.workout_type ? `${p.route ? `<div class="route-banner">${realRouteSvg(p.route)}<span class="badge-overlay">${p.workout_type}</span></div>` : ''}
@@ -1189,6 +1202,7 @@ async function renderUserProfile(userId) {
   if (mb) mb.onclick = () => openDmWith(userId);
   const inviteBtn = document.getElementById('profile-invite');
   if (inviteBtn) inviteBtn.onclick = () => openWorkoutInvite(userId, u.display_name);
+  wireHashtags(main);
   const blockBtn = document.getElementById('profile-block');
   if (blockBtn) blockBtn.onclick = async () => {
     const blocked = blockBtn.textContent.startsWith('Unblock');
@@ -2406,7 +2420,7 @@ async function renderSavedPosts(main) {
   const list = main.querySelector('#saved-posts-list');
   list.innerHTML = data.posts.length ? data.posts.map(p => `<article class="card glass saved-post-card" data-saved-card="${escapeHtml(p.id)}">
     <div class="post-head"><div class="avatar-sm">${initials(p.author)}</div><div><b>${escapeHtml(p.author)}</b><div class="post-time">Saved ${timeAgo(p.saved_at)} ago · posted ${timeAgo(p.created_at)} ago</div></div></div>
-    ${p.content ? `<div class="post-content">${escapeHtml(p.content)}</div>` : ''}
+    ${p.content ? `<div class="post-content">${linkifyText(p.content)}</div>` : ''}
     ${p.photo_data ? `<img src="${escapeHtml(p.photo_data)}" alt="${escapeHtml(p.photo_category || 'Saved community photo')}" style="width:100%;border-radius:12px;margin-top:8px;display:block" />` : ''}
     ${p.video_data ? `<video src="${escapeHtml(p.video_data)}" controls preload="none" playsinline style="width:100%;border-radius:12px;margin-top:8px;display:block;background:#000"></video>` : ''}
     ${p.workout_type ? `<div class="stat-row"><div class="stat"><div class="v">${p.distance_km ?? '—'}</div><div class="l">km</div></div><div class="stat"><div class="v">${p.calories ?? '—'}</div><div class="l">kcal</div></div><div class="stat"><div class="v">${p.avg_hr ?? '—'}</div><div class="l">avg HR</div></div></div>` : ''}
@@ -4666,6 +4680,56 @@ function renderShareForm(main, ctx) {
 
 function formatElapsed(s) { const m = Math.floor(s / 60), sec = s % 60; return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`; }
 function escapeHtml(s) { return (s || '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+/**
+ * Post/comment body with #hashtags turned into topic links.
+ *
+ * Escapes FIRST and only then injects markup, so member text can never
+ * introduce HTML -- the linkifier only ever matches against already-escaped
+ * output. Hashtags are safe to linkify blind because the tag charset
+ * (letters/digits/underscore) contains nothing that survives escaping as
+ * markup. @mentions are deliberately NOT linkified here: display names may
+ * contain spaces, so the client cannot tell where a name ends without asking
+ * the server, and guessing would either under-match or swallow trailing words.
+ * The server already resolves and notifies them correctly.
+ */
+function linkifyText(s) {
+  return escapeHtml(s).replace(/#([\p{L}\p{N}_]{1,50})/gu,
+    (m, tag) => `<a href="#" class="hashtag" data-hashtag="${tag.toLowerCase()}">#${tag}</a>`);
+}
+
+/** Delegated once per container: opens the topic view for any tag inside it. */
+function wireHashtags(root) {
+  root.querySelectorAll('[data-hashtag]').forEach(a => a.onclick = (e) => {
+    e.preventDefault(); e.stopPropagation();
+    renderHashtag(a.dataset.hashtag);
+  });
+}
+
+async function renderHashtag(tag) {
+  const main = document.getElementById('main');
+  main.innerHTML = `<button class="ghost" id="tag-back">← Back</button>
+    <div class="card glass"><h2 style="margin-top:0">#${escapeHtml(tag)}</h2>
+    <div id="tag-posts" class="muted">Loading…</div></div>`;
+  document.getElementById('tag-back').onclick = () => setTab('home');
+  const r = await api(`/hashtags/${encodeURIComponent(tag)}`).catch(() => null);
+  const el = document.getElementById('tag-posts');
+  if (!r) { el.textContent = 'Could not load this topic.'; return; }
+  if (!r.posts.length) { el.textContent = 'No posts you can see are using this topic yet.'; return; }
+  el.innerHTML = r.posts.map(p => `
+    <div class="card glass" data-post="${escapeHtml(p.id)}" style="margin-top:10px">
+      <div class="post-head">
+        <div class="post-user" data-user="${escapeHtml(p.author_id)}">${avatarHtml({ id: p.author_id, display_name: p.author, has_avatar: p.author_has_avatar }, 'avatar-sm')}</div>
+        <div style="flex:1"><div class="post-author">${escapeHtml(p.author)}</div>
+        <div class="post-time">${timeAgo(p.created_at)} ago</div></div>
+      </div>
+      <div class="post-content">${linkifyText(p.content || '')}</div>
+      ${p.photo_data ? `<div class="post-photo"><img src="${escapeHtml(p.photo_data)}" alt=""></div>` : ''}
+    </div>`).join('');
+  hydrateAvatars(el);
+  wireHashtags(el);
+  el.querySelectorAll('.post-user[data-user]').forEach(x => x.onclick = () => renderUserProfile(x.dataset.user));
+}
 
 const dmBtn = document.getElementById('dm-btn');
 if (dmBtn) dmBtn.onclick = () => { if (state.me) renderInbox(); };

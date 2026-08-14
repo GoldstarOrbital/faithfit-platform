@@ -31,6 +31,7 @@ const dms = require('../lib/dms');
 const athletes = require('../lib/athletes');
 const coaches = require('../lib/coaches');
 const schools = require('../lib/schools');
+const mentions = require('../lib/mentions');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
 const wearables = require('../lib/wearables');
@@ -1139,11 +1140,17 @@ router.post('/posts/:id/comments', requireAuth, requireCommunityAccess, (req, re
   if (post && post.user_id !== req.session.userId) {
     notify(post.user_id, 'comment', `${displayName(req.session.userId)} commented: "${snippet}"`, { post_id: req.params.id });
   }
+  // A direct @mention is the more specific signal, so those people get the
+  // mention notification and are excluded from the generic "also replied"
+  // broadcast below rather than being told twice about the same comment.
+  const mentionedIds = new Set(notifyMentions(content, req.session.userId, { post_id: req.params.id })
+    .map(m => m.user_id));
   // Conversation, not broadcast: everyone already in the thread hears the reply too.
   const others = db.prepare(`
     SELECT DISTINCT user_id FROM post_comments WHERE post_id = ? AND user_id != ? AND user_id != ?
   `).all(req.params.id, req.session.userId, post ? post.user_id : '');
   for (const o of others) {
+    if (mentionedIds.has(o.user_id)) continue;
     notify(o.user_id, 'comment', `${displayName(req.session.userId)} also replied: "${snippet}"`, { post_id: req.params.id });
   }
   res.json(comment);
@@ -1861,8 +1868,74 @@ router.post('/posts', requireAuth, requireCommunityAccess, async (req, res) => {
     .run(id,uid,(content||'').toString().slice(0,1000),workout_id||null,scripture.verse.id,vis,
          photoData,photoCategory,wantsRoute,privacyM,scripture.source,scripture.reason,
          videoData,videoCategory,videoFormat,videoBytes,videoDurationS);
+
+  // Topic index and @mention notifications. Both read the same text the post
+  // stored, so a mention only ever notifies someone actually named in it.
+  const tags = mentions.replaceHashtagsFor(id, content || '');
+  const mentioned = notifyMentions(content || '', uid, { post_id: id }, vis === 'private');
+
   res.status(201).json({ id,visibility:vis,share_url:vis==='public'?`/w/${id}`:null,
+    hashtags: tags, mentioned: mentioned.map(m => m.display_name),
     scripture:{reference:scripture.verse.reference,text:scripture.verse.text,chosen_by:scripture.source,reason:scripture.reason} });
+});
+
+/**
+ * Notify everyone named with an @mention.
+ *
+ * Two rules worth stating: a private post notifies nobody (telling someone
+ * they were named in something they cannot open is worse than silence), and
+ * someone who has blocked -- or been blocked by -- the author is never
+ * notified, matching how every other surface in this file treats a block.
+ */
+function notifyMentions(text, authorId, payload, silent = false) {
+  if (silent) return [];
+  const found = mentions.resolveMentions(text, { excludeUserId: authorId });
+  const name = displayName(authorId);
+  const out = [];
+  for (const person of found) {
+    if (dms.isBlockedEitherWay(authorId, person.user_id)) continue;
+    notify(person.user_id, 'mention', `${name} mentioned you`, payload);
+    out.push(person);
+  }
+  return out;
+}
+
+// ---- Topics. ----
+// Discovery here was only ever the follow graph plus follow-suggestions, with
+// nothing between "people I already know" and "everyone". A tag is the cheap
+// third axis -- #prayerrequest, #marathontraining, #lent -- and it is the one
+// that makes the new standalone composer worth having.
+router.get('/hashtags/trending', requireAuth, (req, res) => {
+  res.json({ tags: mentions.trendingTags(req.query.days, req.query.limit) });
+});
+
+router.get('/hashtags/:tag', requireAuth, (req, res) => {
+  const ids = mentions.postIdsForTag(req.params.tag, req.query.limit);
+  if (!ids.length) return res.json({ tag: String(req.params.tag).toLowerCase(), posts: [] });
+  // Named placeholders throughout -- the visibility clause below needs @me, and
+  // node:sqlite will not bind a mix of positional and named parameters.
+  const params = { me: req.session.userId };
+  const marks = ids.map((id, i) => { params[`p${i}`] = id; return `@p${i}`; }).join(',');
+  // Visibility is re-applied here rather than trusted from the tag index: the
+  // index knows nothing about who may read a post.
+  const rows = db.prepare(`
+    SELECT p.id, p.content, p.created_at, p.visibility, p.photo_data, p.photo_category,
+           p.user_id author_id, u.display_name author,
+           CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS author_has_avatar
+    FROM posts p JOIN users u ON u.id = p.user_id
+    WHERE p.id IN (${marks})
+      AND (p.visibility = 'public'
+           OR p.user_id = @me
+           OR (p.visibility = 'followers' AND EXISTS (
+               SELECT 1 FROM followers f WHERE f.followee_id = p.user_id AND f.follower_id = @me)))
+      AND NOT EXISTS (SELECT 1 FROM dm_blocks b
+                      WHERE (b.blocker_id = @me AND b.blocked_id = p.user_id)
+                         OR (b.blocker_id = p.user_id AND b.blocked_id = @me))
+      AND NOT EXISTS (SELECT 1 FROM account_relationship_controls rc
+                      WHERE rc.actor_id = @me AND rc.subject_id = p.user_id AND rc.control = 'mute')
+    ORDER BY p.created_at DESC
+  `).all(params);
+  res.json({ tag: String(req.params.tag).toLowerCase(), posts: rows });
 });
 
 // Community-enforcement report. No moderation queue/UI yet in this pass — this is
