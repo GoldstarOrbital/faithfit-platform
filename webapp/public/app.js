@@ -2085,20 +2085,10 @@ async function renderReelsTab(body) {
   } else {
     try { payload = await api('/reels'); } catch { try { payload.videos = await api('/videos?category=reels'); } catch { payload.videos = []; } }
   }
-  const starters = [
-    { video_id: 'nENP1nWCJGU', title: 'Meal Prep: 5 Recipes + 10 Meals for Variety', channel_title: 'Fit Men Cook', category: 'food', is_short: 1 },
-    { video_id: 'pDgEBQx7wKY', title: 'Budget Meal Prep with Nutrient-Dense Ingredients', channel_title: 'Downshiftology', category: 'food', is_short: 1 },
-    { video_id: 'KjytadfepNQ', title: 'Full Body Strength, Stretching, Core & Cardio', channel_title: 'Shaped · Faith & Fitness', category: 'fitness' },
-    { video_id: '6vAqOIoaKdQ', title: 'Quick Exercises for Physical & Spiritual Strength', channel_title: 'Shaped · Faith & Fitness', category: 'fitness' },
-    { video_id: 'VoyPK-sqoyQ', title: 'Living With a Warrior Mentality', channel_title: 'Passion City Church', category: 'motivational' },
-    { video_id: 'Ezs5GWi6KWk', title: 'The Fullest and Freest Version of You', channel_title: 'Passion City Church', category: 'motivational' },
-    { video_id: 'ak06MSETeo4', title: 'What Is the Bible? · Animated Explainer', channel_title: 'BibleProject', category: 'christian' },
-    { video_id: 'xsIRy1IlI_0', title: 'Fruit of the Spirit Brain Break', channel_title: 'Ready Set Fitness Kids', category: 'kids' },
-  ].map(v => ({ ...v, thumbnail_url: `https://i.ytimg.com/vi/${v.video_id}/hqdefault.jpg` }));
   // The API order is meaningful: approved Functioning Faith originals lead,
   // followed by church/official/catalog content. Do not randomize it in the
   // browser; discovery diversity belongs inside the server ranking tiers.
-  let videos = [...(payload.videos || []), ...(state.reelsView === 'saved' ? [] : starters)];
+  let videos = payload.videos || [];
   const seen = new Set();
   videos = videos.filter(v => v.video_id && !seen.has(v.video_id))
     .map(v => { seen.add(v.video_id); return v; });

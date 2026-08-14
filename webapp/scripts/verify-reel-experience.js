@@ -15,6 +15,7 @@ assert.match(api, /LEFT JOIN scripture_verses v ON v\.id = p\.verse_id/, 'owned 
 assert.match(api, /LEFT JOIN posts p ON p\.id = r\.video_id/, 'saved Functioning Faith originals must remain playable');
 assert.match(app, /data-reel-track-impression/, 'the client must identify catalogue Reels that can be marked seen');
 assert.match(app, /\/impression/, 'the client must report an actual opened Reel');
+assert.doesNotMatch(app, /const starters = \[/, 'legacy client-side starter videos must not bypass the screened feed');
 assert.match(app, /data-reel-verse-ref/, 'a Scripture-paired Reel needs an open-verse action');
 assert.match(app, /renderVerseThread\(verse\.dataset\.reelVerseRef\)/, 'opening a Reel verse must use the canonical Scripture thread');
 assert.match(css, /\.reel-scripture/, 'the Scripture action needs visible Reel styling');
