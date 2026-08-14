@@ -2007,6 +2007,17 @@ async function renderVideosTab(body) {
 }
 
 // Group detail: chat (5s polling) + upcoming meetups with RSVP.
+/** One group chat message. Delete is offered to the message's own author and
+ *  to a group organiser; the route re-checks both, so this is presentation
+ *  only. Shared by the initial render, the optimistic send, and the poller so
+ *  a message looks the same however it arrived. */
+function groupMsgHtml(m, isAdmin) {
+  const mine = m.author_id && m.author_id === (state.me && state.me.user && state.me.user.id);
+  return `<div class="comment" data-gmsg="${escapeHtml(m.id)}"><b>${escapeHtml(m.author)}</b>${escapeHtml(m.content)}`
+    + `<span class="muted" style="margin-left:6px;font-size:0.7rem">${timeAgo(m.created_at)} ago</span>`
+    + `${mine || isAdmin ? `<button class="comment-like" data-gmsg-delete="${escapeHtml(m.id)}" title="Delete this message">🗑</button>` : ''}</div>`;
+}
+
 async function renderGroupDetail(groupId) {
   const main = document.getElementById('main');
   if (state.groupPollTimer) { clearInterval(state.groupPollTimer); state.groupPollTimer = null; }
@@ -2064,6 +2075,10 @@ async function renderGroupDetail(groupId) {
       <button class="follow-btn ${data.is_member ? 'following' : ''}" id="group-join-leave">${data.is_member ? 'Leave group' : 'Join group'}</button>
       ${data.is_admin ? `<div style="display:flex;gap:8px;margin-top:10px"><button class="ghost" id="group-invite-btn">Invite members</button><button class="ghost" id="group-sync-btn">✦ Sync with Gloo</button></div><div id="group-invite-box" style="display:none;margin-top:10px"></div><div id="group-sync-status" class="muted" style="margin-top:6px"></div>` : ''}
     </div>
+    ${data.is_member ? `<div class="card glass">
+      <h2>Members</h2>
+      <div id="group-members" class="muted">Loading…</div>
+    </div>` : ''}
     ${data.is_member ? `<div class="card glass group-pulse-card">
       <span class="eyebrow">A finite daily ritual</span><h2>Group Pulse</h2>
       <p class="muted">Share where you are today. No rankings, no missed-day penalty—just a simple way to show up for one another.</p>
@@ -2089,7 +2104,7 @@ async function renderGroupDetail(groupId) {
       <h2>Chat</h2>
       ${data.is_member ? `
         <div class="comments" id="group-messages" style="display:flex;max-height:340px;overflow-y:auto">
-          ${data.messages.map(m => `<div class="comment"><b>${escapeHtml(m.author)}</b>${escapeHtml(m.content)}<span class="muted" style="margin-left:6px;font-size:0.7rem">${timeAgo(m.created_at)} ago</span></div>`).join('')}
+          ${data.messages.map(m => groupMsgHtml(m, data.is_admin)).join('')}
         </div>
         <div class="comment-input-row">
           <input type="text" placeholder="Message the group…" id="group-msg-input" />
@@ -2104,9 +2119,38 @@ async function renderGroupDetail(groupId) {
   };
 
   document.getElementById('group-join-leave').onclick = async () => {
+    if (data.is_member && !confirm('Leave this group?')) return;
     await api(`/groups/${groupId}/${data.is_member ? 'leave' : 'join'}`, { method: 'POST' });
     renderGroupDetail(groupId);
   };
+
+  // Members list, with a remove control for organisers. The role column has
+  // existed all along; this is the first surface that acts on it.
+  const membersEl = document.getElementById('group-members');
+  if (membersEl) {
+    const paintMembers = () => api(`/groups/${groupId}/members`).then(({ members, is_admin }) => {
+      membersEl.innerHTML = members.map(m => `
+        <div class="integration-row" data-member-row="${escapeHtml(m.user_id)}">
+          <div class="post-user" data-user="${escapeHtml(m.user_id)}" style="display:flex;align-items:center;gap:8px;flex:1;cursor:pointer">
+            ${avatarHtml({ id: m.user_id, display_name: m.display_name, has_avatar: m.has_avatar }, 'avatar-sm')}
+            <span>${escapeHtml(m.display_name || 'Member')}${m.role === 'admin' ? ' <span class="muted" style="font-size:.72rem">· organiser</span>' : ''}</span>
+          </div>
+          ${is_admin && m.role !== 'admin' && m.user_id !== (state.me?.user?.id)
+            ? `<button class="ghost" data-remove-member="${escapeHtml(m.user_id)}">Remove</button>` : ''}
+        </div>`).join('') || '<div class="muted">No members yet.</div>';
+      hydrateAvatars(membersEl);
+      membersEl.querySelectorAll('.post-user[data-user]').forEach(el => el.onclick = () => renderUserProfile(el.dataset.user));
+      membersEl.querySelectorAll('[data-remove-member]').forEach(btn => btn.onclick = async () => {
+        if (!confirm('Remove this member from the group? They can be invited back later.')) return;
+        btn.disabled = true;
+        const r = await api(`/groups/${groupId}/members/${encodeURIComponent(btn.dataset.removeMember)}`, { method: 'DELETE' })
+          .catch(() => ({ error: 'network' }));
+        if (r.error) { btn.disabled = false; btn.textContent = r.hint || 'Could not remove'; return; }
+        membersEl.querySelector(`[data-member-row="${btn.dataset.removeMember}"]`)?.remove();
+      });
+    }).catch(() => { membersEl.textContent = 'Could not load members.'; });
+    paintMembers();
+  }
 
   if (data.is_admin) {
     document.getElementById('group-invite-btn').onclick = async () => {
@@ -2170,10 +2214,22 @@ async function renderGroupDetail(groupId) {
       if (!input.value.trim()) return;
       const msg = await api(`/groups/${groupId}/messages`, { method: 'POST', body: { content: input.value } });
       input.value = '';
-      messagesEl.insertAdjacentHTML('beforeend', `<div class="comment"><b>${escapeHtml(msg.author)}</b>${escapeHtml(msg.content)}<span class="muted" style="margin-left:6px;font-size:0.7rem">${timeAgo(msg.created_at)} ago</span></div>`);
+      messagesEl.insertAdjacentHTML('beforeend', groupMsgHtml(msg, data.is_admin));
       messagesEl.scrollTop = messagesEl.scrollHeight;
       lastTs = msg.created_at;
     };
+    // Delegated: messages arrive from three paths (initial render, send, and
+    // the poller), so binding per-element would miss everything added later.
+    messagesEl.addEventListener('click', async (e) => {
+      const btn = e.target.closest('[data-gmsg-delete]');
+      if (!btn) return;
+      if (!confirm('Delete this message?')) return;
+      btn.disabled = true;
+      const r = await api(`/groups/${groupId}/messages/${encodeURIComponent(btn.dataset.gmsgDelete)}`, { method: 'DELETE' })
+        .catch(() => ({ error: 'network' }));
+      if (r.error) { btn.disabled = false; return; }
+      messagesEl.querySelector(`[data-gmsg="${btn.dataset.gmsgDelete}"]`)?.remove();
+    });
     document.getElementById('group-msg-send').onclick = sendMsg;
     document.getElementById('group-msg-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendMsg(); });
     messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -2183,7 +2239,7 @@ async function renderGroupDetail(groupId) {
         const fresh = await api(`/groups/${groupId}/messages${lastTs ? `?after=${encodeURIComponent(lastTs)}` : ''}`);
         if (fresh.length) {
           fresh.forEach(m => {
-            messagesEl.insertAdjacentHTML('beforeend', `<div class="comment"><b>${escapeHtml(m.author)}</b>${escapeHtml(m.content)}<span class="muted" style="margin-left:6px;font-size:0.7rem">${timeAgo(m.created_at)} ago</span></div>`);
+            messagesEl.insertAdjacentHTML('beforeend', groupMsgHtml(m, data.is_admin));
           });
           lastTs = fresh[fresh.length - 1].created_at;
           messagesEl.scrollTop = messagesEl.scrollHeight;

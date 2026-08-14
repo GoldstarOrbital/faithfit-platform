@@ -2089,8 +2089,16 @@ router.get('/explore', (req, res) => {
 function isGroupMember(groupId, userId) {
   return !!db.prepare('SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ?').get(groupId, userId);
 }
+// Admin is either the group's creator or anyone carrying the 'admin' role on
+// their membership row. Checking creator_id alone used to be the whole test,
+// which meant the role column -- written on create, backfilled for legacy
+// groups, and reassigned when a creator's account is deleted -- authorized
+// nothing, and a promoted admin got no powers.
 function isGroupAdmin(groupId, userId) {
-  return !!db.prepare("SELECT 1 FROM groups WHERE id = ? AND creator_id = ?").get(groupId, userId);
+  if (!userId) return false;
+  if (db.prepare('SELECT 1 FROM groups WHERE id = ? AND creator_id = ?').get(groupId, userId)) return true;
+  return !!db.prepare("SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ? AND role = 'admin'")
+    .get(groupId, userId);
 }
 function groupUsername(value) {
   return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
@@ -2248,7 +2256,78 @@ router.post('/groups/:id/join', requireAuth, (req, res) => {
 });
 
 router.post('/groups/:id/leave', requireAuth, (req, res) => {
-  db.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').run(req.params.id, req.session.userId);
+  const me = req.session.userId;
+  db.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').run(req.params.id, me);
+  // Hand the group on if the person leaving was running it. Without this the
+  // group kept a creator_id pointing at someone who is no longer a member, so
+  // nobody could administer it ever again -- the account-deletion path already
+  // did this reassignment, the ordinary "leave" path did not.
+  const group = db.prepare('SELECT id, creator_id FROM groups WHERE id = ?').get(req.params.id);
+  if (group && group.creator_id === me) {
+    const next = db.prepare(`SELECT user_id FROM group_members WHERE group_id = ?
+      ORDER BY (role = 'admin') DESC, rowid LIMIT 1`).get(group.id);
+    if (next) {
+      db.prepare('UPDATE groups SET creator_id = ? WHERE id = ?').run(next.user_id, group.id);
+      db.prepare("UPDATE group_members SET role = 'admin' WHERE group_id = ? AND user_id = ?").run(group.id, next.user_id);
+      notify(next.user_id, 'group_admin', 'You are now the organiser of a group you belong to.', { group_id: group.id });
+    } else {
+      db.prepare('DELETE FROM groups WHERE id = ?').run(group.id); // last member out
+    }
+  }
+  res.json({ ok: true });
+});
+
+// ---- Group administration. ----
+// group_members.role existed and was maintained, but no route ever read it to
+// authorize anything: the only ways a member left a group were their own
+// choice or deleting their account. A small-group leader with a disruptive
+// member had no group-scoped tool at all -- every other member had to
+// independently discover and block that person, and the leader could not
+// protect the group they are responsible for.
+router.get('/groups/:id/members', requireAuth, (req, res) => {
+  const group = db.prepare('SELECT id FROM groups WHERE id = ?').get(req.params.id);
+  if (!group) return res.status(404).json({ error: 'not_found' });
+  if (!isGroupMember(group.id, req.session.userId)) return res.status(404).json({ error: 'not_found' });
+  const members = db.prepare(`
+    SELECT m.user_id, m.role, u.display_name,
+           CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar
+    FROM group_members m JOIN users u ON u.id = m.user_id
+    WHERE m.group_id = ?
+    ORDER BY (m.role = 'admin') DESC, u.display_name
+  `).all(group.id);
+  res.json({ members, is_admin: isGroupAdmin(group.id, req.session.userId) });
+});
+
+router.delete('/groups/:id/members/:userId', requireAuth, (req, res) => {
+  const group = db.prepare('SELECT id, creator_id FROM groups WHERE id = ?').get(req.params.id);
+  if (!group || !isGroupAdmin(group.id, req.session.userId)) return res.status(404).json({ error: 'not_found' });
+  const target = req.params.userId;
+  // Leaving is a separate, deliberate action -- an organiser removing
+  // themselves here would strand the group without triggering handover.
+  if (target === req.session.userId) return res.status(400).json({ error: 'use_leave', hint: 'Use Leave group to step down.' });
+  // The creator outranks other admins; nobody removes the person who owns it.
+  if (target === group.creator_id) return res.status(403).json({ error: 'cannot_remove_owner' });
+  const removed = db.prepare('DELETE FROM group_members WHERE group_id = ? AND user_id = ?').run(group.id, target);
+  if (!removed.changes) return res.status(404).json({ error: 'not_a_member' });
+  // Note: group invites are shareable link tokens, not per-person rows, so
+  // there is nothing user-specific to revoke here. A removed member holding a
+  // live invite link to a public group can rejoin -- the organiser's remedy is
+  // to rotate the link. Worth tightening if per-user invites ever land.
+  notify(target, 'group_removed', 'You were removed from a group.', { group_id: group.id });
+  res.json({ ok: true });
+});
+
+// The message's own author, or a group admin cleaning up their group.
+router.delete('/groups/:id/messages/:messageId', requireAuth, (req, res) => {
+  const group = db.prepare('SELECT id FROM groups WHERE id = ?').get(req.params.id);
+  if (!group || !isGroupMember(group.id, req.session.userId)) return res.status(404).json({ error: 'not_found' });
+  const msg = db.prepare('SELECT id, user_id FROM group_messages WHERE id = ? AND group_id = ?')
+    .get(req.params.messageId, group.id);
+  if (!msg) return res.status(404).json({ error: 'not_found' });
+  if (msg.user_id !== req.session.userId && !isGroupAdmin(group.id, req.session.userId)) {
+    return res.status(404).json({ error: 'not_found' });
+  }
+  db.prepare('DELETE FROM group_messages WHERE id = ?').run(msg.id);
   res.json({ ok: true });
 });
 
