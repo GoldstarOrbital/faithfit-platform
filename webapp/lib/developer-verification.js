@@ -272,11 +272,11 @@ function reviewContent(id, input) {
     .run(status,String(input.note||'').slice(0,1000),now,id);
   if(status==='approved') {
     const thumbnail=row.provider==='youtube'?`https://i.ytimg.com/vi/${row.video_id}/hqdefault.jpg`:null;
-    db.prepare(`INSERT INTO videos(id,category,video_id,title,description,thumbnail_url,channel_title,published_at,is_short,language_flag,source_kind,source_note,provider,last_checked_at)
-      VALUES(?,?,?,?,?,?,?,?,1,0,'functioning_faith',?,?,?)
+    db.prepare(`INSERT INTO videos(id,category,video_id,title,description,thumbnail_url,channel_title,published_at,is_short,language_flag,source_kind,source_note,provider,source_url,last_checked_at)
+      VALUES(?,?,?,?,?,?,?,?,1,0,'functioning_faith',?,?,?,?)
       ON CONFLICT(category,video_id) DO UPDATE SET title=excluded.title,description=excluded.description,
-      source_kind='functioning_faith',source_note=excluded.source_note,dead_at=NULL,last_checked_at=excluded.last_checked_at`)
-      .run(randomUUID(),row.category,row.video_id,row.title,row.community_purpose,thumbnail,'Functioning Faith Developers',now,`developer:${row.user_id}`,row.provider,now);
+      source_kind='functioning_faith',source_note=excluded.source_note,provider=excluded.provider,source_url=excluded.source_url,dead_at=NULL,last_checked_at=excluded.last_checked_at`)
+      .run(randomUUID(),row.category,row.video_id,row.title,row.community_purpose,thumbnail,'Functioning Faith Developers',now,`developer:${row.user_id}`,row.provider,row.source_url,now);
   }
   return db.prepare('SELECT * FROM developer_content_submissions WHERE id=?').get(id);
 }

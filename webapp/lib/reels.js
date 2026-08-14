@@ -57,6 +57,7 @@ function init() {
   add('dead_at', 'dead_at TEXT');                            // takedown / blocked / private
   // youtube | vimeo | tiktok. Existing rows are all YouTube, hence the default.
   add('provider', "provider TEXT NOT NULL DEFAULT 'youtube'");
+  add('source_url', 'source_url TEXT');
 
   db.exec(`
     -- What each member has already been shown. The single most important input
@@ -95,15 +96,19 @@ function upsert(row) {
   db.prepare(`
     INSERT INTO videos (id, category, video_id, title, description, thumbnail_url,
                         channel_title, published_at, is_short, language_flag,
-                        source_kind, source_note, provider, last_checked_at)
+                        source_kind, source_note, provider, source_url, last_checked_at)
     VALUES (@id, @category, @video_id, @title, @description, @thumbnail_url,
             @channel_title, @published_at, @is_short, @language_flag,
-            @source_kind, @source_note, @provider, datetime('now'))
+            @source_kind, @source_note, @provider, @source_url, datetime('now'))
     ON CONFLICT(category, video_id) DO UPDATE SET
       title = excluded.title,
       thumbnail_url = excluded.thumbnail_url,
       channel_title = excluded.channel_title,
       language_flag = excluded.language_flag,
+      source_kind = excluded.source_kind,
+      source_note = excluded.source_note,
+      provider = excluded.provider,
+      source_url = excluded.source_url,
       last_checked_at = datetime('now'),
       dead_at = NULL
   `).run(row);
@@ -135,6 +140,9 @@ function seed() {
         is_short: 1, language_flag: check.language_flag,
         source_kind: 'seed', source_note: 'hand-verified via oEmbed',
         provider: item.provider || 'youtube',
+        source_url: item.provider === 'vimeo'
+          ? `https://vimeo.com/${item.id}`
+          : `https://www.youtube.com/watch?v=${encodeURIComponent(item.id)}`,
       });
       added++;
     }
@@ -180,6 +188,7 @@ async function ingest() {
             published_at: v.publishedAt || null,
             is_short: 1, language_flag: check.language_flag,
             source_kind: 'channel', source_note: q, provider: 'youtube',
+            source_url: `https://www.youtube.com/watch?v=${encodeURIComponent(v.videoId)}`,
           });
           added++;
         }
@@ -211,6 +220,7 @@ async function ingest() {
             published_at: v.publishedAt || null,
             is_short: 1, language_flag: check.language_flag,
             source_kind: 'query', source_note: q, provider: 'youtube',
+            source_url: `https://www.youtube.com/watch?v=${encodeURIComponent(v.videoId)}`,
           });
           added++;
         }
@@ -285,10 +295,18 @@ function score(v, now) {
   // A little preference for a real publisher over a search result: official
   // uploads are higher quality and far less likely to vanish.
   if (v.source_kind === 'channel') s += 3;
-  // Approved first-party work rises as verified developers contribute it. The
-  // boost changes ordering, not eligibility or a hard quota, so migration is
-  // gradual and can never create an empty feed while first-party supply grows.
-  if (v.source_kind === 'functioning_faith') s += 24;
+  // Provenance is a product promise: originals must lead the feed, not merely
+  // receive a small tie-breaker. The tier dominates recency and randomness,
+  // while the existing category caps still prevent one category from flooding.
+  const sourcePriority = {
+    functioning_faith: 100000,
+    church: 80000,
+    channel: 3000,
+    seed: 2000,
+    query: 1000,
+    external: 500,
+  };
+  s += sourcePriority[v.source_kind] || 0;
 
   return s;
 }
@@ -305,7 +323,7 @@ function feed(userId, opts = {}) {
 
   const rows = db.prepare(`
     SELECT v.video_id, v.category, v.title, v.description, v.thumbnail_url, v.provider,
-           v.channel_title, v.published_at, v.language_flag, v.source_kind,
+           v.channel_title, v.published_at, v.language_flag, v.source_kind, v.source_url,
            (SELECT COUNT(*) FROM reel_impressions i WHERE i.video_id = v.video_id) AS global_impressions,
            (SELECT seen_at FROM reel_impressions i
              WHERE i.video_id = v.video_id AND i.user_id = ?) AS my_seen_at

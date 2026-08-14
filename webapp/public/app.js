@@ -1466,11 +1466,11 @@ function reelCommand(iframe, func) {
  * muted, so this is the one place that knows the difference. An unknown
  * provider falls back to YouTube rather than producing a broken src.
  *
- * Not every provider is here. Instagram is absent because its oEmbed has
- * required a Meta app access token since 2020 — there is no keyless way to
- * embed a post, so pretending otherwise would ship broken cards.
+ * Providers are deliberately explicit. Instagram uses a canonical public URL
+ * and an embed-first/link-fallback strategy; it is never treated as a private
+ * profile scraper or as a guaranteed embed surface.
  */
-function reelEmbedSrc(provider, id, soundOn) {
+function reelEmbedSrc(provider, id, soundOn, sourceUrl) {
   const vid = encodeURIComponent(id);
   if (provider === 'vimeo') {
     // Vimeo wants muted=1 and takes background/controls separately.
@@ -1481,6 +1481,12 @@ function reelEmbedSrc(provider, id, soundOn) {
     // TikTok's embed player has no mute parameter; the sound button cannot
     // drive it, which is why the control is hidden for TikTok cards.
     return 'https://www.tiktok.com/embed/v2/' + vid;
+  }
+  if (provider === 'instagram') {
+    // Public Instagram posts/reels are embed-first, but the canonical URL is
+    // retained so a blocked or changed embed can fall back to a link card.
+    const canonical = sourceUrl || `https://www.instagram.com/p/${encodeURIComponent(id)}/`;
+    return canonical.replace(/\/?$/, '/embed');
   }
   return 'https://www.youtube-nocookie.com/embed/' + vid +
          '?autoplay=1&mute=' + (soundOn ? 0 : 1) +
@@ -1542,18 +1548,20 @@ async function renderReelsTab(body) {
     { video_id: 'ak06MSETeo4', title: 'What Is the Bible? · Animated Explainer', channel_title: 'BibleProject', category: 'christian' },
     { video_id: 'xsIRy1IlI_0', title: 'Fruit of the Spirit Brain Break', channel_title: 'Ready Set Fitness Kids', category: 'kids' },
   ].map(v => ({ ...v, thumbnail_url: `https://i.ytimg.com/vi/${v.video_id}/hqdefault.jpg` }));
+  // The API order is meaningful: approved Functioning Faith originals lead,
+  // followed by church/official/catalog content. Do not randomize it in the
+  // browser; discovery diversity belongs inside the server ranking tiers.
   let videos = [...(payload.videos || []), ...(state.reelsView === 'saved' ? [] : starters)];
   const seen = new Set();
   videos = videos.filter(v => v.video_id && !seen.has(v.video_id))
-    .map(v => { seen.add(v.video_id); return v; })
-    .sort(() => Math.random() - 0.5);
+    .map(v => { seen.add(v.video_id); return v; });
   const list = document.getElementById('reels-list');
   if (!videos.length) { list.innerHTML = `<div class="card glass"><p class="muted">${state.reelsView === 'saved' ? 'Your saved Reels will appear here. Tap 🔖 on anything you want to come back to.' : 'No reels in this filter yet. Fresh videos will appear here as the library refreshes.'}</p></div>`; return; }
-  const labels = { food: 'Food + fitness', kids: 'Kids + family', fitness: 'Faith + movement', christian: 'Scripture + formation', motivational: 'Purpose + perseverance', veggietales: 'Kids + family', nickbare: 'Training + discipline', church: 'Your church' };
-  list.innerHTML = videos.map(v => `<article class="reel-card" data-reel-card="${escapeHtml(v.video_id)}" data-reel-provider="${escapeHtml(v.provider || 'youtube')}">
+  const labels = { food: 'Food + fitness', kids: 'Kids + family', fitness: 'Faith + movement', christian: 'Scripture + formation', motivational: 'Purpose + perseverance', veggietales: 'Kids + family', nickbare: 'Training + discipline', church: 'Your church', instagram: 'Instagram · external', tiktok: 'TikTok · external', youtube: 'YouTube · external' };
+  list.innerHTML = videos.map(v => `<article class="reel-card" data-reel-card="${escapeHtml(v.video_id)}" data-reel-provider="${escapeHtml(v.provider || 'youtube')}" data-reel-source-url="${escapeHtml(v.source_url || '')}">
     <div class="reel-frame video-thumb-wrap" data-reel-frame="${escapeHtml(v.video_id)}"><img loading="lazy" src="${escapeHtml(v.thumbnail_url || ((v.provider || 'youtube') === 'youtube' ? `https://i.ytimg.com/vi/${encodeURIComponent(v.video_id)}/hqdefault.jpg` : ''))}" alt="${escapeHtml(v.title || 'Functioning Faith reel')}" /><span class="reel-play">▶</span>${reelSoundButton(reelsSoundOn())}</div>
     <div class="reel-actions" aria-label="Reel actions">${reelActionButton('like', v.liked_by_me, v.like_count)}${reelActionButton('save', v.saved_by_me, v.save_count)}${reelShareButton()}</div>
-    <div class="reel-overlay"><span class="video-audience">${escapeHtml(labels[v.category] || 'Faith + movement')}</span><div class="reel-title">${escapeHtml(v.title || 'Short encouragement')}</div><div class="muted">${escapeHtml(v.channel_title || '')}</div></div>
+    <div class="reel-overlay"><span class="video-audience">${escapeHtml(labels[v.category] || 'Faith + movement')}</span>${v.source_kind === 'functioning_faith' ? '<span class="reel-original-badge">Functioning Faith original</span>' : ''}<div class="reel-title">${escapeHtml(v.title || 'Short encouragement')}</div><div class="muted">${escapeHtml(v.channel_title || '')}</div>${v.source_url && ['instagram','tiktok'].includes(v.provider) ? `<a class="reel-external-link" href="${escapeHtml(v.source_url)}" target="_blank" rel="noopener noreferrer">Open original on ${escapeHtml(v.provider)}</a>` : ''}</div>
   </article>`).join('');
   let activeCard = null;
   const activate = card => {
@@ -1573,8 +1581,9 @@ async function renderReelsTab(body) {
     const on = reelsSoundOn();
     // TikTok's embed exposes no mute control, so showing a sound button on one
     // would be a control that silently does nothing. Omit it there instead.
-    const canControlSound = card.dataset.reelProvider !== 'tiktok';
-    frame.innerHTML = `<iframe src="${reelEmbedSrc(card.dataset.reelProvider, id, on)}" title="Functioning Faith reel" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>${canControlSound ? reelSoundButton(on) : ''}`;
+    const canControlSound = !['tiktok', 'instagram'].includes(card.dataset.reelProvider);
+    const sourceUrl = card.dataset.reelSourceUrl || '';
+    frame.innerHTML = `<iframe src="${reelEmbedSrc(card.dataset.reelProvider, id, on, sourceUrl)}" title="Functioning Faith reel from ${escapeHtml(card.dataset.reelProvider)}" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>${canControlSound ? reelSoundButton(on) : ''}`;
   };
 
   // One delegated handler for every sound button, present and future — the

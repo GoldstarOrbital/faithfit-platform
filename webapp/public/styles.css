@@ -2006,3 +2006,37 @@ nav.tabbar button .icon { display: grid; place-items: center; min-height: 24px; 
   button, a, input, select, textarea { forced-color-adjust: auto; }
   nav.tabbar button[aria-current="page"] { outline: 2px solid CanvasText; }
 }
+
+
+/* Creator provenance in the reels overlay. Originals are a product tier, not
+   an indistinguishable source mixed into the catalog. */
+.reel-original-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 6px 0 4px;
+  padding: 4px 8px;
+  border: 1px solid rgba(240,196,119,.48);
+  border-radius: 999px;
+  background: rgba(43,30,18,.72);
+  color: var(--hearth-soft, #f0c477);
+  font-size: .66rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.reel-external-link {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 7px;
+  padding: 5px 9px;
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 999px;
+  background: rgba(0,0,0,.28);
+  color: #fff;
+  font-size: .7rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+.reel-external-link:hover { background: rgba(0,0,0,.48); }
