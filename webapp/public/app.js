@@ -5597,7 +5597,8 @@ function wireVerseCards(root) {
 async function renderScriptureTab(body) {
   body.innerHTML = `
     <h2>Scripture together</h2>
-    <p class="muted" style="margin-top:-6px;margin-bottom:12px">Scripture as conversation, not broadcast. Open a verse and talk about it with everyone else reading it.</p>
+    <p class="muted" style="margin-top:-6px;margin-bottom:12px">Read privately first, then choose whether a verse becomes a conversation.</p>
+    <div id="scripture-practice" class="scripture-practice card glass"><p class="muted">Loading today&rsquo;s practice&hellip;</p></div>
     <div class="card glass">
       <div class="field-label">Find a verse to talk about</div>
       <div class="comment-input-row">
@@ -5609,6 +5610,49 @@ async function renderScriptureTab(body) {
     <h2 style="margin-top:18px">Being discussed</h2>
     <div id="scripture-discussed"><p class="muted">Loading&hellip;</p></div>
   `;
+
+  const practiceEl = document.getElementById('scripture-practice');
+  const renderPractice = async (practice) => {
+    const active = practice.days.find(day => day.available);
+    const completedCount = practice.days.filter(day => day.completed).length;
+    if (!practice.started) {
+      practiceEl.innerHTML = `<div class="practice-kicker">PRIVATE DAILY PRACTICE</div>
+        <h3>${escapeHtml(practice.plan.title)}</h3><p>${escapeHtml(practice.plan.subtitle)}</p>
+        <p class="muted">No streaks, rankings, or public activity. Start when you&rsquo;re ready; your notes stay yours.</p>
+        <button class="primary" id="practice-start">Begin day 1</button>`;
+      document.getElementById('practice-start').onclick = async () => {
+        const next = await api('/scripture/practice/start', { method: 'POST', throwOnError: true });
+        renderPractice(next);
+      };
+      return;
+    }
+    if (practice.complete) {
+      practiceEl.innerHTML = `<div class="practice-kicker">PRIVATE DAILY PRACTICE</div><h3>A steady week, complete</h3>
+        <p class="muted">You made space for seven passages. The notes and verses remain here whenever you want to return.</p>
+        <div class="practice-progress"><span style="width:100%"></span></div>`;
+      return;
+    }
+    const future = practice.days.find(day => day.next);
+    practiceEl.innerHTML = `<div class="practice-head"><div><div class="practice-kicker">PRIVATE DAILY PRACTICE</div><h3>${escapeHtml(practice.plan.title)}</h3></div><span class="practice-count">${completedCount} / ${practice.plan.total_days}</span></div>
+      <div class="practice-progress"><span style="width:${(completedCount / practice.plan.total_days) * 100}%"></span></div>
+      ${active ? `<div class="practice-day"><div class="practice-focus">DAY ${active.number} · ${escapeHtml(active.focus)}</div>
+        <div class="verse-ref">${escapeHtml(active.verse.reference)}</div><div class="verse-text">${escapeHtml(active.verse.text)}</div>
+        <p class="practice-prompt">${escapeHtml(active.prompt)}</p>
+        <label class="field-label" for="practice-note">Private note <span class="muted">(optional)</span></label>
+        <textarea id="practice-note" maxlength="1000" rows="3" placeholder="Write only for yourself…"></textarea>
+        <div class="practice-actions"><button class="ghost" data-practice-open="${escapeHtml(active.verse.reference)}">Open verse</button><button class="primary" id="practice-complete">I read this</button></div>
+      </div>` : `<div class="practice-day practice-rest"><div class="practice-focus">NEXT: DAY ${future ? future.number : ''}</div><p>Today&rsquo;s reading is complete. Come back tomorrow for the next quiet moment.</p></div>`}`;
+    practiceEl.querySelector('[data-practice-open]')?.addEventListener('click', () => renderVerseThread(active.verse.reference));
+    practiceEl.querySelector('#practice-complete')?.addEventListener('click', async () => {
+      const button = document.getElementById('practice-complete'); button.disabled = true;
+      try {
+        const next = await api(`/scripture/practice/days/${active.number}/complete`, { method: 'POST', body: { note: document.getElementById('practice-note').value }, throwOnError: true });
+        showToast('Reading saved privately.'); renderPractice(next.practice);
+      } catch (err) { showToast(err.message || 'Could not save this reading.'); button.disabled = false; }
+    });
+  };
+  try { renderPractice(await api('/scripture/practice')); }
+  catch { practiceEl.innerHTML = '<p class="muted">Today&rsquo;s practice is unavailable right now.</p>'; }
 
   const discussedEl = document.getElementById('scripture-discussed');
   try {

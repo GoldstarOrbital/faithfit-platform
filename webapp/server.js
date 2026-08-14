@@ -35,6 +35,7 @@ const coaches = require('./lib/coaches');
 const schools = require('./lib/schools');
 const mentions = require('./lib/mentions');
 const workoutKudos = require('./lib/workout-kudos');
+const scripturePractice = require('./lib/scripture-practice');
 
 seed();
 accountSecurity.init();
@@ -47,6 +48,7 @@ coaches.init();
 schools.init();
 mentions.init();
 workoutKudos.init();
+scripturePractice.init();
 developerVerification.init();
 developerVerification.startNotifications();
 // Create the webhook tables and attach the dispatcher to the domain event bus.

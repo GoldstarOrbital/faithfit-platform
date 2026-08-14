@@ -1310,6 +1310,23 @@ h3 { font-size: 1rem; }
 /* Scripture keeps the serif — it should read like a book, not like chrome. */
 .verse-text, .verse-card .verse-text, .journey-wp-narrative, .breathe-sub { font-family: var(--reading); }
 
+/* The reading space should feel quiet, intentional, and clearly separate from
+   public discussion. Its progress indicator is orientation, never a streak. */
+.scripture-practice { margin-bottom: 14px; border-color: color-mix(in srgb, var(--accent) 27%, transparent); }
+.practice-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.practice-kicker, .practice-focus { font-size:.7rem; letter-spacing:.1em; font-weight:800; color:var(--accent); }
+.scripture-practice h3 { margin:3px 0 5px; }
+.scripture-practice p { margin:7px 0; }
+.practice-count { border-radius:999px; padding:5px 9px; background:rgba(231,126,72,.13); font-size:.76rem; font-weight:700; white-space:nowrap; }
+.practice-progress { height:6px; overflow:hidden; background:rgba(21,38,55,.10); border-radius:99px; margin:12px 0; }
+.practice-progress span { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--accent),#e7ba68); transition:width .3s ease; }
+.practice-day { padding:13px; border-radius:14px; background:linear-gradient(135deg,rgba(255,255,255,.74),rgba(235,201,129,.16)); }
+.practice-day .verse-ref { margin-top:8px; }
+.practice-day .verse-text { font-size:1.04rem; line-height:1.55; }
+.practice-prompt { font-family:var(--reading); font-style:italic; }
+.practice-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
+.practice-rest { color:var(--muted); }
+
 /* --- surfaces --------------------------------------------------------------
    One hairline and a soft lift, rather than layered borders and hard shadow. */
 .card, .card.glass {

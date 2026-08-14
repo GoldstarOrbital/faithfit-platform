@@ -15,7 +15,8 @@
     "verify:reel-studio": "node scripts/verify-reel-studio.js",
     "verify:athletic-signal": "node scripts/verify-athletic-signal.js",
     "verify:admin-hq": "node scripts/verify-admin-hq.js",
-    "verify:workout-kudos": "node scripts/verify-workout-kudos.js"
+    "verify:workout-kudos": "node scripts/verify-workout-kudos.js",
+    "verify:scripture-practice": "node scripts/verify-scripture-practice.js"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.1",

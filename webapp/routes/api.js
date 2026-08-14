@@ -49,6 +49,7 @@ const news = require('../lib/news');
 const media = require('../lib/media');
 const retention = require('../lib/retention');
 const workoutKudos = require('../lib/workout-kudos');
+const scripturePractice = require('../lib/scripture-practice');
 
 // Load real, public-domain Bible text (KJV/WEB) into bible_verses once at startup.
 loadBibleData();
@@ -3562,6 +3563,29 @@ router.get('/devotionals/today', requireAuth, (req, res) => {
     .get(church.id, today);
   if (!row) return res.json({ devotional: null });
   res.json({ devotional: { ...row, church_name: church.name } });
+});
+
+// ---- Private daily Scripture practice --------------------------------------
+// Reading is personal by default. A member may later choose to open the same
+// verse's public conversation, but no note or completion is exposed there.
+router.get('/scripture/practice', requireAuth, (req, res) => {
+  res.json(scripturePractice.get(req.session.userId));
+});
+
+router.post('/scripture/practice/start', requireAuth, (req, res) => {
+  res.json(scripturePractice.start(req.session.userId));
+});
+
+router.post('/scripture/practice/days/:day/complete', requireAuth, (req, res) => {
+  const result = scripturePractice.complete(req.session.userId, req.params.day, req.body && req.body.note);
+  if (result.error) return res.status(result.error === 'invalid_day' ? 400 : 409).json(result);
+  res.json(result);
+});
+
+router.patch('/scripture/practice/days/:day/note', requireAuth, (req, res) => {
+  const result = scripturePractice.updateNote(req.session.userId, req.params.day, req.body && req.body.note);
+  if (result.error) return res.status(404).json(result);
+  res.json(result);
 });
 
 // ---- Curated video library (real YouTube channels, gated behind YOUTUBE_API_KEY) ----
