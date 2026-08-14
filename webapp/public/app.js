@@ -935,6 +935,7 @@ async function renderHome(main) {
           <select id="composer-vis">
             <option value="public">🌍 Public</option>
             <option value="followers">👥 Followers</option>
+            <option value="circle">🤝 Trusted circle</option>
             <option value="private">🔒 Only me</option>
           </select>
         </div>
@@ -1033,7 +1034,7 @@ async function renderHome(main) {
   });
   main.querySelectorAll('[data-shared-workout]').forEach(btn => btn.onclick = () => renderSharedWorkoutDetail(btn.dataset.sharedWorkout));
   const myId = state.me && state.me.user && state.me.user.id;
-  const visLabel = { private: '🔒 Only me', followers: '👥 Followers', public: '🌍 Public' };
+  const visLabel = { private: '🔒 Only me', circle: '🤝 Trusted circle', followers: '👥 Followers', public: '🌍 Public' };
   const postsEl = document.getElementById('posts');
   postsEl.innerHTML = posts.map((p, i) => {
     const isMine = p.author_id === myId;
@@ -1046,7 +1047,7 @@ async function renderHome(main) {
           <div class="post-time">${timeAgo(p.created_at)} ago${p.visibility && p.visibility !== 'public' ? ' · ' + visLabel[p.visibility] : ''}</div>
         </div>
         ${isMine ? `<select class="vis-select" data-vis="${p.id}" title="Who can see this">
-          ${['public','followers','private'].map(v => `<option value="${v}" ${p.visibility===v?'selected':''}>${visLabel[v]}</option>`).join('')}
+          ${['public','followers','circle','private'].map(v => `<option value="${v}" ${p.visibility===v?'selected':''}>${visLabel[v]}</option>`).join('')}
         </select>` : ''}
       </div>
       <div class="post-content">${linkifyText(p.content || '')}</div>
@@ -3011,7 +3012,7 @@ async function renderProfile(main) {
       </div>
       <label class="field-label">Default visibility for new workouts</label>
       <select id="p-defvis">
-        ${[['public','🌍 Public'],['followers','👥 Followers'],['private','🔒 Only me']].map(([v,l]) => `<option value="${v}" ${((me.user.default_visibility||'public')===v)?'selected':''}>${l}</option>`).join('')}
+        ${[['public','🌍 Public'],['followers','👥 Followers'],['circle','🤝 Trusted circle'],['private','🔒 Only me']].map(([v,l]) => `<option value="${v}" ${((me.user.default_visibility||'public')===v)?'selected':''}>${l}</option>`).join('')}
       </select>
     </div>
     <div class="card glass profile-panel" data-profile-group="settings" id="account-security-card">
@@ -3058,6 +3059,11 @@ async function renderProfile(main) {
     </div>
     <div class="card glass profile-panel" data-profile-group="integrations" id="pending-church-card">
       <h2>Church missing?</h2><p class="muted">Submit a pending church record for developer review. This does not verify that you represent it.</p><input id="dev-new-church-name" placeholder="Church name"><input id="dev-new-church-address" placeholder="Street address, city, state"><input id="dev-new-church-email" type="email" placeholder="Public church contact email"><input id="dev-new-church-site" type="url" placeholder="https://church.example"><button class="ghost" id="dev-new-church" style="width:100%;margin-top:8px">Submit pending church</button><div id="dev-new-church-status" class="muted"></div>
+    </div>
+    <div class="card glass profile-panel" data-profile-group="settings" id="circle-card">
+      <h2>Your trusted circle</h2>
+      <div class="muted" style="margin-bottom:10px">A smaller group inside your followers. Post a prayer request or something hard to just these people — not everyone who follows you, and not only yourself. They are never told they are in it.</div>
+      <div id="circle-body" class="muted">Loading…</div>
     </div>
     <div class="card glass profile-panel" data-profile-group="settings" id="relationships-card">
       <h2>Muted, restricted and blocked</h2>
@@ -3218,6 +3224,38 @@ async function renderProfile(main) {
   // that it existed or to stop it short of disabling browser push wholesale.
   // Shipping an unreachable opt-out for a system that messages people is the
   // one thing that would undercut the ethical stance the module is built on.
+  const circleBody = document.getElementById('circle-body');
+  if (circleBody) {
+    const paintCircle = () => api('/circle/candidates').then(({ candidates }) => {
+      if (!candidates.length) {
+        circleBody.textContent = 'Once people follow you, you can choose which of them belong in your circle.';
+        return;
+      }
+      const inCount = candidates.filter(c => c.in_circle).length;
+      circleBody.innerHTML = `<div class="muted" style="font-size:.76rem;margin-bottom:8px">${inCount} of ${candidates.length} follower${candidates.length === 1 ? '' : 's'} in your circle.</div>`
+        + candidates.map(c => `<div class="integration-row">
+            <div class="post-user" data-user="${escapeHtml(c.user_id)}" style="display:flex;align-items:center;gap:8px;flex:1;cursor:pointer">
+              ${avatarHtml({ id: c.user_id, display_name: c.display_name, has_avatar: c.has_avatar }, 'avatar-sm')}
+              <span>${escapeHtml(c.display_name || 'Member')}</span>
+            </div>
+            <button class="follow-btn ${c.in_circle ? 'following' : ''}" data-circle-toggle="${escapeHtml(c.user_id)}" data-in="${c.in_circle ? '1' : '0'}">${c.in_circle ? 'In circle' : 'Add'}</button>
+          </div>`).join('');
+      hydrateAvatars(circleBody);
+      circleBody.querySelectorAll('.post-user[data-user]').forEach(x => x.onclick = () => renderUserProfile(x.dataset.user));
+      circleBody.querySelectorAll('[data-circle-toggle]').forEach(btn => btn.onclick = async () => {
+        const on = btn.dataset.in === '1';
+        btn.disabled = true;
+        const r = await api(`/circle/${encodeURIComponent(btn.dataset.circleToggle)}`, { method: on ? 'DELETE' : 'PUT' })
+          .catch(() => ({ error: 'network' }));
+        btn.disabled = false;
+        if (r.error) { btn.textContent = r.hint || 'Could not change'; return; }
+        btn.dataset.in = on ? '0' : '1';
+        btn.textContent = on ? 'Add' : 'In circle';
+        btn.classList.toggle('following', !on);
+      });
+    }).catch(() => { circleBody.textContent = 'Could not load your circle.'; });
+    paintCircle();
+  }
   const relBody = document.getElementById('relationships-body');
   if (relBody) {
     const UNDO = { mute: ['/mute', 'DELETE', 'Unmute'], restrict: ['/restrict', 'DELETE', 'Un-restrict'], block: ['/block', 'DELETE', 'Unblock'] };
@@ -5038,7 +5076,7 @@ async function stopWorkout() {
 // finishing. Add a caption + reflection and choose who can see it.
 function renderShareForm(main, ctx) {
   const defVis = (state.me && state.me.user && state.me.user.default_visibility) || 'public';
-  const visLabel = { private: '🔒 Only me', followers: '👥 Followers', public: '🌍 Public (shareable link)' };
+  const visLabel = { private: '🔒 Only me', circle: '🤝 Trusted circle', followers: '👥 Followers', public: '🌍 Public (shareable link)' };
   const s = ctx.summary || {};
   const distMsg = ctx.distanceKm > 0 ? ` · ${ctx.distanceKm.toFixed(2)} km via GPS` : '';
   main.innerHTML = `
@@ -5053,7 +5091,7 @@ function renderShareForm(main, ctx) {
       <div id="gloo-reflection" class="muted" style="margin-top:8px"></div>
       <label class="field-label">Who can see this?</label>
       <select class="input" id="share-vis">
-        ${['public','followers','private'].map(v => `<option value="${v}" ${v===defVis?'selected':''}>${visLabel[v]}</option>`).join('')}
+        ${['public','followers','circle','private'].map(v => `<option value="${v}" ${v===defVis?'selected':''}>${visLabel[v]}</option>`).join('')}
       </select>
       ${(state.gpsPoints && state.gpsPoints.length > 1) ? `
       <div class="share-route" id="share-route-wrap">

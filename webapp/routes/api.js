@@ -33,6 +33,7 @@ const coaches = require('../lib/coaches');
 const schools = require('../lib/schools');
 const mentions = require('../lib/mentions');
 const records = require('../lib/records');
+const circle = require('../lib/circle');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
 const wearables = require('../lib/wearables');
@@ -93,7 +94,11 @@ const churchSearchWindow = new Map();
 
 // ---- auth: real email + password accounts (scrypt-hashed). ----
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const VISIBILITIES = ['private', 'followers', 'public'];
+// 'circle' sits between private and followers: a named subset of your own
+// followers. See lib/circle.js for why this is safe to add incrementally --
+// every visibility check in this file matches positively, so any surface not
+// taught about circle posts excludes them rather than leaking them.
+const VISIBILITIES = ['private', 'circle', 'followers', 'public'];
 
 async function captchaAccepted(req) {
   if (!process.env.TURNSTILE_SECRET_KEY) return true;
@@ -986,6 +991,8 @@ router.get('/feed', (req, res) => {
       OR p.user_id = @me
       OR (p.visibility = 'followers' AND EXISTS (
             SELECT 1 FROM followers f WHERE f.followee_id = p.user_id AND f.follower_id = @me))
+      OR (p.visibility = 'circle' AND EXISTS (
+            SELECT 1 FROM circle_members c WHERE c.owner_id = p.user_id AND c.member_id = @me))
     )
       AND (@following_only = 0 OR p.user_id = @me OR EXISTS (
             SELECT 1 FROM followers ff WHERE ff.follower_id = @me AND ff.followee_id = p.user_id))
@@ -1075,7 +1082,8 @@ router.post('/workouts/:id/kudos', requireAuth, (req, res) => {
 function postVisibleTo(post, viewerId) {
   if (!post || !viewerId) return false;
   const audience = post.user_id === viewerId || post.visibility === 'public' ||
-    (post.visibility === 'followers' && !!db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(viewerId, post.user_id));
+    (post.visibility === 'followers' && !!db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(viewerId, post.user_id)) ||
+    (post.visibility === 'circle' && circle.isInCircle(post.user_id, viewerId));
   return audience && !dms.isBlockedEitherWay(viewerId, post.user_id);
 }
 
@@ -1139,10 +1147,12 @@ router.get('/posts/saved', requireAuth, (req, res) => {
       FROM post_saves s JOIN posts p ON p.id = s.post_id JOIN users u ON u.id = p.user_id
       LEFT JOIN workouts w ON w.id = p.workout_id LEFT JOIN scripture_verses v ON v.id = p.verse_id
      WHERE s.user_id = ? AND (p.user_id = ? OR p.visibility = 'public' OR (p.visibility = 'followers' AND EXISTS (
-            SELECT 1 FROM followers f WHERE f.follower_id = ? AND f.followee_id = p.user_id)))
+            SELECT 1 FROM followers f WHERE f.follower_id = ? AND f.followee_id = p.user_id))
+            OR (p.visibility = 'circle' AND EXISTS (
+            SELECT 1 FROM circle_members c WHERE c.owner_id = p.user_id AND c.member_id = ?)))
        AND NOT EXISTS (SELECT 1 FROM dm_blocks b WHERE (b.blocker_id = ? AND b.blocked_id = p.user_id) OR (b.blocker_id = p.user_id AND b.blocked_id = ?))
      ORDER BY s.created_at DESC LIMIT 100
-  `).all(me, me, me, me, me);
+  `).all(me, me, me, me, me, me);
   res.json({ posts: posts.map(p => ({ ...p, saved_by_me: true })) });
 });
 
@@ -1997,7 +2007,9 @@ router.get('/hashtags/:tag', requireAuth, (req, res) => {
       AND (p.visibility = 'public'
            OR p.user_id = @me
            OR (p.visibility = 'followers' AND EXISTS (
-               SELECT 1 FROM followers f WHERE f.followee_id = p.user_id AND f.follower_id = @me)))
+               SELECT 1 FROM followers f WHERE f.followee_id = p.user_id AND f.follower_id = @me))
+           OR (p.visibility = 'circle' AND EXISTS (
+               SELECT 1 FROM circle_members c WHERE c.owner_id = p.user_id AND c.member_id = @me)))
       AND NOT EXISTS (SELECT 1 FROM dm_blocks b
                       WHERE (b.blocker_id = @me AND b.blocked_id = p.user_id)
                          OR (b.blocker_id = p.user_id AND b.blocked_id = @me))
@@ -2101,6 +2113,10 @@ router.post('/users/:id/follow', requireAuth, (req, res) => {
 
   if (already) {
     db.prepare('DELETE FROM followers WHERE follower_id = ? AND followee_id = ?').run(me, target);
+    // A circle is a subset of your followers. Someone who stops following you
+    // must stop seeing your circle posts too, or unfollowing would leave them
+    // with MORE access than an ordinary follower.
+    circle.pruneOnUnfollow(target, me);
   } else if (pending) {
     db.prepare('DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?').run(me, target); // withdraw
   } else {
@@ -2125,6 +2141,42 @@ router.post('/users/:id/follow', requireAuth, (req, res) => {
   }
   const followers = db.prepare('SELECT COUNT(*) c FROM followers WHERE followee_id = ?').get(target).c;
   res.json({ following: !already && !pending, requested: false, followers_count: followers });
+});
+
+// ---- Trusted circle. ----
+// A named subset of your own followers, for the post that "everyone who
+// follows me" is too wide for and "only me" defeats the point of.
+router.get('/circle', requireAuth, (req, res) => {
+  res.json({ members: circle.list(req.session.userId), max: circle.MAX_CIRCLE });
+});
+
+// Candidates are your followers, so the picker cannot be used to push private
+// content at someone who never chose to follow you.
+router.get('/circle/candidates', requireAuth, (req, res) => {
+  const me = req.session.userId;
+  const rows = db.prepare(`
+    SELECT u.id user_id, u.display_name,
+           CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar,
+           CASE WHEN c.member_id IS NULL THEN 0 ELSE 1 END AS in_circle
+    FROM followers f JOIN users u ON u.id = f.follower_id
+    LEFT JOIN circle_members c ON c.owner_id = @me AND c.member_id = u.id
+    WHERE f.followee_id = @me
+      AND NOT EXISTS (SELECT 1 FROM dm_blocks b
+                      WHERE (b.blocker_id = @me AND b.blocked_id = u.id)
+                         OR (b.blocker_id = u.id AND b.blocked_id = @me))
+    ORDER BY in_circle DESC, u.display_name
+  `).all({ me });
+  res.json({ candidates: rows });
+});
+
+router.put('/circle/:userId', requireAuth, (req, res) => {
+  const r = circle.add(req.session.userId, req.params.userId);
+  if (r.error) return res.status(400).json(r);
+  res.json({ ok: true, in_circle: true });
+});
+
+router.delete('/circle/:userId', requireAuth, (req, res) => {
+  res.json({ ...circle.remove(req.session.userId, req.params.userId), in_circle: false });
 });
 
 // Incoming requests waiting on you.
@@ -2255,7 +2307,8 @@ router.get('/users/:id', (req, res) => {
     WHERE p.user_id = @uid AND (
       p.visibility = 'public'
       OR @me = @uid
-      OR (p.visibility = 'followers' AND EXISTS (SELECT 1 FROM followers f WHERE f.followee_id = @uid AND f.follower_id = @me)))
+      OR (p.visibility = 'followers' AND EXISTS (SELECT 1 FROM followers f WHERE f.followee_id = @uid AND f.follower_id = @me))
+      OR (p.visibility = 'circle' AND EXISTS (SELECT 1 FROM circle_members c WHERE c.owner_id = @uid AND c.member_id = @me)))
     ORDER BY p.created_at DESC LIMIT 20
   `).all({ uid: u.id, me });
 
@@ -3047,6 +3100,10 @@ router.delete('/me', requireAuth, (req, res) => {
     for (const item of db.prepare('SELECT id FROM developer_enforcement_cases WHERE user_id=?').all(uid)) db.prepare('DELETE FROM church_notification_outbox WHERE enforcement_case_id=?').run(item.id);
     db.prepare('UPDATE churches SET submitted_by=NULL WHERE submitted_by=?').run(uid);
     db.prepare('DELETE FROM account_relationship_controls WHERE actor_id=? OR subject_id=?').run(uid,uid);
+    // Both directions: the circles they curated, and everyone else's circles
+    // they were a member of.
+    db.prepare('DELETE FROM circle_members WHERE owner_id=? OR member_id=?').run(uid,uid);
+    db.prepare('DELETE FROM follow_requests WHERE requester_id=? OR target_id=?').run(uid,uid);
     db.prepare("DELETE FROM moderation_queue WHERE reporter_id=? OR (report_type='user' AND target_id=?)").run(uid,uid);
     db.prepare('DELETE FROM post_reports WHERE reporter_id=?').run(uid);
     if (workoutIds.length) {
@@ -5589,7 +5646,9 @@ router.get('/search', requireAuth, (req, res) => {
       FROM posts p JOIN users u ON u.id = p.user_id
      WHERE p.content LIKE @like ESCAPE '\\'
        AND (p.visibility = 'public' OR p.user_id = @me OR (p.visibility = 'followers' AND EXISTS (
-            SELECT 1 FROM followers f WHERE f.followee_id = p.user_id AND f.follower_id = @me)))
+            SELECT 1 FROM followers f WHERE f.followee_id = p.user_id AND f.follower_id = @me))
+            OR (p.visibility = 'circle' AND EXISTS (
+            SELECT 1 FROM circle_members c WHERE c.owner_id = p.user_id AND c.member_id = @me)))
        AND NOT EXISTS (SELECT 1 FROM dm_blocks b
                        WHERE (b.blocker_id = @me AND b.blocked_id = p.user_id)
                           OR (b.blocker_id = p.user_id AND b.blocked_id = @me))

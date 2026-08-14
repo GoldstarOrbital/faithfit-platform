@@ -35,6 +35,7 @@ const coaches = require('./lib/coaches');
 const schools = require('./lib/schools');
 const mentions = require('./lib/mentions');
 const records = require('./lib/records');
+const circle = require('./lib/circle');
 const workoutKudos = require('./lib/workout-kudos');
 const scripturePractice = require('./lib/scripture-practice');
 
@@ -49,6 +50,7 @@ coaches.init();
 schools.init();
 mentions.init();
 records.init();
+circle.init();
 workoutKudos.init();
 scripturePractice.init();
 developerVerification.init();
