@@ -2347,6 +2347,47 @@ function groupMsgHtml(m, isAdmin) {
     + `${mine || isAdmin ? `<button class="comment-like" data-gmsg-delete="${escapeHtml(m.id)}" title="Delete this message">🗑</button>` : ''}</div>`;
 }
 
+// Calendar files are generated in the browser: sharing a meetup with a
+// member's device calendar should not require sending its details to a third
+// party. The event timestamps from the API are ISO/UTC, which ICS accepts.
+function downloadGroupEventIcs(event, groupName) {
+  const escapeIcs = value => String(value || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/\r?\n/g, ' ')
+    .replace(/([,;])/g, '\\$1');
+  const icsTime = value => new Date(value).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
+  const start = new Date(event.event_time);
+  if (Number.isNaN(start.getTime())) return;
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
+  const now = new Date();
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Functioning Faith//Meetups//EN',
+    'CALSCALE:GREGORIAN',
+    'BEGIN:VEVENT',
+    `UID:${escapeIcs(event.id)}@functioningfaith.app`,
+    `DTSTAMP:${icsTime(now)}`,
+    `DTSTART:${icsTime(start)}`,
+    `DTEND:${icsTime(end)}`,
+    `SUMMARY:${escapeIcs(event.title || 'Functioning Faith meetup')}`,
+    `DESCRIPTION:${escapeIcs(`Group meetup: ${groupName || 'Functioning Faith'}${event.description ? `\\n${event.description}` : ''}`)}`,
+    `LOCATION:${escapeIcs(event.location_name)}`,
+    'END:VEVENT',
+    'END:VCALENDAR',
+    ''
+  ];
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar;charset=utf-8' });
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = href;
+  link.download = `functioning-faith-meetup-${String(event.id || 'event').replace(/[^a-z0-9_-]/gi, '')}.ics`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 0);
+}
+
 async function renderGroupDetail(groupId) {
   const main = document.getElementById('main');
   if (state.groupPollTimer) { clearInterval(state.groupPollTimer); state.groupPollTimer = null; }
@@ -2380,6 +2421,7 @@ async function renderGroupDetail(groupId) {
       <div class="action-row" style="border-top:none;padding-top:0;margin-top:0">
         <button class="follow-btn ${e.my_rsvp === 'going' ? 'following' : ''}" data-rsvp="${e.id}" data-status="going">I'm going</button>
         <button class="follow-btn ${e.my_rsvp === 'interested' ? 'following' : ''}" data-rsvp="${e.id}" data-status="interested">Interested</button>
+        <button class="ghost group-event-calendar" data-event-calendar="${e.id}">Add to calendar</button>
       </div>
     </div>`).join('') || '<p class="muted">No upcoming meetups yet.</p>';
 
@@ -2509,6 +2551,10 @@ async function renderGroupDetail(groupId) {
     });
   };
   wireRsvp();
+  document.querySelectorAll('[data-event-calendar]').forEach(btn => btn.onclick = () => {
+    const event = (data.events || []).find(item => String(item.id) === String(btn.dataset.eventCalendar));
+    if (event) downloadGroupEventIcs(event, g.name);
+  });
 
   if (data.is_member) {
     let selectedPulseKind = pulse.mine?.kind || null;
