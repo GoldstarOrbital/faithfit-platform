@@ -658,6 +658,67 @@ function openStoryComposer() {
   };
 }
 
+/**
+ * Standalone composer.
+ *
+ * Posting used to be reachable only from the end of a workout -- the share
+ * screen carried a workout id and was the sole caller of POST /posts. That
+ * meant the feed only had content when someone exercised, and in a faith
+ * community the most valuable posts (a prayer request, a testimony, a verse
+ * someone is sitting with) are exactly the ones that do not arrive at the end
+ * of a run. The route already accepted a workout-less post; nothing offered
+ * one. Server still matches a verse to every post, so a 503 here means no
+ * verse resolved, not that the text was rejected.
+ */
+function wireComposer(root) {
+  const openBtn = root.querySelector('#composer-open');
+  if (!openBtn) return;
+  const body = root.querySelector('#composer-body');
+  const status = root.querySelector('#composer-status');
+  const fileInput = root.querySelector('#composer-photo-file');
+  const cats = root.querySelector('#composer-photo-cats');
+  const preview = root.querySelector('#composer-photo-preview');
+  let photoData = null;
+
+  const reset = () => {
+    photoData = null;
+    root.querySelector('#composer-text').value = '';
+    preview.innerHTML = ''; cats.style.display = 'none'; status.textContent = '';
+    body.style.display = 'none'; openBtn.style.display = '';
+  };
+  openBtn.onclick = () => { openBtn.style.display = 'none'; body.style.display = ''; root.querySelector('#composer-text').focus(); };
+  root.querySelector('#composer-cancel').onclick = reset;
+  root.querySelector('#composer-photo-btn').onclick = () => fileInput.click();
+  fileInput.onchange = async () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+    status.textContent = 'Processing photo…';
+    try {
+      photoData = await resizeImageFile(file, 1200, 0.78);
+      preview.innerHTML = `<img src="${photoData}" alt="" style="width:100%;border-radius:10px;margin-top:8px">`;
+      cats.style.display = ''; status.textContent = '';
+    } catch { status.textContent = 'Could not read that image.'; photoData = null; }
+  };
+  root.querySelector('#composer-post').onclick = async () => {
+    const btn = root.querySelector('#composer-post');
+    const content = root.querySelector('#composer-text').value.trim();
+    if (!content && !photoData) { status.textContent = 'Write something or add a photo.'; return; }
+    btn.disabled = true; status.textContent = 'Sharing…';
+    const cat = cats.querySelector('input[name="composer-photo-cat"]:checked');
+    const r = await api('/posts', { method: 'POST', body: {
+      content,
+      visibility: root.querySelector('#composer-vis').value,
+      photo_data: photoData || undefined,
+      photo_category: photoData && cat ? cat.value : undefined,
+    }}).catch(() => ({ error: 'network' }));
+    btn.disabled = false;
+    if (r.error) { status.textContent = r.hint || 'Could not share that.'; return; }
+    reset();
+    state.homeCache = null; // the new post belongs at the top of a fresh feed
+    renderHome(document.getElementById('main'));
+  };
+}
+
 async function renderHome(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
   const cacheMatchesScope = state.homeCache && state.homeCache.scope === state.feedScope;
@@ -774,6 +835,38 @@ async function renderHome(main) {
           </div>`).join('')}
       </div>
     </div>` : ''}
+    <div class="card glass composer-card" id="composer-card">
+      <button class="composer-prompt" id="composer-open">
+        ${avatarHtml({ id: myUserId(), display_name: (state.me && state.me.user && state.me.user.display_name) || '', has_avatar: !!(state.me && state.me.user && state.me.user.avatar_data) }, 'avatar-sm')}
+        <span>Share an encouragement, a prayer request, or what God is doing…</span>
+      </button>
+      <div id="composer-body" style="display:none">
+        <textarea id="composer-text" rows="3" maxlength="1000" placeholder="You don't have to have finished a workout to say something here."></textarea>
+        <div id="composer-photo-preview"></div>
+        <div id="composer-photo-cats" style="display:none;margin-top:8px">
+          <div class="field-label">What is this photo of?</div>
+          <div class="composer-cats">
+            ${[['nature','🌿 Nature'],['animal','🐾 Animals'],['group','👥 Group of people'],['workout','🏃 Workout']]
+              .map(([v,l],i) => `<label><input type="radio" name="composer-photo-cat" value="${v}"${i===0?' checked':''}> ${l}</label>`).join('')}
+          </div>
+          <div class="muted" style="font-size:.72rem;margin-top:4px">No solo-person photos — that is what your profile picture is for.</div>
+        </div>
+        <div class="composer-row">
+          <button class="ghost" id="composer-photo-btn">📷 Photo</button>
+          <select id="composer-vis">
+            <option value="public">🌍 Public</option>
+            <option value="followers">👥 Followers</option>
+            <option value="private">🔒 Only me</option>
+          </select>
+        </div>
+        <input type="file" id="composer-photo-file" accept="image/*" style="display:none">
+        <div class="muted" id="composer-status" style="font-size:.76rem;min-height:1em;margin-top:6px"></div>
+        <div class="composer-row" style="margin-top:6px">
+          <button class="ghost" id="composer-cancel" style="flex:1">Cancel</button>
+          <button class="primary" id="composer-post" style="flex:1">Share</button>
+        </div>
+      </div>
+    </div>
     <div id="posts"></div>
     <div id="feed-more"></div>
   `;
@@ -782,6 +875,7 @@ async function renderHome(main) {
     setTab(btn.dataset.homeTab);
   });
   main.querySelectorAll('.home-explore-tile[data-user]').forEach(btn => btn.onclick = () => renderUserProfile(btn.dataset.user));
+  wireComposer(main);
   main.querySelectorAll('[data-story-compose]').forEach(btn => btn.onclick = () => openStoryComposer());
   main.querySelectorAll('[data-story-open]').forEach(btn => btn.onclick = () => {
     const groups = groupStories(homeStories, myUserId());
@@ -2508,6 +2602,11 @@ async function renderProfile(main) {
     <div class="card glass profile-panel" data-profile-group="integrations" id="pending-church-card">
       <h2>Church missing?</h2><p class="muted">Submit a pending church record for developer review. This does not verify that you represent it.</p><input id="dev-new-church-name" placeholder="Church name"><input id="dev-new-church-address" placeholder="Street address, city, state"><input id="dev-new-church-email" type="email" placeholder="Public church contact email"><input id="dev-new-church-site" type="url" placeholder="https://church.example"><button class="ghost" id="dev-new-church" style="width:100%;margin-top:8px">Submit pending church</button><div id="dev-new-church-status" class="muted"></div>
     </div>
+    <div class="card glass profile-panel" data-profile-group="settings" id="nudges-card">
+      <h2>Encouragement nudges</h2>
+      <div class="muted" style="margin-bottom:10px">If you go quiet for a while, Functioning Faith may send you one gentle note. There is a hard lifetime cap, a minimum gap between them, and they are never sent at night. You can turn them off entirely and that choice is permanent unless you change it back.</div>
+      <div id="nudges-body" class="muted">Loading…</div>
+    </div>
     <div class="card glass profile-panel" data-profile-group="settings">
       <h2>Your data</h2>
       <div class="muted" style="margin-bottom:10px">Full transparency — download everything Functioning Faith stores about your account as a JSON file.</div>
@@ -2642,6 +2741,31 @@ async function renderProfile(main) {
     status.textContent=r.error?(r.hint||r.error):'Submitted for review.';
     if(!r.error){document.getElementById('dc-url').value='';document.getElementById('dc-title').value='';refreshDcList();}
   };
+  // The retention sweep runs every 6 hours in production and is capped and
+  // quiet-houred in lib/retention.js, but until now a member had no way to see
+  // that it existed or to stop it short of disabling browser push wholesale.
+  // Shipping an unreachable opt-out for a system that messages people is the
+  // one thing that would undercut the ethical stance the module is built on.
+  const nudgesBody = document.getElementById('nudges-body');
+  if (nudgesBody) {
+    const paintNudges = () => api('/retention/state').then(s => {
+      const n = s.nudges || {};
+      nudgesBody.innerHTML = `
+        <div class="stat-tiles">
+          <div class="stat-tile"><div class="stat-tile-v">${n.sent_lifetime || 0}</div><div class="stat-tile-l">sent to you, ever</div></div>
+          <div class="stat-tile"><div class="stat-tile-v">${n.ceiling ?? '—'}</div><div class="stat-tile-l">max per ${n.window_days || 90} days</div></div>
+        </div>
+        <div style="margin-top:8px">${n.last_sent_at ? `Last one: ${new Date(n.last_sent_at.replace(' ', 'T') + 'Z').toLocaleDateString()}` : 'You have never been sent one.'}</div>
+        <button class="ghost" id="nudges-toggle" style="width:100%;margin-top:10px">${n.opted_out ? 'Turn encouragement nudges back on' : 'Turn off encouragement nudges'}</button>
+        <div class="muted" id="nudges-status" style="font-size:.76rem;margin-top:6px">${n.opted_out ? 'Currently off — you will not be sent any.' : 'Currently on.'}</div>`;
+      document.getElementById('nudges-toggle').onclick = async () => {
+        const r = await api('/retention/opt-out', { method: 'POST', body: { opted_out: !n.opted_out } }).catch(() => ({ error: 'network' }));
+        if (r.error) { document.getElementById('nudges-status').textContent = 'Could not save that.'; return; }
+        paintNudges();
+      };
+    }).catch(() => { nudgesBody.textContent = 'Could not load your nudge settings.'; });
+    paintNudges();
+  }
   const adminMetricsEl=document.getElementById('admin-metrics');
   if(adminMetricsEl){
     const paintAdminMetrics=()=>api('/admin/metrics').then(m=>{
