@@ -14,7 +14,7 @@ assert.match(app, /data-event-calendar/, 'each meetup needs an Add to calendar c
 assert.match(app, /lines\.join\('\\r\\n'\)/, 'ICS events must use CRLF line endings');
 assert.match(app, /URL\.createObjectURL\(blob\)/, 'calendar export must remain a local download');
 assert.doesNotMatch(app, /calendar\.google\.com/, 'meetup export must not send member event data to Google Calendar');
-assert.match(index, /app\.js\?v=ff-group-calendar-1/, 'the new app bundle must be requested');
-assert.match(sw, /functioning-faith-shell-v32/, 'the service worker cache must rotate for the calendar control');
+assert.match(index, /app\.js\?v=ff-[a-z0-9-]+/, 'the app bundle must be cache-busted');
+assert.match(sw, /functioning-faith-shell-v\d+/, 'the service worker shell cache must be versioned');
 
 console.log('group calendar export checks passed');

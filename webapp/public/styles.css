@@ -2263,3 +2263,13 @@ nav.tabbar button.active .icon svg { filter:drop-shadow(0 0 5px rgba(255,255,255
 .workout-kudos { min-height:34px; border:1px solid rgba(72,99,47,.20); border-radius:999px; color:var(--meadow-deep); background:var(--mint-soft); font:600 .72rem var(--ui,inherit); cursor:pointer; transition:transform .16s ease,background .16s ease,box-shadow .16s ease; }
 .workout-kudos:hover { transform:translateY(-1px); box-shadow:0 4px 10px rgba(72,99,47,.16); }
 .workout-kudos.given { color:#7f5330; background:var(--sun-soft); border-color:rgba(233,185,78,.44); }
+.workout-encourage { min-height:32px; border:1px solid rgba(43,89,100,.18); border-radius:999px; color:var(--ink); background:rgba(255,255,255,.62); font:600 .7rem var(--ui,inherit); cursor:pointer; transition:transform .16s ease,background .16s ease; }
+.workout-encourage:hover { transform:translateY(-1px); background:var(--sky-soft); }
+.workout-encouragement-sheet { padding:18px; }
+.workout-encouragement-sheet p { margin:0 0 12px; font-size:.83rem; line-height:1.45; }
+.workout-encouragement-choices { display:grid; gap:8px; }
+.workout-encouragement-choice { width:100%; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 13px; border:1px solid rgba(72,99,47,.22); border-radius:14px; color:var(--ink); background:var(--mint-soft); text-align:left; font:inherit; cursor:pointer; }
+.workout-encouragement-choice:hover { border-color:rgba(72,99,47,.48); background:#e3efdf; }
+.workout-encouragement-choice:disabled { opacity:.58; cursor:wait; }
+.workout-encouragement-choice span { color:var(--meadow-deep); font-size:.78rem; font-weight:700; white-space:nowrap; }
+#workout-encouragement-status { min-height:1.25em; margin-top:10px; font-size:.8rem; }

@@ -799,6 +799,7 @@ async function renderHome(main) {
             <span class="home-explore-tile-sub">${escapeHtml(w.workout_type || 'Workout')}${w.distance_km ? ' · ' + w.distance_km + ' km' : ''} · ${timeAgo(w.created_at)} ago</span>
           </button>
           <button class="workout-kudos ${w.kudos_by_me ? 'given' : ''}" data-workout-kudos="${escapeHtml(w.workout_id)}" aria-pressed="${w.kudos_by_me ? 'true' : 'false'}">${w.kudos_by_me ? '✦ Kudos sent' : '✦ Give kudos'} <span>${w.kudos_count || 0}</span></button>
+          <button class="workout-encourage" data-workout-encourage="${escapeHtml(w.author_id)}" data-workout-encourage-name="${escapeHtml(w.author)}" data-workout-encourage-type="${escapeHtml(w.workout_type || 'workout')}">Share Scripture</button>
           </div>`).join('')}
       </div>
     </div>` : ''}
@@ -922,6 +923,9 @@ async function renderHome(main) {
     btn.setAttribute('aria-pressed', r.given ? 'true' : 'false');
     count.textContent = r.count;
     btn.childNodes[0].textContent = r.given ? '✦ Kudos sent ' : '✦ Give kudos ';
+  });
+  main.querySelectorAll('[data-workout-encourage]').forEach(btn => btn.onclick = () => {
+    openWorkoutEncouragement(btn.dataset.workoutEncourage, btn.dataset.workoutEncourageName, btn.dataset.workoutEncourageType);
   });
   const myId = state.me && state.me.user && state.me.user.id;
   const visLabel = { private: '🔒 Only me', followers: '👥 Followers', public: '🌍 Public' };
@@ -6942,6 +6946,55 @@ function startBreathe(body, pattern) {
 // honest about what it is rather than pretending to be realtime.
 
 let dmPoll = null;
+
+// A little more meaningful than a reaction: send one verified verse from a
+// friend's workout card. This deliberately goes through the normal DM routes,
+// so message permissions, blocks, restrictions, minor protections, rate limits
+// and notification preferences all remain in force.
+function openWorkoutEncouragement(recipientId, recipientName, workoutType) {
+  document.querySelector('.workout-encouragement-modal')?.remove();
+  const running = /run|walk|hike|cycle|swim|row/i.test(String(workoutType || ''));
+  const choices = running
+    ? [
+      ['Hebrews 12:1', 'Keep running your race'],
+      ['Isaiah 40:31', 'Renewed strength'],
+      ['Galatians 6:9', 'Do not grow weary'],
+    ]
+    : [
+      ['1 Corinthians 16:13', 'Stand firm and be strong'],
+      ['Isaiah 40:31', 'Renewed strength'],
+      ['Galatians 6:9', 'Do not grow weary'],
+    ];
+  const modal = document.createElement('div');
+  modal.className = 'workout-invite-modal workout-encouragement-modal';
+  modal.innerHTML = `<div class="workout-invite-sheet workout-encouragement-sheet card glass" role="dialog" aria-modal="true" aria-label="Share Scripture encouragement">
+    <div class="modal-head"><div><span class="eyebrow">Encourage a friend</span><h2>Send ${escapeHtml(recipientName || 'a friend')} Scripture</h2></div><button class="ghost modal-close" type="button" aria-label="Close">×</button></div>
+    <p class="muted">Choose one verse to send privately. It will arrive as a verified Scripture card in your conversation.</p>
+    <div class="workout-encouragement-choices">${choices.map(([reference, label]) => `<button class="workout-encouragement-choice" type="button" data-workout-verse="${escapeHtml(reference)}"><strong>${escapeHtml(label)}</strong><span>${escapeHtml(reference)}</span></button>`).join('')}</div>
+    <div id="workout-encouragement-status" class="muted" aria-live="polite"></div>
+  </div>`;
+  document.body.appendChild(modal);
+  const onKey = event => { if (event.key === 'Escape') close(); };
+  const close = () => { document.removeEventListener('keydown', onKey); modal.remove(); };
+  document.addEventListener('keydown', onKey);
+  modal.querySelector('.modal-close').onclick = close;
+  modal.onclick = event => { if (event.target === modal) close(); };
+  modal.querySelectorAll('[data-workout-verse]').forEach(btn => btn.onclick = async () => {
+    const status = modal.querySelector('#workout-encouragement-status');
+    modal.querySelectorAll('[data-workout-verse]').forEach(choice => { choice.disabled = true; });
+    status.textContent = 'Sending Scripture…';
+    try {
+      const opened = await api(`/dms/with/${encodeURIComponent(recipientId)}`, { method: 'POST', throwOnError: true });
+      await api(`/dms/${encodeURIComponent(opened.thread_id)}/verse`, { method: 'POST', body: { reference: btn.dataset.workoutVerse }, throwOnError: true });
+      status.textContent = `${btn.dataset.workoutVerse} sent.`;
+      setTimeout(close, 700);
+    } catch (error) {
+      status.textContent = error?.hint || error?.message || 'That message could not be sent.';
+      modal.querySelectorAll('[data-workout-verse]').forEach(choice => { choice.disabled = false; });
+    }
+  });
+  modal.querySelector('[data-workout-verse]')?.focus();
+}
 
 function openWorkoutInvite(recipientId, recipientName, threadId) {
   document.querySelector('.workout-invite-modal')?.remove();
