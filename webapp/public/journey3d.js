@@ -68,6 +68,13 @@
                 ground: 0x7fae7a, path: 0xd9cba6, prop: 0x4f7f6a, peak: 0x86b8c9, accent: 0xe8d27a, propKind: 'rock',  density: 0.6 },
     winter:   { sky: 0xd8e4ee, skyTop: 0x6f9bc4, fog: 0xdfeaf2, haze: 0.0072, sunColor: 0xfff0e2, sunPower: 0.95, weather: 'snow',
                 ground: 0xeaf1f7, path: 0xa9bccd, prop: 0x2f5142, peak: 0xc3d3e0, accent: 0x4b6f8a, propKind: 'fir',   density: 1.0 },
+    // Kept original to Functioning Faith: warm hedgerows for the long-road
+    // routes and a candlelit snowy forest for the lantern routes.  These keys
+    // are intentionally not references to somebody else's visual world.
+    fellowship:{ sky: 0xb8d7d1, skyTop: 0x427f92, fog: 0xcce0cb, haze: 0.0053, sunColor: 0xffe4ac, sunPower: 1.18, weather: 'pollen',
+                ground: 0x77965f, path: 0xb08e5b, prop: 0x405d35, peak: 0x637b55, accent: 0xf0bd55, propKind: 'tree', density: 1.15 },
+    lantern:  { sky: 0xc9dfec, skyTop: 0x527ca2, fog: 0xd9e8eb, haze: 0.0067, sunColor: 0xffe7bd, sunPower: 1.0, weather: 'snow',
+                ground: 0xc4d5c2, path: 0xa6b28c, prop: 0x314d39, peak: 0x90a99a, accent: 0xf0bd55, propKind: 'fir', density: 1.18 },
   };
 
   // Journey key -> theme. Falls back on world/terrain for anything unlisted.
@@ -580,9 +587,23 @@
       const l = new THREE.Mesh(pillar, gateMat); l.position.set(-4.4, 3, 0);
       const r = new THREE.Mesh(pillar, gateMat); r.position.set(4.4, 3, 0);
       const bar = new THREE.Mesh(new THREE.BoxGeometry(9.6, 0.5, 0.5), gateMat); bar.position.set(0, 6, 0);
-      g.add(l); g.add(r); g.add(bar);
+      // Two small pennants make each waypoint read as a destination rather
+      // than an abstract line across the road. They deliberately use only
+      // simple geometry so the scene remains fast on a phone.
+      const flagMat = new THREE.MeshLambertMaterial({ color: theme.accent, side: THREE.DoubleSide, transparent: true, opacity: 0.9 });
+      const flagGeo = new THREE.PlaneGeometry(2.1, 1.05, 1, 1);
+      const flags = [-4.4, 4.4].map((x, i) => {
+        const f = new THREE.Mesh(flagGeo, flagMat);
+        f.position.set(x + (i ? -0.8 : 0.8), 5.25, 0);
+        f.rotation.y = i ? Math.PI : 0;
+        g.add(f);
+        return f;
+      });
+      const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.5, 7.5, 10), new THREE.MeshBasicMaterial({ color: theme.accent, transparent: true, opacity: 0.14, depthWrite: false }));
+      beacon.position.y = 3.8;
+      g.add(l); g.add(r); g.add(bar); g.add(beacon);
       scene.add(g);
-      return { group: g, km: Number(w.km_mark) || 0, parts: [l, r, bar] };
+      return { group: g, km: Number(w.km_mark) || 0, parts: [l, r, bar, ...flags], beacon };
     });
 
     // Kilometre posts down the roadside. Without a repeating near-field
@@ -734,6 +755,7 @@
     const METRES_PER_KM = 220;
     const GATE_SETBACK = 34;   // world units a gate sits beyond its km mark
     let distanceKm = 0, speedKmh = 0, raf = null, disposed = false, bob = 0;
+    let raceIntensity = 0, lastGateKm = -1;
     let anchored = false;   // props are seeded around the first real position
     let grade = 0;          // live gradient %, from the route profile
     // Scenery fades in over the last stretch of visible road.
@@ -814,11 +836,16 @@
       rider.userData.legL.rotation.z = Math.sin(bob * 2.2) * Math.min(0.22, speedKmh * 0.008);
       rider.userData.legR.rotation.z = -rider.userData.legL.rotation.z;
 
+      // A restrained camera response makes an overtake or sprint feel earned:
+      // it never changes physics or credits distance, it simply communicates
+      // the real pace the session is already receiving.
+      raceIntensity *= 0.965;
+
       // The camera sits above the road and looks at the road ahead, so a bend
       // reads as a bend and a crest hides what is beyond it.
       // Field of view opens slightly with speed. It is a small change and it is
       // most of why fast feels fast.
-      const wantFov = 62 + Math.min(speedKmh, 45) * 0.16;
+      const wantFov = 62 + Math.min(speedKmh, 45) * 0.16 + raceIntensity * 4.5;
       if (Math.abs(camera.fov - wantFov) > 0.05) {
         camera.fov += (wantFov - camera.fov) * 0.06;
         camera.updateProjectionMatrix();
@@ -899,6 +926,15 @@
         g.group.position.set(offX(gz), offY(gz), gz);
         const passed = distanceKm >= g.km;
         for (const part of g.parts) part.material = passed ? gatePassedMat : gateMat;
+        if (g.beacon) {
+          const proximity = Math.max(0, 1 - Math.abs(distanceKm - g.km) / 0.11);
+          g.beacon.material.opacity = passed ? 0.035 : 0.08 + proximity * 0.35;
+          g.beacon.scale.y = 1 + proximity * 0.24;
+        }
+        if (!passed && g.km !== lastGateKm && distanceKm > g.km - 0.035) {
+          lastGateKm = g.km;
+          raceIntensity = Math.max(raceIntensity, 0.55);
+        }
       }
 
       renderer.render(scene, camera);
@@ -914,6 +950,7 @@
       setDistance(km) { distanceKm = Math.max(0, Number(km) || 0); },
       setSpeed(kmh) { speedKmh = Math.max(0, Number(kmh) || 0); },
       setElapsed(sec) { elapsedSec = Math.max(0, Number(sec) || 0); },
+      setRaceIntensity(value) { raceIntensity = Math.max(0, Math.min(1, Number(value) || 0)); },
       getGrade() { return grade; },
 
       /**

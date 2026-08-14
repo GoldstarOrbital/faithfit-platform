@@ -150,6 +150,7 @@ async function renderJourneyLive(key) {
     '        <div class="live-hud-grade" id="live-grade"></div>',
     '      </div>',
     '    </div>',
+    '    <div class="live-race-banner" id="live-race-banner" hidden></div>',
     '    <div class="live-3d-fallback" id="live-fallback" hidden></div>',
     '    <div class="live-waypoint" id="live-waypoint" hidden></div>',
     '    <div class="live-moment" id="live-moment" hidden></div>',
@@ -210,6 +211,10 @@ async function renderJourneyLive(key) {
   if (world && ghostInfo && ghostInfo.ghosts && ghostInfo.ghosts.length) {
     world.setGhosts(ghostInfo.ghosts);
   }
+  // Remember each rival's last gap so an overtake becomes a small, truthful
+  // on-road moment instead of a made-up achievement. A ghost only exists when
+  // its owner has actually recorded this route.
+  const lastGhostGaps = new Map();
 
   // Segment boundaries, so a stretch between waypoints can be timed.
   let segs = [];
@@ -243,6 +248,7 @@ async function renderJourneyLive(key) {
         // Where you stand against everyone actually on this road.
         const gaps = world.ghostDeltas(total).filter(x => Math.abs(x.delta_km) < 3);
         const gapsEl = el('live-gaps');
+        const raceEl = el('live-race-banner');
         if (gapsEl) {
           if (!gaps.length) { gapsEl.hidden = true; }
           else {
@@ -255,6 +261,30 @@ async function renderJourneyLive(key) {
                 + '<span class="live-gap-delta ' + (x.delta_km >= 0 ? 'ahead' : 'behind') + '">'
                 + (x.delta_km >= 0 ? '+' : '') + (x.delta_km * 1000).toFixed(0) + ' m</span></div>')
               .join('');
+          }
+        }
+        if (raceEl) {
+          const nearest = gaps.slice().sort((a, b) => Math.abs(a.delta_km) - Math.abs(b.delta_km))[0];
+          if (!nearest) {
+            raceEl.hidden = true;
+          } else {
+            const key = (nearest.display_name || 'rider') + ':' + (nearest.is_self ? 'self' : 'rival');
+            const previous = lastGhostGaps.get(key);
+            const overtook = previous != null && previous >= 0 && nearest.delta_km < 0;
+            lastGhostGaps.set(key, nearest.delta_km);
+            const metres = Math.abs(nearest.delta_km * 1000).toFixed(0);
+            raceEl.hidden = false;
+            raceEl.classList.toggle('is-overtake', overtook);
+            raceEl.innerHTML = overtook
+              ? '<strong>OVERTAKE</strong><span>You passed ' + escapeHtml(nearest.display_name || 'a rider') + '</span>'
+              : '<strong>' + (nearest.delta_km >= 0 ? 'CHASE' : 'DEFEND') + '</strong><span>'
+                + escapeHtml(nearest.display_name || 'Rider') + ' · ' + metres + ' m ' + (nearest.delta_km >= 0 ? 'ahead' : 'behind') + '</span>';
+            if (overtook) {
+              world.setRaceIntensity(1);
+              setTimeout(() => { if (raceEl) raceEl.classList.remove('is-overtake'); }, 1200);
+            } else if (Math.abs(nearest.delta_km) < 0.08) {
+              world.setRaceIntensity(0.42);
+            }
           }
         }
       }
@@ -305,6 +335,11 @@ async function renderJourneyLive(key) {
       +   ' · ' + (r.rank === 1 ? 'fastest on this road' : 'ranked ' + r.rank + ' on this road')
       +   (r.measured ? '' : ' · declared pace')
       + '</div>';
+
+    // Segment results are the only place we call a rank. The rank comes from
+    // the server's real, plausibility-checked leaderboard, never from a local
+    // animation or an estimated performance.
+    if (world && r.rank && r.rank <= 3) world.setRaceIntensity(0.8);
 
   }
 

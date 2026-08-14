@@ -37,15 +37,20 @@ jobs:
           node --check lib/account-security.js
           node --check lib/oauth.js
           node --check public/app.js
+          node --check public/journey3d.js
+          node --check public/journey-live.js
           node --check public/sw.js
           node --check scripts/verify-native-auth.js
           node --check scripts/verify-group-pulse.js
           node --check scripts/verify-public-share.js
+          node --check scripts/verify-journey-world.js
       - name: Verify native authentication contract
         run: npm run verify:native-auth
       - name: Verify private group pulse contract
         run: npm run verify:group-pulse
       - name: Verify public sharing acquisition contract
         run: npm run verify:public-share
+      - name: Verify Journey world contract
+        run: npm run verify:journey-world
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high

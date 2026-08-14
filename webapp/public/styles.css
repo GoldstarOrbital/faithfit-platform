@@ -664,6 +664,17 @@ a:hover { color: var(--gold); }
 .live-hud-right small { opacity:0.85; font-size:0.72rem; }
 .live-hud-src { font-size:0.68rem; opacity:0.9; margin-top:2px; }
 
+/* Live race state is deliberately compact: the road stays the focus, while a
+   nearby real ghost gives the rider one legible reason to push on. */
+.live-race-banner{position:absolute;z-index:4;left:10px;top:64px;display:flex;flex-direction:column;gap:1px;
+  max-width:calc(100% - 148px);padding:6px 9px;border-radius:10px;color:#fff7df;
+  background:rgba(20,14,10,.64);border:1px solid rgba(255,224,155,.22);backdrop-filter:blur(7px);
+  box-shadow:0 5px 18px rgba(0,0,0,.16);pointer-events:none}
+.live-race-banner strong{font-size:.58rem;letter-spacing:.13em;color:#ffe09b}
+.live-race-banner span{font-size:.68rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.live-race-banner.is-overtake{animation:raceOvertake 1.2s ease both;background:rgba(41,117,72,.86);border-color:#a6f1c1}
+@keyframes raceOvertake{0%{transform:translateX(-8px);opacity:0}25%{transform:none;opacity:1}100%{opacity:.84}}
+
 /* Waypoint reveal, over the world, when you cross a real km mark. */
 .live-waypoint { position:absolute; left:10px; right:10px; bottom:10px; padding:10px 12px;
   border-radius:12px; background:rgba(249,242,226,0.96); border:1px solid var(--gold);
