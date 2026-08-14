@@ -48,6 +48,7 @@ const launchNotify = require('../lib/launch-notify');
 const news = require('../lib/news');
 const media = require('../lib/media');
 const retention = require('../lib/retention');
+const workoutKudos = require('../lib/workout-kudos');
 
 // Load real, public-domain Bible text (KJV/WEB) into bible_verses once at startup.
 loadBibleData();
@@ -1029,9 +1030,11 @@ router.get('/feed/friends-workouts', requireAuth, (req, res) => {
   const meId = req.session.userId;
   const limit = Math.max(1, Math.min(10, Number(req.query.limit) || 5));
   const rows = db.prepare(`
-    SELECT p.id, p.user_id author_id, u.display_name author,
+    SELECT p.id, p.user_id author_id, u.display_name author, w.id workout_id,
            CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS author_has_avatar,
-           w.type workout_type, w.distance_km, w.calories, w.avg_hr, w.start_time, w.end_time, p.created_at
+           w.type workout_type, w.distance_km, w.calories, w.avg_hr, w.start_time, w.end_time, p.created_at,
+           (SELECT COUNT(*) FROM workout_kudos k WHERE k.workout_id=w.id) AS kudos_count,
+           EXISTS(SELECT 1 FROM workout_kudos k WHERE k.workout_id=w.id AND k.user_id=@me) AS kudos_by_me
     FROM posts p
     JOIN users u ON u.id = p.user_id
     JOIN workouts w ON w.id = p.workout_id
@@ -1042,7 +1045,26 @@ router.get('/feed/friends-workouts', requireAuth, (req, res) => {
       AND NOT EXISTS (SELECT 1 FROM account_relationship_controls rc WHERE rc.actor_id=@me AND rc.subject_id=p.user_id AND rc.control='mute')
     ORDER BY p.created_at DESC LIMIT @limit
   `).all({ me: meId, limit });
-  res.json({ workouts: rows });
+  res.json({ workouts: rows.map(w => ({ ...w, kudos_count: Number(w.kudos_count || 0), kudos_by_me: !!w.kudos_by_me })) });
+});
+
+// Workout-specific encouragement. This is deliberately scoped to a workout a
+// member can already see through the followed-friends rail—never a global
+// popularity counter or an invitation to compare performance.
+router.post('/workouts/:id/kudos', requireAuth, (req, res) => {
+  const me = req.session.userId;
+  const row = db.prepare(`
+    SELECT w.id, w.user_id, u.display_name FROM workouts w JOIN users u ON u.id=w.user_id
+    WHERE w.id=@id AND w.user_id!=@me
+      AND EXISTS (SELECT 1 FROM posts p WHERE p.workout_id=w.id AND (p.visibility='public' OR p.visibility='followers'))
+      AND EXISTS (SELECT 1 FROM followers f WHERE f.follower_id=@me AND f.followee_id=w.user_id)
+      AND NOT EXISTS (SELECT 1 FROM dm_blocks b WHERE (b.blocker_id=@me AND b.blocked_id=w.user_id) OR (b.blocker_id=w.user_id AND b.blocked_id=@me))
+      AND NOT EXISTS (SELECT 1 FROM account_relationship_controls rc WHERE rc.actor_id=@me AND rc.subject_id=w.user_id AND rc.control='mute')
+  `).get({ id: req.params.id, me });
+  if (!row) return res.status(404).json({ error: 'workout_not_found' });
+  const result = workoutKudos.toggle(row.id, me);
+  if (result.given) notify(row.user_id, 'workout_kudos', `${displayName(me)} gave you kudos for your workout.`, { workout_id: row.id, url: '/?open=home' });
+  res.json({ ...result });
 });
 
 // Comments are fetched only when a member opens a thread. This keeps the feed

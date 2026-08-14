@@ -2205,3 +2205,10 @@ nav.tabbar button.active .icon svg { filter:drop-shadow(0 0 5px rgba(255,255,255
 .a2hs-app-icon img { width:100%; height:100%; display:block; }
 .a2hs-close { position:absolute; top:12px; right:12px; min-width:38px; min-height:38px; padding:0; font-size:1.25rem; }
 .a2hs-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
+
+/* A single, explicit encouragement action—not a score chase. */
+.home-workout-card { flex:0 0 152px; display:flex; flex-direction:column; gap:6px; }
+.home-workout-card .home-explore-tile { flex:1; width:100%; }
+.workout-kudos { min-height:34px; border:1px solid rgba(72,99,47,.20); border-radius:999px; color:var(--meadow-deep); background:var(--mint-soft); font:600 .72rem var(--ui,inherit); cursor:pointer; transition:transform .16s ease,background .16s ease,box-shadow .16s ease; }
+.workout-kudos:hover { transform:translateY(-1px); box-shadow:0 4px 10px rgba(72,99,47,.16); }
+.workout-kudos.given { color:#7f5330; background:var(--sun-soft); border-color:rgba(233,185,78,.44); }

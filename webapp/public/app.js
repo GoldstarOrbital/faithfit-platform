@@ -792,11 +792,14 @@ async function renderHome(main) {
       <div class="foryou-head" style="margin-bottom:8px">🏃 Friends' workouts</div>
       <div class="home-explore-rail">
         ${friendsWorkouts.map(w => `
+          <div class="home-workout-card">
           <button class="home-explore-tile" data-user="${escapeHtml(w.author_id)}">
             <span class="home-explore-tile-icon">${{Run:'🏃',Walk:'🚶',Hike:'🥾','Trail Run':'⛰️',Cycle:'🚴',Swim:'🏊',Row:'🚣',Strength:'🏋️',Yoga:'🧘',Pickleball:'🏓',Tennis:'🎾',Basketball:'🏀'}[w.workout_type] || '💪'}</span>
             <span class="home-explore-tile-label">${escapeHtml(w.author)}</span>
             <span class="home-explore-tile-sub">${escapeHtml(w.workout_type || 'Workout')}${w.distance_km ? ' · ' + w.distance_km + ' km' : ''} · ${timeAgo(w.created_at)} ago</span>
-          </button>`).join('')}
+          </button>
+          <button class="workout-kudos ${w.kudos_by_me ? 'given' : ''}" data-workout-kudos="${escapeHtml(w.workout_id)}" aria-pressed="${w.kudos_by_me ? 'true' : 'false'}">${w.kudos_by_me ? '✦ Kudos sent' : '✦ Give kudos'} <span>${w.kudos_count || 0}</span></button>
+          </div>`).join('')}
       </div>
     </div>` : ''}
     <div class="social-section-label"><span>${state.feedScope === 'following' ? 'Following' : 'Community'}</span><span>${users.length ? users.length + ' nearby' : 'Your people'}</span></div>
@@ -908,6 +911,17 @@ async function renderHome(main) {
     const r = await api(`/users/${btn.dataset.follow}/follow`, { method: 'POST' });
     btn.textContent = r.following ? 'Following' : 'Follow';
     btn.classList.toggle('following', r.following);
+  });
+  main.querySelectorAll('[data-workout-kudos]').forEach(btn => btn.onclick = async () => {
+    const count = btn.querySelector('span');
+    btn.disabled = true;
+    const r = await api(`/workouts/${encodeURIComponent(btn.dataset.workoutKudos)}/kudos`, { method: 'POST', body: {} }).catch(() => ({ error: 'network' }));
+    btn.disabled = false;
+    if (r.error) { showToast('Could not send kudos—try again.', true); return; }
+    btn.classList.toggle('given', !!r.given);
+    btn.setAttribute('aria-pressed', r.given ? 'true' : 'false');
+    count.textContent = r.count;
+    btn.childNodes[0].textContent = r.given ? '✦ Kudos sent ' : '✦ Give kudos ';
   });
   const myId = state.me && state.me.user && state.me.user.id;
   const visLabel = { private: '🔒 Only me', followers: '👥 Followers', public: '🌍 Public' };
