@@ -89,6 +89,24 @@ CREATE TABLE IF NOT EXISTS followers (
   PRIMARY KEY (follower_id, followee_id)
 );
 
+-- Pending follow requests live in their OWN table rather than as a status
+-- column on followers, and that is deliberate. Roughly thirty queries across
+-- the codebase ask "is X a follower of Y" with a bare
+-- SELECT 1 FROM followers ..., and followers is the trust tier that gates
+-- followers-only posts, comments, stories and profile visibility. Adding a
+-- status column would have made every one of those queries treat a pending
+-- request as an accepted follow until individually updated -- and missing a
+-- single one silently grants a stranger the access the request was supposed to
+-- gate. Keeping followers meaning exactly "accepted" leaves all of them
+-- correct without modification.
+CREATE TABLE IF NOT EXISTS follow_requests (
+  requester_id TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (requester_id, target_id)
+);
+CREATE INDEX IF NOT EXISTS idx_follow_requests_target ON follow_requests(target_id, created_at);
+
 -- Short-lived community moments. Expiry is stored server-side so a client
 -- clock cannot keep a story visible after its promised 24 hours.
 CREATE TABLE IF NOT EXISTS stories (

@@ -2053,17 +2053,66 @@ router.post('/users/:id/follow', requireAuth, (req, res) => {
   if (!exists) return res.status(404).json({ error: 'user_not_found' });
 
   const already = db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(me, target);
+  const pending = db.prepare('SELECT 1 FROM follow_requests WHERE requester_id = ? AND target_id = ?').get(me, target);
+  const meName = db.prepare('SELECT display_name FROM users WHERE id = ?').get(me)?.display_name || 'Someone';
+
   if (already) {
     db.prepare('DELETE FROM followers WHERE follower_id = ? AND followee_id = ?').run(me, target);
+  } else if (pending) {
+    db.prepare('DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?').run(me, target); // withdraw
   } else {
+    // Anyone could previously insert themselves straight into `followers`, and
+    // `followers` is the tier that gates followers-only posts, comments,
+    // stories and profile visibility -- so "followers-only" meant "anyone who
+    // presses Follow". Every account that is not public now requires approval,
+    // which includes every under-18 account (registration and OAuth setup both
+    // force minors to private).
+    const targetRow = db.prepare('SELECT profile_visibility FROM users WHERE id = ?').get(target);
+    const needsApproval = (targetRow?.profile_visibility || 'public') !== 'public';
+    if (needsApproval) {
+      db.prepare('INSERT OR IGNORE INTO follow_requests (requester_id, target_id) VALUES (?, ?)').run(me, target);
+      notify(target, 'follow_request', `${meName} asked to follow you`, { requester_id: me });
+      const followersNow = db.prepare('SELECT COUNT(*) c FROM followers WHERE followee_id = ?').get(target).c;
+      return res.json({ following: false, requested: true, followers_count: followersNow });
+    }
     db.prepare('INSERT OR IGNORE INTO followers (follower_id, followee_id) VALUES (?, ?)').run(me, target);
-    const meName = db.prepare('SELECT display_name FROM users WHERE id = ?').get(me)?.display_name || 'Someone';
     db.prepare('INSERT INTO notifications (id, user_id, type, payload) VALUES (?, ?, ?, ?)')
       .run(randomUUID(), target, 'follow', JSON.stringify({ follower_id: me, message: `${meName} started following you` }));
     publish('user.followed', { follower_id: me, followee_id: target });
   }
   const followers = db.prepare('SELECT COUNT(*) c FROM followers WHERE followee_id = ?').get(target).c;
-  res.json({ following: !already, followers_count: followers });
+  res.json({ following: !already && !pending, requested: false, followers_count: followers });
+});
+
+// Incoming requests waiting on you.
+router.get('/follow-requests', requireAuth, (req, res) => {
+  const rows = db.prepare(`
+    SELECT fr.requester_id user_id, fr.created_at, u.display_name, u.bio_verse_ref,
+           CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar
+    FROM follow_requests fr JOIN users u ON u.id = fr.requester_id
+    WHERE fr.target_id = ?
+      AND NOT EXISTS (SELECT 1 FROM dm_blocks b
+                      WHERE (b.blocker_id = fr.target_id AND b.blocked_id = fr.requester_id)
+                         OR (b.blocker_id = fr.requester_id AND b.blocked_id = fr.target_id))
+    ORDER BY fr.created_at DESC
+  `).all(req.session.userId);
+  res.json({ requests: rows });
+});
+
+router.post('/follow-requests/:requesterId/:decision(accept|decline)', requireAuth, (req, res) => {
+  const me = req.session.userId;
+  const requester = req.params.requesterId;
+  const row = db.prepare('SELECT 1 FROM follow_requests WHERE requester_id = ? AND target_id = ?').get(requester, me);
+  if (!row) return res.status(404).json({ error: 'no_such_request' });
+  db.prepare('DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?').run(requester, me);
+  if (req.params.decision === 'accept') {
+    db.prepare('INSERT OR IGNORE INTO followers (follower_id, followee_id) VALUES (?, ?)').run(requester, me);
+    notify(requester, 'follow_accepted', `${displayName(me)} accepted your follow request`, { user_id: me });
+    publish('user.followed', { follower_id: requester, followee_id: me });
+  }
+  // A decline is silent -- telling someone they were turned down invites the
+  // exact re-request loop the approval step exists to prevent.
+  res.json({ ok: true, decision: req.params.decision });
 });
 
 // People to follow: users the viewer doesn't already follow (and isn't), ranked by
@@ -2175,6 +2224,7 @@ router.get('/users/:id', (req, res) => {
     // told -- so these reflect only what the viewer has done to them.
     is_muted: me ? accountSecurity.hasRelationship(me, u.id, 'mute') : false,
     is_restricted: me ? accountSecurity.hasRelationship(me, u.id, 'restrict') : false,
+    follow_requested: me ? !!db.prepare('SELECT 1 FROM follow_requests WHERE requester_id = ? AND target_id = ?').get(me, u.id) : false,
     posts });
 });
 

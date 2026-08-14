@@ -891,6 +891,7 @@ async function renderHome(main) {
           </div>`).join('')}
       </div>
     </div>` : ''}
+    <div id="follow-requests"></div>
     <div id="trending-tags"></div>
     <div class="card glass composer-card" id="composer-card">
       <button class="composer-prompt" id="composer-open">
@@ -933,6 +934,36 @@ async function renderHome(main) {
   });
   main.querySelectorAll('.home-explore-tile[data-user]').forEach(btn => btn.onclick = () => renderUserProfile(btn.dataset.user));
   wireComposer(main);
+  // Follow requests only exist for non-public accounts, so most members will
+  // never see this block at all.
+  const paintFollowRequests = () => api('/follow-requests').then(({ requests }) => {
+    const el = document.getElementById('follow-requests');
+    if (!el) return;
+    if (!requests || !requests.length) { el.innerHTML = ''; return; }
+    el.innerHTML = `<div class="card glass" style="padding:12px">
+      <div class="foryou-head" style="margin-bottom:8px">👤 Follow requests</div>
+      ${requests.map(r => `<div class="integration-row" data-req-row="${escapeHtml(r.user_id)}">
+        <div class="post-user" data-user="${escapeHtml(r.user_id)}" style="display:flex;align-items:center;gap:8px;flex:1;cursor:pointer">
+          ${avatarHtml({ id: r.user_id, display_name: r.display_name, has_avatar: r.has_avatar }, 'avatar-sm')}
+          <span>${escapeHtml(r.display_name || 'Member')}</span>
+        </div>
+        <button class="follow-btn" data-req-accept="${escapeHtml(r.user_id)}">Accept</button>
+        <button class="ghost" data-req-decline="${escapeHtml(r.user_id)}">Decline</button>
+      </div>`).join('')}</div>`;
+    hydrateAvatars(el);
+    el.querySelectorAll('.post-user[data-user]').forEach(x => x.onclick = () => renderUserProfile(x.dataset.user));
+    el.querySelectorAll('[data-req-accept],[data-req-decline]').forEach(btn => btn.onclick = async () => {
+      const id = btn.dataset.reqAccept || btn.dataset.reqDecline;
+      const decision = btn.dataset.reqAccept ? 'accept' : 'decline';
+      btn.disabled = true;
+      const r = await api(`/follow-requests/${encodeURIComponent(id)}/${decision}`, { method: 'POST' })
+        .catch(() => ({ error: 'network' }));
+      if (r.error) { btn.disabled = false; return; }
+      el.querySelector(`[data-req-row="${id}"]`)?.remove();
+      if (!el.querySelectorAll('[data-req-row]').length) el.innerHTML = '';
+    });
+  }).catch(() => {});
+  paintFollowRequests();
   // Only render the topics rail when topics actually exist -- an empty
   // "Trending" header on a young community reads as a broken feature.
   api('/hashtags/trending?days=30&limit=10').then(({ tags }) => {
@@ -1218,7 +1249,7 @@ async function renderUserProfile(userId) {
   try { data = await api(`/users/${userId}`); } catch { main.innerHTML = '<div class="card glass">Could not load profile.</div>'; return; }
   const u = data.user;
   const followBtn = data.is_me ? '' :
-    `<button class="follow-btn ${data.is_following ? 'following' : ''}" id="profile-follow">${data.is_following ? 'Following' : 'Follow'}</button><button class="ghost profile-message" id="profile-message">Message</button><button class="primary profile-invite" id="profile-invite">Invite to workout</button>`;
+    `<button class="follow-btn ${data.is_following ? 'following' : ''}" id="profile-follow">${data.is_following ? 'Following' : data.follow_requested ? 'Requested' : 'Follow'}</button><button class="ghost profile-message" id="profile-message">Message</button><button class="primary profile-invite" id="profile-invite">Invite to workout</button>`;
 
   main.innerHTML = `
     <button class="ghost back-btn" id="profile-back">← Back</button>
@@ -1313,8 +1344,10 @@ async function renderUserProfile(userId) {
   const fb = document.getElementById('profile-follow');
   if (fb) fb.onclick = async () => {
     const r = await api(`/users/${userId}/follow`, { method: 'POST' });
-    fb.textContent = r.following ? 'Following' : 'Follow';
-    fb.classList.toggle('following', r.following);
+    // Three states now, not two: following, requested (awaiting their
+    // approval), or neither. Pressing it while Requested withdraws the request.
+    fb.textContent = r.following ? 'Following' : r.requested ? 'Requested' : 'Follow';
+    fb.classList.toggle('following', !!(r.following || r.requested));
     document.getElementById('pf-followers').textContent = r.followers_count;
   };
 }
