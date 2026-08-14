@@ -837,7 +837,13 @@ async function renderHome(main) {
         <button class="action-btn ${p.saved_by_me ? 'saved' : ''}" data-save-post="${p.id}" aria-pressed="${p.saved_by_me ? 'true' : 'false'}">${p.saved_by_me ? '🔖 Saved' : '🔖 Save'}</button>
         <button class="action-btn" data-comment-toggle="${p.id}">💬 <span class="n">${p.comment_count || 0}</span></button>
         <button class="action-btn" data-share="${p.id}" data-vis="${p.visibility || 'public'}">↗ Share</button>
-        ${p.photo_data ? `<button class="action-btn" data-report="${p.id}">🚩 Report</button>` : ''}
+        ${isMine
+          ? `<button class="action-btn" data-delete-post="${p.id}">🗑 Delete</button>`
+          // Reporting used to be gated on p.photo_data, so a text-only or video
+          // post could not be reported at all -- in a faith community the
+          // content that actually does harm is far more often words than a
+          // photo. The backend route never cared about the media type.
+          : `<button class="action-btn" data-report="${p.id}">🚩 Report</button>`}
       </div>
       <div class="comments" id="comments-${p.id}" style="display:none">
         <div class="comments-loading muted">Open to load the conversation.</div>
@@ -866,10 +872,22 @@ async function renderHome(main) {
   }
   wireVerseCards(postsEl);
   postsEl.querySelectorAll('[data-report]').forEach(btn => btn.onclick = async () => {
-    const reason = prompt('Why are you reporting this photo? (e.g. shows a single person)');
+    const reason = prompt('Why are you reporting this post?');
     if (reason === null) return;
     await api(`/posts/${btn.dataset.report}/report`, { method: 'POST', body: { reason } });
     btn.textContent = '🚩 Reported'; btn.disabled = true;
+  });
+  postsEl.querySelectorAll('[data-delete-post]').forEach(btn => btn.onclick = async () => {
+    if (!confirm('Delete this post? This removes it for everyone, along with its kudos and comments. It cannot be undone.')) return;
+    btn.disabled = true;
+    const r = await api(`/posts/${btn.dataset.deletePost}`, { method: 'DELETE' }).catch(() => ({ error: 'network' }));
+    if (r.error) { btn.disabled = false; btn.textContent = '🗑 Could not delete'; return; }
+    // Drop it from the cached feed too, or the next render would bring it back.
+    const card = btn.closest('[data-post]');
+    if (card) card.remove();
+    if (state.homeCache && Array.isArray(state.homeCache.posts)) {
+      state.homeCache.posts = state.homeCache.posts.filter(x => x.id !== btn.dataset.deletePost);
+    }
   });
   postsEl.querySelectorAll('.post-user[data-user]').forEach(el => el.onclick = () => renderUserProfile(el.dataset.user));
   postsEl.querySelectorAll('[data-like]').forEach(btn => btn.onclick = async () => {
@@ -913,10 +931,11 @@ async function renderHome(main) {
       el.innerHTML = '<div class="comments-loading muted">Loading conversation…</div>';
       api(`/posts/${btn.dataset.commentToggle}/comments`).then(({ comments }) => {
         if (!document.body.contains(el)) return;
-        el.innerHTML = comments.map(c => `<div class="comment comment-with-action"><div><b>${escapeHtml(c.author)}</b>${escapeHtml(c.content)}</div><button class="comment-like ${c.liked_by_me ? 'liked' : ''}" data-comment-like="${escapeHtml(c.id)}" aria-pressed="${c.liked_by_me ? 'true' : 'false'}">${c.liked_by_me ? '❤️' : '🤍'} <span>${c.like_count || 0}</span></button></div>`).join('') + `<div class="comment-input-row"><input type="text" placeholder="Add a comment…" id="comment-input-${btn.dataset.commentToggle}" /><button data-send-comment="${btn.dataset.commentToggle}">Post</button></div>`;
+        el.innerHTML = comments.map(c => `<div class="comment comment-with-action" data-comment="${escapeHtml(c.id)}"><div><b>${escapeHtml(c.author)}</b>${escapeHtml(c.content)}</div><button class="comment-like ${c.liked_by_me ? 'liked' : ''}" data-comment-like="${escapeHtml(c.id)}" aria-pressed="${c.liked_by_me ? 'true' : 'false'}">${c.liked_by_me ? '❤️' : '🤍'} <span>${c.like_count || 0}</span></button>${c.can_delete ? `<button class="comment-like" data-comment-delete="${escapeHtml(c.id)}" title="Delete this comment">🗑</button>` : ''}</div>`).join('') + `<div class="comment-input-row"><input type="text" placeholder="Add a comment…" id="comment-input-${btn.dataset.commentToggle}" /><button data-send-comment="${btn.dataset.commentToggle}">Post</button></div>`;
         el.dataset.loaded = '1';
         wireCommentSubmit(el);
         wireCommentLikes(el);
+        wireCommentDelete(el, btn.dataset.commentToggle);
       }).catch(() => { el.innerHTML = '<div class="muted">Could not load conversation.</div>'; });
     }
   });
@@ -930,6 +949,22 @@ async function renderHome(main) {
     btn.classList.toggle('liked', result.liked); btn.setAttribute('aria-pressed', result.liked ? 'true' : 'false');
     btn.innerHTML = `${result.liked ? '❤️' : '🤍'} <span>${result.like_count}</span>`;
   }); }
+  // Shown for your own comment, and for any comment on your own post -- when
+  // something abrasive lands under a prayer request, reporting it only queues
+  // it for review while it stays visible. Authority is decided server-side
+  // (can_delete) and re-checked by the DELETE route.
+  function wireCommentDelete(root, postId) { root.querySelectorAll('[data-comment-delete]').forEach(btn => btn.onclick = async () => {
+    if (!confirm('Delete this comment?')) return;
+    btn.disabled = true;
+    const r = await api(`/comments/${encodeURIComponent(btn.dataset.commentDelete)}`, { method: 'DELETE' }).catch(() => ({ error: 'network' }));
+    if (r.error) { btn.disabled = false; return; }
+    btn.closest('[data-comment]')?.remove();
+    // Keep the post's comment counter honest without a full re-render.
+    const counter = document.querySelector(`[data-comment-toggle="${postId}"] .n`);
+    if (counter) counter.textContent = Math.max(0, (Number(counter.textContent) || 1) - 1);
+    const cached = state.homeCache && (state.homeCache.posts || []).find(p => p.id === postId);
+    if (cached) cached.comment_count = Math.max(0, (Number(cached.comment_count) || 1) - 1);
+  }); }
   function wireCommentSubmit(root) { root.querySelectorAll('[data-send-comment]').forEach(btn => btn.onclick = async () => {
     // Appends the new comment in place instead of the full renderHome() this
     // used to force -- that reset scroll position and re-collapsed the very
@@ -942,10 +977,13 @@ async function renderHome(main) {
       const comment = await api(`/posts/${id}/comments`, { method: 'POST', body: { content: text }, throwOnError: true });
       const row = document.createElement('div');
       row.className = 'comment comment-with-action';
-      row.innerHTML = `<div><b>${escapeHtml(comment.author)}</b>${escapeHtml(comment.content)}</div><button class="comment-like" data-comment-like="${escapeHtml(comment.id)}" aria-pressed="false">🤍 <span>0</span></button>`;
+      row.dataset.comment = comment.id;
+      // Always deletable: you just wrote it.
+      row.innerHTML = `<div><b>${escapeHtml(comment.author)}</b>${escapeHtml(comment.content)}</div><button class="comment-like" data-comment-like="${escapeHtml(comment.id)}" aria-pressed="false">🤍 <span>0</span></button><button class="comment-like" data-comment-delete="${escapeHtml(comment.id)}" title="Delete this comment">🗑</button>`;
       const inputRow = root.querySelector('.comment-input-row');
       root.insertBefore(row, inputRow);
       wireCommentLikes(row);
+      wireCommentDelete(row, id);
       input.value = '';
       const countEl = document.querySelector(`[data-comment-toggle="${id}"] .n`);
       if (countEl) countEl.textContent = (Number(countEl.textContent) || 0) + 1;

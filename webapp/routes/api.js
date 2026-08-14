@@ -1033,7 +1033,10 @@ router.get('/posts/:id/comments', requireAuth, (req, res) => {
   if (!post) return res.status(404).json({ error: 'post_not_found' });
   if (!postVisibleTo(post, me)) return res.status(404).json({ error: 'post_not_found' });
   const comments = db.prepare(`
-    SELECT c.id, c.content, c.created_at, u.display_name author,
+    SELECT c.id, c.content, c.created_at, u.display_name author, c.user_id author_id,
+           -- Decided here rather than in the client: the delete route enforces
+           -- the same rule, and the UI should never have to infer authority.
+           CASE WHEN c.user_id = @me OR @postAuthor = @me THEN 1 ELSE 0 END AS can_delete,
            (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id) AS like_count,
            CASE WHEN EXISTS (SELECT 1 FROM comment_likes mine WHERE mine.comment_id = c.id AND mine.user_id = @me) THEN 1 ELSE 0 END AS liked_by_me
     FROM post_comments c JOIN users u ON u.id = c.user_id
@@ -1042,7 +1045,7 @@ router.get('/posts/:id/comments', requireAuth, (req, res) => {
                       WHERE (b.blocker_id = @me AND b.blocked_id = c.user_id)
                          OR (b.blocker_id = c.user_id AND b.blocked_id = @me))
     ORDER BY c.created_at ASC
-  `).all({ post: post.id, me });
+  `).all({ post: post.id, me, postAuthor: post.user_id });
   res.json({ comments });
 });
 
@@ -1118,6 +1121,53 @@ router.post('/posts/:id/comments', requireAuth, requireCommunityAccess, (req, re
     notify(o.user_id, 'comment', `${displayName(req.session.userId)} also replied: "${snippet}"`, { post_id: req.params.id });
   }
   res.json(comment);
+});
+
+// ---- Taking it back down. ----
+// Until now the only way a member could remove something they had written was
+// to report themselves to a moderator or delete their whole account: the only
+// DELETE FROM posts in the codebase were the moderation cascade and the
+// account-deletion cascade. DELETE /workouts/:id even orphaned the post
+// (UPDATE posts SET workout_id = NULL) rather than removing it. For an app
+// whose most valuable content is a prayer request or a testimony written in
+// the middle of a hard week, being unable to take that back is the wrong
+// default -- and Moments already had author-delete, so the 24-hour content was
+// retractable while the permanent content was not.
+router.delete('/posts/:id', requireAuth, (req, res) => {
+  const me = req.session.userId;
+  const post = db.prepare('SELECT id, user_id FROM posts WHERE id = ?').get(req.params.id);
+  // 404 rather than 403 for someone else's post -- consistent with the rest of
+  // this file, an unauthorized caller learns nothing about what exists.
+  if (!post || post.user_id !== me) return res.status(404).json({ error: 'post_not_found' });
+  const commentIds = db.prepare('SELECT id FROM post_comments WHERE post_id = ?').all(post.id).map(c => c.id);
+  if (commentIds.length) {
+    const marks = commentIds.map(() => '?').join(',');
+    db.prepare(`DELETE FROM comment_likes WHERE comment_id IN (${marks})`).run(...commentIds);
+  }
+  db.prepare('DELETE FROM post_comments WHERE post_id = ?').run(post.id);
+  db.prepare('DELETE FROM post_likes WHERE post_id = ?').run(post.id);
+  db.prepare('DELETE FROM post_saves WHERE post_id = ?').run(post.id);
+  // Leave any moderation report in place: a member deleting a reported post
+  // should not erase the report trail a reviewer may still need.
+  db.prepare('DELETE FROM posts WHERE id = ?').run(post.id);
+  res.json({ ok: true });
+});
+
+// Either the comment's own author or the author of the post it sits under.
+// The post author matters most here: when something abrasive lands on someone's
+// prayer request, reporting it only queues it for review while it stays
+// visible. The person who published the vulnerable thing needs to be able to
+// clean up underneath it themselves.
+router.delete('/comments/:id', requireAuth, (req, res) => {
+  const me = req.session.userId;
+  const comment = db.prepare(`SELECT c.id, c.user_id, p.user_id post_author
+    FROM post_comments c JOIN posts p ON p.id = c.post_id WHERE c.id = ?`).get(req.params.id);
+  if (!comment || (comment.user_id !== me && comment.post_author !== me)) {
+    return res.status(404).json({ error: 'comment_not_found' });
+  }
+  db.prepare('DELETE FROM comment_likes WHERE comment_id = ?').run(comment.id);
+  db.prepare('DELETE FROM post_comments WHERE id = ?').run(comment.id);
+  res.json({ ok: true, by: comment.user_id === me ? 'author' : 'post_author' });
 });
 
 router.post('/comments/:id/like', requireAuth, (req, res) => {
