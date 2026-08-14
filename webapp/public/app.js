@@ -68,6 +68,57 @@ async function apiRequest(path, opts = {}) {
   return payload;
 }
 
+// Saved Scripture is the one intentionally private collection that remains
+// useful without a connection. Scope it to the signed-in member so a shared
+// device can never show one person's readings to the next person who signs in.
+const OFFLINE_SAVED_VERSES_PREFIX = 'ff-offline-saved-verses-v1:';
+function offlineSavedVersesKey() {
+  const userId = state.me && state.me.user && state.me.user.id;
+  return userId ? OFFLINE_SAVED_VERSES_PREFIX + userId : null;
+}
+function readOfflineSavedVerses() {
+  const key = offlineSavedVersesKey();
+  if (!key) return [];
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+    return Array.isArray(parsed) ? parsed.filter(v => v && typeof v.reference === 'string' && typeof v.text === 'string') : [];
+  } catch { return []; }
+}
+function cacheOfflineSavedVerses(verses) {
+  const key = offlineSavedVersesKey();
+  if (!key || !Array.isArray(verses)) return;
+  // These rows came from the authenticated server collection; never cache a
+  // browser-supplied verse. The cap also keeps device storage bounded.
+  const safe = verses.slice(0, 200).map(v => ({
+    reference: String(v.reference || '').slice(0, 100), book: String(v.book || '').slice(0, 80),
+    chapter: Number(v.chapter) || 0, verse: Number(v.verse) || 0,
+    text: String(v.text || '').slice(0, 5000), translation: String(v.translation || '').slice(0, 80),
+    created_at: v.created_at || null,
+  })).filter(v => v.reference && v.text);
+  try { localStorage.setItem(key, JSON.stringify(safe)); } catch { /* private mode or full storage */ }
+}
+function removeOfflineSavedVerse(reference) {
+  const key = offlineSavedVersesKey();
+  if (!key) return;
+  try { localStorage.setItem(key, JSON.stringify(readOfflineSavedVerses().filter(v => v.reference !== reference))); } catch {}
+}
+function clearOfflineSavedVerses() {
+  const key = offlineSavedVersesKey();
+  if (!key) return;
+  try { localStorage.removeItem(key); } catch {}
+}
+async function loadSavedVerses() {
+  try {
+    const data = await api('/verses/saved');
+    if (!data || data.error) throw new Error('saved_verses_unavailable');
+    const verses = Array.isArray(data?.verses) ? data.verses : [];
+    cacheOfflineSavedVerses(verses);
+    return { verses, offline: false };
+  } catch {
+    return { verses: readOfflineSavedVerses(), offline: true };
+  }
+}
+
 async function loadMe() {
   try { state.me = await api('/me'); } catch { state.me = null; }
   if (state.me) {
@@ -389,7 +440,7 @@ async function renderSignIn() {
 function renderAccountSetup(main) {
   document.querySelectorAll('nav button').forEach(b=>b.style.display='none');
   main.innerHTML=`<div class="card glass"><span class="eyebrow">Account safety</span><h2>One quick step</h2><p class="muted">Confirm your age and review the current community rules before posting, messaging, or joining groups.</p><form id="account-setup-form"><label class="field-label">Date of birth</label><input class="input" type="date" name="date_of_birth" required><label class="terms-check"><input type="checkbox" name="terms_accepted" value="true" required><span>I am at least 13 and agree to the <a href="/terms.html" target="_blank" rel="noopener">Terms and Community Standards</a> and acknowledge the <a href="/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</span></label><p class="form-error" id="setup-error" hidden></p><button class="primary" style="width:100%;margin-top:12px">Continue</button></form><button class="ghost" id="setup-signout" style="width:100%;margin-top:8px">Sign out</button></div>`;
-  main.querySelector('#setup-signout').onclick=async()=>{await api('/auth/logout',{method:'POST'});state.me=null;renderSignIn();};
+  main.querySelector('#setup-signout').onclick=async()=>{await api('/auth/logout',{method:'POST'});clearOfflineSavedVerses();state.me=null;renderSignIn();};
   main.querySelector('#account-setup-form').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);const result=await api('/account/setup',{method:'POST',body:{date_of_birth:fd.get('date_of_birth'),terms_accepted:fd.get('terms_accepted')==='true'}});if(result.error){const el=main.querySelector('#setup-error');el.textContent=result.error==='minimum_age'?'Accounts are currently available to people age 13 and older.':'Please check your date of birth and acceptance.';el.hidden=false;return;}await loadMe();document.querySelectorAll('nav button').forEach(b=>b.style.display='');render();};
 }
 
@@ -3286,12 +3337,12 @@ async function renderProfile(main) {
   document.getElementById('delete-account').onclick = async () => {
     if (!confirm('Delete your Functioning Faith account and personal data permanently? This cannot be undone.')) return;
     const button = document.getElementById('delete-account'); button.disabled = true; button.textContent = 'Deleting…';
-    try { await api('/me', { method: 'DELETE', throwOnError: true }); state.me = null; signInMode = 'login'; location.href = '/'; }
+    try { await api('/me', { method: 'DELETE', throwOnError: true }); clearOfflineSavedVerses(); state.me = null; signInMode = 'login'; location.href = '/'; }
     catch { button.disabled = false; button.textContent = 'Delete failed — try again'; }
   };
   document.getElementById('signout').onclick = async () => {
     try { await fetch('/api/auth/logout', { method: 'POST' }); } catch {}
-    state.me = null; signInMode = 'login'; location.reload();
+    clearOfflineSavedVerses(); state.me = null; signInMode = 'login'; location.reload();
   };
   document.getElementById('ble-connect').onclick = () => state.bleConnected ? disconnectBle() : connectBle();
 
@@ -5761,6 +5812,8 @@ function wireVerseCards(root) {
     const result = await api('/verses/save', { method: 'POST', body: { reference } }).catch(() => null);
     btn.disabled = false;
     if (!result) { showToast('Could not update your saved Scripture.', true); return; }
+    if (!result.saved) removeOfflineSavedVerse(result.reference);
+    else if (result.verse) cacheOfflineSavedVerses([result.verse, ...readOfflineSavedVerses().filter(item => item.reference !== result.reference)]);
     scope.querySelectorAll('[data-verse-ref]').forEach(card => {
       if (card.dataset.verseRef !== result.reference) return;
       const control = card.querySelector('[data-verse-save]');
@@ -5772,7 +5825,7 @@ function wireVerseCards(root) {
   });
   const refs = [...new Set(cards.map(c => c.dataset.verseRef))];
   // One private read establishes the initial state for visible verse cards.
-  api('/verses/saved').then(({ verses }) => {
+  loadSavedVerses().then(({ verses }) => {
     const saved = new Set((verses || []).map(item => item.reference));
     scope.querySelectorAll('[data-verse-ref]').forEach(card => {
       const button = card.querySelector('[data-verse-save]');
@@ -5794,20 +5847,19 @@ function wireVerseCards(root) {
 async function renderSavedVerses(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
   main.innerHTML = '<button class="ghost back-btn" id="saved-verses-back">← Back to profile</button><div class="card glass"><span class="eyebrow">Your collection</span><h2>Saved Scripture</h2><p class="muted">A private library of verified verses you want to return to.</p></div><div id="saved-verses-list"><div class="card glass muted">Loading saved Scripture…</div></div>';
-  let data;
-  try { data = await api('/verses/saved'); } catch { data = { verses: [] }; }
+  const data = await loadSavedVerses();
   const list = main.querySelector('#saved-verses-list');
-  list.innerHTML = data.verses.length ? data.verses.map(v => `<article class="card glass saved-verse-card" data-saved-verse="${escapeHtml(v.reference)}">
+  list.innerHTML = `${data.offline ? '<div class="offline-scripture-note" role="status">Offline reading mode · showing this device’s private saved Scripture. Reconnect for translations and conversations.</div>' : ''}${data.verses.length ? data.verses.map(v => `<article class="card glass saved-verse-card" data-saved-verse="${escapeHtml(v.reference)}">
     <div class="verse-ref">${escapeHtml(v.reference)}</div><div class="verse-text">${escapeHtml(v.text || '')}</div>
     <div class="saved-verse-meta"><span>${escapeHtml(v.translation || 'Verified Scripture')}</span><span>Saved ${timeAgo(v.created_at)} ago</span></div>
     <div class="saved-verse-actions"><button class="ghost" data-open-saved-verse="${escapeHtml(v.reference)}">Open</button><button class="ghost saved" data-remove-saved-verse="${escapeHtml(v.reference)}">Remove</button></div>
-  </article>`).join('') : '<div class="card glass"><p class="muted">Nothing saved yet. Tap Save on a verse anywhere in the app to keep it here.</p></div>';
+  </article>`).join('') : '<div class="card glass"><p class="muted">Nothing saved yet. Tap Save on a verse anywhere in the app to keep it here.</p></div>'}`;
   main.querySelector('#saved-verses-back').onclick = () => renderProfile(main);
   list.querySelectorAll('[data-open-saved-verse]').forEach(btn => btn.onclick = () => renderVerseThread(btn.dataset.openSavedVerse));
   list.querySelectorAll('[data-remove-saved-verse]').forEach(btn => btn.onclick = async () => {
     btn.disabled = true;
     const result = await api('/verses/save', { method: 'POST', body: { reference: btn.dataset.removeSavedVerse } }).catch(() => null);
-    if (result && !result.saved) btn.closest('[data-saved-verse]')?.remove();
+    if (result && !result.saved) { removeOfflineSavedVerse(result.reference); btn.closest('[data-saved-verse]')?.remove(); }
     else btn.disabled = false;
   });
 }
@@ -6007,6 +6059,12 @@ async function renderVerseThread(reference) {
   try {
     data = await api(`/verses/${encodeURIComponent(reference)}/thread`);
   } catch {
+    const saved = readOfflineSavedVerses().find(item => item.reference === reference);
+    if (saved) {
+      main.innerHTML = `${backHtml}<div class="card glass offline-verse-reading"><div class="offline-scripture-note" role="status">Offline reading mode · this private saved verse is available on this device.</div><div class="verse-card"><div class="verse-ref">${escapeHtml(saved.reference)}</div><div class="verse-text">${escapeHtml(saved.text)}</div><div class="muted yv-note">${escapeHtml(saved.translation || 'Verified Scripture')} · reconnect to switch translations or join the conversation.</div></div></div>`;
+      document.getElementById('verse-back').onclick = goBack;
+      return;
+    }
     main.innerHTML = `${backHtml}<div class="card glass">Could not load this verse.</div>`;
     document.getElementById('verse-back').onclick = goBack;
     return;
@@ -6086,7 +6144,7 @@ async function renderVerseThread(reference) {
     wireCompanion(verseRef);
     const saveDetail = document.getElementById('verse-save-detail');
     if (saveDetail) {
-      api('/verses/saved').then(({ verses }) => {
+      loadSavedVerses().then(({ verses }) => {
         const present = (verses || []).some(item => item.reference === verseRef);
         saveDetail.classList.toggle('saved', present); saveDetail.textContent = present ? 'Saved' : 'Save';
         saveDetail.setAttribute('aria-pressed', present ? 'true' : 'false');
@@ -6096,6 +6154,8 @@ async function renderVerseThread(reference) {
         const result = await api('/verses/save', { method: 'POST', body: { reference: verseRef } }).catch(() => null);
         saveDetail.disabled = false;
         if (!result) { showToast('Could not update your saved Scripture.', true); return; }
+        if (!result.saved) removeOfflineSavedVerse(result.reference);
+        else if (result.verse) cacheOfflineSavedVerses([result.verse, ...readOfflineSavedVerses().filter(item => item.reference !== result.reference)]);
         saveDetail.classList.toggle('saved', !!result.saved); saveDetail.textContent = result.saved ? 'Saved' : 'Save';
         saveDetail.setAttribute('aria-pressed', result.saved ? 'true' : 'false');
       };

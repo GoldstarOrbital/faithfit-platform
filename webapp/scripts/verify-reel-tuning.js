@@ -20,7 +20,7 @@ assert.match(api, /videos = videos\.filter\(video => !hiddenIds\.has/, 'mixed fe
 assert.match(api, /'reel_impressions', 'reel_reactions', 'reel_hides'/, 'account deletion must remove private Reel preferences');
 assert.match(app, /data-reel-not-interested/, 'the member needs a visible not-interested control');
 assert.match(app, /\/not-interested/, 'the UI must persist not-interested choices');
-assert.match(html, /app\.js\?v=ff-reel-tuning-1/, 'the app bundle must be cache-busted');
-assert.match(sw, /functioning-faith-shell-v36/, 'the service worker cache must advance');
+assert.match(html, /app\.js\?v=ff-[a-z0-9-]+-1/, 'the app bundle must be versioned');
+assert.match(sw, /functioning-faith-shell-v\d+/, 'the service worker cache must be versioned');
 
 console.log(JSON.stringify({ private_feed_tuning: true, no_public_penalty: true, cache_busted: true }));

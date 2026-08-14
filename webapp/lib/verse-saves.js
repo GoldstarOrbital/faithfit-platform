@@ -34,7 +34,16 @@ function toggle(userId, row) {
   db.prepare(`INSERT INTO saved_verses (id, user_id, reference, book, chapter, verse, text, translation)
               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(randomUUID(), userId, reference, row.book, Number(row.chapter), Number(row.verse), row.text, row.translation || null);
-  return { saved: true, reference };
+  // Return the same server-verified row that was written. The client uses it
+  // only for its account-scoped offline reading cache; no browser supplied
+  // text is ever promoted into that cache.
+  return {
+    saved: true, reference,
+    verse: {
+      reference, book: row.book, chapter: Number(row.chapter), verse: Number(row.verse),
+      text: row.text, translation: row.translation || null, created_at: new Date().toISOString(),
+    },
+  };
 }
 
 function list(userId, limit = 200) {
