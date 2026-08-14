@@ -1605,6 +1605,11 @@ async function renderExplore(main) {
         <div id="nearby-groups-status" class="muted"></div>
         <div id="nearby-groups-results"></div>
       </div>
+      <div class="card glass" id="group-username-card">
+        <h3 style="margin-top:0">Find a group by username</h3>
+        <div class="group-lookup-row"><input class="input" id="group-username-input" maxlength="30" autocomplete="off" placeholder="@sunrise-runners" /><button class="ghost" id="group-username-search">Find</button></div>
+        <div id="group-username-result" class="muted" style="margin-top:8px"></div>
+      </div>
       <div class="card glass" id="recommended-groups"><div class="muted">Finding groups for you…</div></div>
       ${groups.map(g => `<div class="card glass" data-group="${g.id}" style="cursor:pointer"><strong>${escapeHtml(g.name)}</strong>${g.visibility === 'private' ? ' <span class="muted" style="font-size:.72rem">🔒 private</span>' : ''}<div class="muted">@${escapeHtml(g.username || '')} · ${g.member_count || 0} members${g.sport ? ' · ' + escapeHtml(g.sport) : ''}${g.location_name ? ' · ' + escapeHtml(g.location_name) : ''}</div><div class="muted">${escapeHtml(g.description || '')}</div></div>`).join('')}
       <h2>Quests</h2>
@@ -1653,6 +1658,19 @@ async function renderExplore(main) {
         } catch { status.textContent = 'Could not search nearby groups.'; }
       }, () => { status.textContent = 'Location permission denied — enable it to search nearby.'; });
     };
+    const findGroupByUsername = async () => {
+      const input = document.getElementById('group-username-input');
+      const result = document.getElementById('group-username-result');
+      const username = input.value.trim().replace(/^@+/, '');
+      if (!username) { result.textContent = 'Enter a group username to look it up.'; return; }
+      result.textContent = 'Finding group…';
+      const group = await api(`/groups/username/${encodeURIComponent(username)}`).catch(() => ({ error: 'not_found' }));
+      if (group.error || !group.id) { result.textContent = 'No public or joined group was found with that username.'; return; }
+      result.innerHTML = `<button type="button" class="group-lookup-result" data-group="${escapeHtml(group.id)}"><b>${escapeHtml(group.name)}</b><span>@${escapeHtml(group.username)}${group.sport ? ' · ' + escapeHtml(group.sport) : ''}${group.location_name ? ' · ' + escapeHtml(group.location_name) : ''}</span></button>`;
+      result.querySelector('[data-group]').onclick = () => renderGroupDetail(group.id);
+    };
+    document.getElementById('group-username-search').onclick = findGroupByUsername;
+    document.getElementById('group-username-input').addEventListener('keydown', e => { if (e.key === 'Enter') findGroupByUsername(); });
     api('/groups/recommended').then(r => { const el = document.getElementById('recommended-groups'); if (!r.groups.length) { el.remove(); return; } el.innerHTML = `<div class="field-label">${r.chosen_by === 'gloo' ? '✦ Gloo picks for you' : 'Suggested groups'}</div>` + r.groups.slice(0, 3).map(g => `<div class="comment" data-group="${g.id}" style="cursor:pointer"><b>${escapeHtml(g.name)}</b><div class="muted">@${escapeHtml(g.username || '')} · ${escapeHtml(g.reason || '')}</div></div>`).join(''); el.querySelectorAll('[data-group]').forEach(x => x.onclick = () => renderGroupDetail(x.dataset.group)); }).catch(() => document.getElementById('recommended-groups')?.remove());
     body.querySelectorAll('[data-group]').forEach(el => el.onclick = () => renderGroupDetail(el.dataset.group));
   } else if (state.exploreTab === 'breathe') {

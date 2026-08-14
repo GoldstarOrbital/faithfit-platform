@@ -2293,9 +2293,12 @@ router.get('/groups/nearby', requireAuth, (req, res) => {
 });
 
 router.get('/groups/username/:username', requireAuth, (req, res) => {
-  const group = db.prepare('SELECT id, name, username, description, church_name, location_name, sport FROM groups WHERE username = ?')
+  const group = db.prepare('SELECT id, name, username, description, church_name, location_name, sport, visibility FROM groups WHERE username = ?')
     .get(groupUsername(req.params.username));
-  if (!group) return res.status(404).json({ error: 'not_found' });
+  if (!group || (group.visibility === 'private' && !isGroupMember(group.id, req.session.userId))) {
+    return res.status(404).json({ error: 'not_found' });
+  }
+  delete group.visibility;
   res.json(group);
 });
 
