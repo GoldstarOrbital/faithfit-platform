@@ -2936,7 +2936,7 @@ async function renderProfile(main) {
       <label class="field-label">Username</label>
       <div class="muted" style="font-size:.76rem;margin:-2px 0 4px">Your unique name across Functioning Faith — how people find and mention you. No two members can share one.</div>
       <input id="p-username" type="text" maxlength="40" placeholder="Your name" value="${escapeHtml(me.user.display_name || '')}">
-      <div id="p-username-status" class="muted" style="margin:2px 0 8px"></div>
+      <div id="p-username-status" class="muted" style="margin:2px 0 8px" aria-live="polite"></div>
       <label class="field-label">Bio verse</label>
       <select id="p-verse"><option value="">— Select a verse —</option></select>
       <label class="field-label">Job</label>
@@ -3473,6 +3473,35 @@ async function renderProfile(main) {
   }
 
   // Populate the verified-verse picker from the real Bible library (never freeform).
+  // Live username availability. GET /username-available existed and returned
+  // the nearest free variant as `suggestion`, but nothing called it -- so the
+  // only way to discover a name was taken was to fill in the whole form, press
+  // Save, and be rejected, with no hint of what would work instead.
+  const unameInput = document.getElementById('p-username');
+  const unameStatus = document.getElementById('p-username-status');
+  if (unameInput && unameStatus) {
+    const originalName = (unameInput.value || '').trim();
+    let unameTimer = null, unameSeq = 0;
+    const applySuggestion = (name) => { unameInput.value = name; unameInput.dispatchEvent(new Event('input', { bubbles: true })); };
+    unameInput.addEventListener('input', () => {
+      clearTimeout(unameTimer);
+      const value = (unameInput.value || '').trim();
+      if (!value || value === originalName) { unameStatus.textContent = ''; return; }
+      unameStatus.textContent = 'Checking…';
+      unameTimer = setTimeout(async () => {
+        // Responses can land out of order; only the newest one may paint.
+        const seq = ++unameSeq;
+        const r = await api(`/username-available?name=${encodeURIComponent(value)}`).catch(() => null);
+        if (seq !== unameSeq) return;
+        if (!r) { unameStatus.textContent = ''; return; }
+        if (r.available) { unameStatus.innerHTML = `<span style="color:#3a7d44">✓ ${escapeHtml(value)} is available</span>`; return; }
+        unameStatus.innerHTML = escapeHtml(r.message || 'That name is not available.')
+          + (r.suggestion ? ` <button class="ghost" id="p-username-suggest" style="padding:2px 8px;font-size:.74rem">Use ${escapeHtml(r.suggestion)}</button>` : '');
+        const sug = document.getElementById('p-username-suggest');
+        if (sug) sug.onclick = () => applySuggestion(r.suggestion);
+      }, 350);
+    });
+  }
   const versePicker = document.getElementById('p-verse');
   try {
     const philippians = await api('/bible/passage/Philippians/4');
@@ -3495,7 +3524,7 @@ async function renderProfile(main) {
     status.textContent = 'Saving…';
     try {
       const body = {
-        display_name: document.getElementById('p-username').value,
+        display_name: (document.getElementById('p-username').value || '').trim(),
         bio_verse_ref: versePicker.value || null,
         job: document.getElementById('p-job').value,
         church: document.getElementById('p-church').value,
