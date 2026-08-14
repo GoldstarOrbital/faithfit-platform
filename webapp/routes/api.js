@@ -32,6 +32,7 @@ const athletes = require('../lib/athletes');
 const coaches = require('../lib/coaches');
 const schools = require('../lib/schools');
 const mentions = require('../lib/mentions');
+const records = require('../lib/records');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
 const wearables = require('../lib/wearables');
@@ -1468,10 +1469,19 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   notifyChallengeCompletions(req.session.userId, completedChallenges);
   notifyJourneyProgress(req.session.userId, applyWorkoutToJourneys(req.session.userId, { distance_km: gps_distance_km || 0, duration_sec: durationSec, type: workout.type }));
   const partners = tagWorkoutPartners(req.session.userId, workout.id, partner_user_ids);
+  // Personal bests, read back from the row we just wrote so the record is
+  // measured from what was actually stored rather than from the request body.
+  const newRecords = records.record(db.prepare('SELECT * FROM workouts WHERE id = ?').get(workout.id));
+  for (const r of newRecords) {
+    notify(req.session.userId, 'personal_record',
+      `New personal record — ${r.label.toLowerCase()} for ${r.activity_type}: ${r.value} ${r.unit}`,
+      { workout_id: workout.id, metric: r.metric });
+  }
 
   res.json({
     id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr, distance_km: gps_distance_km || null, duration_sec: durationSec,
     completed_challenges: completedChallenges.map(c => c.name), partner_tag_errors: partners.errors,
+    personal_records: newRecords,
     effort: {
       ...effort,
       max_hr_reference: maxInfo ? maxInfo.value : null,
@@ -1606,16 +1616,29 @@ router.post('/workouts/manual', requireAuth, (req, res) => {
   // distance twice. The client sets skip_journeys for that case.
   if (!skip_journeys) notifyJourneyProgress(uid, applyWorkoutToJourneys(uid, { distance_km: dist || 0, duration_sec: durSec, type }));
   const partners = tagWorkoutPartners(uid, id, partner_user_ids);
+  const newRecords = records.record(db.prepare('SELECT * FROM workouts WHERE id = ?').get(id));
+  for (const r of newRecords) {
+    notify(uid, 'personal_record',
+      `New personal record — ${r.label.toLowerCase()} for ${r.activity_type}: ${r.value} ${r.unit}`,
+      { workout_id: id, metric: r.metric });
+  }
   res.status(201).json({
     id, type, calories: cal, distance_km: dist, duration_sec: durSec,
     completed_challenges: completed.map(c => c.name),
     partner_tag_errors: partners.errors,
+    personal_records: newRecords,
     // Encouragement that cites what actually happened, or nothing at all.
     effort: effortSummary || null,
     effort_note: effortSummary
       ? effortLib.describeEffort(effortSummary, personalBests(uid, id))
       : null,
   });
+});
+
+// Your own bests, per activity type. Personal only -- see lib/records.js on
+// why this is deliberately not a leaderboard.
+router.get('/records', requireAuth, (req, res) => {
+  res.json({ records: records.forUser(req.session.userId) });
 });
 
 // Tag partners on an already-completed workout the caller owns (used from the
@@ -1797,6 +1820,26 @@ router.post('/stories/:id/reaction', requireAuth, (req, res) => {
   const count = db.prepare('SELECT COUNT(*) AS count FROM story_reactions WHERE story_id = ?').get(story.id).count;
   const active = current?.emoji === emoji ? null : emoji;
   res.json({ emoji: active, reaction_count: Number(count) });
+});
+
+// A Moment reply is an ordinary protected DM with context, not a new public
+// comment surface. That preserves the recipient's message settings, block and
+// restriction controls, minor safeguards, and existing abuse protections.
+router.post('/stories/:id/reply', requireAuth, requireCommunityAccess, (req, res) => {
+  const me = req.session.userId;
+  const story = db.prepare("SELECT * FROM stories WHERE id = ? AND expires_at > datetime('now')").get(req.params.id);
+  if (!story || story.user_id === me || !storyVisible(story, me) || dms.isBlockedEitherWay(me, story.user_id)) {
+    return res.status(404).json({ error: 'story_not_found' });
+  }
+  const body = String(req.body?.body || '').trim().slice(0, dms.MAX_LEN);
+  if (!body) return res.status(400).json({ error: 'empty_reply', hint: 'Write a short reply first.' });
+  const opened = dms.openThread(me, story.user_id);
+  if (opened.error) return res.status(403).json({ error: opened.error, hint: 'This member is not accepting a new message from you.' });
+  const excerpt = String(story.content || (story.photo_data ? 'A photo moment' : 'A moment')).slice(0, 120);
+  const sent = dms.send(me, opened.thread.id, body, { kind: 'story_reply', metadata: { story_id: story.id, story_excerpt: excerpt } });
+  if (sent.error) return res.status(sent.error === 'blocked' ? 403 : 400).json(sent);
+  notify(story.user_id, 'dm', `${displayName(me)} replied to your moment.`, { thread_id: opened.thread.id, story_id: story.id });
+  res.status(201).json({ thread_id: opened.thread.id, message: sent.message });
 });
 
 router.delete('/stories/:id', requireAuth, (req, res) => {

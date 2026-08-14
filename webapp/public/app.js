@@ -604,7 +604,8 @@ function openStoryViewer(groups, groupIndex) {
         ${mine ? `<div class="story-reactions story-reactions-count">${s.reaction_count || 0} reaction${s.reaction_count === 1 ? '' : 's'}</div>` : `
         <div class="story-reactions">
           ${['❤️','🙏','🔥','💪','👏'].map(e => `<button class="story-react ${s.my_reaction === e ? 'active' : ''}" data-story-react="${e}">${e}</button>`).join('')}
-        </div>`}
+        </div>
+        <form class="story-reply" data-story-reply-form><input maxlength="500" autocomplete="off" aria-label="Reply privately to this moment" placeholder="Reply privately…"><button type="submit">Send</button></form><div class="story-reply-status" aria-live="polite"></div>`}
       </div>`;
     hydrateAvatars(overlay);
 
@@ -627,6 +628,26 @@ function openStoryViewer(groups, groupIndex) {
       if (r && !r.error) { s.my_reaction = r.emoji; s.reaction_count = r.reaction_count; }
       paint();
     });
+    const replyForm = overlay.querySelector('[data-story-reply-form]');
+    if (replyForm) {
+      replyForm.onfocusin = () => clearTimeout(timer);
+      replyForm.onsubmit = async e => {
+        e.preventDefault();
+        const input = replyForm.querySelector('input');
+        const button = replyForm.querySelector('button');
+        const status = overlay.querySelector('.story-reply-status');
+        const body = input.value.trim();
+        if (!body) return;
+        clearTimeout(timer); button.disabled = true; status.textContent = 'Sending privately…';
+        try {
+          await api(`/stories/${encodeURIComponent(s.id)}/reply`, { method: 'POST', body: { body }, throwOnError: true });
+          input.value = ''; status.textContent = 'Sent privately.';
+          setTimeout(advance, 900);
+        } catch (err) {
+          status.textContent = err.message || 'Could not send that reply.'; button.disabled = false;
+        }
+      };
+    }
 
     if (!s.viewed) { s.viewed = true; api(`/stories/${s.id}/view`, { method: 'POST' }).catch(() => {}); }
     timer = setTimeout(advance, 6000);
@@ -1444,6 +1465,7 @@ async function renderStats(main) {
     </div>
 
     ${recoveryCardHtml(recoveryData)}
+    <div id="pr-card"></div>
 
     <div class="card glass">
       <div class="stats-period-head">This week</div>
@@ -1507,6 +1529,23 @@ async function renderStats(main) {
     </div>
   `;
 
+  // Personal records. Rendered only when some exist -- an empty "Personal
+  // records" heading on a new account is a reminder of having done nothing.
+  api('/records').then(({ records: byType }) => {
+    const el = document.getElementById('pr-card');
+    const types = Object.keys(byType || {});
+    if (!el || !types.length) return;
+    el.innerHTML = `<div class="card glass">
+      <div class="stats-period-head">Your personal records</div>
+      <div class="muted" style="font-size:.76rem;margin-bottom:10px">Your own bests — not a ranking against anyone else.</div>
+      ${types.map(t => `<div style="margin-bottom:10px">
+        <div class="field-label">${escapeHtml(t)}</div>
+        <div class="stat-tiles">${byType[t].map(r =>
+          `<div class="stat-tile"><div class="stat-tile-v">${r.value}</div><div class="stat-tile-l">${escapeHtml(r.label)} (${escapeHtml(r.unit)})</div></div>`
+        ).join('')}</div>
+      </div>`).join('')}
+    </div>`;
+  }).catch(() => {});
   const recapButton = main.querySelector('#share-weekly-recap');
   if (recapButton) recapButton.onclick = async () => {
     const status = main.querySelector('#weekly-recap-status'); recapButton.disabled = true; recapButton.textContent = 'Sharing…';
@@ -7369,6 +7408,7 @@ async function renderThread(threadId) {
     const rendered = await Promise.all(msgs.map(async m => {
       if (m.kind === 'workout_invite' && m.metadata) return renderWorkoutInviteMessage(m);
       if (m.kind === 'verse' && m.metadata) return renderVerseMessage(m);
+      if (m.kind === 'story_reply' && m.metadata) return renderStoryReplyMessage(m);
       const plain = await decryptBody(m);
       const bodyHtml = plain == null
         ? '<span class="muted">🔒 Could not decrypt this message on this device.</span>'
@@ -7653,6 +7693,13 @@ async function renderWorkoutDetail(id) {
     document.querySelectorAll('nav button').forEach(b => b.style.display = '');
     render();
   };
+}
+
+function renderStoryReplyMessage(m) {
+  const d = m.metadata || {};
+  return '<div class="dm-msg story-reply-message' + (m.from_me ? ' mine' : '') + '>'
+    + '<div class="story-reply-dm-context">Reply to Moment' + (d.story_excerpt ? ': ' + escapeHtml(d.story_excerpt) : '') + '</div>'
+    + '<div class="dm-bubble">' + escapeHtml(m.body || '') + '</div><div class="dm-meta">' + dmTime(m.created_at) + '</div></div>';
 }
 
 // Read-only detail for an activity someone deliberately shared. The API gives

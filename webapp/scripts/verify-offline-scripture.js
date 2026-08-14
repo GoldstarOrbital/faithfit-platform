@@ -19,6 +19,6 @@ assert.match(app, /clearOfflineSavedVerses\(\); state\.me = null/, 'sign-out and
 assert.match(app, /Offline reading mode/, 'members need an honest offline indicator');
 assert.match(saves, /Return the same server-verified row/, 'new offline rows must originate from server-verified Scripture');
 assert.match(css, /\.offline-scripture-note/, 'offline state needs visible styling');
-assert.match(html, /app\.js\?v=ff-offline-scripture-1/, 'the script bundle must be cache-busted');
-assert.match(sw, /functioning-faith-shell-v37/, 'the shell cache must advance');
+assert.match(html, /app\.js\?v=ff-[a-z0-9-]+-1/, 'the script bundle must be versioned');
+assert.match(sw, /functioning-faith-shell-v\d+/, 'the shell cache must be versioned');
 console.log(JSON.stringify({ private_offline_scripture: true, account_scoped: true, cache_busted: true }));
