@@ -263,7 +263,9 @@
       }
       geo.setAttribute('position', new THREE.BufferAttribute(verts, 3));
       geo.setIndex(idx);
-      const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color, flatShading: true }));
+      // Smooth normals turn the terrain into gentle, storybook hills instead
+      // of a faceted game board. Geometry stays deliberately light for phones.
+      const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color }));
       mesh.frustumCulled = false;
       scene.add(mesh);
       return { mesh, verts, width, yLift, cols, isTerrain: !!isTerrain };
@@ -388,8 +390,8 @@
     ];
 
     // --- Clouds ---------------------------------------------------------------
-    // Puffed clusters rather than sprites, so they belong to the same low-poly
-    // world as everything else.
+    // Puffed clusters rather than sprites, with rounded silhouettes that make
+    // the sky feel illustrated rather than assembled from primitives.
     const cloudMat = new THREE.MeshBasicMaterial({
       color: 0xffffff, transparent: true, opacity: 0.5, fog: false, depthWrite: false,
     });
@@ -398,7 +400,7 @@
       const g = new THREE.Group();
       const puffs = 3 + Math.floor(rand() * 3);
       for (let k = 0; k < puffs; k++) {
-        const m = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), cloudMat);
+        const m = new THREE.Mesh(new THREE.SphereGeometry(1, 14, 10), cloudMat);
         const r = 26 + rand() * 30;
         m.scale.set(r, r * (0.5 + rand() * 0.2), r * 0.7);
         m.position.set((k - puffs / 2) * (r * 0.85), (rand() - 0.5) * r * 0.3, 0);
@@ -417,18 +419,18 @@
 
     // Roadside props, recycled as the camera passes them (infinite road).
     // --- Scenery -------------------------------------------------------------
-    // One flat-coloured cone per tree is what made these worlds look like
-    // placeholders. Props are built from a few parts, and every instance gets
-    // its own shade so a hillside reads as many trees rather than one repeated.
-    const TRUNK = new THREE.MeshLambertMaterial({ color: 0x4a3527, flatShading: true });
+    // Rounded, hand-crafted-looking props are more inviting than the old
+    // faceted placeholders. Each one still shares its base geometry so the
+    // animated look remains viable on a mid-range phone.
+    const TRUNK = new THREE.MeshLambertMaterial({ color: 0x4a3527 });
 
     // Geometry is shared across instances; only materials vary.
     const GEO = {
-      cone: new THREE.ConeGeometry(1, 1, 7),
-      sphere: new THREE.SphereGeometry(1, 7, 6),
-      trunk: new THREE.CylinderGeometry(0.1, 0.15, 1, 5),
-      rock: new THREE.DodecahedronGeometry(1, 0),
-      blade: new THREE.ConeGeometry(1, 1, 3),
+      cone: new THREE.ConeGeometry(1, 1, 12, 3),
+      sphere: new THREE.SphereGeometry(1, 12, 9),
+      trunk: new THREE.CylinderGeometry(0.1, 0.15, 1, 10),
+      rock: new THREE.SphereGeometry(1, 10, 7),
+      blade: new THREE.SphereGeometry(1, 9, 7),
     };
 
     // Jitter a theme colour so no two props are identical.
@@ -441,10 +443,11 @@
         Math.max(0, Math.min(1, hsl.s + (rand() - 0.5) * 0.22)),
         Math.max(0.04, Math.min(0.95, hsl.l + (rand() - 0.5) * (spread == null ? 0.20 : spread)))
       );
-      return new THREE.MeshLambertMaterial({ color: c, flatShading: true });
+      return new THREE.MeshLambertMaterial({ color: c });
     }
 
-    // A conifer: stacked skirts on a bare trunk, narrowing toward the top.
+    // A conifer built from soft, overlapping boughs. It keeps a pine profile
+    // but avoids the hard stacked-cone silhouette.
     function makeConifer() {
       const g = new THREE.Group();
       const mat = shade(theme.prop);
@@ -455,11 +458,12 @@
       g.add(trunk);
       for (let i = 0; i < tiers; i++) {
         const t = i / tiers;
-        const skirt = new THREE.Mesh(GEO.cone, mat);
-        skirt.scale.set(1 - t * 0.55, 1.25 - t * 0.35, 1 - t * 0.55);
-        skirt.position.y = 1.0 + i * 0.72;
-        skirt.rotation.y = rand() * Math.PI;
-        g.add(skirt);
+        const bough = new THREE.Mesh(GEO.sphere, mat);
+        const r = 1 - t * 0.54;
+        bough.scale.set(r, 0.72 - t * 0.18, r);
+        bough.position.y = 1.15 + i * 0.70;
+        bough.rotation.y = rand() * Math.PI;
+        g.add(bough);
       }
       return g;
     }
@@ -483,7 +487,7 @@
       return g;
     }
 
-    // A rock cluster: one mass with smaller ones tucked against it.
+    // A rock cluster: rounded, weathered forms rather than sharp dice.
     function makeRocks() {
       const g = new THREE.Group();
       const mat = shade(theme.prop, 0.26);
@@ -492,7 +496,7 @@
         const sc = i === 0 ? 1 : 0.35 + rand() * 0.4;
         r.scale.set(sc, sc * (0.6 + rand() * 0.4), sc);
         r.position.set((rand() - 0.5) * 1.6, sc * 0.35, (rand() - 0.5) * 1.6);
-        r.rotation.set(rand() * 3, rand() * 3, rand() * 3);
+        r.rotation.set((rand() - 0.5) * 0.35, rand() * 3, (rand() - 0.5) * 0.35);
         g.add(r);
       }
       return g;
@@ -513,14 +517,14 @@
       return g;
     }
 
-    // Low scrub that fills the middle distance cheaply.
+    // Low scrub, with soft asymmetry rather than triangular spikes.
     function makeScrub() {
       const g = new THREE.Group();
       const mat = shade(theme.prop, 0.24);
       for (let i = 0; i < 3 + Math.floor(rand() * 3); i++) {
         const b = new THREE.Mesh(GEO.blade, mat);
         const h = 0.5 + rand() * 0.8;
-        b.scale.set(0.28 + rand() * 0.2, h, 0.28 + rand() * 0.2);
+        b.scale.set(0.36 + rand() * 0.22, h * 0.48, 0.36 + rand() * 0.22);
         b.position.set((rand() - 0.5) * 1.5, h * 0.5, (rand() - 0.5) * 1.5);
         g.add(b);
       }
@@ -631,12 +635,12 @@
       return mesh;
     }
     const rider = new THREE.Group();
-    const bikeMat = new THREE.MeshLambertMaterial({ color: theme.accent, flatShading: true });
-    const darkMat = new THREE.MeshLambertMaterial({ color: 0x22201e, flatShading: true });
-    const jerseyMat = new THREE.MeshLambertMaterial({ color: theme.prop, flatShading: true });
-    const skinMat = new THREE.MeshLambertMaterial({ color: 0xc98f6b, flatShading: true });
+    const bikeMat = new THREE.MeshLambertMaterial({ color: theme.accent });
+    const darkMat = new THREE.MeshLambertMaterial({ color: 0x22201e });
+    const jerseyMat = new THREE.MeshLambertMaterial({ color: theme.prop });
+    const skinMat = new THREE.MeshLambertMaterial({ color: 0xc98f6b });
     const wheels = [0.0, -2.0].map((wheelZ) => {
-      const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.58, 0.075, 8, 18), darkMat);
+      const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.58, 0.075, 12, 24), darkMat);
       wheel.position.set(0, 0.68, wheelZ);
       rider.add(wheel);
       return wheel;
@@ -652,11 +656,13 @@
     rider.add(pedals);
     const body = new THREE.Group();
     body.position.set(0, 2.08, -0.72);
-    body.add(new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.9, 8), jerseyMat));
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 10, 8), skinMat);
+    const torso = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 10), jerseyMat);
+    torso.scale.set(0.34, 0.54, 0.29);
+    body.add(torso);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(0.27, 14, 10), skinMat);
     head.position.set(0, 0.7, 0.02);
     body.add(head);
-    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.3, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.55), bikeMat);
+    const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.3, 14, 9, 0, Math.PI * 2, 0, Math.PI * 0.55), bikeMat);
     helmet.position.set(0, 0.82, 0.02);
     body.add(helmet);
     rider.add(body);
@@ -666,7 +672,7 @@
     const legL = cylinderBetween([-0.16, 1.78, -0.58], [-0.22, 1.05, -0.86], 0.09, darkMat);
     const legR = cylinderBetween([0.16, 1.78, -0.58], [0.22, 1.05, -0.86], 0.09, darkMat);
     rider.add(legL); rider.add(legR);
-    rider.userData = { wheels, pedals, legL, legR };
+    rider.userData = { wheels, pedals, legL, legR, body, armL, armR };
     addShadow(rider, 1.15);
     scene.add(rider);
 
@@ -835,6 +841,13 @@
       rider.userData.pedals.rotation.x += pedalSpin * 1.2;
       rider.userData.legL.rotation.z = Math.sin(bob * 2.2) * Math.min(0.22, speedKmh * 0.008);
       rider.userData.legR.rotation.z = -rider.userData.legL.rotation.z;
+      // A gentle whole-body sway and responsive arms keep the rider from
+      // reading like a fixed mannequin when the road is moving beneath them.
+      const effort = Math.min(1, speedKmh / 28);
+      rider.userData.body.rotation.z = Math.sin(bob * 1.15) * 0.035 * effort;
+      rider.userData.body.rotation.x = 0.13 + Math.sin(bob * 2.2) * 0.025 * effort;
+      rider.userData.armL.rotation.z = -0.08 + Math.sin(bob * 2.2) * 0.045 * effort;
+      rider.userData.armR.rotation.z = 0.08 - Math.sin(bob * 2.2) * 0.045 * effort;
 
       // A restrained camera response makes an overtake or sprint feel earned:
       // it never changes physics or credits distance, it simply communicates
