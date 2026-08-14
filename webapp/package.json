@@ -17,7 +17,8 @@
     "verify:admin-hq": "node scripts/verify-admin-hq.js",
     "verify:workout-kudos": "node scripts/verify-workout-kudos.js",
     "verify:scripture-practice": "node scripts/verify-scripture-practice.js",
-    "verify:reel-experience": "node scripts/verify-reel-experience.js"
+    "verify:reel-experience": "node scripts/verify-reel-experience.js",
+    "verify:group-location": "node scripts/verify-group-location.js"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.1",

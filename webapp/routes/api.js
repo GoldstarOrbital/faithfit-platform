@@ -2245,16 +2245,23 @@ router.post('/groups', requireAuth, requireCommunityAccess, (req, res) => {
   const cleanName = String(name || '').trim().slice(0, 80);
   const handle = groupUsername(username || name);
   const vis = visibility === 'private' ? 'private' : 'public';
+  const hasLat = lat !== undefined && lat !== null && String(lat).trim() !== '';
+  const hasLng = lng !== undefined && lng !== null && String(lng).trim() !== '';
+  const groupLat = hasLat ? Number(lat) : null;
+  const groupLng = hasLng ? Number(lng) : null;
   if (!cleanName) return res.status(400).json({ error: 'name_required' });
   if (!/^[a-z0-9][a-z0-9_-]{2,29}$/.test(handle)) return res.status(400).json({ error: 'invalid_username', hint: 'Use 3–30 lowercase letters, numbers, hyphens, or underscores.' });
+  if (hasLat !== hasLng || (hasLat && (!Number.isFinite(groupLat) || !Number.isFinite(groupLng) || groupLat < -90 || groupLat > 90 || groupLng < -180 || groupLng > 180))) {
+    return res.status(400).json({ error: 'invalid_group_location', hint: 'Use a valid approximate latitude and longitude, or leave both blank.' });
+  }
   if (db.prepare('SELECT 1 FROM groups WHERE username = ?').get(handle)) return res.status(409).json({ error: 'username_taken' });
   const id = randomUUID();
   db.prepare(`INSERT INTO groups (id, name, description, username, creator_id, church_osm_id, church_name,
     location_name, lat, lng, sport, visibility, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
     .run(id, cleanName, String(description || '').trim().slice(0, 500) || null, handle, req.session.userId,
       church_osm_id ? String(church_osm_id).slice(0, 80) : null, church_name ? String(church_name).trim().slice(0, 120) : null,
-      location_name ? String(location_name).trim().slice(0, 120) : null, Number.isFinite(Number(lat)) ? Number(lat) : null,
-      Number.isFinite(Number(lng)) ? Number(lng) : null, sport ? String(sport).trim().slice(0, 50) : null, vis);
+      location_name ? String(location_name).trim().slice(0, 120) : null, groupLat,
+      groupLng, sport ? String(sport).trim().slice(0, 50) : null, vis);
   db.prepare("INSERT INTO group_members (group_id, user_id, role) VALUES (?, ?, 'admin')").run(id, req.session.userId);
   res.status(201).json({ group: db.prepare('SELECT * FROM groups WHERE id = ?').get(id), is_admin: true });
 });

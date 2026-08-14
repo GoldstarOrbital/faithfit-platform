@@ -1587,6 +1587,7 @@ async function renderExplore(main) {
         <input class="input" id="ng-sport" maxlength="50" placeholder="Sport or activity (run, cycling, yoga…)" />
         <input class="input" id="ng-church" maxlength="120" placeholder="Church or ministry (optional)" />
         <input class="input" id="ng-location" maxlength="120" placeholder="Location (city, park, gym…)" />
+        <div class="group-location-optin"><button type="button" class="ghost" id="ng-location-pin">Use approximate location</button><span id="ng-location-status" class="muted">Optional: helps nearby members discover a public group.</span></div>
         <textarea class="input" id="ng-description" maxlength="500" rows="3" placeholder="What is this group about?"></textarea>
         <div class="toggle-row">
           <span>Private — only people with an invite link can join</span>
@@ -1609,10 +1610,23 @@ async function renderExplore(main) {
       <h2>Quests</h2>
       ${quests.map(q => `<div class="card glass"><strong>${q.name}</strong><div class="muted">${q.description} · theme: ${q.theme}</div></div>`).join('')}
     `;
+    let groupPoint = null;
     document.getElementById('new-group-btn').onclick = () => { const f = document.getElementById('new-group-form'); f.style.display = f.style.display === 'none' ? 'block' : 'none'; };
+    document.getElementById('ng-location-pin').onclick = () => {
+      const status = document.getElementById('ng-location-status');
+      if (!navigator.geolocation) { status.textContent = "Location isn't supported in this browser."; return; }
+      status.textContent = 'Getting an approximate location…';
+      navigator.geolocation.getCurrentPosition(pos => {
+        // Two decimal places is roughly neighbourhood-level. It is enough for
+        // nearby discovery without publishing a creator's precise address.
+        groupPoint = { lat: Math.round(pos.coords.latitude * 100) / 100, lng: Math.round(pos.coords.longitude * 100) / 100 };
+        status.textContent = 'Approximate location set. Exact coordinates are not shown to members.';
+        document.getElementById('ng-location-pin').textContent = 'Update approximate location';
+      }, () => { status.textContent = 'Location permission was not granted. You can still create the group.'; }, { enableHighAccuracy: false, maximumAge: 300000, timeout: 10000 });
+    };
     document.getElementById('ng-submit').onclick = async () => {
       const status = document.getElementById('ng-status'); status.textContent = 'Creating…';
-      const r = await api('/groups', { method: 'POST', body: { name: document.getElementById('ng-name').value, username: document.getElementById('ng-username').value, sport: document.getElementById('ng-sport').value, church_name: document.getElementById('ng-church').value, location_name: document.getElementById('ng-location').value, description: document.getElementById('ng-description').value, visibility: document.getElementById('ng-private').checked ? 'private' : 'public' } });
+      const r = await api('/groups', { method: 'POST', body: { name: document.getElementById('ng-name').value, username: document.getElementById('ng-username').value, sport: document.getElementById('ng-sport').value, church_name: document.getElementById('ng-church').value, location_name: document.getElementById('ng-location').value, description: document.getElementById('ng-description').value, visibility: document.getElementById('ng-private').checked ? 'private' : 'public', lat: groupPoint?.lat, lng: groupPoint?.lng } });
       if (r.error) { status.textContent = r.hint || r.error; return; }
       renderGroupDetail(r.group.id);
     };
