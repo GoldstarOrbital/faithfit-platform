@@ -46,6 +46,7 @@ jobs:
           node --check scripts/verify-journey-world.js
           node --check scripts/verify-reel-studio.js
           node --check scripts/verify-athletic-signal.js
+          node --check scripts/verify-admin-hq.js
       - name: Verify native authentication contract
         run: npm run verify:native-auth
       - name: Verify private group pulse contract
@@ -58,5 +59,7 @@ jobs:
         run: npm run verify:reel-studio
       - name: Verify athletic signal contract
         run: npm run verify:athletic-signal
+      - name: Verify admin headquarters contract
+        run: npm run verify:admin-hq
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high

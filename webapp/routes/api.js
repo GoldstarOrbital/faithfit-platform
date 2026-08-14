@@ -1810,6 +1810,9 @@ router.post('/posts', requireAuth, requireCommunityAccess, async (req, res) => {
   const { content, workout_id, verse_id, visibility, photo_data, photo_category,
           video_data, video_category, show_route, route_privacy_m } = req.body || {};
   const uid = req.session.userId;
+  if (video_data && !admin.featureEnabled('member_reels')) {
+    return res.status(503).json({ error: 'member_reels_paused', hint: 'Member Reel publishing is temporarily paused.' });
+  }
   if(!allowWindow(postRateWindow,uid,6,60_000)) return res.status(429).json({error:'posting_too_fast'});
 
   // A workout can only be posted by its owner.
@@ -3137,7 +3140,17 @@ router.get('/podcasts', (req, res) => {
 });
 
 router.get('/news', (req, res) => {
+  if (!admin.featureEnabled('news')) return res.json({ items: [], sources: [], disabled: true });
   res.json({ items: news.list({ limit: req.query.limit }), sources: news.FEEDS.map(f => f.source) });
+});
+
+// Feature availability is intentionally public: clients need a truthful way
+// to hide an unavailable surface instead of presenting a dead-end screen.
+router.get('/features', (req, res) => res.json(admin.features()));
+
+router.post('/support/tickets', requireAuth, (req, res) => {
+  try { res.status(201).json({ ticket: admin.createTicket(req.session.userId, req.body || {}) }); }
+  catch (err) { res.status(err.code === 'ticket_rate_limited' ? 429 : 400).json({ error: err.code || 'ticket_failed', hint: err.message }); }
 });
 
 // Public -- no account needed. Someone deciding whether this is worth an
@@ -3162,6 +3175,30 @@ router.get('/admin/trend', requireAdmin, (req, res) => {
 
 router.get('/admin/users', requireAdmin, (req, res) => {
   res.json(admin.listUsers({ q: req.query.q, limit: req.query.limit, offset: req.query.offset }));
+});
+
+router.get('/admin/features', requireAdmin, (req, res) => res.json(admin.features()));
+router.put('/admin/features/:key', requireAdmin, (req, res) => {
+  try { res.json(admin.setFeature(req.session.userId, req.params.key, req.body?.enabled === true)); }
+  catch (err) { res.status(400).json({ error: err.code || 'feature_update_failed', hint: err.message }); }
+});
+
+router.get('/admin/issues', requireAdmin, (req, res) => {
+  res.json({ summary: admin.issueSummary(), tickets: admin.listTickets(req.query.status) });
+});
+router.post('/admin/issues/:id/resolve', requireAdmin, (req, res) => {
+  try { res.json({ ticket: admin.resolveTicket(req.session.userId, req.params.id, req.body?.note) }); }
+  catch (err) { res.status(err.code === 'not_found' ? 404 : 400).json({ error: err.code || 'ticket_resolve_failed', hint: err.message }); }
+});
+
+router.post('/admin/users/:id/support-note', requireAdmin, (req, res) => {
+  try { res.json(admin.sendSupportNote(req.session.userId, req.params.id, req.body?.message)); }
+  catch (err) { res.status(err.code === 'not_found' ? 404 : 400).json({ error: err.code || 'support_note_failed', hint: err.message }); }
+});
+
+router.post('/admin/content/publish', requireAdmin, (req, res) => {
+  try { res.status(201).json({ video: admin.publishVideo(req.session.userId, req.body || {}) }); }
+  catch (err) { res.status(400).json({ error: err.code || 'content_publish_failed', hint: err.message }); }
 });
 
 router.get('/admin/launch-notify/stats', requireAdmin, (req, res) => {
@@ -3560,6 +3597,7 @@ router.get('/reels/saved', requireAuth, (req, res) => {
 // church videos, and Gloo's grounded curation of those church candidates. Gloo
 // never invents a video ID here: it may only rank IDs we supplied.
 router.get('/reels', requireAuth, async (req, res) => {
+  if (!admin.featureEnabled('reels')) return res.status(503).json({ error: 'reels_paused', hint: 'Reels are temporarily paused.' });
   const blocked = /\b(porn|sex|onlyfans|cannabis|marijuana|weed|alcohol|beer|wine|vodka|drug|steroid|anorexia|bulimia|purge|starvation|pro[- ]ana|laxative)\b/i;
   const library = db.prepare(`SELECT video_id, title, description, thumbnail_url, channel_title, published_at, category, provider, source_url, source_kind
     FROM (SELECT video_id,title,description,thumbnail_url,channel_title,published_at,category,
@@ -3823,6 +3861,7 @@ function journeyProgressRow(journeyId, userId) {
 
 // Browsable without auth; per-user fields only appear when signed in.
 router.get('/journeys', (req, res) => {
+  if (!admin.featureEnabled('journeys')) return res.json([]);
   const me = req.session.userId || null;
   const rows = db.prepare(`
     SELECT j.*, uj.progress_km, uj.started_at, uj.completed_at,

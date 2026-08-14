@@ -2759,9 +2759,18 @@ async function renderProfile(main) {
         <a class="ghost" href="https://gofund.me/d6fe1b099" target="_blank" rel="noopener" style="display:block;text-decoration:none">🌻 Support development</a>
       </div>
     </div>
+    <div class="card glass profile-panel" data-profile-group="settings" id="support-card">
+      <h2>Need help?</h2><p class="muted">Send a private account, safety, or technical issue to the Functioning Faith team.</p>
+      <select id="support-category"><option value="bug">Something is not working</option><option value="account">Account help</option><option value="safety">Safety concern</option><option value="other">Other</option></select>
+      <input id="support-subject" maxlength="140" placeholder="Short summary" style="margin-top:8px"><textarea id="support-detail" maxlength="1800" rows="4" placeholder="What happened, and what were you trying to do?" style="margin-top:8px"></textarea>
+      <button class="ghost" id="support-send" style="width:100%;margin-top:8px">Send to support</button><div id="support-status" class="muted" style="margin-top:6px"></div>
+    </div>
     ${me.user.is_admin ? `<div class="card glass profile-panel" data-profile-group="settings" id="admin-card">
-      <h2>Admin</h2>
+      <h2>Admin headquarters</h2><p class="muted">Private controls for the platform owner. Every action is logged.</p>
       <div id="admin-metrics" class="muted">Loading…</div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)"><h3 style="margin:0 0 6px">Feature controls</h3><div id="admin-features" class="muted">Loading…</div></div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)"><h3 style="margin:0 0 6px">Issue inbox</h3><div id="admin-issues" class="muted">Loading…</div></div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)"><h3 style="margin:0 0 6px">Publish official Reel</h3><input id="admin-video-url" type="url" placeholder="YouTube or Vimeo URL"><input id="admin-video-title" maxlength="160" placeholder="Title" style="margin-top:6px"><select id="admin-video-category" style="margin-top:6px"><option value="christian">Scripture + formation</option><option value="fitness">Faith + movement</option><option value="motivation">Motivation</option><option value="food">Food + fitness</option><option value="kids">Kids + family</option></select><textarea id="admin-video-purpose" maxlength="1000" rows="3" placeholder="How does this serve the community?" style="margin-top:6px"></textarea><label class="terms-check"><input id="admin-video-rights" type="checkbox"><span>I have authority to publish or embed this source.</span></label><button class="primary" id="admin-video-publish" style="width:100%;margin-top:8px">Publish to Reels</button><div id="admin-video-status" class="muted" style="margin-top:6px"></div></div>
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
         <h3 style="margin:0 0 6px">Growth, 30 days</h3>
         <div id="admin-trend" class="muted">Loading…</div>
@@ -2942,8 +2951,29 @@ async function renderProfile(main) {
     }).catch(() => { nudgesBody.textContent = 'Could not load your nudge settings.'; });
     paintNudges();
   }
+  const supportSend=document.getElementById('support-send');
+  if(supportSend) supportSend.onclick=async()=>{const status=document.getElementById('support-status');supportSend.disabled=true;status.textContent='Sending…';const r=await api('/support/tickets',{method:'POST',body:{category:document.getElementById('support-category').value,subject:document.getElementById('support-subject').value,detail:document.getElementById('support-detail').value}}).catch(()=>({error:'network'}));supportSend.disabled=false;status.textContent=r.error?(r.hint||'Could not send the request.'):'Sent. The team will see it in the support inbox.';if(!r.error){document.getElementById('support-subject').value='';document.getElementById('support-detail').value='';}};
   const adminMetricsEl=document.getElementById('admin-metrics');
   if(adminMetricsEl){
+    const adminFeaturesEl=document.getElementById('admin-features');
+    const paintAdminFeatures=()=>api('/admin/features').then(({features})=>{
+      adminFeaturesEl.innerHTML=Object.entries(features).map(([key,enabled])=>`<label class="toggle-row"><span>${escapeHtml(key.replace(/_/g,' '))}</span><input type="checkbox" data-admin-feature="${escapeHtml(key)}" ${enabled?'checked':''}></label>`).join('');
+      adminFeaturesEl.querySelectorAll('[data-admin-feature]').forEach(input=>input.onchange=async()=>{
+        input.disabled=true;
+        const r=await api('/admin/features/'+encodeURIComponent(input.dataset.adminFeature),{method:'PUT',body:{enabled:input.checked}}).catch(()=>({error:'network'}));
+        if(r.error){input.checked=!input.checked;alert('Could not update that feature.');}
+        input.disabled=false;
+      });
+    }).catch(()=>{adminFeaturesEl.textContent='Could not load feature controls.';});
+    paintAdminFeatures();
+    const adminIssuesEl=document.getElementById('admin-issues');
+    const paintAdminIssues=()=>api('/admin/issues').then(({summary,tickets})=>{
+      adminIssuesEl.innerHTML=`<div class="stat-tiles">${[['support',summary.support_open],['reports',summary.moderation_open],['content review',summary.developer_content_pending]].map(([l,v])=>`<div class="stat-tile"><div class="stat-tile-v">${v}</div><div class="stat-tile-l">${l}</div></div>`).join('')}</div>`+(tickets.length?`<div style="margin-top:8px;max-height:220px;overflow:auto">${tickets.map(t=>`<div class="integration-row"><div><strong>${escapeHtml(t.subject)}</strong><div class="muted">${escapeHtml(t.category)} · ${escapeHtml(t.display_name||t.email)} · ${new Date(t.created_at).toLocaleDateString()}</div><div class="muted">${escapeHtml(t.detail)}</div></div><button class="ghost" data-admin-resolve="${escapeHtml(t.id)}">Resolve</button></div>`).join('')}</div>`:'<div class="muted" style="margin-top:8px">No open member support tickets.</div>');
+      adminIssuesEl.querySelectorAll('[data-admin-resolve]').forEach(btn=>btn.onclick=async()=>{const note=prompt('Optional resolution note for the audit trail:')||'';btn.disabled=true;const r=await api('/admin/issues/'+encodeURIComponent(btn.dataset.adminResolve)+'/resolve',{method:'POST',body:{note}}).catch(()=>({error:'network'}));if(r.error){btn.disabled=false;return;}paintAdminIssues();});
+    }).catch(()=>{adminIssuesEl.textContent='Could not load the issue inbox.';});
+    paintAdminIssues();
+    const publishBtn=document.getElementById('admin-video-publish');
+    if(publishBtn) publishBtn.onclick=async()=>{const status=document.getElementById('admin-video-status');publishBtn.disabled=true;status.textContent='Publishing…';const r=await api('/admin/content/publish',{method:'POST',body:{source_url:document.getElementById('admin-video-url').value,title:document.getElementById('admin-video-title').value,category:document.getElementById('admin-video-category').value,community_purpose:document.getElementById('admin-video-purpose').value,rights_confirmed:document.getElementById('admin-video-rights').checked}}).catch(()=>({error:'network'}));publishBtn.disabled=false;status.textContent=r.error?(r.hint||'Could not publish.'):'Published to the Reel library.';if(!r.error){document.getElementById('admin-video-url').value='';document.getElementById('admin-video-title').value='';document.getElementById('admin-video-purpose').value='';document.getElementById('admin-video-rights').checked=false;}};
     const paintAdminMetrics=()=>api('/admin/metrics').then(m=>{
       adminMetricsEl.innerHTML=`
         <div class="stat-tiles">
@@ -3012,11 +3042,12 @@ async function renderProfile(main) {
         userListEl.innerHTML=users.length?`<div style="max-height:280px;overflow-y:auto">${users.map(u=>`
           <div style="padding:6px 0;border-bottom:1px solid rgba(0,0,0,0.06);font-size:0.8rem">
             <strong>${escapeHtml(u.display_name||'(no name)')}</strong>${u.is_admin?' <span title="Admin">&#9733;</span>':''}${u.recruiting_role?` &middot; ${escapeHtml(u.recruiting_role)}`:''}<br>
-            <span class="muted">${escapeHtml(u.email)} &middot; joined ${new Date(u.created_at).toLocaleDateString()}${u.last_seen_at?` &middot; last seen ${new Date(u.last_seen_at).toLocaleDateString()}`:''}</span>
+            <span class="muted">${escapeHtml(u.email)} &middot; joined ${new Date(u.created_at).toLocaleDateString()}${u.last_seen_at?` &middot; last seen ${new Date(u.last_seen_at).toLocaleDateString()}`:''}</span>${u.is_admin?'':`<button class="ghost" data-admin-help="${escapeHtml(u.id)}" style="float:right;padding:4px 7px">Help</button>`}
           </div>`).join('')}</div>`:'No users found.';
         userPageEl.innerHTML=`<span>${total} total</span><button class="ghost" id="admin-user-prev" ${offset===0?'disabled':''}>&larr; Prev</button><button class="ghost" id="admin-user-next" ${offset+limit>=total?'disabled':''}>Next &rarr;</button>`;
         const prev=document.getElementById('admin-user-prev'); if(prev) prev.onclick=()=>{offset=Math.max(0,offset-limit);paintUsers();};
         const next=document.getElementById('admin-user-next'); if(next) next.onclick=()=>{offset+=limit;paintUsers();};
+        userListEl.querySelectorAll('[data-admin-help]').forEach(btn=>btn.onclick=async()=>{const message=prompt('Send this private support notification:');if(!message)return;btn.disabled=true;const r=await api('/admin/users/'+encodeURIComponent(btn.dataset.adminHelp)+'/support-note',{method:'POST',body:{message}}).catch(()=>({error:'network'}));btn.disabled=false;if(r.error)alert('Could not send the support note.');else btn.textContent='Sent';});
       }).catch(()=>{userListEl.textContent='Could not load users.';});
       paintUsers();
       let searchTimer=null;

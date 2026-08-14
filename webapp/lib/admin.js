@@ -13,10 +13,49 @@ const db = require('./db');
 const visits = require('./visits');
 
 const OWNER_EMAIL = 'alexmarcusgoldsmith@gmail.com';
+const FEATURE_DEFAULTS = Object.freeze({
+  reels: true,
+  journeys: true,
+  news: true,
+  member_reels: true,
+});
 
 function init() {
   const cols = db.prepare('PRAGMA table_info(users)').all().map(c => c.name);
   if (!cols.includes('is_admin')) db.exec('ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS platform_features (
+      key TEXT PRIMARY KEY,
+      enabled INTEGER NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_by TEXT
+    );
+    CREATE TABLE IF NOT EXISTS support_tickets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      detail TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      admin_note TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      resolved_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status, created_at);
+    CREATE TABLE IF NOT EXISTS admin_audit_log (
+      id TEXT PRIMARY KEY,
+      admin_user_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      target_type TEXT,
+      target_id TEXT,
+      detail TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_log(created_at);
+  `);
+  const insert = db.prepare('INSERT OR IGNORE INTO platform_features(key,enabled) VALUES(?,?)');
+  Object.entries(FEATURE_DEFAULTS).forEach(([key, enabled]) => insert.run(key, enabled ? 1 : 0));
 }
 
 /**
@@ -165,4 +204,106 @@ function listUsers({ q, limit = 50, offset = 0 } = {}) {
   return { users: rows, total, limit: lim, offset: off };
 }
 
-module.exports = { init, ensureAdmin, isAdmin, metrics, contentCounts, dailyTrend, listUsers, OWNER_EMAIL };
+function features() {
+  const rows = all('SELECT key, enabled, updated_at, updated_by FROM platform_features');
+  const values = { ...FEATURE_DEFAULTS };
+  const meta = {};
+  rows.forEach(row => { if (Object.hasOwn(FEATURE_DEFAULTS, row.key)) { values[row.key] = !!row.enabled; meta[row.key] = row; } });
+  return { features: values, meta };
+}
+
+function featureEnabled(key) { return features().features[key] !== false; }
+
+function audit(adminUserId, action, targetType, targetId, detail = null) {
+  const { randomUUID } = require('crypto');
+  db.prepare('INSERT INTO admin_audit_log(id,admin_user_id,action,target_type,target_id,detail) VALUES(?,?,?,?,?,?)')
+    .run(randomUUID(), adminUserId, String(action).slice(0,80), targetType && String(targetType).slice(0,80), targetId && String(targetId).slice(0,120), detail && String(detail).slice(0,1200));
+}
+
+function setFeature(adminUserId, key, enabled) {
+  if (!Object.hasOwn(FEATURE_DEFAULTS, key)) throw Object.assign(new Error('Unknown feature.'), { code: 'unknown_feature' });
+  const now = new Date().toISOString();
+  db.prepare(`INSERT INTO platform_features(key,enabled,updated_at,updated_by) VALUES(?,?,?,?)
+    ON CONFLICT(key) DO UPDATE SET enabled=excluded.enabled,updated_at=excluded.updated_at,updated_by=excluded.updated_by`)
+    .run(key, enabled ? 1 : 0, now, adminUserId);
+  audit(adminUserId, enabled ? 'feature_enabled' : 'feature_disabled', 'feature', key);
+  return features();
+}
+
+function createTicket(userId, input) {
+  const { randomUUID } = require('crypto');
+  const category = ['bug', 'account', 'safety', 'other'].includes(input.category) ? input.category : 'other';
+  const subject = String(input.subject || '').trim().slice(0, 140);
+  const detail = String(input.detail || '').trim().slice(0, 1800);
+  if (subject.length < 3 || detail.length < 10) throw Object.assign(new Error('Add a subject and enough detail for the team to help.'), { code: 'ticket_details_required' });
+  const recent = one("SELECT COUNT(*) c FROM support_tickets WHERE user_id=? AND created_at>=datetime('now','-1 day')", userId)?.c || 0;
+  if (recent >= 5) throw Object.assign(new Error('Please wait before opening another support request.'), { code: 'ticket_rate_limited' });
+  const id = randomUUID();
+  db.prepare('INSERT INTO support_tickets(id,user_id,category,subject,detail) VALUES(?,?,?,?,?)').run(id, userId, category, subject, detail);
+  return db.prepare('SELECT id,category,subject,status,created_at FROM support_tickets WHERE id=?').get(id);
+}
+
+function listTickets(status = 'open') {
+  const allowed = ['open', 'resolved', 'all'];
+  const state = allowed.includes(status) ? status : 'open';
+  const where = state === 'all' ? '' : 'WHERE t.status = ?';
+  return all(`SELECT t.*,u.display_name,u.email FROM support_tickets t JOIN users u ON u.id=t.user_id ${where} ORDER BY t.created_at DESC LIMIT 100`, ...(state === 'all' ? [] : [state]));
+}
+
+function resolveTicket(adminUserId, id, note) {
+  const cleaned = String(note || '').trim().slice(0, 1000);
+  const ticket = one('SELECT * FROM support_tickets WHERE id=?', id);
+  if (!ticket) throw Object.assign(new Error('Ticket not found.'), { code: 'not_found' });
+  const now = new Date().toISOString();
+  db.prepare("UPDATE support_tickets SET status='resolved',admin_note=?,updated_at=?,resolved_at=? WHERE id=?").run(cleaned || null, now, now, id);
+  audit(adminUserId, 'support_ticket_resolved', 'support_ticket', id, cleaned || null);
+  return one('SELECT * FROM support_tickets WHERE id=?', id);
+}
+
+function sendSupportNote(adminUserId, userId, message) {
+  const { randomUUID } = require('crypto');
+  const note = String(message || '').trim().slice(0, 500);
+  if (note.length < 3) throw Object.assign(new Error('Write a helpful note first.'), { code: 'support_note_required' });
+  if (!one('SELECT id FROM users WHERE id=?', userId)) throw Object.assign(new Error('Member not found.'), { code: 'not_found' });
+  db.prepare('INSERT INTO notifications(id,user_id,type,payload) VALUES(?,?,?,?)').run(randomUUID(), userId, 'admin_support', JSON.stringify({ message: note, url: '/?open=profile' }));
+  audit(adminUserId, 'support_note_sent', 'user', userId, note);
+  return { ok: true };
+}
+
+function publishVideo(adminUserId, input) {
+  let url;
+  try { url = new URL(String(input.source_url || '')); } catch { throw Object.assign(new Error('Use a valid YouTube or Vimeo URL.'), { code: 'invalid_video_url' }); }
+  let provider = null, videoId = null;
+  if (url.hostname === 'youtu.be') { provider = 'youtube'; videoId = url.pathname.slice(1); }
+  else if (/(^|\.)youtube\.com$/i.test(url.hostname)) { provider = 'youtube'; videoId = url.searchParams.get('v') || (/^\/shorts\/([^/]+)/.exec(url.pathname) || [])[1]; }
+  else if (/(^|\.)vimeo\.com$/i.test(url.hostname)) { provider = 'vimeo'; videoId = (/^\/(\d+)/.exec(url.pathname) || [])[1]; }
+  if ((provider === 'youtube' && !/^[A-Za-z0-9_-]{11}$/.test(videoId || '')) || (provider === 'vimeo' && !/^\d{6,12}$/.test(videoId || ''))) {
+    throw Object.assign(new Error('Use a valid YouTube or Vimeo video URL.'), { code: 'invalid_video_url' });
+  }
+  const title = String(input.title || '').trim().slice(0, 160);
+  const category = String(input.category || '').trim();
+  const purpose = String(input.community_purpose || '').trim().slice(0, 1000);
+  const categories = new Set(['motivation', 'fitness', 'food', 'kids', 'christian']);
+  if (!title || !categories.has(category) || purpose.length < 10 || !input.rights_confirmed) {
+    throw Object.assign(new Error('Title, approved category, community purpose, and rights confirmation are required.'), { code: 'content_details_required' });
+  }
+  const { randomUUID } = require('crypto');
+  const now = new Date().toISOString();
+  const thumbnail = provider === 'youtube' ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg` : null;
+  db.prepare(`INSERT INTO videos(id,category,video_id,title,description,thumbnail_url,channel_title,published_at,is_short,language_flag,source_kind,source_note,provider,source_url,last_checked_at)
+    VALUES(?,?,?,?,?,?,?,?,1,0,'functioning_faith',?,?,?,?)
+    ON CONFLICT(category,video_id) DO UPDATE SET title=excluded.title,description=excluded.description,thumbnail_url=excluded.thumbnail_url,channel_title=excluded.channel_title,source_kind='functioning_faith',source_note=excluded.source_note,provider=excluded.provider,source_url=excluded.source_url,dead_at=NULL,last_checked_at=excluded.last_checked_at`)
+    .run(randomUUID(), category, videoId, title, purpose, thumbnail, 'Functioning Faith', now, 'admin:direct', provider, url.toString(), now);
+  audit(adminUserId, 'video_published', 'video', `${provider}:${videoId}`, title);
+  return { provider, video_id: videoId, title, category };
+}
+
+function issueSummary() {
+  return {
+    support_open: count('support_tickets', "WHERE status='open'"),
+    moderation_open: count('moderation_queue', "WHERE status='pending'"),
+    developer_content_pending: count('developer_content_submissions', "WHERE moderation_status='pending'"),
+  };
+}
+
+module.exports = { init, ensureAdmin, isAdmin, metrics, contentCounts, dailyTrend, listUsers, features, featureEnabled, setFeature, createTicket, listTickets, resolveTicket, sendSupportNote, publishVideo, issueSummary, audit, OWNER_EMAIL };
