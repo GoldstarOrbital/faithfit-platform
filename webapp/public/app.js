@@ -2784,6 +2784,7 @@ async function renderProfile(main) {
       <div id="admin-metrics" class="muted">Loading…</div>
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)"><h3 style="margin:0 0 6px">Feature controls</h3><div id="admin-features" class="muted">Loading…</div></div>
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)"><h3 style="margin:0 0 6px">Issue inbox</h3><div id="admin-issues" class="muted">Loading…</div></div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)"><h3 style="margin:0 0 6px">Community reports</h3><p class="muted" style="margin:0 0 8px">Human review only. Removing content or suspending an account always asks for confirmation and is logged.</p><div id="admin-moderation" class="muted">Loading…</div></div>
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)"><h3 style="margin:0 0 6px">Publish official Reel</h3><input id="admin-video-url" type="url" placeholder="YouTube or Vimeo URL"><input id="admin-video-title" maxlength="160" placeholder="Title" style="margin-top:6px"><select id="admin-video-category" style="margin-top:6px"><option value="christian">Scripture + formation</option><option value="fitness">Faith + movement</option><option value="motivation">Motivation</option><option value="food">Food + fitness</option><option value="kids">Kids + family</option></select><textarea id="admin-video-purpose" maxlength="1000" rows="3" placeholder="How does this serve the community?" style="margin-top:6px"></textarea><label class="terms-check"><input id="admin-video-rights" type="checkbox"><span>I have authority to publish or embed this source.</span></label><button class="primary" id="admin-video-publish" style="width:100%;margin-top:8px">Publish to Reels</button><div id="admin-video-status" class="muted" style="margin-top:6px"></div></div>
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
         <h3 style="margin:0 0 6px">Growth, 30 days</h3>
@@ -2986,6 +2987,23 @@ async function renderProfile(main) {
       adminIssuesEl.querySelectorAll('[data-admin-resolve]').forEach(btn=>btn.onclick=async()=>{const note=prompt('Optional resolution note for the audit trail:')||'';btn.disabled=true;const r=await api('/admin/issues/'+encodeURIComponent(btn.dataset.adminResolve)+'/resolve',{method:'POST',body:{note}}).catch(()=>({error:'network'}));if(r.error){btn.disabled=false;return;}paintAdminIssues();});
     }).catch(()=>{adminIssuesEl.textContent='Could not load the issue inbox.';});
     paintAdminIssues();
+    const adminModerationEl=document.getElementById('admin-moderation');
+    if(adminModerationEl){
+      const paintAdminModeration=()=>api('/admin/moderation?status=pending').then(({reports})=>{
+        adminModerationEl.innerHTML=reports.length?`<div style="max-height:360px;overflow:auto">${reports.map(r=>`<div class="integration-row" data-admin-report="${escapeHtml(r.id)}"><div style="min-width:0"><strong>${escapeHtml(r.report_type==='post'?'Post report':'Member report')}</strong><div class="muted">from ${escapeHtml(r.reporter_name||'Member')} · about ${escapeHtml(r.subject_name||'Unavailable')} · ${timeAgo(r.created_at)} ago</div><div style="margin-top:4px">${escapeHtml(r.reason||'No reason supplied')}</div>${r.content_excerpt?`<div class="muted" style="margin-top:4px">${escapeHtml(r.content_excerpt)}</div>`:''}</div><div class="admin-moderation-actions"><button class="ghost" data-moderation-review="no_violation" data-report-id="${escapeHtml(r.id)}">Keep</button>${r.report_type==='post'?`<button class="ghost" data-moderation-review="content_removed" data-report-id="${escapeHtml(r.id)}">Remove</button>`:''}<button class="ghost danger" data-moderation-review="account_suspended" data-report-id="${escapeHtml(r.id)}">Suspend</button></div></div>`).join('')}</div>`:'<div class="muted">No pending community reports.</div>';
+        adminModerationEl.querySelectorAll('[data-moderation-review]').forEach(btn=>btn.onclick=async()=>{
+          const decision=btn.dataset.moderationReview;
+          const labels={no_violation:'mark this report as no violation',content_removed:'remove the reported post',account_suspended:'suspend the reported member and revoke their sessions'};
+          if(!confirm(`Are you sure you want to ${labels[decision]}? This action is recorded.`))return;
+          const note=prompt('Optional private review note:')||'';
+          btn.disabled=true;
+          const r=await api('/admin/moderation/'+encodeURIComponent(btn.dataset.reportId)+'/review',{method:'POST',body:{decision,note}}).catch(()=>({error:'network'}));
+          if(r.error){btn.disabled=false;alert(r.hint||'Could not complete the review.');return;}
+          paintAdminModeration();paintAdminIssues();
+        });
+      }).catch(()=>{adminModerationEl.textContent='Could not load community reports.';});
+      paintAdminModeration();
+    }
     const publishBtn=document.getElementById('admin-video-publish');
     if(publishBtn) publishBtn.onclick=async()=>{const status=document.getElementById('admin-video-status');publishBtn.disabled=true;status.textContent='Publishing…';const r=await api('/admin/content/publish',{method:'POST',body:{source_url:document.getElementById('admin-video-url').value,title:document.getElementById('admin-video-title').value,category:document.getElementById('admin-video-category').value,community_purpose:document.getElementById('admin-video-purpose').value,rights_confirmed:document.getElementById('admin-video-rights').checked}}).catch(()=>({error:'network'}));publishBtn.disabled=false;status.textContent=r.error?(r.hint||'Could not publish.'):'Published to the Reel library.';if(!r.error){document.getElementById('admin-video-url').value='';document.getElementById('admin-video-title').value='';document.getElementById('admin-video-purpose').value='';document.getElementById('admin-video-rights').checked=false;}};
     const paintAdminMetrics=()=>api('/admin/metrics').then(m=>{

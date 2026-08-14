@@ -1327,6 +1327,10 @@ h3 { font-size: 1rem; }
 .practice-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:10px; }
 .practice-rest { color:var(--muted); }
 
+.admin-moderation-actions { display:flex; flex-wrap:wrap; gap:5px; justify-content:flex-end; align-self:center; }
+.admin-moderation-actions .ghost { padding:5px 8px; font-size:.76rem; }
+@media (max-width: 520px) { .admin-moderation-actions { justify-content:flex-start; margin-top:8px; } }
+
 /* --- surfaces --------------------------------------------------------------
    One hairline and a soft lift, rather than layered borders and hard shadow. */
 .card, .card.glass {

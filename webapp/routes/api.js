@@ -3224,6 +3224,75 @@ router.post('/admin/content/publish', requireAdmin, (req, res) => {
   catch (err) { res.status(400).json({ error: err.code || 'content_publish_failed', hint: err.message }); }
 });
 
+function moderationRows(rawStatus) {
+  const status = ['pending', 'reviewing', 'resolved'].includes(rawStatus) ? rawStatus : 'pending';
+  return db.prepare(`
+    SELECT q.id, q.report_type, q.target_id, q.reason, q.status, q.created_at,
+           reporter.display_name AS reporter_name,
+           subject.display_name AS subject_name,
+           CASE WHEN q.report_type = 'post' THEN substr(COALESCE(p.content, ''), 1, 500) ELSE NULL END AS content_excerpt
+    FROM moderation_queue q
+    LEFT JOIN users reporter ON reporter.id = q.reporter_id
+    LEFT JOIN posts p ON q.report_type = 'post' AND p.id = q.target_id
+    LEFT JOIN users subject ON subject.id = CASE WHEN q.report_type = 'post' THEN p.user_id ELSE q.target_id END
+    WHERE q.status = ?
+    ORDER BY q.created_at ASC
+    LIMIT 100
+  `).all(status);
+}
+
+// One review implementation serves both the token-protected operations queue
+// and the owner's Admin Headquarters. A human explicitly selects and records
+// every outcome; an AI suggestion can never resolve a report by itself.
+function reviewModerationReport(reportId, input, reviewer) {
+  const report = db.prepare('SELECT * FROM moderation_queue WHERE id=?').get(reportId);
+  if (!report) throw Object.assign(new Error('Report not found.'), { code: 'report_not_found' });
+  if (report.status === 'resolved') throw Object.assign(new Error('This report was already reviewed.'), { code: 'already_reviewed' });
+  const decision = String(input?.decision || '');
+  if (!['no_violation', 'content_removed', 'account_suspended'].includes(decision)) {
+    throw Object.assign(new Error('Choose a valid review decision.'), { code: 'invalid_decision' });
+  }
+  const note = String(input?.note || '').trim().slice(0, 800);
+  let affectedUser = null;
+  if (report.report_type === 'post') affectedUser = db.prepare('SELECT user_id FROM posts WHERE id=?').get(report.target_id)?.user_id || null;
+  if (report.report_type === 'user') affectedUser = report.target_id;
+  if (decision === 'content_removed' && report.report_type === 'post') {
+    db.prepare('DELETE FROM post_likes WHERE post_id=?').run(report.target_id);
+    db.prepare('DELETE FROM post_saves WHERE post_id=?').run(report.target_id);
+    db.prepare('DELETE FROM post_comments WHERE post_id=?').run(report.target_id);
+    db.prepare('DELETE FROM posts WHERE id=?').run(report.target_id);
+  }
+  if (decision === 'account_suspended' && affectedUser) {
+    const why = note || 'Confirmed community standards violation';
+    db.prepare('UPDATE users SET suspended_at=?,suspension_reason=? WHERE id=?').run(new Date().toISOString(), why.slice(0, 500), affectedUser);
+    db.prepare("UPDATE user_sessions SET revoked_at=?,revoked_reason='account_suspended' WHERE user_id=? AND revoked_at IS NULL")
+      .run(new Date().toISOString(), affectedUser);
+  }
+  db.prepare("UPDATE moderation_queue SET status='resolved',reviewer=?,review_note=?,reviewed_at=? WHERE id=?")
+    .run(String(reviewer).slice(0, 120), `${decision}: ${note}`, new Date().toISOString(), report.id);
+  if (affectedUser) notify(affectedUser, 'moderation',
+    decision === 'no_violation' ? 'A report was reviewed and no violation was found.'
+      : decision === 'content_removed' ? 'Content was removed after review.' : 'Your account was suspended after review.',
+    { url: '/?open=profile' });
+  return { ok: true, decision, affected_user_id: affectedUser };
+}
+
+router.get('/admin/moderation', requireAdmin, (req, res) => {
+  res.json({ reports: moderationRows(req.query.status) });
+});
+
+router.post('/admin/moderation/:id/review', requireAdmin, (req, res) => {
+  try {
+    const result = reviewModerationReport(req.params.id, req.body || {}, displayName(req.session.userId));
+    admin.audit(req.session.userId, 'moderation_review', 'moderation_report', req.params.id,
+      `${result.decision}: ${String(req.body?.note || '').trim().slice(0, 800)}`);
+    res.json(result);
+  } catch (err) {
+    res.status(err.code === 'report_not_found' ? 404 : err.code === 'already_reviewed' ? 409 : 400)
+      .json({ error: err.code || 'moderation_review_failed', hint: err.message });
+  }
+});
+
 router.get('/admin/launch-notify/stats', requireAdmin, (req, res) => {
   res.json(launchNotify.stats());
 });
@@ -4514,8 +4583,7 @@ router.post('/developer/enforcement/:id', (req,res) => {
 });
 router.get('/moderation/queue', (req,res) => {
   if(!reviewerAuthorized(req)) return res.status(404).json({error:'not_found'});
-  const status=['pending','reviewing','resolved'].includes(req.query.status)?req.query.status:'pending';
-  res.json({reports:db.prepare('SELECT * FROM moderation_queue WHERE status=? ORDER BY created_at LIMIT 100').all(status)});
+  res.json({reports:moderationRows(req.query.status)});
 });
 // Advisory only: a Gloo-suggested severity and category, computed on demand
 // so it never runs against reports nobody is looking at. The reviewer sees
@@ -4554,20 +4622,8 @@ router.post('/moderation/queue/:id/suggest', async (req,res) => {
 
 router.post('/moderation/queue/:id/review', (req,res) => {
   if(!reviewerAuthorized(req)) return res.status(404).json({error:'not_found'});
-  const report=db.prepare('SELECT * FROM moderation_queue WHERE id=?').get(req.params.id);
-  if(!report)return res.status(404).json({error:'report_not_found'});
-  const decision=String(req.body?.decision||'');
-  if(!['no_violation','content_removed','account_suspended'].includes(decision))return res.status(400).json({error:'invalid_decision'});
-  let affectedUser=null;
-  if(report.report_type==='post')affectedUser=db.prepare('SELECT user_id FROM posts WHERE id=?').get(report.target_id)?.user_id||null;
-  if(report.report_type==='user')affectedUser=report.target_id;
-  if(decision==='content_removed'&&report.report_type==='post'){
-    db.prepare('DELETE FROM post_likes WHERE post_id=?').run(report.target_id);db.prepare('DELETE FROM post_saves WHERE post_id=?').run(report.target_id);db.prepare('DELETE FROM post_comments WHERE post_id=?').run(report.target_id);db.prepare('DELETE FROM posts WHERE id=?').run(report.target_id);
-  }
-  if(decision==='account_suspended'&&affectedUser){db.prepare('UPDATE users SET suspended_at=?,suspension_reason=? WHERE id=?').run(new Date().toISOString(),String(req.body?.note||'Confirmed community standards violation').slice(0,500),affectedUser);db.prepare("UPDATE user_sessions SET revoked_at=?,revoked_reason='account_suspended' WHERE user_id=? AND revoked_at IS NULL").run(new Date().toISOString(),affectedUser);}
-  db.prepare("UPDATE moderation_queue SET status='resolved',reviewer=?,review_note=?,reviewed_at=? WHERE id=?").run(String(req.body?.reviewer||'authorized reviewer').slice(0,120),`${decision}: ${String(req.body?.note||'').slice(0,800)}`,new Date().toISOString(),report.id);
-  if(affectedUser)notify(affectedUser,'moderation',decision==='no_violation'?'A report was reviewed and no violation was found.':decision==='content_removed'?'Content was removed after review.':'Your account was suspended after review.',{url:'/?open=profile'});
-  res.json({ok:true,decision});
+  try { res.json(reviewModerationReport(req.params.id, req.body || {}, req.body?.reviewer || 'authorized reviewer')); }
+  catch (err) { res.status(err.code === 'report_not_found' ? 404 : err.code === 'already_reviewed' ? 409 : 400).json({ error: err.code || 'review_failed', hint: err.message }); }
 });
 
 router.get('/dev/keys', requireAuth, requireVerifiedDeveloper, (req, res) => {
