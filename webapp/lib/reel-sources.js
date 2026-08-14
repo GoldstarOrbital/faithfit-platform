@@ -139,10 +139,14 @@ const CATEGORIES = {
       // or Functioning Faith branding is applied to the creator's work.
       '2819 Church official',
       'BibleProject official',
+      // BGEA's verified @billygraham channel. It is embedded in place only;
+      // Functioning Faith never downloads, edits, or re-uploads these messages.
+      'Billy Graham Evangelistic Association official',
     ],
     queries: [
       'Christian discipleship short official',
       'Bible teaching encouragement short official',
+      'Billy Graham official message short',
     ],
   },
 

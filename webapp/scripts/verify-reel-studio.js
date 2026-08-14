@@ -22,5 +22,6 @@ assert.match(app, /getUserMedia\(/, 'members must be able to record in the site'
 assert.match(app, /video_data: videoData/, 'the studio must publish through the guarded post payload');
 assert.match(app, /provider === 'functioning_faith'/, 'owned clips must use native video playback, not an external embed');
 assert.match(sources, /2819 Church official/, 'the official Pastor Philip Anthony Mitchell source must be catalogued as an embed source');
+assert.match(sources, /Billy Graham Evangelistic Association official/, 'the official Billy Graham source must be catalogued as an embed source');
 
-console.log(JSON.stringify({ owned_reel_feed: true, in_app_recording: true, guarded_upload: true, official_2819_embed_source: true }));
+console.log(JSON.stringify({ owned_reel_feed: true, in_app_recording: true, guarded_upload: true, official_2819_embed_source: true, official_billy_graham_embed_source: true }));
