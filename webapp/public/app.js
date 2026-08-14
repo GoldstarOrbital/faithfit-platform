@@ -2752,6 +2752,7 @@ async function renderProfile(main) {
       <div class="accomplishments-head"><div><h3>Accomplishments</h3><div class="muted">Every milestone, earned or still ahead.</div></div><span id="badge-count" class="premium-badge">Loading</span></div>
       <div id="badge-shelf" class="badge-shelf"><span class="muted">Loading accomplishments…</span></div>
       <button class="ghost" id="saved-posts-open" style="width:100%;margin-top:12px">🔖 View saved posts</button>
+      <button class="ghost" id="saved-verses-open" style="width:100%;margin-top:8px">📖 View saved Scripture</button>
       <button class="ghost" id="goto-creator-tab" style="width:100%;margin-top:8px">🎬 Submit content as a creator</button>
       <a class="ghost" href="https://gofund.me/d6fe1b099" target="_blank" rel="noopener" style="display:block;width:100%;margin-top:8px;text-align:center;text-decoration:none;box-sizing:border-box">🌻 Support Functioning Faith</a>
     </div>
@@ -3244,6 +3245,7 @@ async function renderProfile(main) {
   if(newChurch)newChurch.onclick=async()=>{const r=await api('/developer/churches',{method:'POST',body:{name:document.getElementById('dev-new-church-name').value,address:document.getElementById('dev-new-church-address').value,contact_email:document.getElementById('dev-new-church-email').value,website_url:document.getElementById('dev-new-church-site').value}});const status=document.getElementById('dev-new-church-status');if(r.error){status.textContent=r.hint||r.error;return;}status.textContent=`Pending church submitted. Record ID: ${r.church.id}`;const idField=document.getElementById('dev-church-id');if(idField)idField.value=r.church.id;};
   showProfileView('overview');
   document.getElementById('saved-posts-open').onclick = () => renderSavedPosts(main);
+  document.getElementById('saved-verses-open').onclick = () => renderSavedVerses(main);
   document.getElementById('goto-creator-tab').onclick = () => {
     showProfileView('integrations');
     document.getElementById('developer-verification-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -5717,7 +5719,7 @@ function wireVerseCards(root) {
     if (!card.querySelector('.verse-share-actions')) {
       const actions = document.createElement('div');
       actions.className = 'verse-share-actions';
-      actions.innerHTML = '<button class="ghost" type="button" data-verse-share>Share link</button><button class="ghost" type="button" data-verse-dm>Send via DM</button>';
+      actions.innerHTML = '<button class="ghost" type="button" data-verse-save>Save</button><button class="ghost" type="button" data-verse-share>Share link</button><button class="ghost" type="button" data-verse-dm>Send via DM</button>';
       card.appendChild(actions);
     }
     card.onclick = (e) => {
@@ -5734,7 +5736,32 @@ function wireVerseCards(root) {
     e.stopPropagation();
     await openVerseDmPicker(btn.closest('[data-verse-ref]').dataset.verseRef);
   });
+  scope.querySelectorAll('[data-verse-save]').forEach(btn => btn.onclick = async e => {
+    e.stopPropagation();
+    const reference = btn.closest('[data-verse-ref]').dataset.verseRef;
+    btn.disabled = true;
+    const result = await api('/verses/save', { method: 'POST', body: { reference } }).catch(() => null);
+    btn.disabled = false;
+    if (!result) { showToast('Could not update your saved Scripture.', true); return; }
+    scope.querySelectorAll('[data-verse-ref]').forEach(card => {
+      if (card.dataset.verseRef !== result.reference) return;
+      const control = card.querySelector('[data-verse-save]');
+      if (!control) return;
+      control.classList.toggle('saved', !!result.saved);
+      control.textContent = result.saved ? 'Saved' : 'Save';
+      control.setAttribute('aria-pressed', result.saved ? 'true' : 'false');
+    });
+  });
   const refs = [...new Set(cards.map(c => c.dataset.verseRef))];
+  // One private read establishes the initial state for visible verse cards.
+  api('/verses/saved').then(({ verses }) => {
+    const saved = new Set((verses || []).map(item => item.reference));
+    scope.querySelectorAll('[data-verse-ref]').forEach(card => {
+      const button = card.querySelector('[data-verse-save]');
+      if (!button || !saved.has(card.dataset.verseRef)) return;
+      button.classList.add('saved'); button.textContent = 'Saved'; button.setAttribute('aria-pressed', 'true');
+    });
+  }).catch(() => {});
   api(`/verses/thread-summary?refs=${encodeURIComponent(refs.join('|'))}`).then(summary => {
     scope.querySelectorAll('[data-convo-for]').forEach(el => {
       const s = summary && summary[el.dataset.convoFor];
@@ -5744,6 +5771,27 @@ function wireVerseCards(root) {
         : '\u{1F4AC} Start the conversation';
     });
   }).catch(() => {});
+}
+
+async function renderSavedVerses(main) {
+  document.querySelectorAll('nav button').forEach(b => b.style.display = '');
+  main.innerHTML = '<button class="ghost back-btn" id="saved-verses-back">← Back to profile</button><div class="card glass"><span class="eyebrow">Your collection</span><h2>Saved Scripture</h2><p class="muted">A private library of verified verses you want to return to.</p></div><div id="saved-verses-list"><div class="card glass muted">Loading saved Scripture…</div></div>';
+  let data;
+  try { data = await api('/verses/saved'); } catch { data = { verses: [] }; }
+  const list = main.querySelector('#saved-verses-list');
+  list.innerHTML = data.verses.length ? data.verses.map(v => `<article class="card glass saved-verse-card" data-saved-verse="${escapeHtml(v.reference)}">
+    <div class="verse-ref">${escapeHtml(v.reference)}</div><div class="verse-text">${escapeHtml(v.text || '')}</div>
+    <div class="saved-verse-meta"><span>${escapeHtml(v.translation || 'Verified Scripture')}</span><span>Saved ${timeAgo(v.created_at)} ago</span></div>
+    <div class="saved-verse-actions"><button class="ghost" data-open-saved-verse="${escapeHtml(v.reference)}">Open</button><button class="ghost saved" data-remove-saved-verse="${escapeHtml(v.reference)}">Remove</button></div>
+  </article>`).join('') : '<div class="card glass"><p class="muted">Nothing saved yet. Tap Save on a verse anywhere in the app to keep it here.</p></div>';
+  main.querySelector('#saved-verses-back').onclick = () => renderProfile(main);
+  list.querySelectorAll('[data-open-saved-verse]').forEach(btn => btn.onclick = () => renderVerseThread(btn.dataset.openSavedVerse));
+  list.querySelectorAll('[data-remove-saved-verse]').forEach(btn => btn.onclick = async () => {
+    btn.disabled = true;
+    const result = await api('/verses/save', { method: 'POST', body: { reference: btn.dataset.removeSavedVerse } }).catch(() => null);
+    if (result && !result.saved) btn.closest('[data-saved-verse]')?.remove();
+    else btn.disabled = false;
+  });
 }
 
 // Explore -> Scripture: what people are talking about, plus a real Bible search
@@ -5981,6 +6029,7 @@ async function renderVerseThread(reference) {
             <label class="yv-label" for="yv-translation">Translation</label>
             <select id="yv-translation" class="yv-select"><option value="">WEB (verified locally)</option></select>
             <a class="yv-open" id="yv-open" target="_blank" rel="noopener noreferrer" hidden>Open in YouVersion &#8599;</a>
+            <button class="ghost" id="verse-save-detail" type="button">Save</button>
           </div>
           <div class="muted yv-note" id="yv-note"></div>
         </div>
@@ -6017,6 +6066,22 @@ async function renderVerseThread(reference) {
       </div>`;
     document.getElementById('verse-back').onclick = goBack;
     wireCompanion(verseRef);
+    const saveDetail = document.getElementById('verse-save-detail');
+    if (saveDetail) {
+      api('/verses/saved').then(({ verses }) => {
+        const present = (verses || []).some(item => item.reference === verseRef);
+        saveDetail.classList.toggle('saved', present); saveDetail.textContent = present ? 'Saved' : 'Save';
+        saveDetail.setAttribute('aria-pressed', present ? 'true' : 'false');
+      }).catch(() => {});
+      saveDetail.onclick = async () => {
+        saveDetail.disabled = true;
+        const result = await api('/verses/save', { method: 'POST', body: { reference: verseRef } }).catch(() => null);
+        saveDetail.disabled = false;
+        if (!result) { showToast('Could not update your saved Scripture.', true); return; }
+        saveDetail.classList.toggle('saved', !!result.saved); saveDetail.textContent = result.saved ? 'Saved' : 'Save';
+        saveDetail.setAttribute('aria-pressed', result.saved ? 'true' : 'false');
+      };
+    }
 
     if (!thread) {
       document.getElementById('verse-open-btn').onclick = async () => {

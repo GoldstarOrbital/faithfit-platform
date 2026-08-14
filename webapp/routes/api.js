@@ -50,6 +50,7 @@ const media = require('../lib/media');
 const retention = require('../lib/retention');
 const workoutKudos = require('../lib/workout-kudos');
 const scripturePractice = require('../lib/scripture-practice');
+const verseSaves = require('../lib/verse-saves');
 
 // Load real, public-domain Bible text (KJV/WEB) into bible_verses once at startup.
 loadBibleData();
@@ -2898,7 +2899,7 @@ router.delete('/me', requireAuth, (req, res) => {
   if (!db.prepare('SELECT id FROM users WHERE id = ?').get(uid)) return res.status(404).json({ error: 'account_not_found' });
   const userTables = [
     'user_consents', 'workouts', 'biometric_samples', 'scripture_triggers', 'user_xp',
-    'user_badges', 'user_quests', 'notifications', 'post_comments', 'comment_likes', 'post_likes', 'post_saves',
+    'saved_verses', 'user_badges', 'user_quests', 'notifications', 'post_comments', 'comment_likes', 'post_likes', 'post_saves',
     'stories',
     'breathing_sessions', 'user_challenges', 'user_identities', 'user_connectors',
     'imported_activities', 'group_messages', 'event_rsvps', 'group_pulse_checkins',
@@ -2992,6 +2993,7 @@ router.get('/me/export', requireAuth, (req, res) => {
     followers: db.prepare('SELECT follower_id FROM followers WHERE followee_id = ?').all(uid),
     following: db.prepare('SELECT followee_id FROM followers WHERE follower_id = ?').all(uid),
     consents: db.prepare('SELECT scope, granted_at, revoked_at FROM user_consents WHERE user_id = ?').all(uid),
+    saved_verses: verseSaves.list(uid),
     challenges: db.prepare('SELECT * FROM user_challenges WHERE user_id = ?').all(uid),
     xp: db.prepare('SELECT * FROM user_xp WHERE user_id = ?').get(uid),
     badges: db.prepare('SELECT badge_id, earned_at FROM user_badges WHERE user_id = ?').all(uid),
@@ -4316,6 +4318,19 @@ async function resolveVerseReferenceFull(raw) {
     },
   };
 }
+
+// Saved verses are a private library, not a social signal. The resolver runs
+// before a write so the collection can never contain a fabricated reference or
+// text supplied by a browser.
+router.get('/verses/saved', requireAuth, (req, res) => {
+  res.json({ verses: verseSaves.list(req.session.userId) });
+});
+
+router.post('/verses/save', requireAuth, async (req, res) => {
+  const { row, error, hint } = await resolveVerseReferenceFull(req.body && req.body.reference);
+  if (error) return res.status(400).json({ error, hint });
+  res.json(verseSaves.toggle(req.session.userId, row));
+});
 
 function reflectionRows(threadId, meId) {
   const rows = db.prepare(`

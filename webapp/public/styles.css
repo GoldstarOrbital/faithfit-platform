@@ -2281,3 +2281,7 @@ nav.tabbar button.active .icon svg { filter:drop-shadow(0 0 5px rgba(255,255,255
 .shared-workout-audience { padding:4px 8px; border-radius:999px; color:var(--meadow-deep); background:var(--mint-soft); font-size:.7rem; font-weight:700; }
 .shared-workout-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:14px; }
 .shared-workout-privacy { margin:12px 0 0; color:var(--muted); font-size:.73rem; line-height:1.4; }
+.verse-share-actions [data-verse-save].saved, #verse-save-detail.saved, .saved-verse-actions .saved { color:#7f5330; background:var(--sun-soft); border-color:rgba(233,185,78,.44); }
+.saved-verse-card { padding:14px; }
+.saved-verse-meta { display:flex; gap:8px; justify-content:space-between; margin-top:10px; color:var(--muted); font-size:.73rem; }
+.saved-verse-actions { display:flex; gap:8px; margin-top:10px; }
