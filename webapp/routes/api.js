@@ -2552,6 +2552,29 @@ router.delete('/groups/:id/members/:userId', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Group announcements. ----
+// Chat scrolls; the meeting time does not. A small-group leader had nowhere to
+// put "we now meet at 6:30, the church car park is closed" that a member
+// joining next week would still see -- it drowned in group_messages within a
+// day. One pinned note per group, organiser-only, always shown at the top.
+router.put('/groups/:id/announcement', requireAuth, (req, res) => {
+  const group = db.prepare('SELECT id FROM groups WHERE id = ?').get(req.params.id);
+  if (!group || !isGroupAdmin(group.id, req.session.userId)) return res.status(404).json({ error: 'not_found' });
+  const text = String((req.body || {}).text || '').trim().slice(0, 500);
+  db.prepare(`UPDATE groups SET announcement = ?, announcement_at = ?, announcement_by = ?  WHERE id = ?`)
+    .run(text || null, text ? new Date().toISOString() : null, text ? req.session.userId : null, group.id);
+  // Tell the group there is something new to read -- but only for a real
+  // announcement, never for clearing one.
+  if (text) {
+    const members = db.prepare('SELECT user_id FROM group_members WHERE group_id = ? AND user_id != ?')
+      .all(group.id, req.session.userId);
+    for (const m of members) {
+      notify(m.user_id, 'group_announcement', `New announcement in your group: ${text.slice(0, 80)}`, { group_id: group.id });
+    }
+  }
+  res.json({ ok: true, announcement: text || null });
+});
+
 // The message's own author, or a group admin cleaning up their group.
 router.delete('/groups/:id/messages/:messageId', requireAuth, (req, res) => {
   const group = db.prepare('SELECT id FROM groups WHERE id = ?').get(req.params.id);

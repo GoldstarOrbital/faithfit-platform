@@ -214,6 +214,11 @@ CREATE TABLE IF NOT EXISTS group_members (
 const groupCols = db.prepare("PRAGMA table_info(groups)").all().map(c => c.name);
 const addGroupCol = (name, ddl) => { if (!groupCols.includes(name)) db.exec(`ALTER TABLE groups ADD COLUMN ${ddl}`); };
 addGroupCol('username', 'username TEXT');
+// One pinned note per group, set by an organiser. Chat scrolls; the meeting
+// time does not.
+addGroupCol('announcement', 'announcement TEXT');
+addGroupCol('announcement_at', 'announcement_at TEXT');
+addGroupCol('announcement_by', 'announcement_by TEXT');
 addGroupCol('creator_id', 'creator_id TEXT');
 addGroupCol('church_osm_id', 'church_osm_id TEXT');
 addGroupCol('church_name', 'church_name TEXT');

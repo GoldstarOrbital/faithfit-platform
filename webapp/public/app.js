@@ -2593,6 +2593,18 @@ async function renderGroupDetail(groupId) {
       <button class="follow-btn ${data.is_member ? 'following' : ''}" id="group-join-leave">${data.is_member ? 'Leave group' : 'Join group'}</button>
       ${data.is_admin ? `<div style="display:flex;gap:8px;margin-top:10px"><button class="ghost" id="group-invite-btn">Invite members</button><button class="ghost" id="group-sync-btn">✦ Sync with Gloo</button></div><div id="group-invite-box" style="display:none;margin-top:10px"></div><div id="group-sync-status" class="muted" style="margin-top:6px"></div>` : ''}
     </div>
+    ${data.is_member && (g.announcement || data.is_admin) ? `<div class="card glass group-announce">
+      <div class="foryou-head" style="margin-bottom:6px">📌 Announcement</div>
+      <div id="group-announce-text">${g.announcement ? escapeHtml(g.announcement) : '<span class="muted">No announcement pinned.</span>'}</div>
+      ${data.is_admin ? `<button class="ghost" id="group-announce-edit" style="margin-top:8px">${g.announcement ? 'Edit' : 'Add announcement'}</button>
+      <div id="group-announce-form" style="display:none;margin-top:8px">
+        <textarea id="group-announce-input" rows="3" maxlength="500" placeholder="Meeting time, location changes, anything the group needs to keep seeing.">${escapeHtml(g.announcement || '')}</textarea>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="primary" id="group-announce-save" style="flex:1">Pin it</button>
+          ${g.announcement ? '<button class="ghost" id="group-announce-clear">Remove</button>' : ''}
+        </div>
+      </div>` : ''}
+    </div>` : ''}
     ${data.is_member ? `<div class="card glass">
       <h2>Members</h2>
       <div id="group-members" class="muted">Loading…</div>
@@ -2641,6 +2653,22 @@ async function renderGroupDetail(groupId) {
     await api(`/groups/${groupId}/${data.is_member ? 'leave' : 'join'}`, { method: 'POST' });
     renderGroupDetail(groupId);
   };
+
+  const annEdit = document.getElementById('group-announce-edit');
+  if (annEdit) {
+    const form = document.getElementById('group-announce-form');
+    annEdit.onclick = () => { form.style.display = form.style.display === 'none' ? 'block' : 'none'; };
+    const save = async (text) => {
+      const r = await api(`/groups/${groupId}/announcement`, { method: 'PUT', body: { text } })
+        .catch(() => ({ error: 'network' }));
+      if (r.error) return;
+      renderGroupDetail(groupId);
+    };
+    document.getElementById('group-announce-save').onclick = () =>
+      save(document.getElementById('group-announce-input').value);
+    const clear = document.getElementById('group-announce-clear');
+    if (clear) clear.onclick = () => { if (confirm('Remove this announcement?')) save(''); };
+  }
 
   // Members list, with a remove control for organisers. The role column has
   // existed all along; this is the first surface that acts on it.

@@ -2296,3 +2296,5 @@ nav.tabbar button.active .icon svg { filter:drop-shadow(0 0 5px rgba(255,255,255
 .saved-verse-actions { display:flex; gap:8px; margin-top:10px; }
 .offline-scripture-note { margin:0 0 10px; padding:9px 11px; border:1px solid rgba(91,126,100,.28); border-radius:12px; color:var(--forest); background:rgba(224,238,220,.7); font-size:.78rem; line-height:1.4; }
 .offline-verse-reading .offline-scripture-note { margin-bottom:14px; }
+.group-announce { border-left:3px solid var(--hearth); }
+.group-announce textarea { width:100%; resize:vertical; }
