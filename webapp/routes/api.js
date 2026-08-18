@@ -36,6 +36,7 @@ const records = require('../lib/records');
 const circle = require('../lib/circle');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
+const googleHealth = require('../lib/google-health');
 const wearables = require('../lib/wearables');
 const recovery = require('../lib/recovery');
 const { searchNearbyChurches } = require('../lib/overpass');
@@ -611,6 +612,127 @@ router.post('/connectors/strava/sync', requireAuth, async (req, res) => {
     res.status(502).json({ error: 'sync_failed', detail: err.message });
   }
 });
+
+// ---- Device / wearable sync via Google Health (Fitbit + anything else a
+// member has synced into their Google Health account). Same shape as the
+// Strava connector above -- OAuth start/callback into user_connectors,
+// idempotent import via imported_activities -- with a second data path for
+// daily step totals, which have no natural "workout" to attach to. ----
+router.get('/connectors/google-health/configured', (req, res) => res.json({ configured: googleHealth.isConfigured() }));
+
+router.get('/connectors/google-health/start', requireAuth, (req, res) => {
+  if (!googleHealth.isConfigured()) return res.status(404).json({ error: 'google_health_not_configured' });
+  const state = oauth.b64url(require('crypto').randomBytes(16));
+  req.session.googleHealthPending = { state, userId: req.session.userId, createdAt: Date.now() };
+  const redirectUri = `${baseUrl(req)}/api/connectors/google-health/callback`;
+  res.redirect(googleHealth.buildAuthorizationUrl({ redirectUri, state }));
+});
+
+router.get('/connectors/google-health/callback', async (req, res) => {
+  const pending = req.session.googleHealthPending;
+  const fail = (reason) => res.redirect(`/?google_health_error=${encodeURIComponent(reason)}`);
+  if (!pending || Date.now() - pending.createdAt > 10 * 60 * 1000) { req.session.googleHealthPending = null; return fail('session_expired'); }
+  if (req.query.error) { req.session.googleHealthPending = null; return fail('access_denied'); }
+  if (req.query.state !== pending.state) { req.session.googleHealthPending = null; return fail('state_mismatch'); }
+
+  try {
+    const redirectUri = `${baseUrl(req)}/api/connectors/google-health/callback`;
+    const tokens = await googleHealth.exchangeCodeForTokens(req.query.code, redirectUri);
+    // Google's token response has no stable per-provider user id the way
+    // Strava's athlete.id does -- users/me is resolved per-request from the
+    // access token itself, so provider_user_id is left empty here.
+    db.prepare(`INSERT INTO user_connectors (id, user_id, provider, provider_user_id, access_token, refresh_token, expires_at, scope)
+                VALUES (?,?,?,?,?,?,?,?)
+                ON CONFLICT(user_id, provider) DO UPDATE SET
+                  access_token=excluded.access_token,
+                  refresh_token=COALESCE(excluded.refresh_token, user_connectors.refresh_token),
+                  expires_at=excluded.expires_at, scope=excluded.scope`)
+      .run(randomUUID(), pending.userId, 'google_health', '',
+        accountSecurity.protectSecret(tokens.access_token),
+        accountSecurity.protectSecret(tokens.refresh_token || ''),
+        new Date(Date.now() + (tokens.expires_in || 3600) * 1000).toISOString(),
+        tokens.scope || googleHealth.SCOPES.join(' '));
+    req.session.googleHealthPending = null;
+    await syncGoogleHealthForUser(pending.userId).catch(err => console.error('[google-health] initial sync failed:', err.message));
+    res.redirect('/?connected=google_health');
+  } catch (err) {
+    req.session.googleHealthPending = null;
+    console.error('[google-health] callback failed:', err.message);
+    fail('connect_failed');
+  }
+});
+
+router.post('/connectors/google-health/sync', requireAuth, async (req, res) => {
+  try {
+    const result = await syncGoogleHealthForUser(req.session.userId);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(502).json({ error: 'sync_failed', detail: err.message });
+  }
+});
+
+// Exercise sessions import as workouts (source='google_health', dedup via
+// imported_activities, same as Strava); steps have no workout to attach to
+// and go into their own daily-totals table instead.
+async function syncGoogleHealthForUser(userId) {
+  let conn = db.prepare('SELECT * FROM user_connectors WHERE user_id = ? AND provider = ?').get(userId, 'google_health');
+  if (!conn) throw new Error('not_connected');
+  conn = { ...conn, access_token: accountSecurity.unprotectSecret(conn.access_token), refresh_token: accountSecurity.unprotectSecret(conn.refresh_token) };
+
+  if (new Date(conn.expires_at).getTime() < Date.now() + 60000) {
+    if (!conn.refresh_token) throw new Error('no_refresh_token');
+    const fresh = await googleHealth.refreshTokens(conn.refresh_token);
+    db.prepare('UPDATE user_connectors SET access_token = ?, expires_at = ? WHERE user_id = ? AND provider = ?')
+      .run(accountSecurity.protectSecret(fresh.access_token),
+        new Date(Date.now() + (fresh.expires_in || 3600) * 1000).toISOString(), userId, 'google_health');
+    conn = { ...conn, access_token: fresh.access_token };
+  }
+
+  const sinceIso = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(); // last 30 days
+  let stepDays = 0, imported = 0, checked = 0;
+
+  try {
+    const stepPoints = await googleHealth.listDataPoints(conn.access_token, 'steps', { sinceIso });
+    const daily = googleHealth.summariseSteps(stepPoints);
+    const upsertSteps = db.prepare(`INSERT INTO google_health_daily_steps (user_id, date, steps, synced_at) VALUES (?, ?, ?, datetime('now'))
+      ON CONFLICT(user_id, date) DO UPDATE SET steps = excluded.steps, synced_at = datetime('now')`);
+    for (const d of daily) upsertSteps.run(userId, d.date, d.steps);
+    stepDays = daily.length;
+  } catch (err) {
+    console.error('[google-health] steps sync failed:', err.message); // partial sync should not fail the whole connector
+  }
+
+  try {
+    const exercisePoints = await googleHealth.listDataPoints(conn.access_token, 'exercise', { sinceIso });
+    checked = exercisePoints.length;
+    for (const raw of exercisePoints) {
+      const session = googleHealth.mapExercisePoint(raw);
+      if (!session.externalId || !session.startTime) continue;
+      const already = db.prepare('SELECT 1 FROM imported_activities WHERE provider = ? AND external_id = ?').get('google_health', session.externalId);
+      if (already) continue;
+
+      const type = googleHealth.mapActivityType(session.activityType);
+      const durationSec = session.endTime ? Math.max(0, Math.round((Date.parse(session.endTime) - Date.parse(session.startTime)) / 1000)) : 0;
+      const workoutId = randomUUID();
+      db.prepare(`INSERT INTO workouts (id, user_id, type, start_time, end_time, calories, avg_hr, duration_sec, note, source)
+                  VALUES (?,?,?,?,?,?,?,?,?, 'google_health')`)
+        .run(workoutId, userId, type, session.startTime, session.endTime || session.startTime,
+          session.calories ? Math.round(session.calories) : null,
+          session.avgHeartRate ? Math.round(session.avgHeartRate) : null,
+          durationSec, 'Synced from Google Health');
+      db.prepare('INSERT INTO imported_activities (id, user_id, provider, external_id, workout_id) VALUES (?,?,?,?,?)')
+        .run(randomUUID(), userId, 'google_health', session.externalId, workoutId);
+
+      publish('workout.completed', { user_id: userId, workout_id: workoutId, calories: session.calories || 0, avg_hr: session.avgHeartRate || null });
+      imported++;
+    }
+  } catch (err) {
+    console.error('[google-health] exercise sync failed:', err.message);
+  }
+
+  db.prepare('UPDATE user_connectors SET last_synced_at = ? WHERE user_id = ? AND provider = ?').run(new Date().toISOString(), userId, 'google_health');
+  return { imported, checked, step_days_synced: stepDays };
+}
 
 router.post('/connectors/:provider/disconnect', requireAuth, (req, res) => {
   db.prepare('DELETE FROM user_connectors WHERE user_id = ? AND provider = ?').run(req.session.userId, req.params.provider);
@@ -3067,7 +3189,7 @@ router.delete('/me', requireAuth, (req, res) => {
   const uid = req.session.userId;
   if (!db.prepare('SELECT id FROM users WHERE id = ?').get(uid)) return res.status(404).json({ error: 'account_not_found' });
   const userTables = [
-    'user_consents', 'workouts', 'biometric_samples', 'scripture_triggers', 'user_xp',
+    'user_consents', 'workouts', 'biometric_samples', 'google_health_daily_steps', 'scripture_triggers', 'user_xp',
     'saved_verses', 'user_badges', 'user_quests', 'notifications', 'post_comments', 'comment_likes', 'post_likes', 'post_saves',
     'stories',
     'breathing_sessions', 'user_challenges', 'user_identities', 'user_connectors',
@@ -3161,6 +3283,7 @@ router.get('/me/export', requireAuth, (req, res) => {
     profile,
     workouts: db.prepare('SELECT * FROM workouts WHERE user_id = ?').all(uid),
     biometric_samples: db.prepare('SELECT * FROM biometric_samples WHERE user_id = ?').all(uid),
+    google_health_daily_steps: db.prepare('SELECT * FROM google_health_daily_steps WHERE user_id = ?').all(uid),
     posts: db.prepare('SELECT * FROM posts WHERE user_id = ?').all(uid),
     comments: db.prepare('SELECT * FROM post_comments WHERE user_id = ?').all(uid),
     followers: db.prepare('SELECT follower_id FROM followers WHERE followee_id = ?').all(uid),

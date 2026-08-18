@@ -2853,19 +2853,20 @@ async function renderProfile(main) {
   const me = await api('/me');
   state.me = me;
 
-  let connections = { identities: [], connectors: [] }, providers = [], stravaConfigured = false, wearableProviders = [];
+  let connections = { identities: [], connectors: [] }, providers = [], stravaConfigured = false, googleHealthConfigured = false, wearableProviders = [];
   let securitySessions={sessions:[]}, securityActivity={events:[]}, privacySettings={}, mfaStatus={enabled:false}, developerStatus={status:'not_applied'}, securityCapabilities={};
   try {
-    const [connRes, provRes, stravaRes, wearableRes, sessionRes, activityRes, privacyRes, mfaRes, devRes, capRes] = await Promise.all([
-      api('/auth/connections'), api('/auth/providers'), api('/connectors/strava/configured'), api('/connectors/configured'),
+    const [connRes, provRes, stravaRes, googleHealthRes, wearableRes, sessionRes, activityRes, privacyRes, mfaRes, devRes, capRes] = await Promise.all([
+      api('/auth/connections'), api('/auth/providers'), api('/connectors/strava/configured'), api('/connectors/google-health/configured'), api('/connectors/configured'),
       api('/security/sessions'),api('/security/activity'),api('/privacy'),api('/security/mfa'),api('/developer/verification'),api('/security/capabilities'),
     ]);
-    connections = connRes; providers = provRes.providers || []; stravaConfigured = !!stravaRes.configured; wearableProviders = wearableRes.providers || [];
+    connections = connRes; providers = provRes.providers || []; stravaConfigured = !!stravaRes.configured; googleHealthConfigured = !!googleHealthRes.configured; wearableProviders = wearableRes.providers || [];
     securitySessions=sessionRes;securityActivity=activityRes;privacySettings=privacyRes;mfaStatus=mfaRes;developerStatus=devRes;securityCapabilities=capRes;
   } catch (e) { console.error('connections load failed', e); }
 
   const linkedProviders = new Map(connections.identities.map(i => [i.provider, i]));
   const stravaConn = connections.connectors.find(c => c.provider === 'strava');
+  const googleHealthConn = connections.connectors.find(c => c.provider === 'google_health');
   const wearableRows = wearableProviders.map(p => {
     const conn = connections.connectors.find(c => c.provider === p.name);
     if (conn) return `<div class="integration-row"><div><strong>${escapeHtml(p.label)}</strong><div class="muted">Connected · last synced ${conn.last_synced_at ? `${timeAgo(conn.last_synced_at)} ago` : 'never'}</div></div><div style="display:flex;gap:6px"><button class="ghost" data-wearable-sync="${p.name}">Sync</button><button class="ghost" data-wearable-disconnect="${p.name}">Disconnect</button></div></div>`;
@@ -2893,6 +2894,25 @@ async function renderProfile(main) {
         <div id="strava-sync-status" class="muted" style="margin-top:6px"></div>`;
     } else {
       stravaRow = `<a class="ghost" href="/api/connectors/strava/start" style="display:block;text-align:center;text-decoration:none">Connect Strava</a>`;
+    }
+  }
+
+  // Google Health: Fitbit's data (and anything else synced into a member's
+  // Google Health account) via Google's own OAuth -- separate from the direct
+  // Fitbit connector below, which talks to api.fitbit.com directly.
+  let googleHealthRow = '';
+  if (googleHealthConfigured) {
+    if (googleHealthConn) {
+      const lastSync = googleHealthConn.last_synced_at ? `${timeAgo(googleHealthConn.last_synced_at)} ago` : 'never';
+      googleHealthRow = `
+        <div class="toggle-row"><span>Connected · last synced ${lastSync}</span></div>
+        <div style="display:flex;gap:8px;margin-top:6px">
+          <button class="ghost" id="google-health-sync" style="flex:1">Sync now</button>
+          <button class="ghost" id="google-health-disconnect" style="flex:1">Disconnect</button>
+        </div>
+        <div id="google-health-sync-status" class="muted" style="margin-top:6px"></div>`;
+    } else {
+      googleHealthRow = `<a class="ghost" href="/api/connectors/google-health/start" style="display:block;text-align:center;text-decoration:none">Connect Google Health (Fitbit)</a>`;
     }
   }
 
@@ -2990,10 +3010,11 @@ async function renderProfile(main) {
       <h2>Connected accounts</h2>
       ${providers.length ? providerRows : '<div class="muted">No sign-in providers are configured on this server.</div>'}
       ${stravaConfigured ? `<div class="muted" style="margin:10px 0 4px;font-weight:600">Strava</div>${stravaRow}` : ''}
+      ${googleHealthConfigured ? `<div class="muted" style="margin:10px 0 4px;font-weight:600">Google Health (Fitbit)</div>${googleHealthRow}` : ''}
     </div>
     <div class="card glass profile-panel" data-profile-group="integrations">
       <h2>Connected Devices</h2>
-      <div class="wearable-callout"><strong>Wearables sync</strong><div class="muted">Garmin devices work through Strava. Fitbit and Oura can connect directly when enabled by the server. Imported activities become workouts; available sleep and recovery signals stay in your private stats.</div></div>
+      <div class="wearable-callout"><strong>Wearables sync</strong><div class="muted">Garmin devices work through Strava. Fitbit and Oura can connect directly when enabled by the server, or through Google Health above (Google is migrating Fitbit's own developer API into Google Health, so this is the forward-looking path). Imported activities become workouts; available sleep and recovery signals stay in your private stats.</div></div>
       <div class="integration-list">${wearableRows || '<div class="muted">No direct Fitbit/Oura connectors are configured yet.</div>'}</div>
       ${stravaConfigured ? '<div class="integration-row"><div><strong>Garmin / other watch bridge</strong><div class="muted">Connect Garmin, Apple Watch, COROS, Suunto, or Wahoo to Strava, then sync here.</div></div><a class="ghost" href="/api/connectors/strava/start" style="text-decoration:none">Connect Strava</a></div>' : ''}
       <div class="muted" id="ble-status">${state.bleConnected ? `Connected: ${state.bleDevice?.name || 'Heart rate monitor'}` : 'No Bluetooth heart rate monitor connected.'}</div>
@@ -3506,6 +3527,27 @@ async function renderProfile(main) {
   if (stravaDisconnectBtn) {
     stravaDisconnectBtn.onclick = async () => {
       await api('/connectors/strava/disconnect', { method: 'POST' });
+      renderProfile(main);
+    };
+  }
+  const ghSyncBtn = document.getElementById('google-health-sync');
+  if (ghSyncBtn) {
+    ghSyncBtn.onclick = async () => {
+      const statusEl = document.getElementById('google-health-sync-status');
+      statusEl.textContent = 'Syncing…';
+      try {
+        const res = await api('/connectors/google-health/sync', { method: 'POST' });
+        statusEl.textContent = res.error
+          ? `Sync failed: ${res.detail || res.error}`
+          : `Synced — imported ${res.imported} of ${res.checked} sessions, ${res.step_days_synced} day${res.step_days_synced === 1 ? '' : 's'} of steps.`;
+        renderProfile(main);
+      } catch (e) { statusEl.textContent = 'Sync failed.'; }
+    };
+  }
+  const ghDisconnectBtn = document.getElementById('google-health-disconnect');
+  if (ghDisconnectBtn) {
+    ghDisconnectBtn.onclick = async () => {
+      await api('/connectors/google-health/disconnect', { method: 'POST' });
       renderProfile(main);
     };
   }
@@ -5291,12 +5333,15 @@ function consumeSignedInRedirectParams() {
   const linked = params.get('linked');
   const oauthError = params.get('oauth_error');
   const stravaError = params.get('strava_error');
-  if (!connected && !linked && !oauthError && !stravaError) return;
+  const googleHealthError = params.get('google_health_error');
+  if (!connected && !linked && !oauthError && !stravaError && !googleHealthError) return;
   let message = null, isError = false;
   if (connected === 'strava') message = 'Strava connected — syncing your activities.';
+  if (connected === 'google_health') message = 'Google Health connected — syncing your steps and activities.';
   if (linked) message = `Linked ${linked.charAt(0).toUpperCase() + linked.slice(1)} account.`;
   if (oauthError) { message = OAUTH_ERROR_MESSAGES[oauthError] || 'Sign-in failed — please try again.'; isError = true; }
   if (stravaError) { message = 'Strava connection failed — please try again.'; isError = true; }
+  if (googleHealthError) { message = 'Google Health connection failed — please try again.'; isError = true; }
   history.replaceState(null, '', location.pathname);
   showToast(message, isError);
 }

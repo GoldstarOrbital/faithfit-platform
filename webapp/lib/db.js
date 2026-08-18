@@ -219,6 +219,21 @@ addGroupCol('username', 'username TEXT');
 addGroupCol('announcement', 'announcement TEXT');
 addGroupCol('announcement_at', 'announcement_at TEXT');
 addGroupCol('announcement_by', 'announcement_by TEXT');
+
+// Daily step totals from a connected Google Health account. Deliberately its
+// own small table rather than a repurposed row in biometric_samples: that
+// table is exclusively per-workout heart-rate streaming (every existing
+// query on it filters or joins by workout_id), and a daily step total with
+// no workout has no honest workout_id to carry.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS google_health_daily_steps (
+    user_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    steps INTEGER NOT NULL,
+    synced_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, date)
+  );
+`);
 addGroupCol('creator_id', 'creator_id TEXT');
 addGroupCol('church_osm_id', 'church_osm_id TEXT');
 addGroupCol('church_name', 'church_name TEXT');
