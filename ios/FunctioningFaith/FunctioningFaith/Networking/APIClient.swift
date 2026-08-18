@@ -213,6 +213,29 @@ final class APIClient {
         let _: WorkoutStopResponse = try await request("/api/workouts/\(id.uuidString)/stop", method: "POST", body: WorkoutStop(gpsPoints: gpsPoints))
     }
 
+    /// Uploads Apple Health-sourced workouts and daily step totals. The
+    /// native client is already on an authenticated session cookie, so this
+    /// is a plain POST — no OAuth handshake the way Strava/Google Health need
+    /// one, since HealthKit data never leaves the device except through this
+    /// call the member's own app makes.
+    func syncAppleHealth(_ payload: SyncPayload) async throws -> SyncResult {
+        if useMock { return SyncResult(imported: 0, checked: 0, stepDaysSynced: 0) }
+        let body = AppleHealthSyncBody(
+            workouts: payload.workouts.map { w in
+                AppleHealthSyncBody.Workout(
+                    externalID: w.externalID, activityType: w.activityType,
+                    startTime: ISO8601DateFormatter().string(from: w.startTime),
+                    endTime: ISO8601DateFormatter().string(from: w.endTime),
+                    durationSec: w.durationSec, calories: w.calories,
+                    distanceMeters: w.distanceMeters, avgHeartRate: w.avgHeartRate
+                )
+            },
+            dailySteps: payload.dailySteps.map { AppleHealthSyncBody.DailySteps(date: $0.date, steps: $0.steps) }
+        )
+        let response: AppleHealthSyncResponse = try await request("/api/connectors/apple-health/sync", method: "POST", body: body)
+        return SyncResult(imported: response.imported, checked: response.checked, stepDaysSynced: response.stepDaysSynced)
+    }
+
     func deleteAccount() async throws {
         if useMock { return }
         let _: AuthResponse = try await request("/api/me", method: "DELETE")
@@ -335,6 +358,36 @@ private struct NativeAppleAuthResponse: Decodable {
 }
 private struct WorkoutStartResponse: Decodable { let id: UUID }
 private struct WorkoutStopResponse: Decodable { let id: UUID }
+
+private struct AppleHealthSyncBody: Encodable {
+    struct Workout: Encodable {
+        let externalID: String
+        let activityType: String
+        let startTime: String
+        let endTime: String
+        let durationSec: Int
+        let calories: Int?
+        let distanceMeters: Double?
+        let avgHeartRate: Int?
+        enum CodingKeys: String, CodingKey {
+            case externalID = "external_id", activityType = "activity_type"
+            case startTime = "start_time", endTime = "end_time"
+            case durationSec = "duration_sec", calories
+            case distanceMeters = "distance_meters", avgHeartRate = "avg_heart_rate"
+        }
+    }
+    struct DailySteps: Encodable { let date: String; let steps: Int }
+    let workouts: [Workout]
+    let dailySteps: [DailySteps]
+    enum CodingKeys: String, CodingKey { case workouts; case dailySteps = "daily_steps" }
+}
+
+private struct AppleHealthSyncResponse: Decodable {
+    let imported: Int
+    let checked: Int
+    let stepDaysSynced: Int
+    enum CodingKeys: String, CodingKey { case imported, checked; case stepDaysSynced = "step_days_synced" }
+}
 
 struct PulseEncouragementResponse: Decodable {
     let encouraged: Bool

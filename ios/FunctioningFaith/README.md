@@ -54,6 +54,38 @@ Developer portal and verified on a signed device build.
 - All interactive elements have `.accessibilityLabel` and meet the 44x44pt minimum tap target.
 - Contrast targets WCAG AA (verify with Xcode's Accessibility Inspector before ship).
 
+## Apple Health / Watch / wearable sync
+
+`Networking/HealthKitManager.swift` reads workouts, step counts, and
+workout-window heart rate from HealthKit — the one integration point that
+reaches Apple Watch and any third-party wearable that writes into Health
+(Fitbit, Garmin, Oura, and others all sync through it). Deliberately
+read-only: the app never writes to a member's Health data, and the
+authorization request asks for exactly the three types actually queried, not
+a broader set — over-asking Health access beyond what's used is a named
+App Review rejection cause (Guideline 5.1.1), not just good practice.
+Requires the `com.apple.developer.healthkit` entitlement (added to
+`FunctioningFaith.entitlements`) and `NSHealthShareUsageDescription` (added
+to `Info.plist`); enable the HealthKit capability for the real App ID in the
+Apple Developer portal before archiving, the same way Sign in with Apple
+already needs to be.
+
+Synced workouts and daily step totals POST to `/api/connectors/apple-health/sync`
+on the existing backend, which re-validates every field server-side (activity
+type against the same whitelist the rest of the app uses, dates, numeric
+ranges) rather than trusting the client, and de-duplicates by HealthKit's own
+per-sample UUID the same way the web app's Strava and Google Health
+connectors de-duplicate by their own providers' activity ids.
+
+**Not verified by an actual build or device run** — no Mac/Xcode available in
+the environment this was written in. The two APIs most likely to need a
+second look against a real SDK: `HKQuantityType.quantityType(forIdentifier:)`
+(used instead of the newer typed-literal initializer specifically because it
+has been stable since iOS 8 and doesn't risk an SDK-availability mismatch
+this environment can't check) and `HKStatisticsCollectionQuery`'s closure
+signatures. Verify with a real build before shipping, the same as every other
+native capability in this project per the checklist below.
+
 ## TestFlight and App Store release checks
 
 - Native registration sends the same date-of-birth, Terms acceptance, and password-policy fields required by the production API. Verify a fresh-account path against the production environment before upload.

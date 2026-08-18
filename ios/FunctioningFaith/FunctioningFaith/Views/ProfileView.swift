@@ -3,6 +3,7 @@ import SwiftUI
 struct ProfileView: View {
     @EnvironmentObject private var session: NativeSession
     @EnvironmentObject private var biometricLock: BiometricLock
+    @StateObject private var healthKit = HealthKitManager.shared
     @AppStorage("security.biometricLock") private var biometricLockEnabled = false
     @AppStorage("notifications.scripture") private var scriptureNotifications = false
     @AppStorage("notifications.community") private var communityNotifications = false
@@ -10,6 +11,7 @@ struct ProfileView: View {
     @State private var profile: UserProfile?
     @State private var biometricConsent = false
     @State private var scripturePersonalization = false
+    @State private var healthKitSyncing = false
 
     var body: some View {
         Form {
@@ -24,9 +26,45 @@ struct ProfileView: View {
                     }
                 }
             }
-            Section("Connected Devices") {
-                Text("Apple Watch (HealthKit)")
-                Text("Add device…")
+            Section {
+                if !healthKit.isAvailable {
+                    Text("Health data isn't available on this device.")
+                        .foregroundStyle(.secondary)
+                } else if healthKit.authorizationRequested {
+                    if let lastSyncedAt = healthKit.lastSyncedAt {
+                        Text("Last synced \(lastSyncedAt.formatted(.relative(presentation: .named)))")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Connected — not yet synced")
+                            .foregroundStyle(.secondary)
+                    }
+                    Button {
+                        Task {
+                            healthKitSyncing = true
+                            await healthKit.syncRecentWorkouts { payload in
+                                try await APIClient.shared.syncAppleHealth(payload)
+                            }
+                            healthKitSyncing = false
+                        }
+                    } label: {
+                        if healthKitSyncing { ProgressView() } else { Text("Sync now") }
+                    }
+                    .disabled(healthKitSyncing)
+                    if let error = healthKit.lastSyncError {
+                        Text(error).font(.caption).foregroundStyle(.red)
+                    }
+                } else {
+                    Button("Connect Apple Health") {
+                        Task {
+                            do { try await healthKit.requestAuthorization() }
+                            catch { /* surfaced via lastSyncError on next sync attempt */ }
+                        }
+                    }
+                }
+            } header: {
+                Text("Apple Health & Watch")
+            } footer: {
+                Text("Reads workouts, step counts, and workout heart rate from Health — from your Apple Watch or any other app that writes into it (Fitbit, Garmin, Oura, and others all sync through Health). Functioning Faith never writes to your Health data.")
             }
             Section("Privacy") {
                 Toggle("Share biometrics for workout tracking", isOn: $biometricConsent)

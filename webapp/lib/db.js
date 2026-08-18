@@ -234,6 +234,21 @@ db.exec(`
     PRIMARY KEY (user_id, date)
   );
 `);
+
+// Same shape as google_health_daily_steps, kept as its own table rather than
+// merged: a step count synced from Apple Health (Watch, iPhone, or any
+// wearable that writes into it) is a genuinely different provenance than one
+// synced from Google Health, and collapsing the two would make it impossible
+// to tell -- or correctly de-duplicate -- a member who has both connected.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS apple_health_daily_steps (
+    user_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    steps INTEGER NOT NULL,
+    synced_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, date)
+  );
+`);
 addGroupCol('creator_id', 'creator_id TEXT');
 addGroupCol('church_osm_id', 'church_osm_id TEXT');
 addGroupCol('church_name', 'church_name TEXT');

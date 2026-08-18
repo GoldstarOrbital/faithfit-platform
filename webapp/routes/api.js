@@ -734,6 +734,65 @@ async function syncGoogleHealthForUser(userId) {
   return { imported, checked, step_days_synced: stepDays };
 }
 
+// ---- Apple Health sync (native iOS app only). ----
+// HealthKit data never leaves the device except through the native app's own
+// authenticated session -- there is no OAuth handshake the way Strava/Google
+// Health need one, so this is a plain authenticated POST, not a connector
+// with a /start redirect. The native client (ios/FunctioningFaith) already
+// maps HKWorkoutActivityType to this app's own vocabulary and only reads
+// (never writes) HealthKit data; this route re-validates rather than
+// trusting the client blindly, the same way every other user-submitted
+// number in this API is bounds-checked before being stored.
+const APPLE_HEALTH_MAX_BATCH = 200;
+router.post('/connectors/apple-health/sync', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const body = req.body || {};
+  const workouts = Array.isArray(body.workouts) ? body.workouts.slice(0, APPLE_HEALTH_MAX_BATCH) : [];
+  const dailySteps = Array.isArray(body.daily_steps) ? body.daily_steps.slice(0, 90) : [];
+
+  let stepDays = 0;
+  const upsertSteps = db.prepare(`INSERT INTO apple_health_daily_steps (user_id, date, steps, synced_at) VALUES (?, ?, ?, datetime('now'))
+    ON CONFLICT(user_id, date) DO UPDATE SET steps = excluded.steps, synced_at = datetime('now')`);
+  for (const d of dailySteps) {
+    const date = String(d?.date || '');
+    const steps = Math.round(Number(d?.steps));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(steps) || steps < 0 || steps > 200000) continue; // 200k/day is already an absurd upper bound, not a real cap
+    upsertSteps.run(uid, date, steps);
+    stepDays++;
+  }
+
+  let imported = 0, checked = 0;
+  for (const w of workouts) {
+    checked++;
+    const externalId = String(w?.externalID || w?.external_id || '');
+    const startTime = w?.startTime || w?.start_time;
+    const endTime = w?.endTime || w?.end_time;
+    if (!externalId || !startTime || !endTime || isNaN(Date.parse(startTime)) || isNaN(Date.parse(endTime))) continue;
+    const already = db.prepare('SELECT 1 FROM imported_activities WHERE provider = ? AND external_id = ?').get('apple_health', externalId);
+    if (already) continue;
+
+    const rawType = w?.activityType || w?.activity_type;
+    const type = ACTIVITY_SET.has(rawType) ? rawType : 'Workout'; // never trust an arbitrary client-supplied type string into a column other code assumes is from ACTIVITY_TYPES
+    const durationSec = Math.max(0, Math.round((Date.parse(endTime) - Date.parse(startTime)) / 1000));
+    const calories = Number.isFinite(Number(w?.calories)) && Number(w.calories) >= 0 ? Math.round(Number(w.calories)) : null;
+    const avgHr = Number.isFinite(Number(w?.avgHeartRate ?? w?.avg_heart_rate)) ? Math.round(Number(w.avgHeartRate ?? w.avg_heart_rate)) : null;
+    const distanceKm = Number.isFinite(Number(w?.distanceMeters ?? w?.distance_meters)) && Number(w.distanceMeters ?? w.distance_meters) > 0
+      ? +(Number(w.distanceMeters ?? w.distance_meters) / 1000).toFixed(2) : null;
+
+    const workoutId = randomUUID();
+    db.prepare(`INSERT INTO workouts (id, user_id, type, start_time, end_time, calories, avg_hr, distance_km, duration_sec, note, source)
+                VALUES (?,?,?,?,?,?,?,?,?,?, 'apple_health')`)
+      .run(workoutId, uid, type, new Date(startTime).toISOString(), new Date(endTime).toISOString(), calories, avgHr, distanceKm, durationSec, 'Synced from Apple Health');
+    db.prepare('INSERT INTO imported_activities (id, user_id, provider, external_id, workout_id) VALUES (?,?,?,?,?)')
+      .run(randomUUID(), uid, 'apple_health', externalId, workoutId);
+
+    publish('workout.completed', { user_id: uid, workout_id: workoutId, calories: calories || 0, avg_hr: avgHr });
+    imported++;
+  }
+
+  res.json({ ok: true, imported, checked, step_days_synced: stepDays });
+});
+
 router.post('/connectors/:provider/disconnect', requireAuth, (req, res) => {
   db.prepare('DELETE FROM user_connectors WHERE user_id = ? AND provider = ?').run(req.session.userId, req.params.provider);
   accountSecurity.audit(req.session.userId, 'connector_disconnected', req, { provider: req.params.provider });
@@ -3189,7 +3248,7 @@ router.delete('/me', requireAuth, (req, res) => {
   const uid = req.session.userId;
   if (!db.prepare('SELECT id FROM users WHERE id = ?').get(uid)) return res.status(404).json({ error: 'account_not_found' });
   const userTables = [
-    'user_consents', 'workouts', 'biometric_samples', 'google_health_daily_steps', 'scripture_triggers', 'user_xp',
+    'user_consents', 'workouts', 'biometric_samples', 'google_health_daily_steps', 'apple_health_daily_steps', 'scripture_triggers', 'user_xp',
     'saved_verses', 'user_badges', 'user_quests', 'notifications', 'post_comments', 'comment_likes', 'post_likes', 'post_saves',
     'stories',
     'breathing_sessions', 'user_challenges', 'user_identities', 'user_connectors',
@@ -3284,6 +3343,7 @@ router.get('/me/export', requireAuth, (req, res) => {
     workouts: db.prepare('SELECT * FROM workouts WHERE user_id = ?').all(uid),
     biometric_samples: db.prepare('SELECT * FROM biometric_samples WHERE user_id = ?').all(uid),
     google_health_daily_steps: db.prepare('SELECT * FROM google_health_daily_steps WHERE user_id = ?').all(uid),
+    apple_health_daily_steps: db.prepare('SELECT * FROM apple_health_daily_steps WHERE user_id = ?').all(uid),
     posts: db.prepare('SELECT * FROM posts WHERE user_id = ?').all(uid),
     comments: db.prepare('SELECT * FROM post_comments WHERE user_id = ?').all(uid),
     followers: db.prepare('SELECT follower_id FROM followers WHERE followee_id = ?').all(uid),
