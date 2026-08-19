@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">Functioning Faith</string>
-    <string name="title_activity_main">Functioning Faith</string>
-    <string name="package_name">app.functioningfaith.mobile</string>
-    <string name="custom_url_scheme">app.functioningfaith.mobile</string>
-</resources>

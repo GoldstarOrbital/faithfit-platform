@@ -80,9 +80,11 @@ function init() {
     );
     CREATE INDEX IF NOT EXISTS idx_push_log_user ON push_log(user_id, sent_at);
 
-    -- Native APNs/FCM device tokens, registered by public/native.js when the
-    -- app is running inside the Capacitor wrapper (see capacitor.config.json).
-    -- Kept in a separate table from push_subscriptions because a device token
+    -- Native APNs/FCM device tokens, registered by the real native app
+    -- (ios/FunctioningFaith's NotificationCoordinator, once it calls
+    -- POST /push/native-register -- see that file for current status) or a
+    -- future Android client. Kept in a separate table from push_subscriptions
+    -- because a device token
     -- is not a Web Push subscription: it has no p256dh/auth keypair, and
     -- delivering to it needs a different transport entirely.
     --

@@ -5,7 +5,7 @@
  */
 'use strict';
 
-const SHELL_CACHE = 'functioning-faith-shell-v42';
+const SHELL_CACHE = 'functioning-faith-shell-v43';
 const SHELL = [
   '/',
   '/styles.css?v=ff-googlehealth-1',
@@ -17,7 +17,6 @@ const SHELL = [
   '/easter-eggs.js?v=ff-polish-20',
   '/intro-sound.js?v=ff-polish-20',
   '/app-intro.js?v=ff-polish-20',
-  '/native.js?v=ff-polish-20',
   '/farewell.js?v=ff-polish-20',
   '/pause-moment.js?v=ff-polish-20',
   '/visual-polish.js?v=ff-polish-20',
