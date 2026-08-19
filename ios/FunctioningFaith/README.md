@@ -86,6 +86,43 @@ this environment can't check) and `HKStatisticsCollectionQuery`'s closure
 signatures. Verify with a real build before shipping, the same as every other
 native capability in this project per the checklist below.
 
+## Direct messages (end-to-end encrypted)
+
+`Networking/E2ECrypto.swift`, `DMStore.swift`, and `Views/DMInboxView.swift` /
+`DMConversationView.swift` port the web app's E2E-encrypted DMs natively --
+new "Messages" tab in `RootTabView`.
+
+This had to interoperate byte-for-byte with `public/e2e-crypto.js`, not just
+implement "ECDH + AES-GCM some way." The one subtlety that actually matters:
+WebCrypto's ECDH `deriveKey` uses the RAW shared secret (the x-coordinate of
+the ECDH point) directly as AES key material -- no HKDF. CryptoKit's
+`SharedSecret` has an `hkdfDerivedSymmetricKey` convenience most sample code
+reaches for; using it here would derive a different key than the browser
+does, and cross-platform messages would fail to decrypt with no error until
+someone noticed. `E2ECrypto.sharedKey` uses the raw bytes instead, on
+purpose -- see the comment there. JWK export/import needed the same care:
+base64url (not standard base64) per RFC 7518, and a real JWK published by
+the web client carries `ext`/`key_ops` fields alongside kty/crv/x/y that a
+naive `[String: String]` decode chokes on (a JSON boolean and array can't
+decode as String) -- caught in review before it shipped, would otherwise
+have made every key published from the website silently undecryptable here.
+
+Private keys live in Keychain, scoped per account id, matching the web
+client's per-account localStorage scoping (so signing into a second account
+on the same device can't reuse and republish the first account's keypair).
+Encryption is automatic whenever a shared key can be derived -- not a
+user-facing toggle -- exactly matching the web client's own logic, with a
+plaintext fallback when either side has no key on file yet.
+
+**Not verified against a live cross-platform exchange.** Everything above is
+reasoned from the real WebCrypto spec and CryptoKit's documented behavior,
+with no way to run both a browser and this Swift code together in this
+environment. Before trusting this in production: send a message from the
+native app, confirm it decrypts correctly when the same thread is opened on
+the website, and the reverse. This is the single highest-risk piece of the
+whole native port to leave unverified -- a silent decrypt failure looks
+identical to "nothing's wrong" until someone actually reads a message.
+
 ## TestFlight and App Store release checks
 
 - Native registration sends the same date-of-birth, Terms acceptance, and password-policy fields required by the production API. Verify a fresh-account path against the production environment before upload.

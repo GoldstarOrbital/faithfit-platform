@@ -89,6 +89,46 @@ struct UserProfile: Codable, Identifiable {
     let badges: [Badge]
 }
 
+// ---- Direct messages ----
+
+struct DMThreadPreview: Identifiable {
+    let threadID: String
+    let otherUserID: UUID
+    let otherName: String
+    let otherHasAvatar: Bool
+    /// nil for an e2e thread the inbox list didn't decrypt (see DMStore) or a
+    /// thread with no messages yet -- never a placeholder string standing in
+    /// for real content.
+    let previewText: String?
+    let lastKind: String
+    let lastFromMe: Bool
+    let lastMessageAt: Date?
+    let unread: Int
+    var id: String { threadID }
+}
+
+struct DMMessage: Identifiable {
+    let id: String
+    /// Decrypted (or always-plaintext, for kind "text"/"verse") body ready to
+    /// display. Never the raw ciphertext -- DMStore only ever hands out
+    /// messages it already decrypted or determined don't need decryption.
+    let body: String
+    let kind: String
+    let fromMe: Bool
+    let createdAt: Date
+    let read: Bool
+    let verseReference: String?
+}
+
+struct DMConversation {
+    let threadID: String
+    let otherUserID: UUID
+    let otherName: String
+    let otherHasAvatar: Bool
+    let blocked: Bool
+    let messages: [DMMessage]
+}
+
 struct NativeAuthProvider: Codable, Identifiable {
     let name: String
     let label: String

@@ -289,6 +289,60 @@ final class APIClient {
         let _: ActionResponse = try await request("/api/users/\(id.uuidString)/block", method: "POST", body: EmptyBody())
     }
 
+    func unblockUser(id: UUID) async throws {
+        if useMock { return }
+        let _: ActionResponse = try await request("/api/users/\(id.uuidString)/block", method: "DELETE")
+    }
+
+    // MARK: - Direct messages
+    // Raw wire shapes only -- decryption of e2e-kind bodies happens in
+    // DMStore, which owns the crypto layer. Keeping APIClient a pure
+    // networking client (no E2ECrypto import here) mirrors the web app's own
+    // separation between api.js and e2e-crypto.js.
+
+    func fetchDMInbox() async throws -> (threads: [DMThreadDTO], unread: Int) {
+        if useMock { return ([], 0) }
+        let r: DMInboxResponse = try await request("/api/dms")
+        return (r.threads, r.unread)
+    }
+
+    func openDMThread(withUserID id: UUID) async throws -> (threadID: String, otherName: String) {
+        if useMock { return ("mock-thread", "Preview User") }
+        let r: DMOpenResponse = try await request("/api/dms/with/\(id.uuidString)", method: "POST", body: EmptyBody())
+        return (r.threadID, r.user.displayName)
+    }
+
+    func fetchDMThread(id: String) async throws -> DMThreadDTO {
+        if useMock { throw APIError.invalidResponse }
+        return try await request("/api/dms/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)")
+    }
+
+    /// `plaintextForServerScan` is sent only for non-e2e messages, so the
+    /// server's link-safety scan (which cannot and must not see inside real
+    /// ciphertext) still runs on ordinary text. For an e2e message, `body` is
+    /// already the ciphertext blob and the scan is skipped server-side.
+    func sendDM(threadID: String, body: String, isE2E: Bool) async throws -> DMMessageDTO {
+        if useMock { throw APIError.invalidResponse }
+        let r: DMSendResponse = try await request(
+            "/api/dms/\(threadID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? threadID)",
+            method: "POST", body: DMSendBody(body: body, e2e: isE2E)
+        )
+        return r.message
+    }
+
+    func publishE2EPublicKey(_ jwk: [String: String]) async throws {
+        if useMock { return }
+        let _: ActionResponse = try await request("/api/dms/keys", method: "POST", body: E2EKeyBody(publicKey: jwk))
+    }
+
+    /// nil when that person hasn't published a key yet (never sent an
+    /// encrypted message, or is on an old client version).
+    func fetchE2EPublicKey(userID: UUID) async throws -> [String: String]? {
+        if useMock { return nil }
+        let r: E2EKeyResponse = try await request("/api/dms/keys/\(userID.uuidString)")
+        return r.publicKey?.asStringDict
+    }
+
     private func request<T: Decodable>(_ path: String, method: String = "GET") async throws -> T {
         try await request(path, method: method, body: Optional<EmptyBody>.none)
     }
@@ -358,6 +412,93 @@ private struct NativeAppleAuthResponse: Decodable {
 }
 private struct WorkoutStartResponse: Decodable { let id: UUID }
 private struct WorkoutStopResponse: Decodable { let id: UUID }
+
+// MARK: - DM wire types (field names match lib/dms.js's real response shapes exactly)
+
+struct DMThreadDTO: Decodable {
+    struct OtherUser: Decodable {
+        let id: UUID
+        let displayName: String
+        let hasAvatar: Bool
+        enum CodingKeys: String, CodingKey { case id; case displayName = "display_name"; case hasAvatar = "has_avatar" }
+    }
+    let threadID: String
+    let user: OtherUser
+    // Inbox-list fields (present on GET /dms, absent on GET /dms/:id):
+    let lastBody: String?
+    let lastKind: String?
+    let lastFromMe: Bool?
+    let lastMessageAt: String?
+    let unread: Int?
+    // Thread-detail fields (present on GET /dms/:id, absent on GET /dms):
+    let blocked: Bool?
+    let messages: [DMMessageDTO]?
+
+    enum CodingKeys: String, CodingKey {
+        case threadID = "thread_id", user
+        case lastBody = "last_body", lastKind = "last_kind", lastFromMe = "last_from_me"
+        case lastMessageAt = "last_message_at", unread
+        case blocked, messages
+    }
+}
+
+struct DMMessageDTO: Decodable {
+    let id: String
+    let body: String
+    let kind: String
+    let fromMe: Bool
+    let createdAt: String
+    let read: Bool
+    let metadata: [String: JSONValue]?
+
+    enum CodingKeys: String, CodingKey { case id, body, kind; case fromMe = "from_me"; case createdAt = "created_at"; case read, metadata }
+}
+
+/// Minimal decode-anything box for `metadata`, whose shape varies by message
+/// kind (a verse share carries {reference,text,share_url}; other kinds carry
+/// other fields). Only `reference` is actually read today.
+enum JSONValue: Decodable {
+    case string(String), number(Double), bool(Bool), null, object([String: JSONValue]), array([JSONValue])
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let v = try? c.decode(String.self) { self = .string(v) }
+        else if let v = try? c.decode(Double.self) { self = .number(v) }
+        else if let v = try? c.decode(Bool.self) { self = .bool(v) }
+        else if let v = try? c.decode([String: JSONValue].self) { self = .object(v) }
+        else if let v = try? c.decode([JSONValue].self) { self = .array(v) }
+        else { self = .null }
+    }
+    var stringValue: String? { if case .string(let s) = self { return s }; return nil }
+}
+
+private struct DMInboxResponse: Decodable { let threads: [DMThreadDTO]; let unread: Int }
+private struct DMOpenResponse: Decodable {
+    let threadID: String
+    struct U: Decodable { let id: UUID; let displayName: String; enum CodingKeys: String, CodingKey { case id; case displayName = "display_name" } }
+    let user: U
+    enum CodingKeys: String, CodingKey { case threadID = "thread_id", user }
+}
+private struct DMSendBody: Encodable { let body: String; let e2e: Bool }
+private struct DMSendResponse: Decodable { let message: DMMessageDTO }
+private struct E2EKeyBody: Encodable { let publicKey: [String: String]; enum CodingKeys: String, CodingKey { case publicKey = "public_key" } }
+
+/// A real JWK published by the web client carries `ext`/`key_ops` fields
+/// alongside kty/crv/x/y (WebCrypto's `exportKey('jwk', ...)` always includes
+/// them). Only kty/crv/x/y are ever read here, but the struct must still be
+/// ABLE to decode a payload containing the extra fields -- Decodable ignores
+/// keys it has no property for, so listing only the four needed fields is
+/// exactly what makes that work. A `[String: String]` dictionary would not:
+/// `ext` decodes as a JSON boolean and `key_ops` as an array, so decoding the
+/// whole object as all-String values would throw, and every key published
+/// from the website would silently fail to decode on this client.
+private struct JWKDTO: Decodable {
+    let kty: String, crv: String, x: String, y: String
+    var asStringDict: [String: String] { ["kty": kty, "crv": crv, "x": x, "y": y] }
+}
+private struct E2EKeyResponse: Decodable {
+    let publicKey: JWKDTO?
+    enum CodingKeys: String, CodingKey { case publicKey = "public_key" }
+}
 
 private struct AppleHealthSyncBody: Encodable {
     struct Workout: Encodable {
