@@ -92,6 +92,8 @@ const webhookTestWindow = new Map();
 const dmRateWindow = new Map();
 const commentRateWindow = new Map();
 const churchSearchWindow = new Map();
+const demoAuthWindow = new Map();
+const churchVideosWindow = new Map();
 
 // ---- auth: real email + password accounts (scrypt-hashed). ----
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -370,6 +372,9 @@ router.post('/auth/logout', (req, res) => {
 // explore a populated app instantly — clearly optional demo content, not the
 // primary way to use Functioning Faith. Only works for the pre-seeded demo emails.
 router.post('/auth/demo', (req, res) => {
+  if (!allowWindow(demoAuthWindow, `demo:${req.ip}`, 20, 60 * 1000)) {
+    return res.status(429).json({ error: 'too_many_attempts' });
+  }
   const { user_id } = req.body || {};
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(user_id);
   if (!user || !isDemoLoginEmail(user.email)) return res.status(404).json({ error: 'demo_user_not_found' });
@@ -902,6 +907,9 @@ router.get('/auth/demo-users', (req, res) => {
 // Back-compat: the old demo picker POSTed here. Route it through the demo path so
 // existing sessions/clients keep working, but restrict to seeded demo accounts.
 router.post('/session', (req, res) => {
+  if (!allowWindow(demoAuthWindow, `session:${req.ip}`, 20, 60 * 1000)) {
+    return res.status(429).json({ error: 'too_many_attempts' });
+  }
   const { user_id } = req.body || {};
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(user_id);
   if (!user || !isDemoLoginEmail(user.email)) return res.status(404).json({ error: 'user_not_found' });
@@ -5527,6 +5535,9 @@ router.post('/churches/:osmId/auto-link', requireAuth, requireVerifiedChurchAdmi
 // The current user's church's recent videos, for the home feed.
 // Always HTTP 200 — an empty list is a normal, honest answer.
 router.get('/church/videos', requireAuth, async (req, res) => {
+  if (!allowWindow(churchVideosWindow, `church-videos:${req.session.userId}`, 60, 60 * 1000)) {
+    return res.status(429).json({ error: 'too_many_requests' });
+  }
   const me = db.prepare('SELECT email, church_osm_id, church_name, church FROM users WHERE id = ?').get(req.session.userId);
   if (!me) return res.json({ videos: [], source: 'none', church_name: null });
   const churchName = me.church_name || me.church || null;
