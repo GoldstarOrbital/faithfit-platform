@@ -12,6 +12,7 @@ struct ProfileView: View {
     @State private var biometricConsent = false
     @State private var scripturePersonalization = false
     @State private var healthKitSyncing = false
+    @State private var pendingFollowRequests = 0
 
     var body: some View {
         Form {
@@ -71,6 +72,21 @@ struct ProfileView: View {
                 Toggle("Personalize scripture with my biometrics", isOn: $scripturePersonalization)
                     .disabled(!biometricConsent)
             }
+            Section("Safety & community") {
+                NavigationLink("Trusted circle") { CircleView() }
+                NavigationLink {
+                    FollowRequestsView()
+                } label: {
+                    HStack {
+                        Text("Follow requests")
+                        if pendingFollowRequests > 0 {
+                            Spacer()
+                            Text("\(pendingFollowRequests)").foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                NavigationLink("Muted, restricted & blocked") { SafetyView() }
+            }
             Section("Sign-in security") {
                 Toggle("Require Face ID, Touch ID, or device passcode", isOn: $biometricLockEnabled)
                     .onChange(of: biometricLockEnabled) { oldValue, enabled in
@@ -110,6 +126,7 @@ struct ProfileView: View {
             } else {
                 profile = try? await APIClient.shared.fetchProfile()
             }
+            pendingFollowRequests = (try? await APIClient.shared.fetchFollowRequests().count) ?? 0
         }
         .confirmationDialog("Delete your Functioning Faith account?", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete permanently", role: .destructive) {

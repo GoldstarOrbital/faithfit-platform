@@ -175,6 +175,60 @@ struct ActivityBreakdownEntry: Decodable, Identifiable {
     enum CodingKeys: String, CodingKey { case type, count; case distanceKm = "distance_km"; case durationMin = "duration_min"; case calories }
 }
 
+// ---- Safety: mute / restrict / block, trusted circle, follow requests ----
+
+struct RelationshipUser: Decodable, Identifiable {
+    let userID: String
+    let control: String // "mute" | "restrict" | "block"
+    let createdAt: String
+    let displayName: String
+    let hasAvatar: Bool
+    var id: String { userID + control }
+    enum CodingKeys: String, CodingKey {
+        case userID = "user_id", control; case createdAt = "created_at"
+        case displayName = "display_name"; case hasAvatar = "has_avatar"
+    }
+}
+
+struct RelationshipsResponse: Decodable {
+    let muted: [RelationshipUser]
+    let restricted: [RelationshipUser]
+    let blocked: [RelationshipUser]
+}
+
+struct CircleMember: Decodable, Identifiable {
+    let userID: String
+    let displayName: String
+    let hasAvatar: Bool
+    var id: String { userID }
+    enum CodingKeys: String, CodingKey { case userID = "user_id"; case displayName = "display_name"; case hasAvatar = "has_avatar" }
+}
+
+struct CircleCandidate: Decodable, Identifiable {
+    let userID: String
+    let displayName: String
+    let hasAvatar: Bool
+    let inCircle: Bool
+    var id: String { userID }
+    enum CodingKeys: String, CodingKey {
+        case userID = "user_id"; case displayName = "display_name"
+        case hasAvatar = "has_avatar"; case inCircle = "in_circle"
+    }
+}
+
+struct FollowRequestUser: Decodable, Identifiable {
+    let userID: String
+    let createdAt: String
+    let displayName: String
+    let bioVerseRef: String?
+    let hasAvatar: Bool
+    var id: String { userID }
+    enum CodingKeys: String, CodingKey {
+        case userID = "user_id"; case createdAt = "created_at"; case displayName = "display_name"
+        case bioVerseRef = "bio_verse_ref"; case hasAvatar = "has_avatar"
+    }
+}
+
 // ---- Notifications ----
 
 /// The server stores display text inside `payload` (a JSON string column,

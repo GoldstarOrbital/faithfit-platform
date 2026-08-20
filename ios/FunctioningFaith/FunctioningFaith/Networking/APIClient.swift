@@ -367,6 +367,62 @@ final class APIClient {
         return r.records
     }
 
+    // MARK: - Safety: mute / restrict, trusted circle, follow requests
+
+    func fetchRelationships() async throws -> RelationshipsResponse {
+        if useMock { return RelationshipsResponse(muted: [], restricted: [], blocked: []) }
+        return try await request("/api/me/relationships")
+    }
+
+    /// `control` is "mute" or "restrict" -- matches the server's shared
+    /// route `PUT/DELETE /users/:id/:control(mute|restrict)` exactly.
+    func setRelationshipControl(userID: String, control: String, on: Bool) async throws {
+        if useMock { return }
+        let path = "/api/users/\(userID)/\(control)"
+        let _: ActionResponse = on
+            ? try await request(path, method: "PUT", body: EmptyBody())
+            : try await request(path, method: "DELETE")
+    }
+
+    func fetchCircle() async throws -> [CircleMember] {
+        if useMock { return [] }
+        let r: CircleResponse = try await request("/api/circle")
+        return r.members
+    }
+
+    func fetchCircleCandidates() async throws -> [CircleCandidate] {
+        if useMock { return [] }
+        let r: CircleCandidatesResponse = try await request("/api/circle/candidates")
+        return r.candidates
+    }
+
+    func setCircleMembership(userID: String, inCircle: Bool) async throws {
+        if useMock { return }
+        let path = "/api/circle/\(userID)"
+        let _: ActionResponse = inCircle
+            ? try await request(path, method: "PUT", body: EmptyBody())
+            : try await request(path, method: "DELETE")
+    }
+
+    func fetchFollowRequests() async throws -> [FollowRequestUser] {
+        if useMock { return [] }
+        let r: FollowRequestsResponse = try await request("/api/follow-requests")
+        return r.requests
+    }
+
+    /// `decision` is "accept" or "decline".
+    func decideFollowRequest(requesterID: String, decision: String) async throws {
+        if useMock { return }
+        let _: ActionResponse = try await request("/api/follow-requests/\(requesterID)/\(decision)", method: "POST", body: EmptyBody())
+    }
+
+    func checkUsernameAvailable(_ name: String) async throws -> UsernameCheckResult {
+        guard let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            throw APIError.invalidResponse
+        }
+        return try await request("/api/username-available?name=\(encoded)")
+    }
+
     // MARK: - Notifications
 
     func fetchNotifications() async throws -> NotificationsResponse {
@@ -552,6 +608,16 @@ private struct E2EKeyResponse: Decodable {
 }
 
 private struct RecordsResponse: Decodable { let records: [String: [PersonalRecord]] }
+private struct CircleResponse: Decodable { let members: [CircleMember]; let max: Int }
+private struct CircleCandidatesResponse: Decodable { let candidates: [CircleCandidate] }
+private struct FollowRequestsResponse: Decodable { let requests: [FollowRequestUser] }
+
+struct UsernameCheckResult: Decodable {
+    let available: Bool
+    let error: String?
+    let message: String?
+    let suggestion: String?
+}
 
 private struct AppleHealthSyncBody: Encodable {
     struct Workout: Encodable {
