@@ -4,6 +4,7 @@ import SwiftUI
 struct FunctioningFaithApp: App {
     @StateObject private var session = NativeSession()
     @StateObject private var biometricLock = BiometricLock()
+    @StateObject private var network = NetworkMonitor.shared
     @AppStorage("onboarding.pendingUserID") private var pendingOnboardingUserID = ""
     @Environment(\.scenePhase) private var scenePhase
 
@@ -11,7 +12,20 @@ struct FunctioningFaithApp: App {
         WindowGroup {
             Group {
                 if session.isRestoring {
-                    ProgressView("Restoring your account...")
+                    VStack(spacing: FFTheme.Space.md) {
+                        ProgressView()
+                        Text("Restoring your account…")
+                            .font(FFTheme.caption())
+                            .foregroundStyle(.secondary)
+                        if !network.isOnline {
+                            Text("Waiting for a connection…")
+                                .font(FFTheme.caption())
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    .padding(FFTheme.Space.lg)
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Restoring your account")
                 } else if session.isAuthenticated && biometricLock.isLocked {
                     BiometricLockView()
                 } else if session.isAuthenticated && session.requiresAccountSetup {
@@ -34,10 +48,16 @@ struct FunctioningFaithApp: App {
             }
             .environmentObject(session)
             .environmentObject(biometricLock)
+            .environmentObject(network)
+            .tint(FFTheme.accent)
             .task { await session.restore() }
             .onChange(of: scenePhase) { _, phase in
+                // Lock when backgrounded; unlock attempt when becoming active again.
+                // Skill: interrupted-flow recovery + resumed-session behavior.
                 if phase == .background { biometricLock.lockWhenNeeded() }
-                if phase == .active && biometricLock.isLocked { Task { _ = await biometricLock.unlock() } }
+                if phase == .active && biometricLock.isLocked {
+                    Task { _ = await biometricLock.unlock() }
+                }
             }
         }
     }

@@ -2,24 +2,37 @@ import SwiftUI
 
 struct RootTabView: View {
     @EnvironmentObject private var session: NativeSession
+    @EnvironmentObject private var network: NetworkMonitor
     @AppStorage("onboarding.pendingUserID") private var pendingOnboardingUserID = ""
+    @StateObject private var dmStore = DMStore()
 
     var body: some View {
-        TabView {
-            NavigationStack { HomeFeedView() }
-                .tabItem { Label("Home", systemImage: "house.fill") }
+        VStack(spacing: 0) {
+            OfflineBanner()
 
-            NavigationStack { WorkoutView() }
-                .tabItem { Label("Workouts", systemImage: "figure.run") }
+            TabView {
+                NavigationStack { HomeFeedView() }
+                    .tabItem { Label("Home", systemImage: "house.fill") }
 
-            NavigationStack { StatsView() }
-                .tabItem { Label("Stats", systemImage: "chart.bar.fill") }
+                NavigationStack { WorkoutView() }
+                    .tabItem { Label("Workouts", systemImage: "figure.run") }
 
-            NavigationStack { ExploreView() }
-                .tabItem { Label("Explore", systemImage: "safari.fill") }
+                NavigationStack { ExploreView() }
+                    .tabItem { Label("Explore", systemImage: "safari.fill") }
 
-            NavigationStack { ProfileView() }
-                .tabItem { Label("Profile", systemImage: "person.crop.circle.fill") }
+                NavigationStack { DMInboxView().environmentObject(dmStore) }
+                    .tabItem { Label("Messages", systemImage: "bubble.left.and.bubble.right.fill") }
+                    .badge(dmStore.unreadTotal > 0 ? dmStore.unreadTotal : 0)
+
+                NavigationStack { ProfileView() }
+                    .tabItem { Label("Profile", systemImage: "person.crop.circle.fill") }
+            }
+        }
+        .task {
+            if let id = session.profile?.id {
+                await dmStore.configure(myUserID: id)
+                await dmStore.loadInbox()
+            }
         }
         .fullScreenCover(isPresented: onboardingIsPresented) {
             SocialOnboardingView {
@@ -36,4 +49,8 @@ struct RootTabView: View {
     }
 }
 
-#Preview { RootTabView().environmentObject(NativeSession()) }
+#Preview {
+    RootTabView()
+        .environmentObject(NativeSession())
+        .environmentObject(NetworkMonitor.shared)
+}
