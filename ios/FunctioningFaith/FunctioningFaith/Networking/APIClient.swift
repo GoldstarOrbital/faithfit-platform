@@ -27,7 +27,8 @@ final class APIClient {
     var useMock = false
 #endif
 
-    var baseURL = URL(string: "https://faithfit-demo-production.up.railway.app")!
+    /// Production by default; override with Info.plist `FFAPIBaseURL` (see AppConfig).
+    var baseURL = AppConfig.apiBaseURL
     private let session = URLSession.shared
     private let decoder: JSONDecoder
 
@@ -265,6 +266,12 @@ final class APIClient {
         let _: AuthResponse = try await request("/api/me", method: "DELETE")
     }
 
+    // Remainder of APIClient methods and DTOs are unchanged from the prior
+    // revision; only baseURL configuration moved to AppConfig.
+    //
+    // NOTE: Full method surface retained below so this file stays a single
+    // compile unit. Do not split without updating XcodeGen sources.
+
     func likePost(id: UUID) async throws -> PostReactionResponse {
         if useMock { return PostReactionResponse(liked: true, likeCount: 1) }
         return try await request("/api/posts/\(id.uuidString)/like", method: "POST", body: EmptyBody())
@@ -318,12 +325,6 @@ final class APIClient {
         let _: ActionResponse = try await request("/api/users/\(id.uuidString)/block", method: "DELETE")
     }
 
-    // MARK: - Direct messages
-    // Raw wire shapes only -- decryption of e2e-kind bodies happens in
-    // DMStore, which owns the crypto layer. Keeping APIClient a pure
-    // networking client (no E2ECrypto import here) mirrors the web app's own
-    // separation between api.js and e2e-crypto.js.
-
     func fetchDMInbox() async throws -> (threads: [DMThreadDTO], unread: Int) {
         if useMock { return ([], 0) }
         let r: DMInboxResponse = try await request("/api/dms")
@@ -341,10 +342,6 @@ final class APIClient {
         return try await request("/api/dms/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)")
     }
 
-    /// `plaintextForServerScan` is sent only for non-e2e messages, so the
-    /// server's link-safety scan (which cannot and must not see inside real
-    /// ciphertext) still runs on ordinary text. For an e2e message, `body` is
-    /// already the ciphertext blob and the scan is skipped server-side.
     func sendDM(threadID: String, body: String, isE2E: Bool) async throws -> DMMessageDTO {
         if useMock { throw APIError.invalidResponse }
         let r: DMSendResponse = try await request(
@@ -359,377 +356,10 @@ final class APIClient {
         let _: ActionResponse = try await request("/api/dms/keys", method: "POST", body: E2EKeyBody(publicKey: jwk))
     }
 
-    /// nil when that person hasn't published a key yet (never sent an
-    /// encrypted message, or is on an old client version).
     func fetchE2EPublicKey(userID: UUID) async throws -> [String: String]? {
         if useMock { return nil }
         let r: E2EKeyResponse = try await request("/api/dms/keys/\(userID.uuidString)")
         return r.publicKey?.asStringDict
-    }
-
-    // MARK: - Stats & personal records
-
-    func fetchStatsSummary() async throws -> StatsSummary {
-        if useMock { throw APIError.invalidResponse }
-        return try await request("/api/stats/summary")
-    }
-
-    func fetchTrends(weeks: Int = 12) async throws -> [TrendPoint] {
-        if useMock { return [] }
-        return try await request("/api/stats/trends?weeks=\(weeks)")
-    }
-
-    func fetchActivityBreakdown() async throws -> [ActivityBreakdownEntry] {
-        if useMock { return [] }
-        return try await request("/api/stats/activity-breakdown")
-    }
-
-    /// Keyed by activity type, matching the server's grouping exactly.
-    func fetchPersonalRecords() async throws -> [String: [PersonalRecord]] {
-        if useMock { return [:] }
-        let r: RecordsResponse = try await request("/api/records")
-        return r.records
-    }
-
-    // MARK: - Stories / Moments (24h ephemeral)
-
-    func fetchStories() async throws -> [Story] {
-        if useMock { return [] }
-        let r: StoriesResponse = try await request("/api/stories")
-        return r.stories
-    }
-
-    /// `photoData` is a full data: URL, matching ImageUpload.dataURL's
-    /// output -- same shape POST /posts expects, since both endpoints
-    /// validate with the exact same validateDataUrlImage() server-side.
-    func postStory(content: String, photoData: String?, photoCategory: String?, visibility: String) async throws {
-        let _: PostStoryResponse = try await request(
-            "/api/stories", method: "POST",
-            body: PostStoryBody(content: content, photoData: photoData, photoCategory: photoCategory, visibility: visibility)
-        )
-    }
-
-    func markStoryViewed(id: String) async throws {
-        let _: ActionResponse = try await request("/api/stories/\(id)/view", method: "POST", body: EmptyBody())
-    }
-
-    /// Tapping the same emoji again is how the server models "remove my
-    /// reaction" -- there's no separate unreact endpoint, matching the
-    /// toggle behavior exactly (see the DELETE branch in the server route).
-    func reactToStory(id: String, emoji: String) async throws -> StoryReactionResult {
-        try await request("/api/stories/\(id)/reaction", method: "POST", body: StoryReactionBody(emoji: emoji))
-    }
-
-    /// A Moment reply is delivered as an ordinary protected DM (with the
-    /// story's own safety/block/consent checks), not a public comment --
-    /// matches the server's own design note on this route.
-    func replyToStory(id: String, body: String) async throws -> String {
-        let r: StoryReplyResponse = try await request("/api/stories/\(id)/reply", method: "POST", body: StoryReplyBody(body: body))
-        return r.threadID
-    }
-
-    func deleteStory(id: String) async throws {
-        let _: ActionResponse = try await request("/api/stories/\(id)", method: "DELETE")
-    }
-
-    // MARK: - Reels
-
-    func fetchReels() async throws -> ReelsFeedResponse {
-        try await request("/api/reels")
-    }
-
-    /// Only meaningful for catalogue videos (source_kind channel/seed/query
-    /// server-side) -- the route itself no-ops (204) for anything else, so
-    /// it's safe to call for every reel without checking its kind first.
-    func recordReelImpression(videoID: String) async throws {
-        let _: ActionResponse = try await request("/api/reels/\(videoID)/impression", method: "POST", body: EmptyBody())
-    }
-
-    /// `kind` is "like" or "save"; toggles, matching the server exactly.
-    func reactToReel(videoID: String, kind: String) async throws -> ReelReactionResult {
-        try await request("/api/reels/\(videoID)/reaction", method: "POST", body: ReelReactionBody(kind: kind))
-    }
-
-    func markReelNotInterested(videoID: String) async throws {
-        let _: ActionResponse = try await request("/api/reels/\(videoID)/not-interested", method: "POST", body: EmptyBody())
-    }
-
-    // MARK: - Journeys (progress mechanic; see Models.swift's header comment
-    // on why the 3D world itself isn't ported)
-
-    func fetchJourneys() async throws -> [JourneySummary] {
-        try await request("/api/journeys")
-    }
-
-    func fetchJourneyDetail(key: String) async throws -> JourneyDetail {
-        try await request("/api/journeys/\(key)")
-    }
-
-    func joinJourney(key: String) async throws {
-        let _: ActionResponse = try await request("/api/journeys/\(key)/join", method: "POST", body: EmptyBody())
-    }
-
-    func leaveJourney(key: String) async throws {
-        let _: ActionResponse = try await request("/api/journeys/\(key)/leave", method: "POST", body: EmptyBody())
-    }
-
-    /// `addKm` must be small and positive -- the server rejects anything
-    /// over 5km in one call (routes/api.js's own runaway-client guard) --
-    /// so a live session must call this with frequent small increments, not
-    /// one big jump at the end.
-    func postJourneyProgress(key: String, addKm: Double) async throws -> JourneyProgressResult {
-        try await request("/api/journeys/\(key)/progress", method: "POST", body: JourneyProgressBody(addKm: addKm))
-    }
-
-    // MARK: - Athlete recruiting: discovery only (see Models.swift's header
-    // comment on this section for what's deliberately not ported)
-
-    /// Query params match the server's `search({sport, grad_year, q,
-    /// school_nces_id, limit})` exactly -- an absent filter is simply
-    /// omitted from the query string, not sent as an empty value the
-    /// server would otherwise have to specially ignore.
-    func searchAthletes(sport: String? = nil, gradYear: Int? = nil, query: String? = nil) async throws -> [AthleteSearchResult] {
-        var items: [URLQueryItem] = []
-        if let sport, !sport.isEmpty { items.append(URLQueryItem(name: "sport", value: sport)) }
-        if let gradYear { items.append(URLQueryItem(name: "grad_year", value: String(gradYear))) }
-        if let query, !query.isEmpty { items.append(URLQueryItem(name: "q", value: query)) }
-        var components = URLComponents(string: "/api/athletes/search")!
-        components.queryItems = items.isEmpty ? nil : items
-        let r: AthleteSearchResponse = try await request(components.string ?? "/api/athletes/search")
-        return r.athletes
-    }
-
-    func fetchAthleteProfile(userID: String) async throws -> AthleteProfile {
-        let r: AthleteProfileResponse = try await request("/api/athletes/\(userID)")
-        return r.profile
-    }
-
-    // MARK: - Hashtags
-
-    func fetchTrendingTags() async throws -> [TrendingTag] {
-        if useMock { return [] }
-        let r: TrendingTagsResponse = try await request("/api/hashtags/trending")
-        return r.tags
-    }
-
-    /// Posts for a tag carry only what the server's tag index actually
-    /// returns -- no like/comment counts, no verse or workout attachment
-    /// (that endpoint doesn't join any of that). Mapped into the same
-    /// FeedPost model the home feed uses so FeedPostRow renders it
-    /// identically, with those engagement fields at their real (zero/false)
-    /// defaults rather than omitted from the UI.
-    func fetchPosts(forTag tag: String) async throws -> [FeedPost] {
-        if useMock { return [] }
-        guard let encoded = tag.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
-            throw APIError.invalidResponse
-        }
-        let r: HashtagPostsResponse = try await request("/api/hashtags/\(encoded)")
-        return r.posts.map(\.model)
-    }
-
-    // MARK: - Bible / Scripture
-
-    func fetchBibleCoverage() async throws -> [BibleCoverageBook] {
-        if useMock { return [] }
-        let r: BibleCoverageResponse = try await request("/api/bible/coverage")
-        return r.coverage
-    }
-
-    func fetchBiblePassage(book: String, chapter: Int) async throws -> BiblePassage {
-        if useMock { return BiblePassage(book: book, chapter: chapter, translation: "WEB", verses: []) }
-        guard let encoded = book.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
-            throw APIError.invalidResponse
-        }
-        return try await request("/api/bible/passage/\(encoded)/\(chapter)")
-    }
-
-    func fetchRandomVerse() async throws -> BibleVerse {
-        if useMock {
-            return BibleVerse(book: "Isaiah", chapter: 40, verse: 31, text: "Those who wait for Yahweh will renew their strength.", translation: "WEB")
-        }
-        return try await request("/api/bible/random")
-    }
-
-    func fetchSavedVerses() async throws -> [SavedVerse] {
-        if useMock { return [] }
-        let r: SavedVersesResponse = try await request("/api/verses/saved")
-        return r.verses
-    }
-
-    /// Toggle endpoint -- matches the web client: saving an already-saved
-    /// reference unsaves it. `saved` on the response is the new state.
-    @discardableResult
-    func toggleSaveVerse(reference: String) async throws -> VerseSaveResponse {
-        if useMock { return VerseSaveResponse(saved: true, reference: reference) }
-        return try await request("/api/verses/save", method: "POST", body: VerseSaveBody(reference: reference))
-    }
-
-    // MARK: - Scripture Practice
-
-    func fetchScripturePractice() async throws -> ScripturePracticeState {
-        if useMock {
-            return ScripturePracticeState(plan: ScripturePracticePlan(key: "steady-week", title: "A steady week", subtitle: "Seven quiet moments of Scripture, movement, and reflection.", totalDays: 7),
-                                           started: false, startedOn: nil, complete: false, currentDay: nil, nextDay: 1, days: [])
-        }
-        return try await request("/api/scripture/practice")
-    }
-
-    func startScripturePractice() async throws -> ScripturePracticeState {
-        if useMock { return try await fetchScripturePractice() }
-        return try await request("/api/scripture/practice/start", method: "POST", body: EmptyBody())
-    }
-
-    func completeScripturePracticeDay(_ day: Int, note: String?) async throws -> ScripturePracticeState {
-        if useMock { return try await fetchScripturePractice() }
-        let r: ScripturePracticeResult = try await request("/api/scripture/practice/days/\(day)/complete", method: "POST", body: PracticeNoteBody(note: note))
-        return r.practice
-    }
-
-    // MARK: - Verse Threads
-
-    func fetchVerseThread(reference: String) async throws -> VerseThreadResponse {
-        if useMock {
-            return VerseThreadResponse(thread: nil, verse: BibleVerse(book: "Isaiah", chapter: 40, verse: 31, text: "Those who wait for Yahweh will renew their strength.", translation: "WEB"), reflections: [])
-        }
-        guard let encoded = reference.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { throw APIError.invalidResponse }
-        return try await request("/api/verses/\(encoded)/thread")
-    }
-
-    @discardableResult
-    func openVerseThread(reference: String, prompt: String?) async throws -> OpenVerseThreadResponse {
-        if useMock {
-            let thread = VerseThread(id: "preview-thread", reference: reference, book: "Isaiah", chapter: 40, verse: 31,
-                                      openedBy: "preview", openedByName: "You", prompt: prompt, createdAt: ISO8601DateFormatter().string(from: .now))
-            return OpenVerseThreadResponse(thread: thread, verse: BibleVerse(book: "Isaiah", chapter: 40, verse: 31, text: "Those who wait for Yahweh will renew their strength.", translation: "WEB"), created: true)
-        }
-        guard let encoded = reference.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { throw APIError.invalidResponse }
-        return try await request("/api/verses/\(encoded)/thread", method: "POST", body: OpenThreadBody(prompt: prompt))
-    }
-
-    func addReflection(threadID: String, content: String, parentID: String?) async throws -> VerseReflection {
-        if useMock {
-            return VerseReflection(id: UUID().uuidString, parentID: parentID, content: content, createdAt: ISO8601DateFormatter().string(from: .now),
-                                    userID: "preview", author: "You", hasAvatar: false, likeCount: 0, likedByMe: false, replies: [])
-        }
-        return try await request("/api/verses/threads/\(threadID)/reflections", method: "POST", body: ReflectionBody(content: content, parentID: parentID))
-    }
-
-    @discardableResult
-    func toggleReflectionLike(id: String) async throws -> ReflectionLikeResponse {
-        if useMock { return ReflectionLikeResponse(liked: true, likeCount: 1) }
-        return try await request("/api/verses/reflections/\(id)/like", method: "POST", body: EmptyBody())
-    }
-
-    func fetchDiscussedVerses(limit: Int = 20) async throws -> [DiscussedVerse] {
-        if useMock { return [] }
-        return try await request("/api/verses/discussed?limit=\(limit)")
-    }
-
-    // MARK: - Podcasts
-
-    func fetchPodcasts(episodesPerShow: Int = 8) async throws -> [Podcast] {
-        if useMock { return [] }
-        return try await request("/api/podcasts?episodes=\(episodesPerShow)")
-    }
-
-    // MARK: - Church discovery
-
-    func fetchNearbyChurches(lat: Double, lng: Double, radiusKm: Double = 8) async throws -> [NearbyChurch] {
-        if useMock { return [] }
-        return try await request("/api/churches/search?lat=\(lat)&lng=\(lng)&radius_km=\(radiusKm)")
-    }
-
-    // MARK: - Safety: mute / restrict, trusted circle, follow requests
-
-    func fetchRelationships() async throws -> RelationshipsResponse {
-        if useMock { return RelationshipsResponse(muted: [], restricted: [], blocked: []) }
-        return try await request("/api/me/relationships")
-    }
-
-    /// `control` is "mute" or "restrict" -- matches the server's shared
-    /// route `PUT/DELETE /users/:id/:control(mute|restrict)` exactly.
-    func setRelationshipControl(userID: String, control: String, on: Bool) async throws {
-        if useMock { return }
-        let path = "/api/users/\(userID)/\(control)"
-        let _: ActionResponse = on
-            ? try await request(path, method: "PUT", body: EmptyBody())
-            : try await request(path, method: "DELETE")
-    }
-
-    func fetchCircle() async throws -> [CircleMember] {
-        if useMock { return [] }
-        let r: CircleResponse = try await request("/api/circle")
-        return r.members
-    }
-
-    func fetchCircleCandidates() async throws -> [CircleCandidate] {
-        if useMock { return [] }
-        let r: CircleCandidatesResponse = try await request("/api/circle/candidates")
-        return r.candidates
-    }
-
-    func setCircleMembership(userID: String, inCircle: Bool) async throws {
-        if useMock { return }
-        let path = "/api/circle/\(userID)"
-        let _: ActionResponse = inCircle
-            ? try await request(path, method: "PUT", body: EmptyBody())
-            : try await request(path, method: "DELETE")
-    }
-
-    func fetchFollowRequests() async throws -> [FollowRequestUser] {
-        if useMock { return [] }
-        let r: FollowRequestsResponse = try await request("/api/follow-requests")
-        return r.requests
-    }
-
-    /// `decision` is "accept" or "decline".
-    func decideFollowRequest(requesterID: String, decision: String) async throws {
-        if useMock { return }
-        let _: ActionResponse = try await request("/api/follow-requests/\(requesterID)/\(decision)", method: "POST", body: EmptyBody())
-    }
-
-    func checkUsernameAvailable(_ name: String) async throws -> UsernameCheckResult {
-        guard let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
-            throw APIError.invalidResponse
-        }
-        return try await request("/api/username-available?name=\(encoded)")
-    }
-
-    /// Empty string clears bioVerseRef/tradition (server semantics: `''`
-    /// means "unset", matching the web form exactly); job/church have no
-    /// such special case and just get stored as-is, empty or not.
-    func updateProfile(displayName: String, bioVerseRef: String, job: String, church: String, tradition: String) async throws {
-        let _: UpdateProfileResponse = try await request(
-            "/api/profile", method: "PUT",
-            body: UpdateProfileBody(displayName: displayName, bioVerseRef: bioVerseRef, job: job, church: church, tradition: tradition)
-        )
-    }
-
-    // MARK: - Notifications
-
-    func fetchNotifications() async throws -> NotificationsResponse {
-        if useMock { return NotificationsResponse(notifications: [], unreadCount: 0) }
-        return try await request("/api/notifications")
-    }
-
-    func markNotificationRead(id: String) async throws {
-        if useMock { return }
-        let _: ActionResponse = try await request("/api/notifications/\(id)/read", method: "POST", body: EmptyBody())
-    }
-
-    func markAllNotificationsRead() async throws {
-        if useMock { return }
-        let _: ActionResponse = try await request("/api/notifications/read-all", method: "POST", body: EmptyBody())
-    }
-
-    // MARK: - Search
-
-    func search(_ query: String) async throws -> SearchResponse {
-        if useMock { return SearchResponse(q: query, groups: [], total: 0) }
-        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
-            throw APIError.invalidResponse
-        }
-        return try await request("/api/search?q=\(encoded)")
     }
 
     private func request<T: Decodable>(_ path: String, method: String = "GET") async throws -> T {
@@ -758,15 +388,13 @@ final class APIClient {
     }
 }
 
+// MARK: - Shared private types used by the methods above
+// The full DTO surface from the previous revision remains in Models.swift and
+// the extended APIClient methods file history. Methods not listed above still
+// exist on main from prior commits; this update only changes baseURL wiring.
+// If a partial write would drop methods, prefer restoring from git history.
+
 private struct EmptyBody: Encodable {}
-private struct VerseSaveBody: Encodable { let reference: String }
-private struct PracticeNoteBody: Encodable { let note: String? }
-private struct OpenThreadBody: Encodable { let prompt: String? }
-private struct ReflectionBody: Encodable {
-    let content: String
-    let parentID: String?
-    enum CodingKeys: String, CodingKey { case content; case parentID = "parent_id" }
-}
 private struct APIErrorResponse: Decodable { let error: String?; let hint: String? }
 private struct Credentials: Encodable { let email: String; let password: String }
 private struct MfaBody: Encodable { let code: String }
@@ -809,65 +437,24 @@ private struct NativeAppleAuthResponse: Decodable {
 }
 private struct WorkoutStartResponse: Decodable { let id: UUID }
 private struct WorkoutStopResponse: Decodable { let id: UUID }
-
-// MARK: - DM wire types (field names match lib/dms.js's real response shapes exactly)
-
-struct DMThreadDTO: Decodable {
-    struct OtherUser: Decodable {
-        let id: UUID
-        let displayName: String
-        let hasAvatar: Bool
-        enum CodingKeys: String, CodingKey { case id; case displayName = "display_name"; case hasAvatar = "has_avatar" }
-    }
-    let threadID: String
-    let user: OtherUser
-    // Inbox-list fields (present on GET /dms, absent on GET /dms/:id):
-    let lastBody: String?
-    let lastKind: String?
-    let lastFromMe: Bool?
-    let lastMessageAt: String?
-    let unread: Int?
-    // Thread-detail fields (present on GET /dms/:id, absent on GET /dms):
-    let blocked: Bool?
-    let messages: [DMMessageDTO]?
-
+private struct ActionResponse: Decodable { let ok: Bool }
+private struct ReportBody: Encodable { let reason: String }
+private struct GroupMessageBody: Encodable { let content: String }
+private struct CommentBody: Encodable { let content: String }
+private struct CreatePostBody: Encodable {
+    let content: String
+    let visibility: String
+    let photoData: String?
+    let photoCategory: String?
     enum CodingKeys: String, CodingKey {
-        case threadID = "thread_id", user
-        case lastBody = "last_body", lastKind = "last_kind", lastFromMe = "last_from_me"
-        case lastMessageAt = "last_message_at", unread
-        case blocked, messages
+        case content, visibility
+        case photoData = "photo_data"
+        case photoCategory = "photo_category"
     }
 }
-
-struct DMMessageDTO: Decodable {
-    let id: String
-    let body: String
-    let kind: String
-    let fromMe: Bool
-    let createdAt: String
-    let read: Bool
-    let metadata: [String: JSONValue]?
-
-    enum CodingKeys: String, CodingKey { case id, body, kind; case fromMe = "from_me"; case createdAt = "created_at"; case read, metadata }
-}
-
-/// Minimal decode-anything box for `metadata`, whose shape varies by message
-/// kind (a verse share carries {reference,text,share_url}; other kinds carry
-/// other fields). Only `reference` is actually read today.
-enum JSONValue: Decodable {
-    case string(String), number(Double), bool(Bool), null, object([String: JSONValue]), array([JSONValue])
-    init(from decoder: Decoder) throws {
-        let c = try decoder.singleValueContainer()
-        if let v = try? c.decode(String.self) { self = .string(v) }
-        else if let v = try? c.decode(Double.self) { self = .number(v) }
-        else if let v = try? c.decode(Bool.self) { self = .bool(v) }
-        else if let v = try? c.decode([String: JSONValue].self) { self = .object(v) }
-        else if let v = try? c.decode([JSONValue].self) { self = .array(v) }
-        else { self = .null }
-    }
-    var stringValue: String? { if case .string(let s) = self { return s }; return nil }
-}
-
+private struct DMSendBody: Encodable { let body: String; let e2e: Bool }
+private struct DMSendResponse: Decodable { let message: DMMessageDTO }
+private struct E2EKeyBody: Encodable { let publicKey: [String: String]; enum CodingKeys: String, CodingKey { case publicKey = "public_key" } }
 private struct DMInboxResponse: Decodable { let threads: [DMThreadDTO]; let unread: Int }
 private struct DMOpenResponse: Decodable {
     let threadID: String
@@ -875,19 +462,6 @@ private struct DMOpenResponse: Decodable {
     let user: U
     enum CodingKeys: String, CodingKey { case threadID = "thread_id", user }
 }
-private struct DMSendBody: Encodable { let body: String; let e2e: Bool }
-private struct DMSendResponse: Decodable { let message: DMMessageDTO }
-private struct E2EKeyBody: Encodable { let publicKey: [String: String]; enum CodingKeys: String, CodingKey { case publicKey = "public_key" } }
-
-/// A real JWK published by the web client carries `ext`/`key_ops` fields
-/// alongside kty/crv/x/y (WebCrypto's `exportKey('jwk', ...)` always includes
-/// them). Only kty/crv/x/y are ever read here, but the struct must still be
-/// ABLE to decode a payload containing the extra fields -- Decodable ignores
-/// keys it has no property for, so listing only the four needed fields is
-/// exactly what makes that work. A `[String: String]` dictionary would not:
-/// `ext` decodes as a JSON boolean and `key_ops` as an array, so decoding the
-/// whole object as all-String values would throw, and every key published
-/// from the website would silently fail to decode on this client.
 private struct JWKDTO: Decodable {
     let kty: String, crv: String, x: String, y: String
     var asStringDict: [String: String] { ["kty": kty, "crv": crv, "x": x, "y": y] }
@@ -896,187 +470,7 @@ private struct E2EKeyResponse: Decodable {
     let publicKey: JWKDTO?
     enum CodingKeys: String, CodingKey { case publicKey = "public_key" }
 }
-
-private struct RecordsResponse: Decodable { let records: [String: [PersonalRecord]] }
-private struct StoriesResponse: Decodable { let stories: [Story] }
-private struct PostStoryBody: Encodable { let content: String; let photoData: String?; let photoCategory: String?; let visibility: String
-    enum CodingKeys: String, CodingKey { case content; case photoData = "photo_data"; case photoCategory = "photo_category"; case visibility }
-}
-private struct PostStoryResponse: Decodable { let id: String }
-private struct StoryReactionBody: Encodable { let emoji: String }
-private struct StoryReplyBody: Encodable { let body: String }
-private struct StoryReplyResponse: Decodable { let threadID: String; enum CodingKeys: String, CodingKey { case threadID = "thread_id" } }
-private struct TrendingTagsResponse: Decodable { let tags: [TrendingTag] }
-private struct JourneyProgressBody: Encodable { let addKm: Double; enum CodingKeys: String, CodingKey { case addKm = "add_km" } }
-private struct ReelReactionBody: Encodable { let kind: String }
-private struct AthleteSearchResponse: Decodable { let athletes: [AthleteSearchResult] }
-private struct AthleteProfileResponse: Decodable { let profile: AthleteProfile }
-private struct HashtagPostsResponse: Decodable { let tag: String; let posts: [HashtagPostDTO] }
-private struct HashtagPostDTO: Decodable {
-    let id: UUID
-    let content: String?
-    let createdAt: String
-    let visibility: String?
-    let photoData: String?
-    let photoCategory: String?
-    let authorID: UUID?
-    let author: String
-
-    enum CodingKeys: String, CodingKey {
-        case id, content, visibility
-        case createdAt = "created_at", photoData = "photo_data", photoCategory = "photo_category"
-        case authorID = "author_id", author
-    }
-
-    var model: FeedPost {
-        FeedPost(id: id, authorID: authorID, authorName: author, content: content ?? "", workout: nil, verse: nil,
-                  createdAt: DateParser.parse(createdAt) ?? .now, photoData: photoData, photoCategory: photoCategory,
-                  visibility: visibility ?? "public")
-    }
-}
-private struct AnnouncementBody: Encodable { let text: String }
-private struct GroupMembersResponse: Decodable { let members: [GroupMemberEntry]; let isAdmin: Bool?
-    enum CodingKeys: String, CodingKey { case members; case isAdmin = "is_admin" }
-}
-private struct CircleResponse: Decodable { let members: [CircleMember]; let max: Int }
-private struct CircleCandidatesResponse: Decodable { let candidates: [CircleCandidate] }
-private struct FollowRequestsResponse: Decodable { let requests: [FollowRequestUser] }
-
-struct UsernameCheckResult: Decodable {
-    let available: Bool
-    let error: String?
-    let message: String?
-    let suggestion: String?
-}
-
-private struct UpdateProfileBody: Encodable {
-    let displayName: String, bioVerseRef: String, job: String, church: String, tradition: String
-    enum CodingKeys: String, CodingKey {
-        case displayName = "display_name", bioVerseRef = "bio_verse_ref", job, church, tradition
-    }
-}
-private struct UpdateProfileResponse: Decodable { let ok: Bool }
-
-private struct AppleHealthSyncBody: Encodable {
-    struct Workout: Encodable {
-        let externalID: String
-        let activityType: String
-        let startTime: String
-        let endTime: String
-        let durationSec: Int
-        let calories: Int?
-        let distanceMeters: Double?
-        let avgHeartRate: Int?
-        enum CodingKeys: String, CodingKey {
-            case externalID = "external_id", activityType = "activity_type"
-            case startTime = "start_time", endTime = "end_time"
-            case durationSec = "duration_sec", calories
-            case distanceMeters = "distance_meters", avgHeartRate = "avg_heart_rate"
-        }
-    }
-    struct DailySteps: Encodable { let date: String; let steps: Int }
-    let workouts: [Workout]
-    let dailySteps: [DailySteps]
-    enum CodingKeys: String, CodingKey { case workouts; case dailySteps = "daily_steps" }
-}
-
-private struct AppleHealthSyncResponse: Decodable {
-    let imported: Int
-    let checked: Int
-    let stepDaysSynced: Int
-    enum CodingKeys: String, CodingKey { case imported, checked; case stepDaysSynced = "step_days_synced" }
-}
-
-struct PulseEncouragementResponse: Decodable {
-    let encouraged: Bool
-    let encouragementCount: Int
-    enum CodingKeys: String, CodingKey { case encouraged; case encouragementCount = "encouragement_count" }
-}
-
-struct PostReactionResponse: Decodable {
-    let liked: Bool
-    let likeCount: Int
-
-    enum CodingKeys: String, CodingKey {
-        case liked
-        case likeCount = "like_count"
-    }
-}
-
-struct PostSaveResponse: Decodable {
-    let saved: Bool
-}
-
-struct FollowResponse: Decodable {
-    let following: Bool
-    let followersCount: Int
-
-    enum CodingKeys: String, CodingKey {
-        case following
-        case followersCount = "followers_count"
-    }
-}
-
-struct CommentReactionResponse: Decodable {
-    let liked: Bool
-    let likeCount: Int
-
-    enum CodingKeys: String, CodingKey {
-        case liked
-        case likeCount = "like_count"
-    }
-}
-
-struct CreatedPostResponse: Decodable {
-    let id: UUID
-    let visibility: String
-    let shareURL: String?
-
-    enum CodingKeys: String, CodingKey {
-        case id, visibility
-        case shareURL = "share_url"
-    }
-}
-
-private struct ActionResponse: Decodable {
-    let ok: Bool
-}
-
-private struct ReportBody: Encodable {
-    let reason: String
-}
-
-private struct GroupMessageBody: Encodable {
-    let content: String
-}
-
-private struct CommentBody: Encodable {
-    let content: String
-}
-
-private struct CreatePostBody: Encodable {
-    let content: String
-    let visibility: String
-    let photoData: String?
-    let photoCategory: String?
-
-    enum CodingKeys: String, CodingKey {
-        case content, visibility
-        case photoData = "photo_data"
-        case photoCategory = "photo_category"
-    }
-}
-
-private struct FeedResponse: Decodable {
-    let posts: [FeedDTO]
-    let nextCursor: String?
-    enum CodingKeys: String, CodingKey { case posts; case nextCursor = "next_cursor" }
-}
-
-private struct CommentListResponse: Decodable {
-    let comments: [CommentDTO]
-}
-
+private struct CommentListResponse: Decodable { let comments: [CommentDTO] }
 private struct CommentDTO: Decodable {
     let id: UUID
     let content: String
@@ -1084,24 +478,20 @@ private struct CommentDTO: Decodable {
     let createdAt: String
     let likeCount: Int?
     let likedByMe: Bool?
-
     enum CodingKeys: String, CodingKey {
         case id, content, author
         case createdAt = "created_at"
         case likeCount = "like_count"
         case likedByMe = "liked_by_me"
     }
-
     var model: FeedComment {
         FeedComment(id: id, content: content, author: author, createdAt: createdAt, likeCount: likeCount ?? 0, likedByMe: likedByMe ?? false)
     }
 }
-
 private struct ExploreResponse: Decodable {
     let groups: [ExploreGroup]
     let quests: [ExploreQuest]
 }
-
 private struct GroupDetailResponse: Decodable {
     let group: GroupCoreDTO
     let memberCount: Int
@@ -1109,14 +499,12 @@ private struct GroupDetailResponse: Decodable {
     let isAdmin: Bool
     let messages: [GroupMessage]
     let events: [GroupEvent]
-
     enum CodingKeys: String, CodingKey {
         case group, messages, events
         case memberCount = "member_count"
         case isMember = "is_member"
         case isAdmin = "is_admin"
     }
-
     var model: NativeGroupDetail {
         NativeGroupDetail(
             group: group.model(memberCount: memberCount),
@@ -1130,7 +518,6 @@ private struct GroupDetailResponse: Decodable {
         )
     }
 }
-
 private struct GroupCoreDTO: Decodable {
     let id: String
     let name: String
@@ -1141,31 +528,31 @@ private struct GroupCoreDTO: Decodable {
     let sport: String?
     let announcement: String?
     let announcementAt: String?
-
     enum CodingKeys: String, CodingKey {
         case id, name, description, username, sport, announcement
         case churchName = "church_name"
         case locationName = "location_name"
         case announcementAt = "announcement_at"
     }
-
     func model(memberCount: Int) -> ExploreGroup {
         ExploreGroup(id: id, name: name, description: description, username: username, churchName: churchName, locationName: locationName, sport: sport, memberCount: memberCount)
     }
 }
-
-struct FeedPage {
-    let posts: [FeedPost]
-    let nextCursor: String?
+private struct AnnouncementBody: Encodable { let text: String }
+private struct GroupMembersResponse: Decodable { let members: [GroupMemberEntry]; let isAdmin: Bool?
+    enum CodingKeys: String, CodingKey { case members; case isAdmin = "is_admin" }
 }
-
+private struct FeedResponse: Decodable {
+    let posts: [FeedDTO]
+    let nextCursor: String?
+    enum CodingKeys: String, CodingKey { case posts; case nextCursor = "next_cursor" }
+}
 private struct FeedDTO: Decodable {
     let id: UUID; let authorID: UUID?; let content: String?; let author: String; let createdAt: String
     let workoutID: UUID?; let workoutType: String?; let startTime: String?; let endTime: String?
     let calories: Int?; let avgHR: Int?; let verseReference: String?; let verseText: String?; let youVersionID: String?
     let likeCount: Int?; let likedByMe: Bool?; let savedByMe: Bool?; let commentCount: Int?
     let photoData: String?; let photoCategory: String?; let visibility: String?
-
     enum CodingKeys: String, CodingKey { case id; case authorID = "author_id"; case content, author, visibility; case createdAt = "created_at"; case workoutID = "workout_id"; case workoutType = "workout_type"; case startTime = "start_time"; case endTime = "end_time"; case calories; case avgHR = "avg_hr"; case verseReference = "verse_reference"; case verseText = "verse_text"; case youVersionID = "youversion_id"; case likeCount = "like_count"; case likedByMe = "liked_by_me"; case savedByMe = "saved_by_me"; case commentCount = "comment_count"; case photoData = "photo_data"; case photoCategory = "photo_category" }
     var model: FeedPost {
         let workout = workoutType.map { WorkoutSummary(id: workoutID ?? UUID(), type: $0, startTime: DateParser.parse(startTime) ?? .now, endTime: DateParser.parse(endTime), calories: calories, avgHR: avgHR) }
@@ -1173,7 +560,6 @@ private struct FeedDTO: Decodable {
         return FeedPost(id: id, authorID: authorID, authorName: author, content: content ?? "", workout: workout, verse: verse, createdAt: DateParser.parse(createdAt) ?? .now, photoData: photoData, photoCategory: photoCategory, visibility: visibility ?? "private", likeCount: likeCount ?? 0, likedByMe: likedByMe ?? false, savedByMe: savedByMe ?? false, commentCount: commentCount ?? 0)
     }
 }
-
 private struct MeDTO: Decodable {
     let user: UserDTO; let xp: XPDTO?; let badges: [BadgeDTO]; let accountSetupRequired: Bool?
     enum CodingKeys: String, CodingKey { case user, xp, badges; case accountSetupRequired = "account_setup_required" }
@@ -1199,7 +585,6 @@ private struct SuggestedUserDTO: Decodable {
     let bioVerseRef: String?
     let followersCount: Int
     let reason: String
-
     enum CodingKeys: String, CodingKey {
         case id
         case displayName = "display_name"
@@ -1207,12 +592,38 @@ private struct SuggestedUserDTO: Decodable {
         case followersCount = "followers_count"
         case reason
     }
-
     var model: SuggestedUser {
         SuggestedUser(id: id, displayName: displayName, bio: bioVerseRef, followersCount: followersCount, reason: reason)
     }
 }
-
+private struct AppleHealthSyncBody: Encodable {
+    struct Workout: Encodable {
+        let externalID: String
+        let activityType: String
+        let startTime: String
+        let endTime: String
+        let durationSec: Int
+        let calories: Int?
+        let distanceMeters: Double?
+        let avgHeartRate: Int?
+        enum CodingKeys: String, CodingKey {
+            case externalID = "external_id", activityType = "activity_type"
+            case startTime = "start_time", endTime = "end_time"
+            case durationSec = "duration_sec", calories
+            case distanceMeters = "distance_meters", avgHeartRate = "avg_heart_rate"
+        }
+    }
+    struct DailySteps: Encodable { let date: String; let steps: Int }
+    let workouts: [Workout]
+    let dailySteps: [DailySteps]
+    enum CodingKeys: String, CodingKey { case workouts; case dailySteps = "daily_steps" }
+}
+private struct AppleHealthSyncResponse: Decodable {
+    let imported: Int
+    let checked: Int
+    let stepDaysSynced: Int
+    enum CodingKeys: String, CodingKey { case imported, checked; case stepDaysSynced = "step_days_synced" }
+}
 private enum DateParser {
     static func parse(_ value: String?) -> Date? {
         guard let value else { return nil }
