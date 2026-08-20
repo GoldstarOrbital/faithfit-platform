@@ -482,6 +482,29 @@ final class APIClient {
         try await request("/api/journeys/\(key)/progress", method: "POST", body: JourneyProgressBody(addKm: addKm))
     }
 
+    // MARK: - Journey segments, leaderboards, ghosts
+
+    func fetchJourneySegments(key: String) async throws -> [JourneySegmentBoundary] {
+        if useMock { return [] }
+        let r: JourneySegmentsResponse = try await request("/api/journeys/\(key)/segments")
+        return r.segments
+    }
+
+    func fetchJourneyGhosts(key: String) async throws -> JourneyGhostsResponse {
+        if useMock { return JourneyGhostsResponse(ghosts: [], note: nil) }
+        return try await request("/api/journeys/\(key)/ghosts")
+    }
+
+    /// Called from a live session when tracker.justCrossed reports a new
+    /// waypoint -- the elapsed time since the previous boundary crossing is
+    /// this segment's real, measured duration.
+    @discardableResult
+    func completeJourneySegment(key: String, index: Int, durationSec: Double, measured: Bool) async throws -> SegmentCompletionResult {
+        if useMock { throw APIError.invalidResponse }
+        return try await request("/api/journeys/\(key)/segments/\(index)/complete", method: "POST",
+                                  body: SegmentCompleteBody(durationSec: durationSec, measured: measured))
+    }
+
     // MARK: - Athlete recruiting: discovery only (see Models.swift's header
     // comment on this section for what's deliberately not ported)
 
@@ -912,6 +935,12 @@ private struct CreateReminderBody: Encodable {
 private struct ReminderToggleBody: Encodable { let enabled: Bool }
 private struct ConnectionsResponse: Decodable { let connectors: [ConnectedAccount] }
 private struct StravaConfiguredResponse: Decodable { let configured: Bool }
+private struct JourneySegmentsResponse: Decodable { let segments: [JourneySegmentBoundary] }
+private struct SegmentCompleteBody: Encodable {
+    let durationSec: Double
+    let measured: Bool
+    enum CodingKeys: String, CodingKey { case durationSec = "duration_sec", measured }
+}
 private struct PracticeNoteBody: Encodable { let note: String? }
 private struct OpenThreadBody: Encodable { let prompt: String? }
 private struct ReflectionBody: Encodable {

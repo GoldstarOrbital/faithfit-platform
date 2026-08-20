@@ -53,6 +53,12 @@ struct JourneyDetailView: View {
                         }
                     }
 
+                    Section {
+                        NavigationLink { JourneySegmentsView(journeyKey: journeyKey) } label: {
+                            Label("Segments & leaderboards", systemImage: "flag.checkered")
+                        }
+                    }
+
                     Section("Waypoints") {
                         ForEach(detail.waypoints) { wp in
                             WaypointRow(waypoint: wp)

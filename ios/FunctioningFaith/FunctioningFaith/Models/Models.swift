@@ -1183,6 +1183,75 @@ struct ConnectedAccount: Decodable, Identifiable {
     }
 }
 
+// ---- Journey segments, leaderboards and ghosts: the stretch between two
+// waypoints, timed, ranked against every rider's own best. Ghosts are built
+// only from rides that actually happened -- see lib/segments.js's header. ----
+
+struct SegmentLeaderboardEntry: Decodable, Identifiable {
+    let position: Int
+    let userID: String
+    let displayName: String
+    let bestSec: Double
+    let measured: Bool
+    var id: String { userID }
+    enum CodingKeys: String, CodingKey {
+        case position, measured
+        case userID = "user_id", displayName = "display_name", bestSec = "best_sec"
+    }
+}
+
+struct JourneySegmentBoundary: Decodable, Identifiable {
+    let index: Int
+    let fromKm: Double
+    let toKm: Double
+    let from: String
+    let to: String
+    let leaderboard: [SegmentLeaderboardEntry]
+    let yourBestSec: Double?
+    var id: Int { index }
+    enum CodingKeys: String, CodingKey {
+        case index, from, to, leaderboard
+        case fromKm = "from_km", toKm = "to_km", yourBestSec = "your_best_sec"
+    }
+}
+
+struct SegmentCompletionResult: Decodable {
+    let segmentIndex: Int
+    let durationSec: Double
+    let personalBest: Bool
+    let previousBestSec: Double?
+    let rank: Int
+    enum CodingKeys: String, CodingKey {
+        case rank
+        case segmentIndex = "segment_index", durationSec = "duration_sec"
+        case personalBest = "personal_best", previousBestSec = "previous_best_sec"
+    }
+}
+
+struct GhostSegment: Decodable {
+    let index: Int
+    let durationSec: Double
+    enum CodingKeys: String, CodingKey { case index, durationSec = "duration_sec" }
+}
+
+struct JourneyGhost: Decodable, Identifiable {
+    let userID: String
+    let displayName: String
+    let isSelf: Bool?
+    let totalSec: Double
+    let segments: [GhostSegment]
+    var id: String { userID }
+    enum CodingKeys: String, CodingKey {
+        case userID = "user_id", displayName = "display_name"
+        case isSelf = "is_self", totalSec = "total_sec", segments
+    }
+}
+
+struct JourneyGhostsResponse: Decodable {
+    let ghosts: [JourneyGhost]
+    let note: String?
+}
+
 /// Discovery surface -- which verses people are actually talking about.
 struct DiscussedVerse: Decodable, Identifiable {
     let id: String

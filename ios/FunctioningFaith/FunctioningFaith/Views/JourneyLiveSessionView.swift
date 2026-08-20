@@ -15,6 +15,10 @@ struct JourneyLiveSessionView: View {
     @State private var timer: Timer?
     @State private var startedAt: Date?
     @State private var isEnding = false
+    @State private var segments: [JourneySegmentBoundary] = []
+    @State private var recordedWaypointIDs: Set<String> = []
+    @State private var lastBoundaryAt: Date?
+    @State private var lastSegmentResult: SegmentCompletionResult?
 
     init(journeyKey: String, journeyName: String, onEnd: @escaping () -> Void) {
         self.journeyKey = journeyKey
@@ -52,6 +56,13 @@ struct JourneyLiveSessionView: View {
                     }
                 }
                 .transition(.opacity)
+            }
+
+            if let result = lastSegmentResult {
+                Label(result.personalBest ? "Personal best segment! \(Self.timeLabel(result.durationSec))" : "Segment: \(Self.timeLabel(result.durationSec)) · #\(result.rank) on this road",
+                      systemImage: result.personalBest ? "star.fill" : "stopwatch")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(result.personalBest ? .yellow : .secondary)
             }
 
             Spacer()
@@ -92,10 +103,36 @@ struct JourneyLiveSessionView: View {
 
     private func startSession() {
         startedAt = .now
+        lastBoundaryAt = .now
         tracker.start()
+        Task { segments = (try? await APIClient.shared.fetchJourneySegments(key: journeyKey)) ?? [] }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
             elapsed = Date.now.timeIntervalSince(startedAt ?? .now)
+            checkForCompletedSegments()
         }
+    }
+
+    /// tracker.justCrossed is sticky (stays populated until the next flush
+    /// that crosses something new -- see JourneyLiveTracker's own comment),
+    /// so recordedWaypointIDs guards against recording the same segment
+    /// twice while it's still showing.
+    private func checkForCompletedSegments() {
+        for wp in tracker.justCrossed where !recordedWaypointIDs.contains(wp.id) {
+            recordedWaypointIDs.insert(wp.id)
+            guard let segment = segments.first(where: { abs($0.toKm - wp.kmMark) < 0.01 }) else { continue }
+            let start = lastBoundaryAt ?? startedAt ?? .now
+            let duration = Date.now.timeIntervalSince(start)
+            lastBoundaryAt = .now
+            Task {
+                lastSegmentResult = try? await APIClient.shared.completeJourneySegment(
+                    key: journeyKey, index: segment.index, durationSec: duration, measured: true)
+            }
+        }
+    }
+
+    private static func timeLabel(_ seconds: Double) -> String {
+        let total = Int(seconds.rounded())
+        return String(format: "%d:%02d", total / 60, total % 60)
     }
 
     private func end() async {
