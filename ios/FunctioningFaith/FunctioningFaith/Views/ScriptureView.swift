@@ -107,6 +107,12 @@ struct ScriptureView: View {
                     }
                 }
             }
+            NavigationLink { ScripturePracticeView() } label: {
+                Label("7-day practice", systemImage: "calendar")
+            }
+            NavigationLink { DiscussedVersesView() } label: {
+                Label("Discussions", systemImage: "bubble.left.and.bubble.right")
+            }
         }
     }
 

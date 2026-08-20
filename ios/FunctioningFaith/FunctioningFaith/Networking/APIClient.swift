@@ -564,6 +564,67 @@ final class APIClient {
         return try await request("/api/verses/save", method: "POST", body: VerseSaveBody(reference: reference))
     }
 
+    // MARK: - Scripture Practice
+
+    func fetchScripturePractice() async throws -> ScripturePracticeState {
+        if useMock {
+            return ScripturePracticeState(plan: ScripturePracticePlan(key: "steady-week", title: "A steady week", subtitle: "Seven quiet moments of Scripture, movement, and reflection.", totalDays: 7),
+                                           started: false, startedOn: nil, complete: false, currentDay: nil, nextDay: 1, days: [])
+        }
+        return try await request("/api/scripture/practice")
+    }
+
+    func startScripturePractice() async throws -> ScripturePracticeState {
+        if useMock { return try await fetchScripturePractice() }
+        return try await request("/api/scripture/practice/start", method: "POST", body: EmptyBody())
+    }
+
+    func completeScripturePracticeDay(_ day: Int, note: String?) async throws -> ScripturePracticeState {
+        if useMock { return try await fetchScripturePractice() }
+        let r: ScripturePracticeResult = try await request("/api/scripture/practice/days/\(day)/complete", method: "POST", body: PracticeNoteBody(note: note))
+        return r.practice
+    }
+
+    // MARK: - Verse Threads
+
+    func fetchVerseThread(reference: String) async throws -> VerseThreadResponse {
+        if useMock {
+            return VerseThreadResponse(thread: nil, verse: BibleVerse(book: "Isaiah", chapter: 40, verse: 31, text: "Those who wait for Yahweh will renew their strength.", translation: "WEB"), reflections: [])
+        }
+        guard let encoded = reference.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { throw APIError.invalidResponse }
+        return try await request("/api/verses/\(encoded)/thread")
+    }
+
+    @discardableResult
+    func openVerseThread(reference: String, prompt: String?) async throws -> OpenVerseThreadResponse {
+        if useMock {
+            let thread = VerseThread(id: "preview-thread", reference: reference, book: "Isaiah", chapter: 40, verse: 31,
+                                      openedBy: "preview", openedByName: "You", prompt: prompt, createdAt: ISO8601DateFormatter().string(from: .now))
+            return OpenVerseThreadResponse(thread: thread, verse: BibleVerse(book: "Isaiah", chapter: 40, verse: 31, text: "Those who wait for Yahweh will renew their strength.", translation: "WEB"), created: true)
+        }
+        guard let encoded = reference.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { throw APIError.invalidResponse }
+        return try await request("/api/verses/\(encoded)/thread", method: "POST", body: OpenThreadBody(prompt: prompt))
+    }
+
+    func addReflection(threadID: String, content: String, parentID: String?) async throws -> VerseReflection {
+        if useMock {
+            return VerseReflection(id: UUID().uuidString, parentID: parentID, content: content, createdAt: ISO8601DateFormatter().string(from: .now),
+                                    userID: "preview", author: "You", hasAvatar: false, likeCount: 0, likedByMe: false, replies: [])
+        }
+        return try await request("/api/verses/threads/\(threadID)/reflections", method: "POST", body: ReflectionBody(content: content, parentID: parentID))
+    }
+
+    @discardableResult
+    func toggleReflectionLike(id: String) async throws -> ReflectionLikeResponse {
+        if useMock { return ReflectionLikeResponse(liked: true, likeCount: 1) }
+        return try await request("/api/verses/reflections/\(id)/like", method: "POST", body: EmptyBody())
+    }
+
+    func fetchDiscussedVerses(limit: Int = 20) async throws -> [DiscussedVerse] {
+        if useMock { return [] }
+        return try await request("/api/verses/discussed?limit=\(limit)")
+    }
+
     // MARK: - Safety: mute / restrict, trusted circle, follow requests
 
     func fetchRelationships() async throws -> RelationshipsResponse {
@@ -685,6 +746,13 @@ final class APIClient {
 
 private struct EmptyBody: Encodable {}
 private struct VerseSaveBody: Encodable { let reference: String }
+private struct PracticeNoteBody: Encodable { let note: String? }
+private struct OpenThreadBody: Encodable { let prompt: String? }
+private struct ReflectionBody: Encodable {
+    let content: String
+    let parentID: String?
+    enum CodingKeys: String, CodingKey { case content; case parentID = "parent_id" }
+}
 private struct APIErrorResponse: Decodable { let error: String?; let hint: String? }
 private struct Credentials: Encodable { let email: String; let password: String }
 private struct MfaBody: Encodable { let code: String }

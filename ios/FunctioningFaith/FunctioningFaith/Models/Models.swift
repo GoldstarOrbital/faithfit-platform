@@ -873,3 +873,141 @@ struct VerseSaveResponse: Decodable {
     let saved: Bool
     let reference: String
 }
+
+// ---- Scripture practice: a private, seven-day reading plan (not a streak,
+// ranking, or social score -- see lib/scripture-practice.js's own comment). ----
+
+/// The verse shape returned inside a practice day differs from BibleVerse
+/// (flat `reference` rather than book/chapter/verse), so it gets its own
+/// small type rather than a shared one with fields that don't apply.
+struct PracticeVerse: Decodable {
+    let reference: String
+    let text: String
+    let translation: String?
+}
+
+struct ScripturePracticeDay: Decodable, Identifiable {
+    let number: Int
+    let focus: String
+    let prompt: String
+    let verse: PracticeVerse?
+    let completed: Bool
+    let completedAt: String?
+    let note: String
+    let available: Bool
+    let next: Bool
+    var id: Int { number }
+    enum CodingKeys: String, CodingKey {
+        case number, focus, prompt, verse, completed, note, available, next
+        case completedAt = "completed_at"
+    }
+}
+
+struct ScripturePracticePlan: Decodable {
+    let key: String
+    let title: String
+    let subtitle: String
+    let totalDays: Int
+    enum CodingKeys: String, CodingKey {
+        case key, title, subtitle
+        case totalDays = "total_days"
+    }
+}
+
+struct ScripturePracticeState: Decodable {
+    let plan: ScripturePracticePlan
+    let started: Bool
+    let startedOn: String?
+    let complete: Bool
+    let currentDay: Int?
+    let nextDay: Int?
+    let days: [ScripturePracticeDay]
+    enum CodingKeys: String, CodingKey {
+        case plan, started, complete, days
+        case startedOn = "started_on"
+        case currentDay = "current_day"
+        case nextDay = "next_day"
+    }
+}
+
+/// Wraps a practice mutation's result -- start/complete/note-update all
+/// return either the fresh state or a typed error (invalid day, not
+/// started yet, day not available). Errors already carry a server `hint`
+/// via APIError.requestFailed, so no separate error type is needed here.
+struct ScripturePracticeResult: Decodable {
+    let practice: ScripturePracticeState
+}
+
+// ---- Verse threads: scripture as conversation, not broadcast ----
+
+struct VerseThread: Decodable, Identifiable {
+    let id: String
+    let reference: String
+    let book: String
+    let chapter: Int
+    let verse: Int
+    let openedBy: String
+    let openedByName: String?
+    let prompt: String?
+    let createdAt: String
+    enum CodingKeys: String, CodingKey {
+        case id, reference, book, chapter, verse, prompt
+        case openedBy = "opened_by", openedByName = "opened_by_name"
+        case createdAt = "created_at"
+    }
+}
+
+/// One level of nesting only, enforced server-side (a reply to a reply
+/// attaches to the top-level parent instead) -- `replies` is always flat.
+struct VerseReflection: Decodable, Identifiable {
+    let id: String
+    let parentID: String?
+    let content: String
+    let createdAt: String
+    let userID: String
+    let author: String
+    let hasAvatar: Bool?
+    var likeCount: Int
+    var likedByMe: Bool
+    var replies: [VerseReflection]
+    enum CodingKeys: String, CodingKey {
+        case id, content, author, replies
+        case parentID = "parent_id", createdAt = "created_at", userID = "user_id"
+        case hasAvatar = "has_avatar", likeCount = "like_count", likedByMe = "liked_by_me"
+    }
+}
+
+struct VerseThreadResponse: Decodable {
+    let thread: VerseThread?
+    let verse: BibleVerse
+    let reflections: [VerseReflection]
+}
+
+struct OpenVerseThreadResponse: Decodable {
+    let thread: VerseThread
+    let verse: BibleVerse
+    let created: Bool
+}
+
+struct ReflectionLikeResponse: Decodable {
+    let liked: Bool
+    let likeCount: Int
+    enum CodingKeys: String, CodingKey { case liked; case likeCount = "like_count" }
+}
+
+/// Discovery surface -- which verses people are actually talking about.
+struct DiscussedVerse: Decodable, Identifiable {
+    let id: String
+    let reference: String
+    let book: String
+    let chapter: Int
+    let verse: Int
+    let prompt: String?
+    let reflectionCount: Int
+    let lastActivity: String
+    let text: String?
+    enum CodingKeys: String, CodingKey {
+        case id, reference, book, chapter, verse, prompt, text
+        case reflectionCount = "reflection_count", lastActivity = "last_activity"
+    }
+}

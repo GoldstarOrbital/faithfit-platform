@@ -114,6 +114,12 @@ struct BiblePassageView: View {
             Text(verse.text)
                 .font(.body)
             Spacer()
+            NavigationLink {
+                VerseThreadView(reference: verse.reference)
+            } label: {
+                Image(systemName: "bubble.left")
+                    .foregroundStyle(.secondary)
+            }
             Button {
                 Task { await toggleSave(verse) }
             } label: {
