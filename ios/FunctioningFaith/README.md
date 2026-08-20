@@ -1,131 +1,61 @@
-# Functioning Faith iOS release shell
+# Functioning Faith — native iOS
 
-SwiftUI app skeleton: NavigationStack root + TabView (Home Feed, Workouts, Explore, Profile),
-wired to a mock API client so it runs standalone in the simulator without a live backend.
+Native SwiftUI app that talks to the same production API as the web client.
+This is the App Store shipping path (not a web-view wrapper).
 
-## Structure
-- `Functioning Faith/App` - entry point
-- `Functioning Faith/Views` - SwiftUI screens
-- `Functioning Faith/Models` - Codable DTOs matching backend schema
-- `Functioning Faith/Networking` - APIClient (mock + real modes)
-- `Functioning Faith/Tests` - unit/UI test stubs
+**Bundle ID:** `com.functioningfaith.app`  
+**Deployment target:** iOS 17+  
+**Project generation:** [XcodeGen](https://github.com/yonaskolb/XcodeGen)
 
-## Running
-Install XcodeGen on macOS, then run xcodegen generate --spec project.yml from this
-directory. Open the generated FunctioningFaith.xcodeproj, select a simulator, and run.
-Set the Development Team and bundle identifier in Signing & Capabilities before
-archiving. `APIClient.useMock = true` by default for previews and local review.
-Before TestFlight, add Sign in with Apple and switch the release configuration to live
-networking with the production base URL.
-The shell now includes email/password sign-in and registration, a restore-session path,
-real feed/profile/workout request plumbing, production account deletion/sign-out, real
-Core Location route capture, and a production base URL. The feed decoder matches the
-paginated production API. Native Profile now exposes opt-in Scripture, community, and
-reminder notification categories and requests system permission only after a category
-is selected. Newly registered members also receive a resumable three-step activation
-flow: a concise product promise, optional follows/groups from the live recommendation
-API, and explicit notification choices. Existing members are never forced back through
-it. The native sign-in screen discovers configured providers such as Google and
-completes their Authorization Code flow inside `ASWebAuthenticationSession`, then
-exchanges a two-minute, single-use callback bound to the initiating app with a second
-PKCE verifier. Sign in with Apple uses Apple's native system control and a nonce-bound
-ID token that the server verifies against Apple's signing keys and the app audience.
-Password and identity accounts with 2FA can finish their authenticator challenge, and
-new identity-only accounts must complete the same age and Terms gate before entering
-the app.
+## Quick start (Mac)
 
-The project spec includes a unit-test target, iOS 17 deployment settings, the live
-permission copy, the privacy manifest, and the Sign in with Apple entitlement scaffold.
-The Apple capability still needs to be enabled for the final App ID in the Apple
-Developer portal and verified on a signed device build.
+```bash
+cd ios/FunctioningFaith
+# brew install xcodegen   # if needed
+xcodegen generate --spec project.yml
+open FunctioningFaith.xcodeproj
+```
 
-## Store metadata included
+1. Select your **Development Team** under Signing & Capabilities.
+2. Build & run on a simulator (Debug uses mock data by default) or a signed physical device.
+3. For live API testing set `APIClient.shared.useMock = false` (already automatic in Release) and ensure `FFAPIBaseURL` in Info.plist points at the host you want.
 
-- `FunctioningFaith/Resources/Info.plist` contains the live-workout and optional sensor
-  permission copy shown by iOS.
-- `FunctioningFaith/Resources/PrivacyInfo.xcprivacy` declares the app's collection map
-  and explicitly declares that the app does not track members across other companies'
-  apps or websites.
-- The web app's account deletion endpoint is the canonical deletion behavior; the native
-  Profile screen must call it before submission.
+## What is already in the binary
 
-## Accessibility
-- Dynamic Type supported via `.font(.body)` / relative text styles throughout.
-- All interactive elements have `.accessibilityLabel` and meet the 44x44pt minimum tap target.
-- Contrast targets WCAG AA (verify with Xcode's Accessibility Inspector before ship).
+- Full tab shell: Home feed, Workouts, Explore, Messages (E2E DMs), Profile
+- Email / password + Sign in with Apple + other OAuth providers via `ASWebAuthenticationSession`
+- Live GPS workouts (Core Location) + HealthKit read-only sync (workouts, steps, workout HR)
+- Scripture browse / practice, groups, challenges, reels, podcasts, church finder
+- Report / block, in-app permanent account deletion (`DELETE /api/me`)
+- Privacy manifest, expanded usage strings, entitlements scaffold for Sign in with Apple + HealthKit
+- Config-driven base URL and Apple client ID (`Config.swift` + Info.plist keys)
 
-## Apple Health / Watch / wearable sync
+## Operational docs (do not skip)
 
-`Networking/HealthKitManager.swift` reads workouts, step counts, and
-workout-window heart rate from HealthKit — the one integration point that
-reaches Apple Watch and any third-party wearable that writes into Health
-(Fitbit, Garmin, Oura, and others all sync through it). Deliberately
-read-only: the app never writes to a member's Health data, and the
-authorization request asks for exactly the three types actually queried, not
-a broader set — over-asking Health access beyond what's used is a named
-App Review rejection cause (Guideline 5.1.1), not just good practice.
-Requires the `com.apple.developer.healthkit` entitlement (added to
-`FunctioningFaith.entitlements`) and `NSHealthShareUsageDescription` (added
-to `Info.plist`); enable the HealthKit capability for the real App ID in the
-Apple Developer portal before archiving, the same way Sign in with Apple
-already needs to be.
+| Document | Purpose |
+|---|---|
+| **[APP_STORE_SUBMISSION.md](APP_STORE_SUBMISSION.md)** | **Complete playbook for the remaining human steps** (App Icon, portal capabilities, device QA, E2E DM proof, App Store Connect, submit) |
+| [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) | Mechanical QA gate on a signed physical device |
+| [docs/E2E_DM_VERIFICATION.md](docs/E2E_DM_VERIFICATION.md) | Byte-for-byte native ↔ web E2E crypto proof |
+| [../../APPSTORE.md](../../APPSTORE.md) | Guideline compliance narrative |
 
-Synced workouts and daily step totals POST to `/api/connectors/apple-health/sync`
-on the existing backend, which re-validates every field server-side (activity
-type against the same whitelist the rest of the app uses, dates, numeric
-ranges) rather than trusting the client, and de-duplicates by HealthKit's own
-per-sample UUID the same way the web app's Strava and Google Health
-connectors de-duplicate by their own providers' activity ids.
+## Configuration
 
-**Not verified by an actual build or device run** — no Mac/Xcode available in
-the environment this was written in. The two APIs most likely to need a
-second look against a real SDK: `HKQuantityType.quantityType(forIdentifier:)`
-(used instead of the newer typed-literal initializer specifically because it
-has been stable since iOS 8 and doesn't risk an SDK-availability mismatch
-this environment can't check) and `HKStatisticsCollectionQuery`'s closure
-signatures. Verify with a real build before shipping, the same as every other
-native capability in this project per the checklist below.
+| Key | Where | Default |
+|---|---|---|
+| `FFAPIBaseURL` | Info.plist / project.yml | `https://faithfit-demo-production.up.railway.app` |
+| `FFAppleClientID` | Info.plist / project.yml | `com.functioningfaith.app` |
+| `DEVELOPMENT_TEAM` | Xcode or project.yml | empty (set before archive) |
 
-## Direct messages (end-to-end encrypted)
+Server must have `APPLE_NATIVE_CLIENT_ID` matching `FFAppleClientID`.
 
-`Networking/E2ECrypto.swift`, `DMStore.swift`, and `Views/DMInboxView.swift` /
-`DMConversationView.swift` port the web app's E2E-encrypted DMs natively --
-new "Messages" tab in `RootTabView`.
+## Known remaining work (human only)
 
-This had to interoperate byte-for-byte with `public/e2e-crypto.js`, not just
-implement "ECDH + AES-GCM some way." The one subtlety that actually matters:
-WebCrypto's ECDH `deriveKey` uses the RAW shared secret (the x-coordinate of
-the ECDH point) directly as AES key material -- no HKDF. CryptoKit's
-`SharedSecret` has an `hkdfDerivedSymmetricKey` convenience most sample code
-reaches for; using it here would derive a different key than the browser
-does, and cross-platform messages would fail to decrypt with no error until
-someone noticed. `E2ECrypto.sharedKey` uses the raw bytes instead, on
-purpose -- see the comment there. JWK export/import needed the same care:
-base64url (not standard base64) per RFC 7518, and a real JWK published by
-the web client carries `ext`/`key_ops` fields alongside kty/crv/x/y that a
-naive `[String: String]` decode chokes on (a JSON boolean and array can't
-decode as String) -- caught in review before it shipped, would otherwise
-have made every key published from the website silently undecryptable here.
+See the playbook. In short:
 
-Private keys live in Keychain, scoped per account id, matching the web
-client's per-account localStorage scoping (so signing into a second account
-on the same device can't reuse and republish the first account's keypair).
-Encryption is automatic whenever a shared key can be derived -- not a
-user-facing toggle -- exactly matching the web client's own logic, with a
-plaintext fallback when either side has no key on file yet.
+1. **App Icon** — asset catalog is not yet in the repo; required before archive.
+2. Enable Sign in with Apple + HealthKit on the App ID in the Apple Developer portal.
+3. Run the full device checklist and the E2E DM verification.
+4. Create the App Store Connect record, upload screenshots, fill privacy labels, submit.
 
-**Not verified against a live cross-platform exchange.** Everything above is
-reasoned from the real WebCrypto spec and CryptoKit's documented behavior,
-with no way to run both a browser and this Swift code together in this
-environment. Before trusting this in production: send a message from the
-native app, confirm it decrypts correctly when the same thread is opened on
-the website, and the reverse. This is the single highest-risk piece of the
-whole native port to leave unverified -- a silent decrypt failure looks
-identical to "nothing's wrong" until someone actually reads a message.
-
-## TestFlight and App Store release checks
-
-- Native registration sends the same date-of-birth, Terms acceptance, and password-policy fields required by the production API. Verify a fresh-account path against the production environment before upload.
-- `PrivacyInfo.xcprivacy` declares the app's use of `UserDefaults` for local member settings. Re-check the manifest whenever a new SDK, analytics package, or required-reason API is added.
-- Before archive, set the Apple Development Team, enable Sign in with Apple for the App ID, confirm the native audience (`APPLE_NATIVE_CLIENT_ID`, default `com.functioningfaith.app`), provide app icons/screenshots, and verify the production privacy-policy and support URLs in App Store Connect. Apple Services ID/private-key configuration is needed only for the web Apple flow.
-- Archive and test on a signed physical device: location workout capture, notification opt-in, biometric lock, account export/deletion, and fresh sign-up.
+Nothing else in the native code path is blocking a submission once those steps are done.

@@ -6,6 +6,7 @@ patterns, hidden autoplay, or notifications that are difficult to turn off.
 
 **Native operational checklist:** [`ios/FunctioningFaith/RELEASE_CHECKLIST.md`](../ios/FunctioningFaith/RELEASE_CHECKLIST.md)  
 **E2E DM crypto proof:** [`ios/FunctioningFaith/docs/E2E_DM_VERIFICATION.md`](../ios/FunctioningFaith/docs/E2E_DM_VERIFICATION.md)  
+**Full human submission playbook:** [`ios/FunctioningFaith/APP_STORE_SUBMISSION.md`](../ios/FunctioningFaith/APP_STORE_SUBMISSION.md)  
 **App Store narrative:** [`APPSTORE.md`](../APPSTORE.md)
 
 ## Web/PWA shipped
@@ -34,6 +35,7 @@ patterns, hidden autoplay, or notifications that are difficult to turn off.
 - [x] Privacy manifest declares collection map and no cross-app tracking.
 - [x] Sign in with Apple entitlement scaffold + native auth flow.
 - [x] Notification permission only after the member chooses a category.
+- [ ] **App Icon asset catalog** (required before archive — see playbook §0).
 - [ ] Enable Sign in with Apple + HealthKit on the final App ID; set Development Team.
 - [ ] Verify production OAuth / Apple audience on a signed device build.
 - [ ] Run full device QA (`RELEASE_CHECKLIST.md`).
