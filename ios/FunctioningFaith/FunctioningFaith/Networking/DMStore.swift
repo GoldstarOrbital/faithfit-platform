@@ -107,7 +107,7 @@ final class DMStore: ObservableObject {
         guard let myUserID else { throw APIError.notSignedIn }
         var body = text
         var isE2E = false
-        if let jwk = try? await APIClient.shared.fetchE2EPublicKey(userID: otherUserID), let jwk,
+        if let jwk = try? await APIClient.shared.fetchE2EPublicKey(userID: otherUserID),
            let key = try? E2ECrypto.sharedKey(myUserID: myUserID, theirPublicKeyJWK: jwk) {
             body = (try? E2ECrypto.encrypt(text, with: key)) ?? text
             isE2E = body != text
