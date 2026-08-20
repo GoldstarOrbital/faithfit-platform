@@ -9,7 +9,7 @@ struct PostComposerView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var content = ""
     @State private var audience: PostAudience = .publicAudience
-    @State private var category: PostPhotoCategory = .workout
+    @State private var category: PhotoCategory = .workout
     @State private var pickerItem: PhotosPickerItem?
     @State private var previewImage: Image?
     @State private var uploadData: Data?
@@ -76,7 +76,7 @@ struct PostComposerView: View {
                     .frame(maxHeight: 280)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
                 Picker("Photo type", selection: $category) {
-                    ForEach(PostPhotoCategory.allCases) { item in Text(item.label).tag(item) }
+                    ForEach(PhotoCategory.allCases) { item in Text(item.label).tag(item) }
                 }
                 Button("Remove photo", role: .destructive, action: removePhoto)
                 Text("Choose the closest category. Community posts may show workouts or gear, nature, animals, or groups—use your profile photo for a solo portrait.")
@@ -116,15 +116,12 @@ struct PostComposerView: View {
         defer { isPreparingPhoto = false }
         do {
             guard let source = try await item.loadTransferable(type: Data.self) else {
-                throw ComposerError.invalidImage
+                throw ImageUpload.UploadError.invalidImage
             }
-            guard source.count <= 30 * 1024 * 1024 else { throw ComposerError.sourceTooLarge }
-            #if canImport(UIKit)
-            guard let prepared = compressForPost(source) else { throw ComposerError.imageTooLarge }
+            let prepared = try ImageUpload.prepare(source)
             uploadData = prepared
+            #if canImport(UIKit)
             if let image = UIImage(data: prepared) { previewImage = Image(uiImage: image) }
-            #else
-            throw ComposerError.invalidImage
             #endif
         } catch {
             pickerItem = nil
@@ -139,7 +136,7 @@ struct PostComposerView: View {
         guard canPublish else { return }
         isPublishing = true
         let text = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        let dataURL = uploadData.map { "data:image/jpeg;base64," + $0.base64EncodedString() }
+        let dataURL = uploadData.map(ImageUpload.dataURL(from:))
         Task {
             do {
                 _ = try await APIClient.shared.createPost(
@@ -177,52 +174,6 @@ private enum PostAudience: String, CaseIterable, Identifiable {
         }
     }
 }
-
-private enum PostPhotoCategory: String, CaseIterable, Identifiable {
-    case workout, nature, animal, group
-    var id: String { rawValue }
-    var label: String {
-        switch self {
-        case .workout: return "Workout or gear"
-        case .nature: return "Nature"
-        case .animal: return "Animal"
-        case .group: return "Group of people"
-        }
-    }
-}
-
-private enum ComposerError: LocalizedError {
-    case invalidImage
-    case sourceTooLarge
-    case imageTooLarge
-    var errorDescription: String? {
-        switch self {
-        case .invalidImage: return "That image could not be opened."
-        case .sourceTooLarge: return "Choose an image smaller than 30 MB."
-        case .imageTooLarge: return "That image could not be compressed below the 250 KB upload limit."
-        }
-    }
-}
-
-#if canImport(UIKit)
-private func compressForPost(_ data: Data) -> Data? {
-    guard let original = UIImage(data: data) else { return nil }
-    for maxDimension in [CGFloat(1440), 1080, 820] {
-        let longest = max(original.size.width, original.size.height)
-        let scale = min(1, maxDimension / max(longest, 1))
-        let target = CGSize(width: max(1, original.size.width * scale), height: max(1, original.size.height * scale))
-        let image = UIGraphicsImageRenderer(size: target).image { _ in
-            original.draw(in: CGRect(origin: .zero, size: target))
-        }
-        for quality in stride(from: CGFloat(0.82), through: 0.24, by: -0.08) {
-            if let output = image.jpegData(compressionQuality: quality), output.count <= 240 * 1024 {
-                return output
-            }
-        }
-    }
-    return nil
-}
-#endif
 
 #Preview {
     NavigationStack {

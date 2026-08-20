@@ -391,6 +391,47 @@ final class APIClient {
         return r.records
     }
 
+    // MARK: - Stories / Moments (24h ephemeral)
+
+    func fetchStories() async throws -> [Story] {
+        if useMock { return [] }
+        let r: StoriesResponse = try await request("/api/stories")
+        return r.stories
+    }
+
+    /// `photoData` is a full data: URL, matching ImageUpload.dataURL's
+    /// output -- same shape POST /posts expects, since both endpoints
+    /// validate with the exact same validateDataUrlImage() server-side.
+    func postStory(content: String, photoData: String?, photoCategory: String?, visibility: String) async throws {
+        let _: PostStoryResponse = try await request(
+            "/api/stories", method: "POST",
+            body: PostStoryBody(content: content, photoData: photoData, photoCategory: photoCategory, visibility: visibility)
+        )
+    }
+
+    func markStoryViewed(id: String) async throws {
+        let _: ActionResponse = try await request("/api/stories/\(id)/view", method: "POST", body: EmptyBody())
+    }
+
+    /// Tapping the same emoji again is how the server models "remove my
+    /// reaction" -- there's no separate unreact endpoint, matching the
+    /// toggle behavior exactly (see the DELETE branch in the server route).
+    func reactToStory(id: String, emoji: String) async throws -> StoryReactionResult {
+        try await request("/api/stories/\(id)/reaction", method: "POST", body: StoryReactionBody(emoji: emoji))
+    }
+
+    /// A Moment reply is delivered as an ordinary protected DM (with the
+    /// story's own safety/block/consent checks), not a public comment --
+    /// matches the server's own design note on this route.
+    func replyToStory(id: String, body: String) async throws -> String {
+        let r: StoryReplyResponse = try await request("/api/stories/\(id)/reply", method: "POST", body: StoryReplyBody(body: body))
+        return r.threadID
+    }
+
+    func deleteStory(id: String) async throws {
+        let _: ActionResponse = try await request("/api/stories/\(id)", method: "DELETE")
+    }
+
     // MARK: - Hashtags
 
     func fetchTrendingTags() async throws -> [TrendingTag] {
@@ -665,6 +706,14 @@ private struct E2EKeyResponse: Decodable {
 }
 
 private struct RecordsResponse: Decodable { let records: [String: [PersonalRecord]] }
+private struct StoriesResponse: Decodable { let stories: [Story] }
+private struct PostStoryBody: Encodable { let content: String; let photoData: String?; let photoCategory: String?; let visibility: String
+    enum CodingKeys: String, CodingKey { case content; case photoData = "photo_data"; case photoCategory = "photo_category"; case visibility }
+}
+private struct PostStoryResponse: Decodable { let id: String }
+private struct StoryReactionBody: Encodable { let emoji: String }
+private struct StoryReplyBody: Encodable { let body: String }
+private struct StoryReplyResponse: Decodable { let threadID: String; enum CodingKeys: String, CodingKey { case threadID = "thread_id" } }
 private struct TrendingTagsResponse: Decodable { let tags: [TrendingTag] }
 private struct HashtagPostsResponse: Decodable { let tag: String; let posts: [HashtagPostDTO] }
 private struct HashtagPostDTO: Decodable {

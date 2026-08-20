@@ -20,6 +20,10 @@ struct HomeFeedView: View {
 
     var body: some View {
         List {
+            StoriesRail()
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             TrendingTagsRail()
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
@@ -214,7 +218,7 @@ struct FeedPostRow: View {
             }
 
             #if canImport(UIKit)
-            if let dataURL = post.photoData, let image = imageFromDataURL(dataURL) {
+            if let dataURL = post.photoData, let image = ImageUpload.decode(dataURL) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
@@ -265,26 +269,6 @@ struct FeedPostRow: View {
         }
     }
 }
-
-#if canImport(UIKit)
-private let postImageCache: NSCache<NSString, UIImage> = {
-    let cache = NSCache<NSString, UIImage>()
-    cache.countLimit = 40
-    cache.totalCostLimit = 32 * 1024 * 1024
-    return cache
-}()
-
-private func imageFromDataURL(_ value: String) -> UIImage? {
-    let key = value as NSString
-    if let cached = postImageCache.object(forKey: key) { return cached }
-    guard let comma = value.firstIndex(of: ",") else { return nil }
-    let encoded = String(value[value.index(after: comma)...])
-    guard let data = Data(base64Encoded: encoded) else { return nil }
-    guard let image = UIImage(data: data) else { return nil }
-    postImageCache.setObject(image, forKey: key, cost: data.count)
-    return image
-}
-#endif
 
 struct WorkoutCard: View {
     let workout: WorkoutSummary

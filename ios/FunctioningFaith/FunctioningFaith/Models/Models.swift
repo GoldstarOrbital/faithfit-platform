@@ -178,6 +178,56 @@ struct ActivityBreakdownEntry: Decodable, Identifiable {
     enum CodingKeys: String, CodingKey { case type, count; case distanceKm = "distance_km"; case durationMin = "duration_min"; case calories }
 }
 
+/// Matches the server's PHOTO_CATEGORIES exactly (routes/api.js) -- shared
+/// between post and story composers since both validate against the same
+/// list.
+enum PhotoCategory: String, CaseIterable, Identifiable {
+    case workout, nature, animal, group
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .workout: return "Workout or gear"
+        case .nature: return "Nature"
+        case .animal: return "Animal"
+        case .group: return "Group of people"
+        }
+    }
+}
+
+// ---- Stories / Moments (24h ephemeral) ----
+
+struct Story: Decodable, Identifiable {
+    let id: String
+    let userID: String
+    let content: String?
+    let photoData: String?
+    let photoCategory: String?
+    let visibility: String
+    let createdAt: String
+    let expiresAt: String
+    let author: String
+    let authorHasAvatar: Bool
+    let viewed: Int
+    let reactionCount: Int
+    let myReaction: String?
+
+    var isViewed: Bool { viewed != 0 }
+
+    enum CodingKeys: String, CodingKey {
+        case id; case userID = "user_id"; case content
+        case photoData = "photo_data"; case photoCategory = "photo_category"
+        case visibility; case createdAt = "created_at"; case expiresAt = "expires_at"
+        case author; case authorHasAvatar = "author_has_avatar"
+        case viewed; case reactionCount = "reaction_count"; case myReaction = "my_reaction"
+    }
+}
+
+struct StoryReactionResult: Decodable {
+    let emoji: String?
+    let reactionCount: Int
+    enum CodingKeys: String, CodingKey { case emoji; case reactionCount = "reaction_count" }
+}
+
 // ---- Hashtags ----
 
 struct TrendingTag: Decodable, Identifiable {
