@@ -8,11 +8,11 @@ with your church.
 **Live:** https://faithfit-demo-production.up.railway.app
 
 This is a real, production web app — a first-class responsive experience for both
-mobile-web and desktop. (A separate native iOS app is built in parallel elsewhere.)
+mobile-web and desktop. A full native SwiftUI iOS app lives at [`ios/FunctioningFaith/`](ios/FunctioningFaith/) and is the App Store shipping path (see [`APPSTORE.md`](APPSTORE.md) and the submission playbook inside that folder).
 
-> The deployed application is entirely in [`webapp/`](webapp/). The other top-level
-> folders (`services/`, `migrations/`, `ios/`, `infra/`, `integrations/`, …) are an
-> earlier microservices scaffold that is **not used** by the live app and can be ignored.
+> The deployed web application is entirely in [`webapp/`](webapp/). The other top-level
+> folders (`services/`, `migrations/`, `infra/`, `integrations/`, …) are an
+> earlier microservices scaffold that is **not used** by the live web app and can be ignored for day-to-day work. The `ios/` tree is active and is the native client.
 
 ## Hackathon build
 
