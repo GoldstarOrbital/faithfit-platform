@@ -639,6 +639,34 @@ final class APIClient {
         return try await request("/api/churches/search?lat=\(lat)&lng=\(lng)&radius_km=\(radiusKm)")
     }
 
+    /// Sets the member's real, OSM-picked church -- a different, structured
+    /// field from the free-text `church` on the profile form. This unlocks
+    /// devotionals/service lookups (both resolve "my church" server-side
+    /// from this), though most churches won't show anything there until a
+    /// verified church admin links a YouTube channel -- a separate, later step.
+    func setMyChurch(_ church: NearbyChurch) async throws {
+        if useMock { return }
+        let _: UpdateProfileResponse = try await request("/api/profile", method: "PUT", body: ChurchSelectionBody(
+            churchOsmID: church.osmID, churchName: church.name, churchLat: church.lat, churchLng: church.lng, churchAddress: church.address))
+    }
+
+    func clearMyChurch() async throws {
+        if useMock { return }
+        let _: UpdateProfileResponse = try await request("/api/profile", method: "PUT", body: ChurchClearBody())
+    }
+
+    func fetchTodaysDevotional() async throws -> ChurchDevotional? {
+        if useMock { return nil }
+        let r: DevotionalResponse = try await request("/api/devotionals/today")
+        return r.devotional
+    }
+
+    func fetchThisWeeksService() async throws -> ChurchWeeklyService? {
+        if useMock { return nil }
+        let r: ChurchServiceResponse = try await request("/api/church/service/this-week")
+        return r.service
+    }
+
     // MARK: - Safety: mute / restrict, trusted circle, follow requests
 
     func fetchRelationships() async throws -> RelationshipsResponse {
@@ -760,6 +788,23 @@ final class APIClient {
 
 private struct EmptyBody: Encodable {}
 private struct VerseSaveBody: Encodable { let reference: String }
+private struct ChurchSelectionBody: Encodable {
+    let churchOsmID: String
+    let churchName: String
+    let churchLat: Double
+    let churchLng: Double
+    let churchAddress: String?
+    enum CodingKeys: String, CodingKey {
+        case churchOsmID = "church_osm_id", churchName = "church_name"
+        case churchLat = "church_lat", churchLng = "church_lng", churchAddress = "church_address"
+    }
+}
+private struct ChurchClearBody: Encodable {
+    let churchOsmID: String? = nil
+    enum CodingKeys: String, CodingKey { case churchOsmID = "church_osm_id" }
+}
+private struct DevotionalResponse: Decodable { let devotional: ChurchDevotional? }
+private struct ChurchServiceResponse: Decodable { let service: ChurchWeeklyService? }
 private struct PracticeNoteBody: Encodable { let note: String? }
 private struct OpenThreadBody: Encodable { let prompt: String? }
 private struct ReflectionBody: Encodable {
@@ -1180,15 +1225,18 @@ private struct MeDTO: Decodable {
     var model: UserProfile {
         UserProfile(id: user.id, displayName: user.displayName, bio: user.bioVerseRef, xp: xp?.xp ?? 0, level: xp?.level ?? 1,
                     badges: badges.map { Badge(id: $0.id, name: $0.name, iconURL: $0.icon) },
-                    job: user.job, church: user.church, tradition: user.tradition)
+                    job: user.job, church: user.church, tradition: user.tradition,
+                    churchOsmID: user.churchOsmID, churchName: user.churchName)
     }
 }
 private struct UserDTO: Decodable {
     let id: UUID; let displayName: String; let bioVerseRef: String?
     let job: String?; let church: String?; let tradition: String?
+    let churchOsmID: String?; let churchName: String?
     enum CodingKeys: String, CodingKey {
         case id; case displayName = "display_name"; case bioVerseRef = "bio_verse_ref"
         case job, church, tradition
+        case churchOsmID = "church_osm_id"; case churchName = "church_name"
     }
 }
 private struct XPDTO: Decodable { let xp: Int; let level: Int }

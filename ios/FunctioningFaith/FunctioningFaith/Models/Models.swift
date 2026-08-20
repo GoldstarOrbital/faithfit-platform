@@ -90,6 +90,37 @@ struct UserProfile: Codable, Identifiable {
     var job: String? = nil
     var church: String? = nil
     var tradition: String? = nil
+    /// The real, OSM-picked church (distinct from `church`, a free-text
+    /// fallback) -- set via ChurchFinderView. nil until a member selects one.
+    var churchOsmID: String? = nil
+    var churchName: String? = nil
+}
+
+// ---- Selected church: daily devotional + this week's service, both
+// resolved server-side from the member's own church_osm_id. Either can be
+// nil -- most churches haven't been linked by a verified admin yet, and
+// that's an honest, expected state, not an error. ----
+
+struct ChurchDevotional: Decodable {
+    let videoID: String
+    let title: String?
+    let thumbnailURL: String?
+    let publishedAt: String?
+    enum CodingKeys: String, CodingKey {
+        case videoID = "video_id", title
+        case thumbnailURL = "thumbnail_url", publishedAt = "published_at"
+    }
+}
+
+struct ChurchWeeklyService: Decodable {
+    let videoID: String
+    let title: String?
+    let durationSec: Int?
+    let publishedAt: String?
+    enum CodingKeys: String, CodingKey {
+        case videoID = "video_id", title
+        case durationSec = "duration_sec", publishedAt = "published_at"
+    }
 }
 
 // ---- Direct messages ----
