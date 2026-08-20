@@ -12,6 +12,11 @@ struct ExploreView: View {
         List {
             Section {
                 NavigationLink {
+                    ReelsFeedView()
+                } label: {
+                    Label("Reels", systemImage: "play.rectangle.fill")
+                }
+                NavigationLink {
                     JourneysListView()
                 } label: {
                     Label("Journeys", systemImage: "map.fill")

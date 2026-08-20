@@ -178,6 +178,56 @@ struct ActivityBreakdownEntry: Decodable, Identifiable {
     enum CodingKeys: String, CodingKey { case type, count; case distanceKm = "distance_km"; case durationMin = "duration_min"; case calories }
 }
 
+// ---- Reels: short-form video feed. Three real content sources mixed into
+// one list (see routes/api.js's GET /reels): YouTube catalogue videos,
+// member-uploaded video posts (own video_data, a data: URL), and church
+// uploads. Played accordingly -- WKWebView embed for YouTube, AVKit for a
+// member's own uploaded clip, external Safari for anything else (a
+// church's arbitrary embed page isn't worth building a third player for).
+
+struct Reel: Decodable, Identifiable {
+    let videoID: String
+    let title: String?
+    let description: String?
+    let thumbnailURL: String?
+    let channelTitle: String?
+    let category: String?
+    let provider: String?
+    let sourceURL: String?
+    let sourceKind: String?
+    let videoData: String?
+    let verseReference: String?
+    let verseText: String?
+    let churchName: String?
+    let likeCount: Int
+    let saveCount: Int
+    let likedByMe: Bool
+    let savedByMe: Bool
+    var id: String { videoID }
+
+    enum CodingKeys: String, CodingKey {
+        case videoID = "video_id", title, description
+        case thumbnailURL = "thumbnail_url", channelTitle = "channel_title"
+        case category, provider; case sourceURL = "source_url"; case sourceKind = "source_kind"
+        case videoData = "video_data"; case verseReference = "verse_reference"; case verseText = "verse_text"
+        case churchName = "church_name"
+        case likeCount = "like_count", saveCount = "save_count"
+        case likedByMe = "liked_by_me", savedByMe = "saved_by_me"
+    }
+}
+
+struct ReelsFeedResponse: Decodable {
+    let videos: [Reel]
+    let churchName: String?
+    enum CodingKeys: String, CodingKey { case videos; case churchName = "church_name" }
+}
+
+struct ReelReactionResult: Decodable {
+    let kind: String
+    let active: Bool
+    let count: Int
+}
+
 // ---- Journeys: progress-tracking core only, no 3D world. ----
 // The web app renders each journey as a real-time flythrough of a 3D scene
 // (Three.js) as you move through it. That is a visualization layer on top

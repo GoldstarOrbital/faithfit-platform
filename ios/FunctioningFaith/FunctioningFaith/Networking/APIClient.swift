@@ -432,6 +432,28 @@ final class APIClient {
         let _: ActionResponse = try await request("/api/stories/\(id)", method: "DELETE")
     }
 
+    // MARK: - Reels
+
+    func fetchReels() async throws -> ReelsFeedResponse {
+        try await request("/api/reels")
+    }
+
+    /// Only meaningful for catalogue videos (source_kind channel/seed/query
+    /// server-side) -- the route itself no-ops (204) for anything else, so
+    /// it's safe to call for every reel without checking its kind first.
+    func recordReelImpression(videoID: String) async throws {
+        let _: ActionResponse = try await request("/api/reels/\(videoID)/impression", method: "POST", body: EmptyBody())
+    }
+
+    /// `kind` is "like" or "save"; toggles, matching the server exactly.
+    func reactToReel(videoID: String, kind: String) async throws -> ReelReactionResult {
+        try await request("/api/reels/\(videoID)/reaction", method: "POST", body: ReelReactionBody(kind: kind))
+    }
+
+    func markReelNotInterested(videoID: String) async throws {
+        let _: ActionResponse = try await request("/api/reels/\(videoID)/not-interested", method: "POST", body: EmptyBody())
+    }
+
     // MARK: - Journeys (progress mechanic; see Models.swift's header comment
     // on why the 3D world itself isn't ported)
 
@@ -766,6 +788,7 @@ private struct StoryReplyBody: Encodable { let body: String }
 private struct StoryReplyResponse: Decodable { let threadID: String; enum CodingKeys: String, CodingKey { case threadID = "thread_id" } }
 private struct TrendingTagsResponse: Decodable { let tags: [TrendingTag] }
 private struct JourneyProgressBody: Encodable { let addKm: Double; enum CodingKeys: String, CodingKey { case addKm = "add_km" } }
+private struct ReelReactionBody: Encodable { let kind: String }
 private struct AthleteSearchResponse: Decodable { let athletes: [AthleteSearchResult] }
 private struct AthleteProfileResponse: Decodable { let profile: AthleteProfile }
 private struct HashtagPostsResponse: Decodable { let tag: String; let posts: [HashtagPostDTO] }
