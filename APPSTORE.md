@@ -6,8 +6,9 @@ against `ios/FunctioningFaith/` and `webapp/`, not assumed.
 > **Important:** An earlier revision of this document said there was no native
 > shell. That is outdated. The shipping path is the **native SwiftUI app** at
 > `ios/FunctioningFaith/`, talking to the production web API. Treat
-> `ios/FunctioningFaith/README.md` and `ios/FunctioningFaith/RELEASE_CHECKLIST.md`
-> as the operational sources of truth for the native build.
+> `ios/FunctioningFaith/README.md`, `ios/FunctioningFaith/RELEASE_CHECKLIST.md`,
+> and especially **`ios/FunctioningFaith/APP_STORE_SUBMISSION.md`** as the
+> operational sources of truth for the native build and the final human steps.
 
 ## Native app (primary App Store path)
 
@@ -20,7 +21,7 @@ against `ios/FunctioningFaith/` and `webapp/`, not assumed.
 | HealthKit entitlement (read-only) | **Present** | same |
 | Permission copy (location, Bluetooth, Health, notifications, Face ID) | **Present** | `Resources/Info.plist` |
 | Privacy manifest | **Present** | `Resources/PrivacyInfo.xcprivacy` |
-| Production API base URL | Default production Railway host; overridable via Info.plist `FFAPIBaseURL` | `APIClient.swift` |
+| Production API base URL | Default production Railway host; overridable via Info.plist `FFAPIBaseURL` | `APIClient.swift` + `Config.swift` |
 | Mock vs live networking | `#if DEBUG` → mock on; Release → live | `APIClient.swift` |
 | Account deletion | Native Profile → `DELETE /api/me` | API + Profile UI |
 | UGC report / block | Native + server routes | APIClient + web moderation |
@@ -97,15 +98,18 @@ Replace with the custom domain once DNS/TLS is live.
 
 ## What is still human / portal work
 
-These cannot be finished from the repo alone:
+These cannot be finished from the repo alone. Follow the single playbook:
 
-1. Apple Developer Program membership and App ID capabilities (Sign in with
-   Apple, HealthKit, Push if used).
-2. Signed physical-device QA — run `ios/FunctioningFaith/RELEASE_CHECKLIST.md`.
-3. Cross-platform E2E DM test — `ios/FunctioningFaith/docs/E2E_DM_VERIFICATION.md`.
-4. App Store Connect record: screenshots, description, age questionnaire,
-   privacy labels, review notes.
-5. Archive → TestFlight → Submit.
+**→ [`ios/FunctioningFaith/APP_STORE_SUBMISSION.md`](ios/FunctioningFaith/APP_STORE_SUBMISSION.md)**
+
+It covers, in order:
+
+1. App Icon asset (currently missing — required before archive)
+2. Apple Developer Program membership and App ID capabilities (Sign in with Apple, HealthKit)
+3. Signed physical-device QA — `RELEASE_CHECKLIST.md`
+4. Cross-platform E2E DM test — `docs/E2E_DM_VERIFICATION.md`
+5. App Store Connect record: screenshots, description, age questionnaire, privacy labels, review notes
+6. Archive → TestFlight → Submit for Review
 
 ## Summary
 
@@ -114,6 +118,7 @@ These cannot be finished from the repo alone:
 | Native SwiftUI app + API client | **In repo** |
 | Permission strings, privacy manifest, entitlements scaffold | **In repo** |
 | UGC, deletion, moderation, support URL | **In repo (web + native)** |
+| App Icon asset catalog | **Human (see playbook §0)** |
 | Apple portal capabilities + Team ID | **Human** |
 | Device QA + E2E DM crypto proof | **Human on device** |
 | App Store Connect metadata + submit | **Human** |
