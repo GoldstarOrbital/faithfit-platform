@@ -13,9 +13,28 @@ struct GroupDetailView: View {
     @State private var pulseNote = ""
     @State private var isSubmittingPulse = false
     @State private var errorMessage: String?
+    @State private var showAnnouncementEditor = false
+    @State private var announcementDraft = ""
 
     var body: some View {
         List {
+            if let announcement = detail?.announcement, !announcement.isEmpty {
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Pinned announcement", systemImage: "pin.fill").font(.caption.weight(.semibold)).foregroundStyle(.orange)
+                        Text(announcement)
+                        if detail?.isAdmin == true {
+                            Button("Edit") { announcementDraft = announcement; showAnnouncementEditor = true }
+                                .font(.caption)
+                        }
+                    }
+                    .padding(.vertical, 3)
+                }
+            } else if detail?.isAdmin == true {
+                Section {
+                    Button("Pin an announcement") { announcementDraft = ""; showAnnouncementEditor = true }
+                }
+            }
             Section {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(detail?.group.description ?? group.description ?? "A Functioning Faith community.")
@@ -38,6 +57,7 @@ struct GroupDetailView: View {
                     if detail.isAdmin {
                         Label("You manage this group", systemImage: "checkmark.seal.fill")
                             .foregroundStyle(.indigo)
+                        NavigationLink("Manage members") { GroupMembersView(groupID: group.id) }
                     } else {
                         Button(detail.isMember ? "Leave group" : "Join group", role: detail.isMember ? .destructive : nil) {
                             changeMembership(joining: !detail.isMember)
@@ -140,6 +160,24 @@ struct GroupDetailView: View {
         } message: {
             Text(errorMessage ?? "Please try again.")
         }
+        .sheet(isPresented: $showAnnouncementEditor) {
+            NavigationStack {
+                Form {
+                    Section {
+                        TextField("Announcement", text: $announcementDraft, axis: .vertical)
+                            .lineLimit(3...8)
+                    } footer: {
+                        Text("Visible to every member, pinned above the conversation. Clear the text to unpin it.")
+                    }
+                }
+                .navigationTitle("Announcement")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showAnnouncementEditor = false } }
+                    ToolbarItem(placement: .confirmationAction) { Button("Save") { Task { await saveAnnouncement() } } }
+                }
+            }
+        }
     }
 
     private func load() async {
@@ -241,6 +279,14 @@ struct GroupDetailView: View {
             }
             isChangingMembership = false
         }
+    }
+
+    private func saveAnnouncement() async {
+        do {
+            try await APIClient.shared.setGroupAnnouncement(groupID: group.id, text: announcementDraft.trimmingCharacters(in: .whitespacesAndNewlines))
+            showAnnouncementEditor = false
+            await load()
+        } catch { errorMessage = error.localizedDescription }
     }
 
     private func sendMessage() {

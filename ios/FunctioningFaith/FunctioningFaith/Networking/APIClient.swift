@@ -113,6 +113,30 @@ final class APIClient {
         let _: ActionResponse = try await request("/api/groups/\(encoded)/\(action)", method: "POST", body: EmptyBody())
     }
 
+    /// Organiser-only. Passing an empty string clears the pinned note --
+    /// matches the server's own semantics (`text || null`), not a separate
+    /// delete endpoint.
+    func setGroupAnnouncement(groupID: String, text: String) async throws {
+        if useMock { return }
+        let _: ActionResponse = try await request(
+            "/api/groups/\(groupID)/announcement", method: "PUT", body: AnnouncementBody(text: text)
+        )
+    }
+
+    func fetchGroupMembers(groupID: String) async throws -> [GroupMemberEntry] {
+        if useMock { return [] }
+        let r: GroupMembersResponse = try await request("/api/groups/\(groupID)/members")
+        return r.members
+    }
+
+    /// Organiser-only; the server itself refuses to remove the group's
+    /// owner or let an admin remove themselves this way (that's "leave"
+    /// instead, which triggers ownership handover).
+    func removeGroupMember(groupID: String, userID: String) async throws {
+        if useMock { return }
+        let _: ActionResponse = try await request("/api/groups/\(groupID)/members/\(userID)", method: "DELETE")
+    }
+
     func sendGroupMessage(groupID: String, content: String) async throws -> GroupMessage {
         if useMock {
             return GroupMessage(id: UUID().uuidString, content: content, createdAt: ISO8601DateFormatter().string(from: .now), authorID: MockData.profile.id.uuidString, author: MockData.profile.displayName)
@@ -608,6 +632,10 @@ private struct E2EKeyResponse: Decodable {
 }
 
 private struct RecordsResponse: Decodable { let records: [String: [PersonalRecord]] }
+private struct AnnouncementBody: Encodable { let text: String }
+private struct GroupMembersResponse: Decodable { let members: [GroupMemberEntry]; let isAdmin: Bool?
+    enum CodingKeys: String, CodingKey { case members; case isAdmin = "is_admin" }
+}
 private struct CircleResponse: Decodable { let members: [CircleMember]; let max: Int }
 private struct CircleCandidatesResponse: Decodable { let candidates: [CircleCandidate] }
 private struct FollowRequestsResponse: Decodable { let requests: [FollowRequestUser] }
@@ -786,7 +814,9 @@ private struct GroupDetailResponse: Decodable {
             isMember: isMember,
             isAdmin: isAdmin,
             messages: messages,
-            events: events
+            events: events,
+            announcement: group.announcement,
+            announcementAt: group.announcementAt
         )
     }
 }
@@ -799,11 +829,14 @@ private struct GroupCoreDTO: Decodable {
     let churchName: String?
     let locationName: String?
     let sport: String?
+    let announcement: String?
+    let announcementAt: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, description, username, sport
+        case id, name, description, username, sport, announcement
         case churchName = "church_name"
         case locationName = "location_name"
+        case announcementAt = "announcement_at"
     }
 
     func model(memberCount: Int) -> ExploreGroup {
