@@ -995,6 +995,54 @@ struct ReflectionLikeResponse: Decodable {
     enum CodingKeys: String, CodingKey { case liked; case likeCount = "like_count" }
 }
 
+// ---- Podcasts: real independent Christian shows, ingested from each show's
+// public RSS feed server-side. No fabricated episodes or hosts. ----
+
+struct PodcastEpisode: Decodable, Identifiable {
+    let id: String
+    let title: String
+    let description: String?
+    let audioURL: String?
+    let link: String?
+    let durationSec: Int?
+    let publishedAt: String?
+    enum CodingKeys: String, CodingKey {
+        case id, title, description, link
+        case audioURL = "audio_url"
+        case durationSec = "duration_sec"
+        case publishedAt = "published_at"
+    }
+}
+
+struct Podcast: Decodable, Identifiable {
+    let id: String
+    let title: String
+    let host: String?
+    let description: String?
+    let theme: String?
+    let artworkURL: String?
+    let episodes: [PodcastEpisode]
+    enum CodingKeys: String, CodingKey {
+        case id, title, host, description, theme, episodes
+        case artworkURL = "artwork_url"
+    }
+}
+
+// ---- Church discovery: real, free OpenStreetMap Overpass data -- an unnamed
+// node is never shown as a church, per lib/overpass.js. ----
+
+struct NearbyChurch: Decodable, Identifiable {
+    let osmID: String
+    let name: String
+    let lat: Double
+    let lng: Double
+    let address: String?
+    var id: String { osmID }
+    enum CodingKeys: String, CodingKey {
+        case osmID = "osm_id", name, lat, lng, address
+    }
+}
+
 /// Discovery surface -- which verses people are actually talking about.
 struct DiscussedVerse: Decodable, Identifiable {
     let id: String

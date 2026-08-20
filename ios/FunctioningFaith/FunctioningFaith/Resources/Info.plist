@@ -9,7 +9,7 @@
       <key>CFBundleURLSchemes</key><array><string>functioningfaith</string></array>
     </dict>
   </array>
-  <key>NSLocationWhenInUseUsageDescription</key><string>Functioning Faith uses your location only while you choose to record a live workout route.</string>
+  <key>NSLocationWhenInUseUsageDescription</key><string>Functioning Faith uses your location only while you choose to record a live workout route or search for a church nearby.</string>
   <key>NSBluetoothAlwaysUsageDescription</key><string>Functioning Faith uses Bluetooth only when you choose to connect a heart-rate monitor or fitness sensor.</string>
   <key>NSUserNotificationsUsageDescription</key><string>Choose notifications for Scripture, replies, and reminders that help you follow your rhythm.</string>
   <key>NSFaceIDUsageDescription</key><string>Functioning Faith uses Face ID only when you enable biometric protection for your signed-in account.</string>

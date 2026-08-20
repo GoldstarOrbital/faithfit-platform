@@ -625,6 +625,20 @@ final class APIClient {
         return try await request("/api/verses/discussed?limit=\(limit)")
     }
 
+    // MARK: - Podcasts
+
+    func fetchPodcasts(episodesPerShow: Int = 8) async throws -> [Podcast] {
+        if useMock { return [] }
+        return try await request("/api/podcasts?episodes=\(episodesPerShow)")
+    }
+
+    // MARK: - Church discovery
+
+    func fetchNearbyChurches(lat: Double, lng: Double, radiusKm: Double = 8) async throws -> [NearbyChurch] {
+        if useMock { return [] }
+        return try await request("/api/churches/search?lat=\(lat)&lng=\(lng)&radius_km=\(radiusKm)")
+    }
+
     // MARK: - Safety: mute / restrict, trusted circle, follow requests
 
     func fetchRelationships() async throws -> RelationshipsResponse {

@@ -144,6 +144,14 @@ struct ExploreView: View {
                     }
                 }
             }
+            Section("Discover") {
+                NavigationLink { PodcastsView() } label: {
+                    Label("Podcasts", systemImage: "mic")
+                }
+                NavigationLink { ChurchFinderView() } label: {
+                    Label("Find a church nearby", systemImage: "building.2")
+                }
+            }
         }
         .navigationTitle("Explore")
         .task { await loadExplore() }
