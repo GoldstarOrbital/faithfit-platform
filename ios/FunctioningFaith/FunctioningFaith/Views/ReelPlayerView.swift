@@ -55,7 +55,9 @@ struct ReelPlayerView: View {
 /// environment anyway). `playsinline=1` keeps it from forcing iOS's
 /// native fullscreen video chrome on load.
 #if canImport(WebKit)
-private struct YouTubeEmbedView: UIViewRepresentable {
+/// Internal (not private) so VideoLibraryView can reuse it for the curated
+/// video library -- same real embed, same reason to avoid a third-party SDK.
+struct YouTubeEmbedView: UIViewRepresentable {
     let videoID: String
 
     func makeUIView(context: Context) -> WKWebView {

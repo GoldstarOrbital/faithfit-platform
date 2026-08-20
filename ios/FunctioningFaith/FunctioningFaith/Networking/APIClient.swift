@@ -691,6 +691,25 @@ final class APIClient {
         return try await request("/api/podcasts?episodes=\(episodesPerShow)")
     }
 
+    // MARK: - News & video library
+
+    func fetchNews(limit: Int = 40) async throws -> NewsResponse {
+        if useMock { return NewsResponse(items: [], sources: [], disabled: true) }
+        return try await request("/api/news?limit=\(limit)")
+    }
+
+    /// `category` must be one of the server's fixed allowed set (kids,
+    /// fitness, food, motivational, christian, veggietales, nickbare,
+    /// reels) -- anything else 400s, so callers pass a value from
+    /// VideoLibraryView's own fixed list rather than free text.
+    func fetchVideos(category: String) async throws -> [VideoItem] {
+        if useMock { return [] }
+        guard let encoded = category.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            throw APIError.invalidResponse
+        }
+        return try await request("/api/videos?category=\(encoded)")
+    }
+
     // MARK: - Church discovery
 
     func fetchNearbyChurches(lat: Double, lng: Double, radiusKm: Double = 8) async throws -> [NearbyChurch] {

@@ -1304,6 +1304,47 @@ struct JourneyGhostsResponse: Decodable {
     let note: String?
 }
 
+// ---- Christian news: real headlines from each outlet's public RSS feed,
+// summary only, never the full copyrighted article -- see lib/news.js. ----
+
+struct NewsItem: Decodable, Identifiable {
+    let id: String
+    let source: String
+    let title: String
+    let summary: String?
+    let link: String
+    let imageURL: String?
+    let publishedAt: String?
+    enum CodingKeys: String, CodingKey {
+        case id, source, title, summary, link
+        case imageURL = "image_url", publishedAt = "published_at"
+    }
+}
+
+struct NewsResponse: Decodable {
+    let items: [NewsItem]
+    let sources: [String]
+    let disabled: Bool?
+}
+
+// ---- Curated video library: real YouTube channels by category, distinct
+// from Reels' short-form feed. ----
+
+struct VideoItem: Decodable, Identifiable {
+    let videoID: String
+    let title: String
+    let description: String?
+    let thumbnailURL: String?
+    let channelTitle: String?
+    let publishedAt: String?
+    var id: String { videoID }
+    enum CodingKeys: String, CodingKey {
+        case videoID = "video_id", title, description
+        case thumbnailURL = "thumbnail_url", channelTitle = "channel_title"
+        case publishedAt = "published_at"
+    }
+}
+
 /// Discovery surface -- which verses people are actually talking about.
 struct DiscussedVerse: Decodable, Identifiable {
     let id: String

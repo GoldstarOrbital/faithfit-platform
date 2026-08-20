@@ -151,6 +151,12 @@ struct ExploreView: View {
                 NavigationLink { ChurchFinderView() } label: {
                     Label("Find a church nearby", systemImage: "building.2")
                 }
+                NavigationLink { NewsView() } label: {
+                    Label("News", systemImage: "newspaper")
+                }
+                NavigationLink { VideoLibraryView() } label: {
+                    Label("Videos", systemImage: "play.rectangle")
+                }
             }
         }
         .navigationTitle("Explore")
