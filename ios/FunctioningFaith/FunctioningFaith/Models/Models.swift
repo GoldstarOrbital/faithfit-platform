@@ -94,6 +94,58 @@ struct UserProfile: Codable, Identifiable {
     /// fallback) -- set via ChurchFinderView. nil until a member selects one.
     var churchOsmID: String? = nil
     var churchName: String? = nil
+    var bibleVersionID: Int? = nil
+}
+
+// ---- Bible beyond the local 22-book library: the YouVersion Platform
+// covers the full canon in eleven English translations. Local text is
+// still preferred where it exists; this only fills the gap -- see
+// lib/youversion.js's own header. ----
+
+struct BibleVersion: Decodable, Identifiable {
+    let id: Int
+    let abbreviation: String?
+    let title: String?
+    let deepLink: String?
+    enum CodingKeys: String, CodingKey { case id, abbreviation, title, deepLink = "deep_link" }
+}
+
+struct BibleVersionsResponse: Decodable {
+    let configured: Bool
+    let defaultVersionID: Int
+    let versions: [BibleVersion]
+    enum CodingKeys: String, CodingKey {
+        case configured, versions
+        case defaultVersionID = "default_version_id"
+    }
+}
+
+struct ResolvedPassage: Decodable {
+    let reference: String
+    let text: String
+    let source: String
+    let translation: String?
+    let youversionURL: String?
+    enum CodingKeys: String, CodingKey {
+        case reference, text, source, translation
+        case youversionURL = "youversion_url"
+    }
+}
+
+// ---- Ask about a verse: Gloo-grounded Q&A that only ever cites references
+// it has independently verified -- see companion.js's askAboutVerse. ----
+
+struct AlsoCitedVerse: Decodable, Identifiable {
+    let reference: String
+    let text: String
+    var id: String { reference }
+}
+
+struct VerseAskAnswer: Decodable {
+    let reference: String
+    let text: String
+    let answer: String
+    let also: [AlsoCitedVerse]
 }
 
 // ---- Selected church: daily devotional + this week's service, both

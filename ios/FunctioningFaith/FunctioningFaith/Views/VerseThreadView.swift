@@ -15,6 +15,9 @@ struct VerseThreadView: View {
     @State private var newReflection = ""
     @State private var replyDraftFor: String?
     @State private var replyText = ""
+    @State private var question = ""
+    @State private var askAnswer: VerseAskAnswer?
+    @State private var isAsking = false
     @State private var errorMessage: String?
 
     var body: some View {
@@ -24,6 +27,7 @@ struct VerseThreadView: View {
             } else {
                 List {
                     verseSection
+                    askSection
                     if thread != nil {
                         reflectionsSection
                         composeSection
@@ -52,6 +56,31 @@ struct VerseThreadView: View {
                 }
                 if let prompt = thread?.prompt, !prompt.isEmpty {
                     Text(prompt).font(.subheadline).italic()
+                }
+            }
+        }
+    }
+
+    /// Grounded in this verse's own real text -- every reference the answer
+    /// cites is independently re-verified server-side before the response
+    /// ever comes back (see companion.js's askAboutVerse). Silently absent
+    /// when Gloo isn't configured; the "Ask" button just surfaces that as
+    /// a normal error rather than hiding the section entirely.
+    private var askSection: some View {
+        Section("Ask about this verse") {
+            TextField("What does this mean for me today?", text: $question, axis: .vertical)
+                .lineLimit(1...3)
+            Button("Ask") { Task { await ask() } }
+                .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty || isAsking)
+            if isAsking {
+                ProgressView()
+            } else if let askAnswer {
+                Text(askAnswer.answer).font(.subheadline)
+                ForEach(askAnswer.also) { cited in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(cited.reference).font(.caption.weight(.semibold))
+                        Text(cited.text).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
         }
@@ -190,6 +219,17 @@ struct VerseThreadView: View {
             errorMessage = error.localizedDescription
         }
         isSubmitting = false
+    }
+
+    private func ask() async {
+        isAsking = true
+        do {
+            askAnswer = try await APIClient.shared.askAboutVerse(reference: reference, question: question)
+            question = ""
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isAsking = false
     }
 
     private func toggleLike(_ reflection: VerseReflection) async {

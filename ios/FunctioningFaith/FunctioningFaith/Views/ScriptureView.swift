@@ -113,6 +113,12 @@ struct ScriptureView: View {
             NavigationLink { DiscussedVersesView() } label: {
                 Label("Discussions", systemImage: "bubble.left.and.bubble.right")
             }
+            NavigationLink { VerseLookupView() } label: {
+                Label("Look up any verse", systemImage: "magnifyingglass")
+            }
+            NavigationLink { BibleVersionPickerView() } label: {
+                Label("Bible translation", systemImage: "text.book.closed")
+            }
         }
     }
 

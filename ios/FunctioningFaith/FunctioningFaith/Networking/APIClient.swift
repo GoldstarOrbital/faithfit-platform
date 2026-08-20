@@ -649,6 +649,41 @@ final class APIClient {
         return try await request("/api/verses/discussed?limit=\(limit)")
     }
 
+    /// Real text from the local 22-book library first (cheap, verified,
+    /// already here); the YouVersion Platform fills any gap and serves
+    /// other translations. Either path returns real text or a plain
+    /// "no_text_available" -- never a placeholder.
+    func fetchBibleVersions() async throws -> BibleVersionsResponse {
+        if useMock { return BibleVersionsResponse(configured: false, defaultVersionID: 206, versions: []) }
+        return try await request("/api/bible/versions")
+    }
+
+    func lookupVerse(reference: String, versionID: Int? = nil) async throws -> ResolvedPassage {
+        if useMock { throw APIError.invalidResponse }
+        guard let encoded = reference.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            throw APIError.invalidResponse
+        }
+        var path = "/api/bible/passage?ref=\(encoded)"
+        if let versionID { path += "&version=\(versionID)" }
+        return try await request(path)
+    }
+
+    func setPreferredBibleVersion(_ versionID: Int?) async throws {
+        if useMock { return }
+        let _: UpdateProfileResponse = try await request("/api/profile", method: "PUT", body: BibleVersionBody(bibleVersionID: versionID))
+    }
+
+    /// Grounded in the verse's own real text; every reference it cites is
+    /// independently re-verified server-side before this call ever returns
+    /// -- see companion.js's askAboutVerse. 503 when Gloo isn't configured.
+    func askAboutVerse(reference: String, question: String) async throws -> VerseAskAnswer {
+        if useMock { throw APIError.invalidResponse }
+        guard let encoded = reference.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw APIError.invalidResponse
+        }
+        return try await request("/api/verses/\(encoded)/ask", method: "POST", body: AskVerseBody(question: question))
+    }
+
     // MARK: - Podcasts
 
     func fetchPodcasts(episodesPerShow: Int = 8) async throws -> [Podcast] {
@@ -941,6 +976,11 @@ private struct SegmentCompleteBody: Encodable {
     let measured: Bool
     enum CodingKeys: String, CodingKey { case durationSec = "duration_sec", measured }
 }
+private struct BibleVersionBody: Encodable {
+    let bibleVersionID: Int?
+    enum CodingKeys: String, CodingKey { case bibleVersionID = "bible_version_id" }
+}
+private struct AskVerseBody: Encodable { let question: String }
 private struct PracticeNoteBody: Encodable { let note: String? }
 private struct OpenThreadBody: Encodable { let prompt: String? }
 private struct ReflectionBody: Encodable {
@@ -1362,17 +1402,19 @@ private struct MeDTO: Decodable {
         UserProfile(id: user.id, displayName: user.displayName, bio: user.bioVerseRef, xp: xp?.xp ?? 0, level: xp?.level ?? 1,
                     badges: badges.map { Badge(id: $0.id, name: $0.name, iconURL: $0.icon) },
                     job: user.job, church: user.church, tradition: user.tradition,
-                    churchOsmID: user.churchOsmID, churchName: user.churchName)
+                    churchOsmID: user.churchOsmID, churchName: user.churchName, bibleVersionID: user.bibleVersionID)
     }
 }
 private struct UserDTO: Decodable {
     let id: UUID; let displayName: String; let bioVerseRef: String?
     let job: String?; let church: String?; let tradition: String?
     let churchOsmID: String?; let churchName: String?
+    let bibleVersionID: Int?
     enum CodingKeys: String, CodingKey {
         case id; case displayName = "display_name"; case bioVerseRef = "bio_verse_ref"
         case job, church, tradition
         case churchOsmID = "church_osm_id"; case churchName = "church_name"
+        case bibleVersionID = "bible_version_id"
     }
 }
 private struct XPDTO: Decodable { let xp: Int; let level: Int }
