@@ -87,6 +87,9 @@ struct UserProfile: Codable, Identifiable {
     let xp: Int
     let level: Int
     let badges: [Badge]
+    var job: String? = nil
+    var church: String? = nil
+    var tradition: String? = nil
 }
 
 // ---- Direct messages ----

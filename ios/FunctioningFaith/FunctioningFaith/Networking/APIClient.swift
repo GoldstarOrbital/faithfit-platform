@@ -447,6 +447,16 @@ final class APIClient {
         return try await request("/api/username-available?name=\(encoded)")
     }
 
+    /// Empty string clears bioVerseRef/tradition (server semantics: `''`
+    /// means "unset", matching the web form exactly); job/church have no
+    /// such special case and just get stored as-is, empty or not.
+    func updateProfile(displayName: String, bioVerseRef: String, job: String, church: String, tradition: String) async throws {
+        let _: UpdateProfileResponse = try await request(
+            "/api/profile", method: "PUT",
+            body: UpdateProfileBody(displayName: displayName, bioVerseRef: bioVerseRef, job: job, church: church, tradition: tradition)
+        )
+    }
+
     // MARK: - Notifications
 
     func fetchNotifications() async throws -> NotificationsResponse {
@@ -646,6 +656,14 @@ struct UsernameCheckResult: Decodable {
     let message: String?
     let suggestion: String?
 }
+
+private struct UpdateProfileBody: Encodable {
+    let displayName: String, bioVerseRef: String, job: String, church: String, tradition: String
+    enum CodingKeys: String, CodingKey {
+        case displayName = "display_name", bioVerseRef = "bio_verse_ref", job, church, tradition
+    }
+}
+private struct UpdateProfileResponse: Decodable { let ok: Bool }
 
 private struct AppleHealthSyncBody: Encodable {
     struct Workout: Encodable {
@@ -867,9 +885,20 @@ private struct FeedDTO: Decodable {
 private struct MeDTO: Decodable {
     let user: UserDTO; let xp: XPDTO?; let badges: [BadgeDTO]; let accountSetupRequired: Bool?
     enum CodingKeys: String, CodingKey { case user, xp, badges; case accountSetupRequired = "account_setup_required" }
-    var model: UserProfile { UserProfile(id: user.id, displayName: user.displayName, bio: user.bioVerseRef, xp: xp?.xp ?? 0, level: xp?.level ?? 1, badges: badges.map { Badge(id: $0.id, name: $0.name, iconURL: $0.icon) }) }
+    var model: UserProfile {
+        UserProfile(id: user.id, displayName: user.displayName, bio: user.bioVerseRef, xp: xp?.xp ?? 0, level: xp?.level ?? 1,
+                    badges: badges.map { Badge(id: $0.id, name: $0.name, iconURL: $0.icon) },
+                    job: user.job, church: user.church, tradition: user.tradition)
+    }
 }
-private struct UserDTO: Decodable { let id: UUID; let displayName: String; let bioVerseRef: String?; enum CodingKeys: String, CodingKey { case id; case displayName = "display_name"; case bioVerseRef = "bio_verse_ref" } }
+private struct UserDTO: Decodable {
+    let id: UUID; let displayName: String; let bioVerseRef: String?
+    let job: String?; let church: String?; let tradition: String?
+    enum CodingKeys: String, CodingKey {
+        case id; case displayName = "display_name"; case bioVerseRef = "bio_verse_ref"
+        case job, church, tradition
+    }
+}
 private struct XPDTO: Decodable { let xp: Int; let level: Int }
 private struct BadgeDTO: Decodable { let id: String; let name: String; let icon: String }
 private struct SuggestedUserDTO: Decodable {

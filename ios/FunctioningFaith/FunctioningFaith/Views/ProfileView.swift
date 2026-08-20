@@ -13,14 +13,19 @@ struct ProfileView: View {
     @State private var scripturePersonalization = false
     @State private var healthKitSyncing = false
     @State private var pendingFollowRequests = 0
+    @State private var showEditProfile = false
 
     var body: some View {
         Form {
             if let profile {
-                Section("Stats") {
+                Section {
                     Text("\(profile.displayName)")
                     Text("Level \(profile.level) · \(profile.xp) XP")
-                }
+                    if let bio = profile.bio, !bio.isEmpty { Text(bio).font(.caption).foregroundStyle(.secondary) }
+                    if let job = profile.job, !job.isEmpty { Text(job).font(.caption).foregroundStyle(.secondary) }
+                    if let church = profile.church, !church.isEmpty { Text(church).font(.caption).foregroundStyle(.secondary) }
+                    Button("Edit profile") { showEditProfile = true }
+                } header: { Text("Stats") }
                 Section("Badges") {
                     ForEach(profile.badges) { badge in
                         Label(badge.name, systemImage: badge.iconURL)
@@ -142,6 +147,14 @@ struct ProfileView: View {
         .alert("Could not delete account", isPresented: Binding(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })) {
             Button("OK", role: .cancel) { deleteError = nil }
         } message: { Text(deleteError ?? "Please try again.") }
+        .sheet(isPresented: $showEditProfile) {
+            if let profile {
+                EditProfileView(profile: profile) { updated in
+                    self.profile = updated
+                    session.profile = updated
+                }
+            }
+        }
     }
 
     @ViewBuilder
