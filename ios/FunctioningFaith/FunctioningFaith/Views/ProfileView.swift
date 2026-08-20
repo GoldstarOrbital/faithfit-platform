@@ -26,6 +26,7 @@ struct ProfileView: View {
             safetySection
             signInSecuritySection
             notificationsSection
+            remindersSection
             accountSection
         }
         .navigationTitle("Profile")
@@ -186,6 +187,14 @@ struct ProfileView: View {
             Text("Notifications")
         } footer: {
             Text("You choose each category. Functioning Faith does not use notifications to create pressure or shame. You can change access any time in iOS Settings.")
+        }
+    }
+
+    private var remindersSection: some View {
+        Section {
+            NavigationLink { RemindersView() } label: {
+                Label("Reminders", systemImage: "bell.badge")
+            }
         }
     }
 

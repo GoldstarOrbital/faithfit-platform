@@ -1142,6 +1142,28 @@ struct HeartCheckInResult: Decodable {
     }
 }
 
+// ---- Custom reminders: a member-created title/body/schedule, distinct from
+// the generic push-category toggles already in ProfileView. ----
+
+struct UserReminder: Decodable, Identifiable {
+    let id: String
+    let title: String
+    let body: String
+    let scheduledAt: String
+    let repeatRule: String
+    // SQLite has no boolean type -- this column round-trips as a JSON 0/1
+    // integer, not true/false, so it's modeled as Int rather than risking a
+    // Bool decode failure against real data.
+    let enabled: Int
+    let lastSentAt: String?
+    var isEnabled: Bool { enabled != 0 }
+    enum CodingKeys: String, CodingKey {
+        case id, title, body, enabled
+        case scheduledAt = "scheduled_at", repeatRule = "repeat_rule"
+        case lastSentAt = "last_sent_at"
+    }
+}
+
 /// Discovery surface -- which verses people are actually talking about.
 struct DiscussedVerse: Decodable, Identifiable {
     let id: String

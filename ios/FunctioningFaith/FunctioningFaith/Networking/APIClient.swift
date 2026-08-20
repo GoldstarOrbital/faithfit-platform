@@ -700,6 +700,33 @@ final class APIClient {
             hrMeasured: !recentHR.isEmpty, hr: recentHR.last, recentHr: recentHR, moving: moving))
     }
 
+    // MARK: - Custom reminders
+
+    func fetchReminders() async throws -> [UserReminder] {
+        if useMock { return [] }
+        return try await request("/api/reminders")
+    }
+
+    @discardableResult
+    func createReminder(title: String, body: String, scheduledAt: Date, repeatRule: String) async throws -> UserReminder {
+        if useMock { throw APIError.invalidResponse }
+        return try await request("/api/reminders", method: "POST", body: CreateReminderBody(
+            title: title, body: body, scheduledAt: ISO8601DateFormatter().string(from: scheduledAt), repeatRule: repeatRule))
+    }
+
+    /// PATCH /reminders/:id returns the full updated row, not a bare {ok},
+    /// so the response type has to match that -- not the shared ActionResponse.
+    @discardableResult
+    func setReminderEnabled(id: String, enabled: Bool) async throws -> UserReminder {
+        if useMock { throw APIError.invalidResponse }
+        return try await request("/api/reminders/\(id)", method: "PATCH", body: ReminderToggleBody(enabled: enabled))
+    }
+
+    func deleteReminder(id: String) async throws {
+        if useMock { return }
+        let _: ActionResponse = try await request("/api/reminders/\(id)", method: "DELETE")
+    }
+
     // MARK: - Safety: mute / restrict, trusted circle, follow requests
 
     func fetchRelationships() async throws -> RelationshipsResponse {
@@ -854,6 +881,16 @@ private struct HeartCheckInBody: Encodable {
         case hrMeasured = "hr_measured", hr, recentHr = "recent_hr", moving
     }
 }
+private struct CreateReminderBody: Encodable {
+    let title: String
+    let body: String
+    let scheduledAt: String
+    let repeatRule: String
+    enum CodingKeys: String, CodingKey {
+        case title, body, scheduledAt = "scheduled_at", repeatRule = "repeat_rule"
+    }
+}
+private struct ReminderToggleBody: Encodable { let enabled: Bool }
 private struct PracticeNoteBody: Encodable { let note: String? }
 private struct OpenThreadBody: Encodable { let prompt: String? }
 private struct ReflectionBody: Encodable {
