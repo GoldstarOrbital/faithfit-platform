@@ -1,9 +1,12 @@
 # Functioning Faith release readiness
 
-This is the release gate for the public web/PWA and the native iOS shell. It is
-deliberately written around trust and user control: engagement should come from
-useful community, Scripture, and progress—not dark patterns, hidden autoplay,
-or notifications that are difficult to turn off.
+This is the release gate for the public web/PWA and the native iOS app.
+Engagement should come from useful community, Scripture, and progress—not dark
+patterns, hidden autoplay, or notifications that are difficult to turn off.
+
+**Native operational checklist:** [`ios/FunctioningFaith/RELEASE_CHECKLIST.md`](../ios/FunctioningFaith/RELEASE_CHECKLIST.md)  
+**E2E DM crypto proof:** [`ios/FunctioningFaith/docs/E2E_DM_VERIFICATION.md`](../ios/FunctioningFaith/docs/E2E_DM_VERIFICATION.md)  
+**App Store narrative:** [`APPSTORE.md`](../APPSTORE.md)
 
 ## Web/PWA shipped
 
@@ -17,28 +20,25 @@ or notifications that are difficult to turn off.
 - [x] Workout visibility and route-end privacy controls.
 - [x] Notification categories are opt-in and deep links are same-origin checked.
 
-## Before submitting native apps
+## Native iOS shell shipped in repo
 
-- [x] Native source consumes the current paginated feed contract and uses the
-      production API base URL.
-- [x] Native live workouts call the real start/stop endpoints and record Core
-      Location routes when permission is granted; heart rate is never fabricated.
-- [x] Native Profile includes sign-out and permanent account deletion controls.
-- [x] Add a reproducible XcodeGen project spec around `ios/FunctioningFaith`, with
-      a unit-test target and Release settings that use the production API client.
-- [ ] Enable Sign in with Apple for the final App ID and verify the production OAuth
-      redirect URI on a signed device build.
-- [ ] Add `NSLocationWhenInUseUsageDescription` explaining live workout routes.
-- [ ] Add Bluetooth usage text explaining optional heart-rate/sensor pairing.
-- [x] Request notification permission only after the member chooses a category;
-      native Profile exposes separate Scripture, community, and reminder controls
-      plus a direct path to iOS notification settings.
-- [x] Implement in-app account deletion and verify deletion of connected tokens,
-      push subscriptions, messages, posts, workouts, and profile data.
-- [ ] Test login, workout start/stop, GPS denial, offline launch, push deep links,
-      content reporting, blocking, export, and deletion on physical devices.
-- [ ] Prepare App Store privacy nutrition labels and Google Play Data Safety form
-      from the current collection map below.
+- [x] SwiftUI app under `ios/FunctioningFaith` with XcodeGen `project.yml`.
+- [x] Native source consumes the paginated feed contract and production API base URL
+      (overridable via Info.plist `FFAPIBaseURL`).
+- [x] Native live workouts call real start/stop endpoints and record Core Location
+      routes when permission is granted; heart rate is never fabricated.
+- [x] HealthKit read-only sync path.
+- [x] Native Profile includes sign-out and permanent account deletion.
+- [x] Unit-test target and Release settings that use live networking (`#if DEBUG` mock only).
+- [x] Permission copy in Info.plist (location, Bluetooth, Health, notifications, Face ID, photos).
+- [x] Privacy manifest declares collection map and no cross-app tracking.
+- [x] Sign in with Apple entitlement scaffold + native auth flow.
+- [x] Notification permission only after the member chooses a category.
+- [ ] Enable Sign in with Apple + HealthKit on the final App ID; set Development Team.
+- [ ] Verify production OAuth / Apple audience on a signed device build.
+- [ ] Run full device QA (`RELEASE_CHECKLIST.md`).
+- [ ] Complete E2E DM native ↔ web decrypt proof.
+- [ ] App Store Connect privacy labels, screenshots, and Submit for Review.
 
 ## Collection map for store disclosures
 
