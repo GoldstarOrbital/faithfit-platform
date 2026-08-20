@@ -391,6 +391,29 @@ final class APIClient {
         return r.records
     }
 
+    // MARK: - Hashtags
+
+    func fetchTrendingTags() async throws -> [TrendingTag] {
+        if useMock { return [] }
+        let r: TrendingTagsResponse = try await request("/api/hashtags/trending")
+        return r.tags
+    }
+
+    /// Posts for a tag carry only what the server's tag index actually
+    /// returns -- no like/comment counts, no verse or workout attachment
+    /// (that endpoint doesn't join any of that). Mapped into the same
+    /// FeedPost model the home feed uses so FeedPostRow renders it
+    /// identically, with those engagement fields at their real (zero/false)
+    /// defaults rather than omitted from the UI.
+    func fetchPosts(forTag tag: String) async throws -> [FeedPost] {
+        if useMock { return [] }
+        guard let encoded = tag.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw APIError.invalidResponse
+        }
+        let r: HashtagPostsResponse = try await request("/api/hashtags/\(encoded)")
+        return r.posts.map(\.model)
+    }
+
     // MARK: - Safety: mute / restrict, trusted circle, follow requests
 
     func fetchRelationships() async throws -> RelationshipsResponse {
@@ -642,6 +665,30 @@ private struct E2EKeyResponse: Decodable {
 }
 
 private struct RecordsResponse: Decodable { let records: [String: [PersonalRecord]] }
+private struct TrendingTagsResponse: Decodable { let tags: [TrendingTag] }
+private struct HashtagPostsResponse: Decodable { let tag: String; let posts: [HashtagPostDTO] }
+private struct HashtagPostDTO: Decodable {
+    let id: UUID
+    let content: String?
+    let createdAt: String
+    let visibility: String?
+    let photoData: String?
+    let photoCategory: String?
+    let authorID: UUID?
+    let author: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, content, visibility
+        case createdAt = "created_at", photoData = "photo_data", photoCategory = "photo_category"
+        case authorID = "author_id", author
+    }
+
+    var model: FeedPost {
+        FeedPost(id: id, authorID: authorID, authorName: author, content: content ?? "", workout: nil, verse: nil,
+                  createdAt: DateParser.parse(createdAt) ?? .now, photoData: photoData, photoCategory: photoCategory,
+                  visibility: visibility ?? "public")
+    }
+}
 private struct AnnouncementBody: Encodable { let text: String }
 private struct GroupMembersResponse: Decodable { let members: [GroupMemberEntry]; let isAdmin: Bool?
     enum CodingKeys: String, CodingKey { case members; case isAdmin = "is_admin" }

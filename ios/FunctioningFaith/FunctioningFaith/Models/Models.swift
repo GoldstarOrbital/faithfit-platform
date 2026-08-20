@@ -178,6 +178,14 @@ struct ActivityBreakdownEntry: Decodable, Identifiable {
     enum CodingKeys: String, CodingKey { case type, count; case distanceKm = "distance_km"; case durationMin = "duration_min"; case calories }
 }
 
+// ---- Hashtags ----
+
+struct TrendingTag: Decodable, Identifiable {
+    let tag: String
+    let c: Int
+    var id: String { tag }
+}
+
 // ---- Safety: mute / restrict / block, trusted circle, follow requests ----
 
 struct RelationshipUser: Decodable, Identifiable {

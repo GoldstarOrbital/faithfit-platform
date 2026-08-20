@@ -20,6 +20,10 @@ struct HomeFeedView: View {
 
     var body: some View {
         List {
+            TrendingTagsRail()
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             ForEach(posts) { post in
                 FeedPostRow(
                     post: post,
