@@ -53,9 +53,28 @@ struct SearchView: View {
             .navigationDestination(for: SearchPersonDestination.self) { person in
                 DMOpenerView(userID: person.id, name: person.name)
             }
+        } else if groupType == "scripture", let ref = Self.parseScriptureReference(item.id) {
+            NavigationLink {
+                BiblePassageView(book: ref.book, chapter: ref.chapter, highlightVerse: ref.verse)
+            } label: {
+                resultLabel(item, systemImage: icon(for: groupType))
+            }
         } else {
             resultLabel(item, systemImage: icon(for: groupType))
         }
+    }
+
+    /// The scripture group's `id` is the server's own canonical "Book Ch:Vs"
+    /// string (lib bible-search, e.g. "1 Corinthians 13:4"). Split on the
+    /// *last* space rather than the first, since book names themselves can
+    /// contain spaces.
+    private static func parseScriptureReference(_ ref: String) -> (book: String, chapter: Int, verse: Int)? {
+        guard let lastSpace = ref.lastIndex(of: " ") else { return nil }
+        let book = String(ref[ref.startIndex..<lastSpace]).trimmingCharacters(in: .whitespaces)
+        let chapterVerse = ref[ref.index(after: lastSpace)...].split(separator: ":")
+        guard !book.isEmpty, chapterVerse.count == 2,
+              let chapter = Int(chapterVerse[0]), let verse = Int(chapterVerse[1]) else { return nil }
+        return (book, chapter, verse)
     }
 
     private func resultLabel(_ item: SearchResultItem, systemImage: String) -> some View {

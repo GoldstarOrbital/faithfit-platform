@@ -803,3 +803,73 @@ struct GroupMemberEntry: Decodable, Identifiable {
         case userID = "user_id", role; case displayName = "display_name"; case hasAvatar = "has_avatar"
     }
 }
+
+// ---- Bible / Scripture ----
+// Verse *text* only ever comes from these server-verified endpoints -- never
+// authored or edited client-side. Matches the server's own hard rule against
+// fabricated scripture.
+
+struct BibleVerse: Decodable, Identifiable {
+    let book: String
+    let chapter: Int
+    let verse: Int
+    let text: String
+    let translation: String?
+    var id: String { reference }
+    var reference: String { "\(book) \(chapter):\(verse)" }
+}
+
+struct BiblePassage: Decodable {
+    let book: String
+    let chapter: Int
+    let translation: String?
+    let verses: [BibleVerse]
+}
+
+struct BibleCoverageBook: Decodable, Identifiable {
+    let book: String
+    let translation: String?
+    let minCh: Int
+    let maxCh: Int
+    let chapters: Int
+    let verseCount: Int
+    var id: String { book }
+    enum CodingKeys: String, CodingKey {
+        case book, translation
+        case minCh = "min_ch", maxCh = "max_ch", chapters
+        case verseCount = "verse_count"
+    }
+}
+
+struct BibleCoverageResponse: Decodable {
+    let totalVerses: Int
+    let coverage: [BibleCoverageBook]
+    enum CodingKeys: String, CodingKey {
+        case totalVerses = "total_verses", coverage
+    }
+}
+
+/// A member's private saved-verse library -- matches lib/verse-saves.js's
+/// `list()` row shape exactly (has `id`; distinct from the lighter object
+/// `toggle()` echoes back on save, which VerseSaveResponse below models).
+struct SavedVerse: Decodable, Identifiable {
+    let id: String
+    let reference: String
+    let book: String
+    let chapter: Int
+    let verse: Int
+    let text: String
+    let translation: String?
+    let createdAt: String?
+    enum CodingKeys: String, CodingKey {
+        case id, reference, book, chapter, verse, text, translation
+        case createdAt = "created_at"
+    }
+}
+
+struct SavedVersesResponse: Decodable { let verses: [SavedVerse] }
+
+struct VerseSaveResponse: Decodable {
+    let saved: Bool
+    let reference: String
+}

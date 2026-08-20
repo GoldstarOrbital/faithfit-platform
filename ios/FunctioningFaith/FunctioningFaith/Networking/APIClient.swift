@@ -527,6 +527,43 @@ final class APIClient {
         return r.posts.map(\.model)
     }
 
+    // MARK: - Bible / Scripture
+
+    func fetchBibleCoverage() async throws -> [BibleCoverageBook] {
+        if useMock { return [] }
+        let r: BibleCoverageResponse = try await request("/api/bible/coverage")
+        return r.coverage
+    }
+
+    func fetchBiblePassage(book: String, chapter: Int) async throws -> BiblePassage {
+        if useMock { return BiblePassage(book: book, chapter: chapter, translation: "WEB", verses: []) }
+        guard let encoded = book.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw APIError.invalidResponse
+        }
+        return try await request("/api/bible/passage/\(encoded)/\(chapter)")
+    }
+
+    func fetchRandomVerse() async throws -> BibleVerse {
+        if useMock {
+            return BibleVerse(book: "Isaiah", chapter: 40, verse: 31, text: "Those who wait for Yahweh will renew their strength.", translation: "WEB")
+        }
+        return try await request("/api/bible/random")
+    }
+
+    func fetchSavedVerses() async throws -> [SavedVerse] {
+        if useMock { return [] }
+        let r: SavedVersesResponse = try await request("/api/verses/saved")
+        return r.verses
+    }
+
+    /// Toggle endpoint -- matches the web client: saving an already-saved
+    /// reference unsaves it. `saved` on the response is the new state.
+    @discardableResult
+    func toggleSaveVerse(reference: String) async throws -> VerseSaveResponse {
+        if useMock { return VerseSaveResponse(saved: true, reference: reference) }
+        return try await request("/api/verses/save", method: "POST", body: VerseSaveBody(reference: reference))
+    }
+
     // MARK: - Safety: mute / restrict, trusted circle, follow requests
 
     func fetchRelationships() async throws -> RelationshipsResponse {
@@ -647,6 +684,7 @@ final class APIClient {
 }
 
 private struct EmptyBody: Encodable {}
+private struct VerseSaveBody: Encodable { let reference: String }
 private struct APIErrorResponse: Decodable { let error: String?; let hint: String? }
 private struct Credentials: Encodable { let email: String; let password: String }
 private struct MfaBody: Encodable { let code: String }
