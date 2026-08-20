@@ -178,6 +178,116 @@ struct ActivityBreakdownEntry: Decodable, Identifiable {
     enum CodingKeys: String, CodingKey { case type, count; case distanceKm = "distance_km"; case durationMin = "duration_min"; case calories }
 }
 
+// ---- Journeys: progress-tracking core only, no 3D world. ----
+// The web app renders each journey as a real-time flythrough of a 3D scene
+// (Three.js) as you move through it. That is a visualization layer on top
+// of a plain, honest progress mechanic -- join, accumulate real km, unlock
+// waypoints at distance marks. This port builds the actual mechanic (which
+// is everything that matters for the feature to work) with a live km
+// counter and progress bar instead of a rendered 3D world -- deliberately,
+// not as a stopgap: 3D scene code is exactly the kind of thing that's
+// hardest to verify correct by reading alone with no way to actually run
+// it, and a wrong number is a worse failure than a plain UI.
+
+struct NextWaypointPreview: Decodable {
+    let title: String
+    let kmMark: Double
+    let kmRemaining: Double
+    enum CodingKeys: String, CodingKey { case title; case kmMark = "km_mark"; case kmRemaining = "km_remaining" }
+}
+
+struct JourneySummary: Decodable, Identifiable {
+    let id: String
+    let key: String
+    let name: String
+    let world: String
+    let subtitle: String?
+    let totalKm: Double
+    let joined: Bool
+    let completed: Bool
+    let progressKm: Double?
+    let percent: Int?
+    let nextWaypoint: NextWaypointPreview?
+    let travellers: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id, key, name, world, subtitle; case totalKm = "total_km"
+        case joined, completed; case progressKm = "progress_km"; case percent
+        case nextWaypoint = "next_waypoint"; case travellers
+    }
+}
+
+struct JourneyWaypoint: Decodable, Identifiable {
+    let id: String
+    let kmMark: Double
+    let title: String
+    let narrative: String?
+    let scriptureRef: String?
+    let scriptureText: String?
+    let unlocked: Bool
+    enum CodingKeys: String, CodingKey {
+        case id; case kmMark = "km_mark"; case title, narrative
+        case scriptureRef = "scripture_ref"; case scriptureText = "scripture_text"; case unlocked
+    }
+}
+
+struct JourneyCore: Decodable {
+    let id: String
+    let key: String
+    let name: String
+    let world: String
+    let subtitle: String?
+    let description: String?
+    let scriptureRef: String?
+    let totalKm: Double
+    let terrain: String?
+    enum CodingKeys: String, CodingKey {
+        case id, key, name, world, subtitle, description; case scriptureRef = "scripture_ref"
+        case totalKm = "total_km"; case terrain
+    }
+}
+
+struct JourneyDetail: Decodable {
+    let journey: JourneyCore
+    let joined: Bool
+    let completed: Bool
+    let progressKm: Double
+    let percent: Int
+    let waypoints: [JourneyWaypoint]
+    let nextWaypoint: NextWaypointPreview?
+    enum CodingKeys: String, CodingKey {
+        case journey, joined, completed; case progressKm = "progress_km"; case percent, waypoints
+        case nextWaypoint = "next_waypoint"
+    }
+}
+
+/// `advanceJourney`'s `crossed` list comes from a raw `SELECT * FROM
+/// journey_waypoints` (lib/journeys.js) -- unlike the two GET routes, it
+/// never adds an `unlocked` field, since every waypoint in this list was
+/// JUST unlocked by definition. A genuinely different shape from
+/// JourneyWaypoint, not a superset -- decoding it as JourneyWaypoint would
+/// fail on every single live-progress response over a missing key.
+struct CrossedWaypoint: Decodable, Identifiable {
+    let id: String
+    let kmMark: Double
+    let title: String
+    let narrative: String?
+    let scriptureRef: String?
+    let scriptureText: String?
+    enum CodingKeys: String, CodingKey {
+        case id; case kmMark = "km_mark"; case title, narrative
+        case scriptureRef = "scripture_ref"; case scriptureText = "scripture_text"
+    }
+}
+
+struct JourneyProgressResult: Decodable {
+    let progressKm: Double
+    let percent: Int
+    let completed: Bool
+    let crossed: [CrossedWaypoint]
+    enum CodingKeys: String, CodingKey { case progressKm = "progress_km"; case percent, completed, crossed }
+}
+
 // ---- Athlete recruiting: discovery (search + public profile), read-only.
 // Self-profile editing (videos/teams/awards/sports CRUD), coach profile
 // setup, coach matching/roster/saved-searches, and CSV stat import are NOT

@@ -432,6 +432,33 @@ final class APIClient {
         let _: ActionResponse = try await request("/api/stories/\(id)", method: "DELETE")
     }
 
+    // MARK: - Journeys (progress mechanic; see Models.swift's header comment
+    // on why the 3D world itself isn't ported)
+
+    func fetchJourneys() async throws -> [JourneySummary] {
+        try await request("/api/journeys")
+    }
+
+    func fetchJourneyDetail(key: String) async throws -> JourneyDetail {
+        try await request("/api/journeys/\(key)")
+    }
+
+    func joinJourney(key: String) async throws {
+        let _: ActionResponse = try await request("/api/journeys/\(key)/join", method: "POST", body: EmptyBody())
+    }
+
+    func leaveJourney(key: String) async throws {
+        let _: ActionResponse = try await request("/api/journeys/\(key)/leave", method: "POST", body: EmptyBody())
+    }
+
+    /// `addKm` must be small and positive -- the server rejects anything
+    /// over 5km in one call (routes/api.js's own runaway-client guard) --
+    /// so a live session must call this with frequent small increments, not
+    /// one big jump at the end.
+    func postJourneyProgress(key: String, addKm: Double) async throws -> JourneyProgressResult {
+        try await request("/api/journeys/\(key)/progress", method: "POST", body: JourneyProgressBody(addKm: addKm))
+    }
+
     // MARK: - Athlete recruiting: discovery only (see Models.swift's header
     // comment on this section for what's deliberately not ported)
 
@@ -738,6 +765,7 @@ private struct StoryReactionBody: Encodable { let emoji: String }
 private struct StoryReplyBody: Encodable { let body: String }
 private struct StoryReplyResponse: Decodable { let threadID: String; enum CodingKeys: String, CodingKey { case threadID = "thread_id" } }
 private struct TrendingTagsResponse: Decodable { let tags: [TrendingTag] }
+private struct JourneyProgressBody: Encodable { let addKm: Double; enum CodingKeys: String, CodingKey { case addKm = "add_km" } }
 private struct AthleteSearchResponse: Decodable { let athletes: [AthleteSearchResult] }
 private struct AthleteProfileResponse: Decodable { let profile: AthleteProfile }
 private struct HashtagPostsResponse: Decodable { let tag: String; let posts: [HashtagPostDTO] }

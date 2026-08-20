@@ -12,12 +12,17 @@ struct ExploreView: View {
         List {
             Section {
                 NavigationLink {
+                    JourneysListView()
+                } label: {
+                    Label("Journeys", systemImage: "map.fill")
+                }
+                NavigationLink {
                     AthleteSearchView()
                 } label: {
                     Label("Athlete Recruiting", systemImage: "figure.run.circle.fill")
                 }
             } footer: {
-                Text("Browse public, .edu-verified athlete profiles with real training data pulled from logged workouts.")
+                Text("Journeys track real distance toward scripture-marked waypoints. Recruiting browses public, .edu-verified athlete profiles with real training data pulled from logged workouts.")
             }
             Section {
                 if isLoadingSuggestions {
