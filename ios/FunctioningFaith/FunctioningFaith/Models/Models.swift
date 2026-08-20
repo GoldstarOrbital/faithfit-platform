@@ -120,6 +120,136 @@ struct DMMessage: Identifiable {
     let verseReference: String?
 }
 
+// ---- Stats & personal records ----
+
+struct PeriodTotals: Decodable {
+    let workouts: Int
+    let distanceKm: Double
+    let durationMin: Int
+    let calories: Int
+    enum CodingKeys: String, CodingKey { case workouts; case distanceKm = "distance_km"; case durationMin = "duration_min"; case calories }
+}
+
+struct StatsSummary: Decodable {
+    let lifetime: PeriodTotals
+    let thisWeek: PeriodTotals
+    let thisMonth: PeriodTotals
+    let streakDays: Int
+    let activeDays: Int
+    let records: SummaryRecords
+    enum CodingKeys: String, CodingKey {
+        case lifetime; case thisWeek = "this_week"; case thisMonth = "this_month"
+        case streakDays = "streak_days"; case activeDays = "active_days"; case records
+    }
+}
+
+struct SummaryRecords: Decodable {
+    let longestDistanceKm: Double?
+    let longestDurationMin: Int?
+    let fastestPaceMinKm: Double?
+    let mostCalories: Int?
+    let highestHR: Int?
+    enum CodingKeys: String, CodingKey {
+        case longestDistanceKm = "longest_distance_km", longestDurationMin = "longest_duration_min"
+        case fastestPaceMinKm = "fastest_pace_min_km", mostCalories = "most_calories", highestHR = "highest_hr"
+    }
+}
+
+struct TrendPoint: Decodable, Identifiable {
+    let label: String
+    let workouts: Int
+    let distanceKm: Double
+    let durationMin: Int
+    let calories: Int
+    var id: String { label }
+    enum CodingKeys: String, CodingKey { case label, workouts; case distanceKm = "distance_km"; case durationMin = "duration_min"; case calories }
+}
+
+struct ActivityBreakdownEntry: Decodable, Identifiable {
+    let type: String
+    let count: Int
+    let distanceKm: Double
+    let durationMin: Int
+    let calories: Int
+    var id: String { type }
+    enum CodingKeys: String, CodingKey { case type, count; case distanceKm = "distance_km"; case durationMin = "duration_min"; case calories }
+}
+
+// ---- Notifications ----
+
+/// The server stores display text inside `payload` (a JSON string column,
+/// not a parsed object) -- see routes/api.js's `notify()`, which writes
+/// `{message, ...extra, url}` as `JSON.stringify(payload)`. This struct
+/// decodes the outer row as-is (payload stays a raw String) and parses it
+/// lazily via `message`/`url`, matching the real wire shape rather than
+/// assuming the server pre-parses it for the client.
+struct NotificationItem: Decodable, Identifiable {
+    let id: String
+    let type: String
+    let payload: String
+    let deliveredAt: String
+    let read: Int
+    let url: String?
+
+    enum CodingKeys: String, CodingKey { case id, type, payload; case deliveredAt = "delivered_at"; case read, url }
+
+    var isRead: Bool { read != 0 }
+    var message: String {
+        guard let data = payload.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let m = obj["message"] as? String else { return "New activity" }
+        return m
+    }
+}
+
+struct NotificationsResponse: Decodable {
+    let notifications: [NotificationItem]
+    let unreadCount: Int
+    enum CodingKeys: String, CodingKey { case notifications; case unreadCount = "unread_count" }
+}
+
+// ---- Search ----
+
+struct SearchResultItem: Decodable, Identifiable {
+    let id: String
+    let title: String
+    let subtitle: String?
+    let hasAvatar: Bool?
+    enum CodingKeys: String, CodingKey { case id, title, subtitle; case hasAvatar = "has_avatar" }
+}
+
+struct SearchResultGroup: Decodable, Identifiable {
+    let type: String
+    let label: String
+    let items: [SearchResultItem]
+    var id: String { type }
+}
+
+struct SearchResponse: Decodable {
+    let q: String
+    let groups: [SearchResultGroup]
+    let total: Int
+}
+
+/// One personal-record row -- matches lib/records.js's METRICS shape exactly
+/// (label/unit/higher come from the server, not hardcoded here, so a metric
+/// added server-side shows up correctly without a client update).
+struct PersonalRecord: Decodable, Identifiable {
+    let activityType: String
+    let metric: String
+    let value: Double
+    let workoutID: String
+    let achievedAt: String
+    let label: String
+    let unit: String
+    let higher: Bool
+    var id: String { activityType + metric }
+    enum CodingKeys: String, CodingKey {
+        case activityType = "activity_type", metric, value
+        case workoutID = "workout_id", achievedAt = "achieved_at", label, unit, higher
+    }
+}
+
 struct DMConversation {
     let threadID: String
     let otherUserID: UUID

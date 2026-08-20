@@ -1,0 +1,134 @@
+import SwiftUI
+
+struct SearchView: View {
+    @State private var query = ""
+    @State private var results: SearchResponse?
+    @State private var isSearching = false
+    @State private var errorMessage: String?
+    @State private var searchTask: Task<Void, Never>?
+
+    var body: some View {
+        Group {
+            if query.trimmingCharacters(in: .whitespaces).count < 2 {
+                ContentUnavailableView.search
+            } else if isSearching && results == nil {
+                ProgressView()
+            } else if let results, results.total == 0 {
+                ContentUnavailableView.search(text: query)
+            } else if let results {
+                List {
+                    ForEach(results.groups) { group in
+                        Section(group.label) {
+                            ForEach(group.items) { item in
+                                resultRow(item, groupType: group.type)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Search")
+        .searchable(text: $query, prompt: "People, groups, journeys, scripture…")
+        .onChange(of: query) { _, newValue in
+            searchTask?.cancel()
+            let trimmed = newValue.trimmingCharacters(in: .whitespaces)
+            guard trimmed.count >= 2 else { results = nil; return }
+            searchTask = Task {
+                try? await Task.sleep(nanoseconds: 300_000_000) // debounce -- matches the web's own search-as-you-type pacing
+                guard !Task.isCancelled else { return }
+                await runSearch(trimmed)
+            }
+        }
+        .alert("Search failed", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: { Text(errorMessage ?? "") }
+    }
+
+    @ViewBuilder
+    private func resultRow(_ item: SearchResultItem, groupType: String) -> some View {
+        if groupType == "people", let uuid = UUID(uuidString: item.id) {
+            NavigationLink(value: SearchPersonDestination(id: uuid, name: item.title)) {
+                resultLabel(item, systemImage: "person.crop.circle")
+            }
+            .navigationDestination(for: SearchPersonDestination.self) { person in
+                DMOpenerView(userID: person.id, name: person.name)
+            }
+        } else {
+            resultLabel(item, systemImage: icon(for: groupType))
+        }
+    }
+
+    private func resultLabel(_ item: SearchResultItem, systemImage: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: systemImage).foregroundStyle(.tint).frame(width: 20)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                if let subtitle = item.subtitle, !subtitle.isEmpty {
+                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
+        }
+    }
+
+    private func icon(for groupType: String) -> String {
+        switch groupType {
+        case "posts": return "text.bubble"
+        case "journeys": return "map"
+        case "challenges": return "flag.checkered"
+        case "groups": return "person.3"
+        case "videos": return "play.rectangle"
+        case "podcasts": return "mic"
+        case "scripture": return "book"
+        default: return "magnifyingglass"
+        }
+    }
+
+    private func runSearch(_ q: String) async {
+        isSearching = true
+        do { results = try await APIClient.shared.search(q) }
+        catch { errorMessage = error.localizedDescription }
+        isSearching = false
+    }
+}
+
+private struct SearchPersonDestination: Hashable {
+    let id: UUID
+    let name: String
+}
+
+/// Search has no native profile screen to land on yet, so tapping a person
+/// result opens (or resumes) a DM thread with them -- the one real,
+/// already-built destination for "I found this person and want to do
+/// something." A dedicated profile view is worth its own pass later.
+private struct DMOpenerView: View {
+    let userID: UUID
+    let name: String
+    // DMConversationView reads a DMStore via @EnvironmentObject; nothing
+    // upstream of a search result provides one (unlike DMInboxView's own
+    // navigation chain, which injects the store it already owns), so this
+    // creates and supplies its own.
+    @StateObject private var store = DMStore()
+    @State private var threadID: String?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Group {
+            if let threadID {
+                DMConversationView(threadID: threadID, otherUserID: userID, otherName: name)
+                    .environmentObject(store)
+            } else {
+                ProgressView().task { await open() }
+            }
+        }
+        .alert("Could not open conversation", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: { Text(errorMessage ?? "") }
+    }
+
+    private func open() async {
+        do { threadID = try await APIClient.shared.openDMThread(withUserID: userID).threadID }
+        catch { errorMessage = error.localizedDescription }
+    }
+}
+
+#Preview { NavigationStack { SearchView() } }

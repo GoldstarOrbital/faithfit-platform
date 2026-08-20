@@ -343,6 +343,57 @@ final class APIClient {
         return r.publicKey?.asStringDict
     }
 
+    // MARK: - Stats & personal records
+
+    func fetchStatsSummary() async throws -> StatsSummary {
+        if useMock { throw APIError.invalidResponse }
+        return try await request("/api/stats/summary")
+    }
+
+    func fetchTrends(weeks: Int = 12) async throws -> [TrendPoint] {
+        if useMock { return [] }
+        return try await request("/api/stats/trends?weeks=\(weeks)")
+    }
+
+    func fetchActivityBreakdown() async throws -> [ActivityBreakdownEntry] {
+        if useMock { return [] }
+        return try await request("/api/stats/activity-breakdown")
+    }
+
+    /// Keyed by activity type, matching the server's grouping exactly.
+    func fetchPersonalRecords() async throws -> [String: [PersonalRecord]] {
+        if useMock { return [:] }
+        let r: RecordsResponse = try await request("/api/records")
+        return r.records
+    }
+
+    // MARK: - Notifications
+
+    func fetchNotifications() async throws -> NotificationsResponse {
+        if useMock { return NotificationsResponse(notifications: [], unreadCount: 0) }
+        return try await request("/api/notifications")
+    }
+
+    func markNotificationRead(id: String) async throws {
+        if useMock { return }
+        let _: ActionResponse = try await request("/api/notifications/\(id)/read", method: "POST", body: EmptyBody())
+    }
+
+    func markAllNotificationsRead() async throws {
+        if useMock { return }
+        let _: ActionResponse = try await request("/api/notifications/read-all", method: "POST", body: EmptyBody())
+    }
+
+    // MARK: - Search
+
+    func search(_ query: String) async throws -> SearchResponse {
+        if useMock { return SearchResponse(q: query, groups: [], total: 0) }
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            throw APIError.invalidResponse
+        }
+        return try await request("/api/search?q=\(encoded)")
+    }
+
     private func request<T: Decodable>(_ path: String, method: String = "GET") async throws -> T {
         try await request(path, method: method, body: Optional<EmptyBody>.none)
     }
@@ -499,6 +550,8 @@ private struct E2EKeyResponse: Decodable {
     let publicKey: JWKDTO?
     enum CodingKeys: String, CodingKey { case publicKey = "public_key" }
 }
+
+private struct RecordsResponse: Decodable { let records: [String: [PersonalRecord]] }
 
 private struct AppleHealthSyncBody: Encodable {
     struct Workout: Encodable {

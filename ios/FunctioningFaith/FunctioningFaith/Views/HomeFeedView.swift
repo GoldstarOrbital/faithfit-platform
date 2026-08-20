@@ -12,6 +12,11 @@ struct HomeFeedView: View {
     @State private var showComposer = false
     @State private var blockCandidate: (id: UUID, name: String)?
     @State private var showBlockConfirmation = false
+    @State private var showMessages = false
+    @State private var unreadMessages = 0
+    @State private var showNotifications = false
+    @State private var unreadNotifications = 0
+    @State private var showSearch = false
 
     var body: some View {
         List {
@@ -50,15 +55,34 @@ struct HomeFeedView: View {
         .navigationTitle("Home")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showComposer = true
-                } label: {
-                    Image(systemName: "square.and.pencil")
+                Button { showComposer = true } label: { Image(systemName: "square.and.pencil") }
+                    .accessibilityLabel("Create post")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showNotifications = true } label: {
+                    badgedIcon("bell", count: unreadNotifications)
                 }
-                .accessibilityLabel("Create post")
+                .accessibilityLabel(unreadNotifications > 0 ? "Notifications, \(unreadNotifications) unread" : "Notifications")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showMessages = true } label: {
+                    badgedIcon("bubble.left.and.bubble.right", count: unreadMessages)
+                }
+                .accessibilityLabel(unreadMessages > 0 ? "Messages, \(unreadMessages) unread" : "Messages")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }
+                    .accessibilityLabel("Search")
             }
         }
-        .task { await loadFeed() }
+        .navigationDestination(isPresented: $showMessages) { DMInboxView() }
+        .navigationDestination(isPresented: $showNotifications) { NotificationsView() }
+        .navigationDestination(isPresented: $showSearch) { SearchView() }
+        .task {
+            await loadFeed()
+            unreadMessages = (try? await APIClient.shared.fetchDMInbox().unread) ?? 0
+            unreadNotifications = (try? await APIClient.shared.fetchNotifications().unreadCount) ?? 0
+        }
         .sheet(isPresented: $showComposer) {
             NavigationStack {
                 PostComposerView {
@@ -145,6 +169,16 @@ struct HomeFeedView: View {
             guard (try? await APIClient.shared.blockUser(id: id)) != nil else { return }
             posts.removeAll { $0.authorID == id }
             blockCandidate = nil
+        }
+    }
+
+    @ViewBuilder
+    private func badgedIcon(_ systemName: String, count: Int) -> some View {
+        ZStack(alignment: .topTrailing) {
+            Image(systemName: systemName)
+            if count > 0 {
+                Circle().fill(.red).frame(width: 8, height: 8).offset(x: 3, y: -3)
+            }
         }
     }
 }

@@ -12,8 +12,8 @@ struct RootTabView: View {
             NavigationStack { WorkoutView() }
                 .tabItem { Label("Workouts", systemImage: "figure.run") }
 
-            NavigationStack { DMInboxView() }
-                .tabItem { Label("Messages", systemImage: "bubble.left.and.bubble.right.fill") }
+            NavigationStack { StatsView() }
+                .tabItem { Label("Stats", systemImage: "chart.bar.fill") }
 
             NavigationStack { ExploreView() }
                 .tabItem { Label("Explore", systemImage: "safari.fill") }
