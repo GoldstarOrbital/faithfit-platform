@@ -4,7 +4,7 @@ import SwiftUI
 /// something conforming without adding a global `String: Identifiable`
 /// conformance to the whole module (a broader, riskier change than this
 /// screen needs).
-private struct ThreadDestination: Identifiable { let id: String }
+private struct ThreadDestination: Identifiable, Hashable { let id: String }
 
 struct NotificationsView: View {
     @State private var notifications: [NotificationItem] = []

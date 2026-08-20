@@ -18,111 +18,15 @@ struct ProfileView: View {
     var body: some View {
         Form {
             if let profile {
-                Section {
-                    Text("\(profile.displayName)")
-                    Text("Level \(profile.level) · \(profile.xp) XP")
-                    if let bio = profile.bio, !bio.isEmpty { Text(bio).font(.caption).foregroundStyle(.secondary) }
-                    if let job = profile.job, !job.isEmpty { Text(job).font(.caption).foregroundStyle(.secondary) }
-                    if let church = profile.church, !church.isEmpty { Text(church).font(.caption).foregroundStyle(.secondary) }
-                    Button("Edit profile") { showEditProfile = true }
-                } header: { Text("Stats") }
-                Section("Badges") {
-                    ForEach(profile.badges) { badge in
-                        Label(badge.name, systemImage: badge.iconURL)
-                    }
-                }
+                statsSection(profile)
+                badgesSection(profile)
             }
-            Section {
-                if !healthKit.isAvailable {
-                    Text("Health data isn't available on this device.")
-                        .foregroundStyle(.secondary)
-                } else if healthKit.authorizationRequested {
-                    if let lastSyncedAt = healthKit.lastSyncedAt {
-                        Text("Last synced \(lastSyncedAt.formatted(.relative(presentation: .named)))")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("Connected — not yet synced")
-                            .foregroundStyle(.secondary)
-                    }
-                    Button {
-                        Task {
-                            healthKitSyncing = true
-                            await healthKit.syncRecentWorkouts { payload in
-                                try await APIClient.shared.syncAppleHealth(payload)
-                            }
-                            healthKitSyncing = false
-                        }
-                    } label: {
-                        if healthKitSyncing { ProgressView() } else { Text("Sync now") }
-                    }
-                    .disabled(healthKitSyncing)
-                    if let error = healthKit.lastSyncError {
-                        Text(error).font(.caption).foregroundStyle(.red)
-                    }
-                } else {
-                    Button("Connect Apple Health") {
-                        Task {
-                            do { try await healthKit.requestAuthorization() }
-                            catch { /* surfaced via lastSyncError on next sync attempt */ }
-                        }
-                    }
-                }
-            } header: {
-                Text("Apple Health & Watch")
-            } footer: {
-                Text("Reads workouts, step counts, and workout heart rate from Health — from your Apple Watch or any other app that writes into it (Fitbit, Garmin, Oura, and others all sync through Health). Functioning Faith never writes to your Health data.")
-            }
-            Section("Privacy") {
-                Toggle("Share biometrics for workout tracking", isOn: $biometricConsent)
-                Toggle("Personalize scripture with my biometrics", isOn: $scripturePersonalization)
-                    .disabled(!biometricConsent)
-            }
-            Section("Safety & community") {
-                NavigationLink("Trusted circle") { CircleView() }
-                NavigationLink {
-                    FollowRequestsView()
-                } label: {
-                    HStack {
-                        Text("Follow requests")
-                        if pendingFollowRequests > 0 {
-                            Spacer()
-                            Text("\(pendingFollowRequests)").foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                NavigationLink("Muted, restricted & blocked") { SafetyView() }
-            }
-            Section("Sign-in security") {
-                Toggle("Require Face ID, Touch ID, or device passcode", isOn: $biometricLockEnabled)
-                    .onChange(of: biometricLockEnabled) { oldValue, enabled in
-                        guard enabled && !oldValue else { return }
-                        Task {
-                            if !(await biometricLock.requestEnable()) { biometricLockEnabled = false }
-                        }
-                    }
-                Text("This protects the signed-in app on this device. Account-level two-factor authentication and device sessions are managed by the server.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Section {
-                notificationToggle(.scripture, isOn: $scriptureNotifications)
-                notificationToggle(.community, isOn: $communityNotifications)
-                notificationToggle(.reminders, isOn: $reminderNotifications)
-                Button("Manage notification permissions") {
-                    NotificationCoordinator.shared.openSystemSettings()
-                }
-            } header: {
-                Text("Notifications")
-            } footer: {
-                Text("You choose each category. Functioning Faith does not use notifications to create pressure or shame. You can change access any time in iOS Settings.")
-            }
-            Section("Account") {
-                Button("Sign out", role: .destructive) {
-                    Task { await session.signOut() }
-                }
-                Button("Delete account", role: .destructive) {
-                    showingDeleteConfirmation = true
-                }
-            }
+            healthKitSection
+            privacySection
+            safetySection
+            signInSecuritySection
+            notificationsSection
+            accountSection
         }
         .navigationTitle("Profile")
         .task {
@@ -153,6 +57,145 @@ struct ProfileView: View {
                     self.profile = updated
                     session.profile = updated
                 }
+            }
+        }
+    }
+
+    // Split out of `body` (rather than inlined, the way the first draft had
+    // it) because a single Form{} with this many Sections -- several with
+    // conditionals, closures, and bindings of their own -- is exactly the
+    // shape that trips SwiftUI's type-checker into "unable to type-check
+    // this expression in reasonable time." Confirmed by CI actually failing
+    // on the near-identical shape in StoryComposerView.swift with that
+    // exact error, not a guess -- this file is larger than that one was.
+    @ViewBuilder
+    private func statsSection(_ profile: UserProfile) -> some View {
+        Section {
+            Text("\(profile.displayName)")
+            Text("Level \(profile.level) · \(profile.xp) XP")
+            if let bio = profile.bio, !bio.isEmpty { Text(bio).font(.caption).foregroundStyle(.secondary) }
+            if let job = profile.job, !job.isEmpty { Text(job).font(.caption).foregroundStyle(.secondary) }
+            if let church = profile.church, !church.isEmpty { Text(church).font(.caption).foregroundStyle(.secondary) }
+            Button("Edit profile") { showEditProfile = true }
+        } header: { Text("Stats") }
+    }
+
+    @ViewBuilder
+    private func badgesSection(_ profile: UserProfile) -> some View {
+        Section("Badges") {
+            ForEach(profile.badges) { badge in
+                Label(badge.name, systemImage: badge.iconURL)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var healthKitSection: some View {
+        Section {
+            if !healthKit.isAvailable {
+                Text("Health data isn't available on this device.")
+                    .foregroundStyle(.secondary)
+            } else if healthKit.authorizationRequested {
+                if let lastSyncedAt = healthKit.lastSyncedAt {
+                    Text("Last synced \(lastSyncedAt.formatted(.relative(presentation: .named)))")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Connected — not yet synced")
+                        .foregroundStyle(.secondary)
+                }
+                Button {
+                    Task {
+                        healthKitSyncing = true
+                        await healthKit.syncRecentWorkouts { payload in
+                            try await APIClient.shared.syncAppleHealth(payload)
+                        }
+                        healthKitSyncing = false
+                    }
+                } label: {
+                    if healthKitSyncing { ProgressView() } else { Text("Sync now") }
+                }
+                .disabled(healthKitSyncing)
+                if let error = healthKit.lastSyncError {
+                    Text(error).font(.caption).foregroundStyle(.red)
+                }
+            } else {
+                Button("Connect Apple Health") {
+                    Task {
+                        do { try await healthKit.requestAuthorization() }
+                        catch { /* surfaced via lastSyncError on next sync attempt */ }
+                    }
+                }
+            }
+        } header: {
+            Text("Apple Health & Watch")
+        } footer: {
+            Text("Reads workouts, step counts, and workout heart rate from Health — from your Apple Watch or any other app that writes into it (Fitbit, Garmin, Oura, and others all sync through Health). Functioning Faith never writes to your Health data.")
+        }
+    }
+
+    private var privacySection: some View {
+        Section("Privacy") {
+            Toggle("Share biometrics for workout tracking", isOn: $biometricConsent)
+            Toggle("Personalize scripture with my biometrics", isOn: $scripturePersonalization)
+                .disabled(!biometricConsent)
+        }
+    }
+
+    @ViewBuilder
+    private var safetySection: some View {
+        Section("Safety & community") {
+            NavigationLink("Trusted circle") { CircleView() }
+            NavigationLink {
+                FollowRequestsView()
+            } label: {
+                HStack {
+                    Text("Follow requests")
+                    if pendingFollowRequests > 0 {
+                        Spacer()
+                        Text("\(pendingFollowRequests)").foregroundStyle(.secondary)
+                    }
+                }
+            }
+            NavigationLink("Muted, restricted & blocked") { SafetyView() }
+        }
+    }
+
+    private var signInSecuritySection: some View {
+        Section("Sign-in security") {
+            Toggle("Require Face ID, Touch ID, or device passcode", isOn: $biometricLockEnabled)
+                .onChange(of: biometricLockEnabled) { oldValue, enabled in
+                    guard enabled && !oldValue else { return }
+                    Task {
+                        if !(await biometricLock.requestEnable()) { biometricLockEnabled = false }
+                    }
+                }
+            Text("This protects the signed-in app on this device. Account-level two-factor authentication and device sessions are managed by the server.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var notificationsSection: some View {
+        Section {
+            notificationToggle(.scripture, isOn: $scriptureNotifications)
+            notificationToggle(.community, isOn: $communityNotifications)
+            notificationToggle(.reminders, isOn: $reminderNotifications)
+            Button("Manage notification permissions") {
+                NotificationCoordinator.shared.openSystemSettings()
+            }
+        } header: {
+            Text("Notifications")
+        } footer: {
+            Text("You choose each category. Functioning Faith does not use notifications to create pressure or shame. You can change access any time in iOS Settings.")
+        }
+    }
+
+    private var accountSection: some View {
+        Section("Account") {
+            Button("Sign out", role: .destructive) {
+                Task { await session.signOut() }
+            }
+            Button("Delete account", role: .destructive) {
+                showingDeleteConfirmation = true
             }
         }
     }
