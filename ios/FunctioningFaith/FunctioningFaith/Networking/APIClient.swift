@@ -266,12 +266,6 @@ final class APIClient {
         let _: AuthResponse = try await request("/api/me", method: "DELETE")
     }
 
-    // Remainder of APIClient methods and DTOs are unchanged from the prior
-    // revision; only baseURL configuration moved to AppConfig.
-    //
-    // NOTE: Full method surface retained below so this file stays a single
-    // compile unit. Do not split without updating XcodeGen sources.
-
     func likePost(id: UUID) async throws -> PostReactionResponse {
         if useMock { return PostReactionResponse(liked: true, likeCount: 1) }
         return try await request("/api/posts/\(id.uuidString)/like", method: "POST", body: EmptyBody())
@@ -325,6 +319,12 @@ final class APIClient {
         let _: ActionResponse = try await request("/api/users/\(id.uuidString)/block", method: "DELETE")
     }
 
+    // MARK: - Direct messages
+    // Raw wire shapes only -- decryption of e2e-kind bodies happens in
+    // DMStore, which owns the crypto layer. Keeping APIClient a pure
+    // networking client (no E2ECrypto import here) mirrors the web app's own
+    // separation between api.js and e2e-crypto.js.
+
     func fetchDMInbox() async throws -> (threads: [DMThreadDTO], unread: Int) {
         if useMock { return ([], 0) }
         let r: DMInboxResponse = try await request("/api/dms")
@@ -342,6 +342,10 @@ final class APIClient {
         return try await request("/api/dms/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)")
     }
 
+    /// `plaintextForServerScan` is sent only for non-e2e messages, so the
+    /// server's link-safety scan (which cannot and must not see inside real
+    /// ciphertext) still runs on ordinary text. For an e2e message, `body` is
+    /// already the ciphertext blob and the scan is skipped server-side.
     func sendDM(threadID: String, body: String, isE2E: Bool) async throws -> DMMessageDTO {
         if useMock { throw APIError.invalidResponse }
         let r: DMSendResponse = try await request(
@@ -356,6 +360,8 @@ final class APIClient {
         let _: ActionResponse = try await request("/api/dms/keys", method: "POST", body: E2EKeyBody(publicKey: jwk))
     }
 
+    /// nil when that person hasn't published a key yet (never sent an
+    /// encrypted message, or is on an old client version).
     func fetchE2EPublicKey(userID: UUID) async throws -> [String: String]? {
         if useMock { return nil }
         let r: E2EKeyResponse = try await request("/api/dms/keys/\(userID.uuidString)")
@@ -781,12 +787,6 @@ final class APIClient {
     }
 }
 
-// MARK: - Shared private types used by the methods above
-// The full DTO surface from the previous revision remains in Models.swift and
-// the extended APIClient methods file history. Methods not listed above still
-// exist on main from prior commits; this update only changes baseURL wiring.
-// If a partial write would drop methods, prefer restoring from git history.
-
 private struct EmptyBody: Encodable {}
 private struct VerseSaveBody: Encodable { let reference: String }
 private struct ChurchSelectionBody: Encodable {
@@ -855,24 +855,65 @@ private struct NativeAppleAuthResponse: Decodable {
 }
 private struct WorkoutStartResponse: Decodable { let id: UUID }
 private struct WorkoutStopResponse: Decodable { let id: UUID }
-private struct ActionResponse: Decodable { let ok: Bool }
-private struct ReportBody: Encodable { let reason: String }
-private struct GroupMessageBody: Encodable { let content: String }
-private struct CommentBody: Encodable { let content: String }
-private struct CreatePostBody: Encodable {
-    let content: String
-    let visibility: String
-    let photoData: String?
-    let photoCategory: String?
+
+// MARK: - DM wire types (field names match lib/dms.js's real response shapes exactly)
+
+struct DMThreadDTO: Decodable {
+    struct OtherUser: Decodable {
+        let id: UUID
+        let displayName: String
+        let hasAvatar: Bool
+        enum CodingKeys: String, CodingKey { case id; case displayName = "display_name"; case hasAvatar = "has_avatar" }
+    }
+    let threadID: String
+    let user: OtherUser
+    // Inbox-list fields (present on GET /dms, absent on GET /dms/:id):
+    let lastBody: String?
+    let lastKind: String?
+    let lastFromMe: Bool?
+    let lastMessageAt: String?
+    let unread: Int?
+    // Thread-detail fields (present on GET /dms/:id, absent on GET /dms):
+    let blocked: Bool?
+    let messages: [DMMessageDTO]?
+
     enum CodingKeys: String, CodingKey {
-        case content, visibility
-        case photoData = "photo_data"
-        case photoCategory = "photo_category"
+        case threadID = "thread_id", user
+        case lastBody = "last_body", lastKind = "last_kind", lastFromMe = "last_from_me"
+        case lastMessageAt = "last_message_at", unread
+        case blocked, messages
     }
 }
-private struct DMSendBody: Encodable { let body: String; let e2e: Bool }
-private struct DMSendResponse: Decodable { let message: DMMessageDTO }
-private struct E2EKeyBody: Encodable { let publicKey: [String: String]; enum CodingKeys: String, CodingKey { case publicKey = "public_key" } }
+
+struct DMMessageDTO: Decodable {
+    let id: String
+    let body: String
+    let kind: String
+    let fromMe: Bool
+    let createdAt: String
+    let read: Bool
+    let metadata: [String: JSONValue]?
+
+    enum CodingKeys: String, CodingKey { case id, body, kind; case fromMe = "from_me"; case createdAt = "created_at"; case read, metadata }
+}
+
+/// Minimal decode-anything box for `metadata`, whose shape varies by message
+/// kind (a verse share carries {reference,text,share_url}; other kinds carry
+/// other fields). Only `reference` is actually read today.
+enum JSONValue: Decodable {
+    case string(String), number(Double), bool(Bool), null, object([String: JSONValue]), array([JSONValue])
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if let v = try? c.decode(String.self) { self = .string(v) }
+        else if let v = try? c.decode(Double.self) { self = .number(v) }
+        else if let v = try? c.decode(Bool.self) { self = .bool(v) }
+        else if let v = try? c.decode([String: JSONValue].self) { self = .object(v) }
+        else if let v = try? c.decode([JSONValue].self) { self = .array(v) }
+        else { self = .null }
+    }
+    var stringValue: String? { if case .string(let s) = self { return s }; return nil }
+}
+
 private struct DMInboxResponse: Decodable { let threads: [DMThreadDTO]; let unread: Int }
 private struct DMOpenResponse: Decodable {
     let threadID: String
@@ -880,6 +921,19 @@ private struct DMOpenResponse: Decodable {
     let user: U
     enum CodingKeys: String, CodingKey { case threadID = "thread_id", user }
 }
+private struct DMSendBody: Encodable { let body: String; let e2e: Bool }
+private struct DMSendResponse: Decodable { let message: DMMessageDTO }
+private struct E2EKeyBody: Encodable { let publicKey: [String: String]; enum CodingKeys: String, CodingKey { case publicKey = "public_key" } }
+
+/// A real JWK published by the web client carries `ext`/`key_ops` fields
+/// alongside kty/crv/x/y (WebCrypto's `exportKey('jwk', ...)` always includes
+/// them). Only kty/crv/x/y are ever read here, but the struct must still be
+/// ABLE to decode a payload containing the extra fields -- Decodable ignores
+/// keys it has no property for, so listing only the four needed fields is
+/// exactly what makes that work. A `[String: String]` dictionary would not:
+/// `ext` decodes as a JSON boolean and `key_ops` as an array, so decoding the
+/// whole object as all-String values would throw, and every key published
+/// from the website would silently fail to decode on this client.
 private struct JWKDTO: Decodable {
     let kty: String, crv: String, x: String, y: String
     var asStringDict: [String: String] { ["kty": kty, "crv": crv, "x": x, "y": y] }
@@ -888,7 +942,187 @@ private struct E2EKeyResponse: Decodable {
     let publicKey: JWKDTO?
     enum CodingKeys: String, CodingKey { case publicKey = "public_key" }
 }
-private struct CommentListResponse: Decodable { let comments: [CommentDTO] }
+
+private struct RecordsResponse: Decodable { let records: [String: [PersonalRecord]] }
+private struct StoriesResponse: Decodable { let stories: [Story] }
+private struct PostStoryBody: Encodable { let content: String; let photoData: String?; let photoCategory: String?; let visibility: String
+    enum CodingKeys: String, CodingKey { case content; case photoData = "photo_data"; case photoCategory = "photo_category"; case visibility }
+}
+private struct PostStoryResponse: Decodable { let id: String }
+private struct StoryReactionBody: Encodable { let emoji: String }
+private struct StoryReplyBody: Encodable { let body: String }
+private struct StoryReplyResponse: Decodable { let threadID: String; enum CodingKeys: String, CodingKey { case threadID = "thread_id" } }
+private struct TrendingTagsResponse: Decodable { let tags: [TrendingTag] }
+private struct JourneyProgressBody: Encodable { let addKm: Double; enum CodingKeys: String, CodingKey { case addKm = "add_km" } }
+private struct ReelReactionBody: Encodable { let kind: String }
+private struct AthleteSearchResponse: Decodable { let athletes: [AthleteSearchResult] }
+private struct AthleteProfileResponse: Decodable { let profile: AthleteProfile }
+private struct HashtagPostsResponse: Decodable { let tag: String; let posts: [HashtagPostDTO] }
+private struct HashtagPostDTO: Decodable {
+    let id: UUID
+    let content: String?
+    let createdAt: String
+    let visibility: String?
+    let photoData: String?
+    let photoCategory: String?
+    let authorID: UUID?
+    let author: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, content, visibility
+        case createdAt = "created_at", photoData = "photo_data", photoCategory = "photo_category"
+        case authorID = "author_id", author
+    }
+
+    var model: FeedPost {
+        FeedPost(id: id, authorID: authorID, authorName: author, content: content ?? "", workout: nil, verse: nil,
+                  createdAt: DateParser.parse(createdAt) ?? .now, photoData: photoData, photoCategory: photoCategory,
+                  visibility: visibility ?? "public")
+    }
+}
+private struct AnnouncementBody: Encodable { let text: String }
+private struct GroupMembersResponse: Decodable { let members: [GroupMemberEntry]; let isAdmin: Bool?
+    enum CodingKeys: String, CodingKey { case members; case isAdmin = "is_admin" }
+}
+private struct CircleResponse: Decodable { let members: [CircleMember]; let max: Int }
+private struct CircleCandidatesResponse: Decodable { let candidates: [CircleCandidate] }
+private struct FollowRequestsResponse: Decodable { let requests: [FollowRequestUser] }
+
+struct UsernameCheckResult: Decodable {
+    let available: Bool
+    let error: String?
+    let message: String?
+    let suggestion: String?
+}
+
+private struct UpdateProfileBody: Encodable {
+    let displayName: String, bioVerseRef: String, job: String, church: String, tradition: String
+    enum CodingKeys: String, CodingKey {
+        case displayName = "display_name", bioVerseRef = "bio_verse_ref", job, church, tradition
+    }
+}
+private struct UpdateProfileResponse: Decodable { let ok: Bool }
+
+private struct AppleHealthSyncBody: Encodable {
+    struct Workout: Encodable {
+        let externalID: String
+        let activityType: String
+        let startTime: String
+        let endTime: String
+        let durationSec: Int
+        let calories: Int?
+        let distanceMeters: Double?
+        let avgHeartRate: Int?
+        enum CodingKeys: String, CodingKey {
+            case externalID = "external_id", activityType = "activity_type"
+            case startTime = "start_time", endTime = "end_time"
+            case durationSec = "duration_sec", calories
+            case distanceMeters = "distance_meters", avgHeartRate = "avg_heart_rate"
+        }
+    }
+    struct DailySteps: Encodable { let date: String; let steps: Int }
+    let workouts: [Workout]
+    let dailySteps: [DailySteps]
+    enum CodingKeys: String, CodingKey { case workouts; case dailySteps = "daily_steps" }
+}
+
+private struct AppleHealthSyncResponse: Decodable {
+    let imported: Int
+    let checked: Int
+    let stepDaysSynced: Int
+    enum CodingKeys: String, CodingKey { case imported, checked; case stepDaysSynced = "step_days_synced" }
+}
+
+struct PulseEncouragementResponse: Decodable {
+    let encouraged: Bool
+    let encouragementCount: Int
+    enum CodingKeys: String, CodingKey { case encouraged; case encouragementCount = "encouragement_count" }
+}
+
+struct PostReactionResponse: Decodable {
+    let liked: Bool
+    let likeCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case liked
+        case likeCount = "like_count"
+    }
+}
+
+struct PostSaveResponse: Decodable {
+    let saved: Bool
+}
+
+struct FollowResponse: Decodable {
+    let following: Bool
+    let followersCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case following
+        case followersCount = "followers_count"
+    }
+}
+
+struct CommentReactionResponse: Decodable {
+    let liked: Bool
+    let likeCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case liked
+        case likeCount = "like_count"
+    }
+}
+
+struct CreatedPostResponse: Decodable {
+    let id: UUID
+    let visibility: String
+    let shareURL: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, visibility
+        case shareURL = "share_url"
+    }
+}
+
+private struct ActionResponse: Decodable {
+    let ok: Bool
+}
+
+private struct ReportBody: Encodable {
+    let reason: String
+}
+
+private struct GroupMessageBody: Encodable {
+    let content: String
+}
+
+private struct CommentBody: Encodable {
+    let content: String
+}
+
+private struct CreatePostBody: Encodable {
+    let content: String
+    let visibility: String
+    let photoData: String?
+    let photoCategory: String?
+
+    enum CodingKeys: String, CodingKey {
+        case content, visibility
+        case photoData = "photo_data"
+        case photoCategory = "photo_category"
+    }
+}
+
+private struct FeedResponse: Decodable {
+    let posts: [FeedDTO]
+    let nextCursor: String?
+    enum CodingKeys: String, CodingKey { case posts; case nextCursor = "next_cursor" }
+}
+
+private struct CommentListResponse: Decodable {
+    let comments: [CommentDTO]
+}
+
 private struct CommentDTO: Decodable {
     let id: UUID
     let content: String
@@ -896,20 +1130,24 @@ private struct CommentDTO: Decodable {
     let createdAt: String
     let likeCount: Int?
     let likedByMe: Bool?
+
     enum CodingKeys: String, CodingKey {
         case id, content, author
         case createdAt = "created_at"
         case likeCount = "like_count"
         case likedByMe = "liked_by_me"
     }
+
     var model: FeedComment {
         FeedComment(id: id, content: content, author: author, createdAt: createdAt, likeCount: likeCount ?? 0, likedByMe: likedByMe ?? false)
     }
 }
+
 private struct ExploreResponse: Decodable {
     let groups: [ExploreGroup]
     let quests: [ExploreQuest]
 }
+
 private struct GroupDetailResponse: Decodable {
     let group: GroupCoreDTO
     let memberCount: Int
@@ -917,12 +1155,14 @@ private struct GroupDetailResponse: Decodable {
     let isAdmin: Bool
     let messages: [GroupMessage]
     let events: [GroupEvent]
+
     enum CodingKeys: String, CodingKey {
         case group, messages, events
         case memberCount = "member_count"
         case isMember = "is_member"
         case isAdmin = "is_admin"
     }
+
     var model: NativeGroupDetail {
         NativeGroupDetail(
             group: group.model(memberCount: memberCount),
@@ -936,6 +1176,7 @@ private struct GroupDetailResponse: Decodable {
         )
     }
 }
+
 private struct GroupCoreDTO: Decodable {
     let id: String
     let name: String
@@ -946,31 +1187,31 @@ private struct GroupCoreDTO: Decodable {
     let sport: String?
     let announcement: String?
     let announcementAt: String?
+
     enum CodingKeys: String, CodingKey {
         case id, name, description, username, sport, announcement
         case churchName = "church_name"
         case locationName = "location_name"
         case announcementAt = "announcement_at"
     }
+
     func model(memberCount: Int) -> ExploreGroup {
         ExploreGroup(id: id, name: name, description: description, username: username, churchName: churchName, locationName: locationName, sport: sport, memberCount: memberCount)
     }
 }
-private struct AnnouncementBody: Encodable { let text: String }
-private struct GroupMembersResponse: Decodable { let members: [GroupMemberEntry]; let isAdmin: Bool?
-    enum CodingKeys: String, CodingKey { case members; case isAdmin = "is_admin" }
-}
-private struct FeedResponse: Decodable {
-    let posts: [FeedDTO]
+
+struct FeedPage {
+    let posts: [FeedPost]
     let nextCursor: String?
-    enum CodingKeys: String, CodingKey { case posts; case nextCursor = "next_cursor" }
 }
+
 private struct FeedDTO: Decodable {
     let id: UUID; let authorID: UUID?; let content: String?; let author: String; let createdAt: String
     let workoutID: UUID?; let workoutType: String?; let startTime: String?; let endTime: String?
     let calories: Int?; let avgHR: Int?; let verseReference: String?; let verseText: String?; let youVersionID: String?
     let likeCount: Int?; let likedByMe: Bool?; let savedByMe: Bool?; let commentCount: Int?
     let photoData: String?; let photoCategory: String?; let visibility: String?
+
     enum CodingKeys: String, CodingKey { case id; case authorID = "author_id"; case content, author, visibility; case createdAt = "created_at"; case workoutID = "workout_id"; case workoutType = "workout_type"; case startTime = "start_time"; case endTime = "end_time"; case calories; case avgHR = "avg_hr"; case verseReference = "verse_reference"; case verseText = "verse_text"; case youVersionID = "youversion_id"; case likeCount = "like_count"; case likedByMe = "liked_by_me"; case savedByMe = "saved_by_me"; case commentCount = "comment_count"; case photoData = "photo_data"; case photoCategory = "photo_category" }
     var model: FeedPost {
         let workout = workoutType.map { WorkoutSummary(id: workoutID ?? UUID(), type: $0, startTime: DateParser.parse(startTime) ?? .now, endTime: DateParser.parse(endTime), calories: calories, avgHR: avgHR) }
@@ -978,6 +1219,7 @@ private struct FeedDTO: Decodable {
         return FeedPost(id: id, authorID: authorID, authorName: author, content: content ?? "", workout: workout, verse: verse, createdAt: DateParser.parse(createdAt) ?? .now, photoData: photoData, photoCategory: photoCategory, visibility: visibility ?? "private", likeCount: likeCount ?? 0, likedByMe: likedByMe ?? false, savedByMe: savedByMe ?? false, commentCount: commentCount ?? 0)
     }
 }
+
 private struct MeDTO: Decodable {
     let user: UserDTO; let xp: XPDTO?; let badges: [BadgeDTO]; let accountSetupRequired: Bool?
     enum CodingKeys: String, CodingKey { case user, xp, badges; case accountSetupRequired = "account_setup_required" }
@@ -1006,6 +1248,7 @@ private struct SuggestedUserDTO: Decodable {
     let bioVerseRef: String?
     let followersCount: Int
     let reason: String
+
     enum CodingKeys: String, CodingKey {
         case id
         case displayName = "display_name"
@@ -1013,38 +1256,12 @@ private struct SuggestedUserDTO: Decodable {
         case followersCount = "followers_count"
         case reason
     }
+
     var model: SuggestedUser {
         SuggestedUser(id: id, displayName: displayName, bio: bioVerseRef, followersCount: followersCount, reason: reason)
     }
 }
-private struct AppleHealthSyncBody: Encodable {
-    struct Workout: Encodable {
-        let externalID: String
-        let activityType: String
-        let startTime: String
-        let endTime: String
-        let durationSec: Int
-        let calories: Int?
-        let distanceMeters: Double?
-        let avgHeartRate: Int?
-        enum CodingKeys: String, CodingKey {
-            case externalID = "external_id", activityType = "activity_type"
-            case startTime = "start_time", endTime = "end_time"
-            case durationSec = "duration_sec", calories
-            case distanceMeters = "distance_meters", avgHeartRate = "avg_heart_rate"
-        }
-    }
-    struct DailySteps: Encodable { let date: String; let steps: Int }
-    let workouts: [Workout]
-    let dailySteps: [DailySteps]
-    enum CodingKeys: String, CodingKey { case workouts; case dailySteps = "daily_steps" }
-}
-private struct AppleHealthSyncResponse: Decodable {
-    let imported: Int
-    let checked: Int
-    let stepDaysSynced: Int
-    enum CodingKeys: String, CodingKey { case imported, checked; case stepDaysSynced = "step_days_synced" }
-}
+
 private enum DateParser {
     static func parse(_ value: String?) -> Date? {
         guard let value else { return nil }
