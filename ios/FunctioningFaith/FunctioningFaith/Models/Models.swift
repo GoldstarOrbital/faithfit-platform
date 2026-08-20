@@ -178,6 +178,103 @@ struct ActivityBreakdownEntry: Decodable, Identifiable {
     enum CodingKeys: String, CodingKey { case type, count; case distanceKm = "distance_km"; case durationMin = "duration_min"; case calories }
 }
 
+// ---- Athlete recruiting: discovery (search + public profile), read-only.
+// Self-profile editing (videos/teams/awards/sports CRUD), coach profile
+// setup, coach matching/roster/saved-searches, and CSV stat import are NOT
+// ported in this pass -- each is a real sub-feature of its own, not a
+// one-line addition here. This covers the actual "recruiting hub" core
+// value: a coach browsing and reading real athlete profiles.
+
+/// The 90-day training snapshot every athlete card and profile shows --
+/// pulled live from real logged workouts (see lib/athletes.js's own
+/// comment: "cannot be puffed up"), never self-reported.
+struct AthleteRecentStats: Decodable {
+    let workouts90d: Int
+    let distanceKm90d: Double
+    let avgHR90d: Int?
+    enum CodingKeys: String, CodingKey {
+        case workouts90d = "workouts_90d", distanceKm90d = "distance_km_90d", avgHR90d = "avg_hr_90d"
+    }
+}
+
+struct AthleteSearchResult: Decodable, Identifiable {
+    let userID: String
+    let sport: String
+    let position: String?
+    let gradYear: Int?
+    let school: String?
+    let highlightURL: String?
+    let bio: String?
+    let displayName: String
+    let hasAvatar: Bool
+    let videoCount: Int
+    let endorsementCount: Int
+    let awardCount: Int
+    let stats: AthleteRecentStats
+    var id: String { userID }
+
+    enum CodingKeys: String, CodingKey {
+        case userID = "user_id", sport, position; case gradYear = "grad_year"
+        case school; case highlightURL = "highlight_url"; case bio
+        case displayName = "display_name"; case hasAvatar = "has_avatar"
+        case videoCount = "video_count", endorsementCount = "endorsement_count", awardCount = "award_count"
+        case stats
+    }
+}
+
+struct SportStatEntry: Decodable, Identifiable {
+    let key: String
+    let label: String
+    let unit: String
+    let value: String
+    let source: String
+    let confirmedBy: Int
+    var id: String { key }
+    enum CodingKeys: String, CodingKey { case key, label, unit, value, source; case confirmedBy = "confirmed_by" }
+}
+
+struct AthleteVideo: Decodable, Identifiable { let id: String; let url: String; let title: String? }
+struct AthleteTeam: Decodable, Identifiable { let id: String; let teamName: String; let level: String?; let season: String?
+    enum CodingKeys: String, CodingKey { case id; case teamName = "team_name"; case level, season }
+}
+struct AthleteAward: Decodable, Identifiable { let id: String; let title: String; let year: Int?; let issuer: String? }
+struct AthleteEndorsement: Decodable, Identifiable {
+    let id: String; let quote: String; let coachName: String; let coachOrganization: String?; let coachTitle: String?
+    enum CodingKeys: String, CodingKey { case id, quote; case coachName = "coach_name"; case coachOrganization = "coach_organization"; case coachTitle = "coach_title" }
+}
+
+struct AthleteProfile: Decodable, Identifiable {
+    let userID: String
+    let sport: String
+    let position: String?
+    let gradYear: Int?
+    let school: String?
+    let heightCM: Int?
+    let weightKG: Int?
+    let highlightURL: String?
+    let bio: String?
+    let handedness: String?
+    let maxprepsURL: String?
+    let gamechangerURL: String?
+    let displayName: String
+    let hasAvatar: Bool
+    let stats: AthleteRecentStats
+    let sportStats: [SportStatEntry]
+    let videos: [AthleteVideo]
+    let teams: [AthleteTeam]
+    let awards: [AthleteAward]
+    let endorsements: [AthleteEndorsement]
+    var id: String { userID }
+
+    enum CodingKeys: String, CodingKey {
+        case userID = "user_id", sport, position; case gradYear = "grad_year"; case school
+        case heightCM = "height_cm"; case weightKG = "weight_kg"; case highlightURL = "highlight_url"
+        case bio, handedness; case maxprepsURL = "maxpreps_url"; case gamechangerURL = "gamechanger_url"
+        case displayName = "display_name"; case hasAvatar = "has_avatar"; case stats
+        case sportStats = "sport_stats", videos, teams, awards, endorsements
+    }
+}
+
 /// Matches the server's PHOTO_CATEGORIES exactly (routes/api.js) -- shared
 /// between post and story composers since both validate against the same
 /// list.

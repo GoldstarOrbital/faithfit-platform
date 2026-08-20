@@ -432,6 +432,29 @@ final class APIClient {
         let _: ActionResponse = try await request("/api/stories/\(id)", method: "DELETE")
     }
 
+    // MARK: - Athlete recruiting: discovery only (see Models.swift's header
+    // comment on this section for what's deliberately not ported)
+
+    /// Query params match the server's `search({sport, grad_year, q,
+    /// school_nces_id, limit})` exactly -- an absent filter is simply
+    /// omitted from the query string, not sent as an empty value the
+    /// server would otherwise have to specially ignore.
+    func searchAthletes(sport: String? = nil, gradYear: Int? = nil, query: String? = nil) async throws -> [AthleteSearchResult] {
+        var items: [URLQueryItem] = []
+        if let sport, !sport.isEmpty { items.append(URLQueryItem(name: "sport", value: sport)) }
+        if let gradYear { items.append(URLQueryItem(name: "grad_year", value: String(gradYear))) }
+        if let query, !query.isEmpty { items.append(URLQueryItem(name: "q", value: query)) }
+        var components = URLComponents(string: "/api/athletes/search")!
+        components.queryItems = items.isEmpty ? nil : items
+        let r: AthleteSearchResponse = try await request(components.string ?? "/api/athletes/search")
+        return r.athletes
+    }
+
+    func fetchAthleteProfile(userID: String) async throws -> AthleteProfile {
+        let r: AthleteProfileResponse = try await request("/api/athletes/\(userID)")
+        return r.profile
+    }
+
     // MARK: - Hashtags
 
     func fetchTrendingTags() async throws -> [TrendingTag] {
@@ -715,6 +738,8 @@ private struct StoryReactionBody: Encodable { let emoji: String }
 private struct StoryReplyBody: Encodable { let body: String }
 private struct StoryReplyResponse: Decodable { let threadID: String; enum CodingKeys: String, CodingKey { case threadID = "thread_id" } }
 private struct TrendingTagsResponse: Decodable { let tags: [TrendingTag] }
+private struct AthleteSearchResponse: Decodable { let athletes: [AthleteSearchResult] }
+private struct AthleteProfileResponse: Decodable { let profile: AthleteProfile }
 private struct HashtagPostsResponse: Decodable { let tag: String; let posts: [HashtagPostDTO] }
 private struct HashtagPostDTO: Decodable {
     let id: UUID

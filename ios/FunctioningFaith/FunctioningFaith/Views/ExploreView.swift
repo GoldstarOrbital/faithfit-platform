@@ -11,6 +11,15 @@ struct ExploreView: View {
     var body: some View {
         List {
             Section {
+                NavigationLink {
+                    AthleteSearchView()
+                } label: {
+                    Label("Athlete Recruiting", systemImage: "figure.run.circle.fill")
+                }
+            } footer: {
+                Text("Browse public, .edu-verified athlete profiles with real training data pulled from logged workouts.")
+            }
+            Section {
                 if isLoadingSuggestions {
                     ProgressView("Finding your community…")
                 } else if suggestions.isEmpty {
