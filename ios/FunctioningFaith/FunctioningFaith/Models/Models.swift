@@ -1164,6 +1164,25 @@ struct UserReminder: Decodable, Identifiable {
     }
 }
 
+// ---- Connected data connectors (Strava, etc.) -- real wearable/GPS-watch
+// activity sync, same shape as the already-native Apple Health connection. ----
+
+struct StravaSyncResult: Decodable {
+    let imported: Int
+    let checked: Int
+}
+
+struct ConnectedAccount: Decodable, Identifiable {
+    let provider: String
+    let scope: String?
+    let connectedAt: String?
+    let lastSyncedAt: String?
+    var id: String { provider }
+    enum CodingKeys: String, CodingKey {
+        case provider, scope, connectedAt = "connected_at", lastSyncedAt = "last_synced_at"
+    }
+}
+
 /// Discovery surface -- which verses people are actually talking about.
 struct DiscussedVerse: Decodable, Identifiable {
     let id: String

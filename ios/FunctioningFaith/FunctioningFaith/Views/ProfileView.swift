@@ -4,6 +4,7 @@ struct ProfileView: View {
     @EnvironmentObject private var session: NativeSession
     @EnvironmentObject private var biometricLock: BiometricLock
     @StateObject private var healthKit = HealthKitManager.shared
+    @StateObject private var stravaConnector = StravaConnector()
     @AppStorage("security.biometricLock") private var biometricLockEnabled = false
     @AppStorage("notifications.scripture") private var scriptureNotifications = false
     @AppStorage("notifications.community") private var communityNotifications = false
@@ -14,6 +15,10 @@ struct ProfileView: View {
     @State private var healthKitSyncing = false
     @State private var pendingFollowRequests = 0
     @State private var showEditProfile = false
+    @State private var connections: [ConnectedAccount] = []
+    @State private var stravaConfigured = false
+    @State private var isConnectingStrava = false
+    @State private var connectorError: String?
 
     var body: some View {
         Form {
@@ -22,6 +27,7 @@ struct ProfileView: View {
                 badgesSection(profile)
             }
             healthKitSection
+            connectorsSection
             privacySection
             safetySection
             signInSecuritySection
@@ -37,7 +43,12 @@ struct ProfileView: View {
                 profile = try? await APIClient.shared.fetchProfile()
             }
             pendingFollowRequests = (try? await APIClient.shared.fetchFollowRequests().count) ?? 0
+            stravaConfigured = (try? await APIClient.shared.isStravaConfigured()) ?? false
+            await loadConnections()
         }
+        .alert("Could not connect Strava", isPresented: Binding(get: { connectorError != nil }, set: { if !$0 { connectorError = nil } })) {
+            Button("OK", role: .cancel) { connectorError = nil }
+        } message: { Text(connectorError ?? "") }
         .confirmationDialog("Delete your Functioning Faith account?", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete permanently", role: .destructive) {
                 Task {
@@ -132,6 +143,63 @@ struct ProfileView: View {
         } footer: {
             Text("Reads workouts, step counts, and workout heart rate from Health — from your Apple Watch or any other app that writes into it (Fitbit, Garmin, Oura, and others all sync through Health). Functioning Faith never writes to your Health data.")
         }
+    }
+
+    @ViewBuilder
+    private var connectorsSection: some View {
+        // Hidden when Strava isn't configured server-side, unless a
+        // connection from before that was true still exists to show.
+        if stravaConfigured || connections.contains(where: { $0.provider == "strava" }) {
+        Section {
+            if let strava = connections.first(where: { $0.provider == "strava" }) {
+                Text(strava.lastSyncedAt != nil ? "Strava connected · synced" : "Strava connected — not yet synced")
+                    .foregroundStyle(.secondary)
+                Button {
+                    Task { await syncStrava() }
+                } label: {
+                    if isConnectingStrava { ProgressView() } else { Text("Sync now") }
+                }
+                .disabled(isConnectingStrava)
+            } else {
+                Button {
+                    Task { await connectStrava() }
+                } label: {
+                    if isConnectingStrava { ProgressView() } else { Text("Connect Strava") }
+                }
+                .disabled(isConnectingStrava)
+            }
+        } header: {
+            Text("Connected Accounts")
+        } footer: {
+            Text("Strava aggregates activity from most GPS watches and wearables (Garmin, Coros, Wahoo, and others), so connecting it brings that data in too.")
+        }
+        }
+    }
+
+    private func loadConnections() async {
+        connections = (try? await APIClient.shared.fetchConnections()) ?? []
+    }
+
+    private func connectStrava() async {
+        isConnectingStrava = true
+        do {
+            try await stravaConnector.connect()
+            await loadConnections()
+        } catch {
+            connectorError = error.localizedDescription
+        }
+        isConnectingStrava = false
+    }
+
+    private func syncStrava() async {
+        isConnectingStrava = true
+        do {
+            _ = try await APIClient.shared.syncStrava()
+            await loadConnections()
+        } catch {
+            connectorError = error.localizedDescription
+        }
+        isConnectingStrava = false
     }
 
     private var privacySection: some View {

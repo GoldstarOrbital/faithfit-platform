@@ -727,6 +727,25 @@ final class APIClient {
         let _: ActionResponse = try await request("/api/reminders/\(id)", method: "DELETE")
     }
 
+    // MARK: - Connected data connectors (Strava, etc.)
+
+    func fetchConnections() async throws -> [ConnectedAccount] {
+        if useMock { return [] }
+        let r: ConnectionsResponse = try await request("/api/auth/connections")
+        return r.connectors
+    }
+
+    func isStravaConfigured() async throws -> Bool {
+        if useMock { return false }
+        let r: StravaConfiguredResponse = try await request("/api/connectors/strava/configured")
+        return r.configured
+    }
+
+    func syncStrava() async throws -> StravaSyncResult {
+        if useMock { throw APIError.invalidResponse }
+        return try await request("/api/connectors/strava/sync", method: "POST", body: EmptyBody())
+    }
+
     // MARK: - Safety: mute / restrict, trusted circle, follow requests
 
     func fetchRelationships() async throws -> RelationshipsResponse {
@@ -891,6 +910,8 @@ private struct CreateReminderBody: Encodable {
     }
 }
 private struct ReminderToggleBody: Encodable { let enabled: Bool }
+private struct ConnectionsResponse: Decodable { let connectors: [ConnectedAccount] }
+private struct StravaConfiguredResponse: Decodable { let configured: Bool }
 private struct PracticeNoteBody: Encodable { let note: String? }
 private struct OpenThreadBody: Encodable { let prompt: String? }
 private struct ReflectionBody: Encodable {

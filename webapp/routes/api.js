@@ -573,14 +573,23 @@ router.get('/connectors/strava/configured', (req, res) => res.json({ configured:
 router.get('/connectors/strava/start', requireAuth, (req, res) => {
   if (!strava.isConfigured()) return res.status(404).json({ error: 'strava_not_configured' });
   const state = oauth.b64url(require('crypto').randomBytes(16));
-  req.session.stravaPending = { state, userId: req.session.userId, createdAt: Date.now() };
+  // native=1: the iOS client bridges its existing session cookie into the
+  // ASWebAuthenticationSession's browsing context before opening this URL
+  // (a different cookie jar from the one its own API calls use), so
+  // req.session here is the member's real, already-authenticated session --
+  // no separate handoff-code exchange needed, only a different final
+  // redirect so the app can detect completion (see callback below).
+  const native = req.query.native === '1';
+  req.session.stravaPending = { state, userId: req.session.userId, native, createdAt: Date.now() };
   const redirectUri = `${baseUrl(req)}/api/connectors/strava/callback`;
   res.redirect(strava.buildAuthorizationUrl({ redirectUri, state }));
 });
 
 router.get('/connectors/strava/callback', async (req, res) => {
   const pending = req.session.stravaPending;
-  const fail = (reason) => res.redirect(`/?strava_error=${encodeURIComponent(reason)}`);
+  const fail = (reason) => res.redirect(pending?.native
+    ? `functioningfaith://connectors/strava/callback?error=${encodeURIComponent(reason)}`
+    : `/?strava_error=${encodeURIComponent(reason)}`);
   if (!pending || Date.now() - pending.createdAt > 10 * 60 * 1000) { req.session.stravaPending = null; return fail('session_expired'); }
   if (req.query.error) { req.session.stravaPending = null; return fail('access_denied'); }
   if (req.query.state !== pending.state) { req.session.stravaPending = null; return fail('state_mismatch'); }
@@ -594,9 +603,10 @@ router.get('/connectors/strava/callback', async (req, res) => {
                   refresh_token=excluded.refresh_token, expires_at=excluded.expires_at, scope=excluded.scope`)
       .run(randomUUID(), pending.userId, 'strava', String(tokens.athlete?.id || ''), accountSecurity.protectSecret(tokens.access_token), accountSecurity.protectSecret(tokens.refresh_token),
         new Date(tokens.expires_at * 1000).toISOString(), 'read,activity:read_all');
+    const native = pending.native;
     req.session.stravaPending = null;
     await syncStravaForUser(pending.userId).catch(err => console.error('[strava] initial sync failed:', err.message));
-    res.redirect('/?connected=strava');
+    res.redirect(native ? 'functioningfaith://connectors/strava/callback?connected=1' : '/?connected=strava');
   } catch (err) {
     req.session.stravaPending = null;
     console.error('[strava] callback failed:', err.message);
