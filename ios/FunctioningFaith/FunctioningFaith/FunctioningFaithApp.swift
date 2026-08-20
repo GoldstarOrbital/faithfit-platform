@@ -5,6 +5,7 @@ struct FunctioningFaithApp: App {
     @StateObject private var session = NativeSession()
     @StateObject private var biometricLock = BiometricLock()
     @StateObject private var network = NetworkMonitor.shared
+    @StateObject private var deepLinks = DeepLinkRouter()
     @AppStorage("onboarding.pendingUserID") private var pendingOnboardingUserID = ""
     @Environment(\.scenePhase) private var scenePhase
 
@@ -49,15 +50,20 @@ struct FunctioningFaithApp: App {
             .environmentObject(session)
             .environmentObject(biometricLock)
             .environmentObject(network)
+            .environmentObject(deepLinks)
             .tint(FFTheme.accent)
             .task { await session.restore() }
             .onChange(of: scenePhase) { _, phase in
-                // Lock when backgrounded; unlock attempt when becoming active again.
-                // Skill: interrupted-flow recovery + resumed-session behavior.
                 if phase == .background { biometricLock.lockWhenNeeded() }
                 if phase == .active && biometricLock.isLocked {
                     Task { _ = await biometricLock.unlock() }
                 }
+            }
+            .onOpenURL { url in
+                // OAuth callback (functioningfaith://oauth/...) is handled by
+                // ASWebAuthenticationSession; other paths go to the router.
+                if url.host == "oauth" || url.path.contains("oauth") { return }
+                deepLinks.handle(url)
             }
         }
     }

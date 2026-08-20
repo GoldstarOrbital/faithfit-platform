@@ -14,24 +14,38 @@ Estimated calendar time once credentials are ready: 1–2 focused days.
 
 ---
 
-## 0. Missing assets (do first)
+## 0. App Icon — DONE in repo
 
-The XcodeGen project currently has **no App Icon set**. App Store Connect will reject an archive without a complete icon.
+Asset catalog is scaffolded at:
 
-1. Create `FunctioningFaith/Resources/Assets.xcassets` in Xcode (or by hand).
-2. Add an **AppIcon** image set covering every required size (use a single 1024×1024 master and let Xcode generate, or export the full set).
-3. Brand: use the existing web app icon / logo from `webapp/public/` (or design a new one). Keep it simple, high-contrast, no text smaller than ~20 pt at 1024.
-4. Update `project.yml` resources section to include the asset catalog:
+`FunctioningFaith/Resources/Assets.xcassets/AppIcon.appiconset/`
 
-```yaml
-    resources:
-      - path: FunctioningFaith/Resources/PrivacyInfo.xcprivacy
-      - path: FunctioningFaith/Resources/Assets.xcassets
+`Contents.json` already references `AppIcon.png` (1024×1024, single-size universal).
+
+**Generate the PNG before first archive:**
+
+```bash
+cd ios/FunctioningFaith
+bash scripts/install-app-icon.sh
+# requires: python3 + Pillow  (pip install Pillow)
 ```
 
-5. Re-run `xcodegen generate`.
+That writes a brand-matched cream / gold-arc / cross+ff mark at 1024×1024 (opaque — App Store rejects transparency).
 
-Optional but recommended: add a simple Launch Screen storyboard or use the iOS 14+ `UILaunchScreen` key if you want a branded splash.
+If you have a designer master (e.g. the official logo PNG), replace:
+
+`FunctioningFaith/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png`
+
+with your 1024×1024 **opaque** export, then skip the generator.
+
+`project.yml` already includes the asset catalog and:
+
+```yaml
+ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+```
+
+Re-run `xcodegen generate` after any catalog change.
 
 ---
 
@@ -66,6 +80,7 @@ APPLE_NATIVE_CLIENT_ID=com.functioningfaith.app
 
 ```bash
 cd ios/FunctioningFaith
+bash scripts/install-app-icon.sh   # if AppIcon.png is not already present
 # Install XcodeGen if needed: brew install xcodegen
 xcodegen generate --spec project.yml
 open FunctioningFaith.xcodeproj
@@ -102,6 +117,7 @@ Pay special attention to:
 - Live workout GPS with location permission granted **and** denied.
 - Notification permission only after a category is toggled (never at first launch).
 - Permanent account deletion.
+- Deep links: `functioningfaith://messages`, `functioningfaith://workouts`, etc.
 
 Sign the QA table at the bottom of the checklist.
 
@@ -226,6 +242,7 @@ Key native capabilities for review:
 • End-to-end encrypted DMs (CryptoKit ECDH + AES-GCM, interoperable with the web client)
 • In-app permanent account deletion (Profile → Delete account → DELETE /api/me)
 • Report & block for UGC (posts and users)
+• Deep links via functioningfaith:// (messages, workouts, groups, verses)
 
 Test account (if needed):
   email: [provide a pre-seeded reviewer account]
