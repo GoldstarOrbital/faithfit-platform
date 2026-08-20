@@ -12,7 +12,7 @@
 const db = require('./db');
 const visits = require('./visits');
 
-const OWNER_EMAIL = 'alexmarcusgoldsmith@gmail.com';
+const OWNER_EMAIL = 'alexgoldsmith@goldstarorbital.com';
 const FEATURE_DEFAULTS = Object.freeze({
   reels: true,
   journeys: true,
