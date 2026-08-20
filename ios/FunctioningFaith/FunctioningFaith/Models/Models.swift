@@ -1074,6 +1074,74 @@ struct NearbyChurch: Decodable, Identifiable {
     }
 }
 
+// ---- Breathwork: real, named techniques with a physiological rationale --
+// see lib/breathwork.js's own header. Scripture is always resolved from the
+// verified table server-side, never authored here. ----
+
+struct BreathingPhase: Decodable {
+    let label: String
+    let sec: Double
+    let kind: String
+}
+
+struct BreathingPattern: Decodable, Identifiable {
+    let key: String
+    let name: String
+    let tagline: String
+    let about: String
+    let phases: [BreathingPhase]
+    let cycleSec: Double
+    let breathsPerMin: Double
+    let defaultMinutes: Int
+    let scriptureRef: String?
+    let scriptureText: String?
+    var id: String { key }
+    enum CodingKeys: String, CodingKey {
+        case key, name, tagline, about, phases
+        case cycleSec = "cycle_sec", breathsPerMin = "breaths_per_min"
+        case defaultMinutes = "default_minutes"
+        case scriptureRef = "scripture_ref", scriptureText = "scripture_text"
+    }
+}
+
+struct BreathingVerseResult: Decodable {
+    let reference: String
+    let text: String
+}
+
+// ---- Heart-rate check-in: a measurement, reported plainly, never an
+// interpretation of how the member feels -- see lib/contexts.js's own
+// header for why. Only ever produced from a real HealthKit reading. ----
+
+struct SuggestedBreathingPattern: Decodable {
+    let key: String
+    let name: String
+    let tagline: String
+    let minutes: Int
+}
+
+struct HeartCheckInResult: Decodable {
+    let context: String?
+    let status: String
+    let label: String?
+    let blurb: String?
+    let measured: Bool
+    let reason: String?
+    let hr: Int?
+    let restingHr: Int?
+    let aboveResting: Int?
+    let missing: String?
+    let hint: String?
+    let verse: BreathingVerseResult?
+    let suggestedPattern: SuggestedBreathingPattern?
+    enum CodingKeys: String, CodingKey {
+        case context, status, label, blurb, measured, reason, hr
+        case restingHr = "resting_hr", aboveResting = "above_resting"
+        case missing, hint, verse
+        case suggestedPattern = "suggested_pattern"
+    }
+}
+
 /// Discovery surface -- which verses people are actually talking about.
 struct DiscussedVerse: Decodable, Identifiable {
     let id: String

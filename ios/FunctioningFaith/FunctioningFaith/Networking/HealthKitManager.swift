@@ -179,6 +179,34 @@ final class HealthKitManager: ObservableObject {
         }
     }
 
+    /// Recent heart-rate samples within the last few minutes, oldest first --
+    /// for the "how's my heart doing right now" check-in. Distinct from
+    /// averageHeartRate(during:), which is scoped to one workout's window.
+    /// The server needs several samples, not just one, to call a reading
+    /// "sustained" rather than a momentary spike -- so this returns whatever
+    /// HealthKit actually has, not just the latest point. Empty means no
+    /// recent-enough reading exists (no paired Watch, or it isn't being
+    /// worn) -- never a fabricated value.
+    func recentHeartRateSamples(within seconds: TimeInterval = 300, limit: Int = 10) async throws -> [Double] {
+        guard isAvailable else { return [] }
+        let since = Date().addingTimeInterval(-seconds)
+        let predicate = HKQuery.predicateForSamples(withStart: since, end: nil, options: .strictStartDate)
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: heartRateType,
+                predicate: predicate,
+                limit: limit,
+                sortDescriptors: [NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: true)]
+            ) { _, samples, error in
+                if let error { continuation.resume(throwing: error); return }
+                let unit = HKUnit.count().unitDivided(by: .minute())
+                let values = (samples as? [HKQuantitySample])?.map { $0.quantity.doubleValue(for: unit) } ?? []
+                continuation.resume(returning: values)
+            }
+            store.execute(query)
+        }
+    }
+
     // MARK: - Activity mapping
 
     /// HKWorkoutActivityType -> Functioning Faith's own vocabulary

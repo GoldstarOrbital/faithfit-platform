@@ -46,6 +46,16 @@ struct WorkoutView: View {
         }
         .padding()
         .navigationTitle("Workout")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { BreathworkView() } label: { Image(systemName: "wind") }
+                    .accessibilityLabel("Breathing exercises")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { HeartCheckInView() } label: { Image(systemName: "heart.text.square") }
+                    .accessibilityLabel("Heart rate check-in")
+            }
+        }
         .onReceive(timer) { _ in if isActive { elapsed += 1 } }
         .sheet(isPresented: $showReflection) { PostWorkoutReflectionView() }
         .alert("Workout unavailable", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {

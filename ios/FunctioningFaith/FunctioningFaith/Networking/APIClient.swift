@@ -668,6 +668,38 @@ final class APIClient {
         return r.service
     }
 
+    // MARK: - Breathwork & heart check-in
+
+    func fetchBreathingPatterns() async throws -> [BreathingPattern] {
+        if useMock { return [] }
+        let r: BreathingPatternsResponse = try await request("/api/breathing/patterns")
+        return r.patterns
+    }
+
+    func fetchBreathingVerse(key: String) async throws -> BreathingVerseResult? {
+        if useMock { return nil }
+        let r: BreathingVerseResponse = try await request("/api/breathing/\(key)/verse", method: "POST", body: EmptyBody())
+        return r.verse
+    }
+
+    func completeBreathingSession(pattern: String, durationSec: Int) async throws {
+        if useMock { return }
+        let _: ActionResponse = try await request("/api/breathing/complete", method: "POST", body: BreathingCompleteBody(pattern: pattern, durationSec: durationSec))
+    }
+
+    /// `hr`/`recentHR` come only from a real HealthKit reading -- see
+    /// HealthKitManager.recentHeartRateSamples. An empty array means "no
+    /// monitor," matching the server's own no-invented-physiology rule.
+    func checkHeartRate(recentHR: [Int], moving: Bool) async throws -> HeartCheckInResult {
+        if useMock {
+            return HeartCheckInResult(context: nil, status: "no_monitor", label: nil, blurb: nil, measured: false,
+                                       reason: "Connect a heart-rate monitor to use this.", hr: nil, restingHr: nil,
+                                       aboveResting: nil, missing: "hr", hint: nil, verse: nil, suggestedPattern: nil)
+        }
+        return try await request("/api/checkin/heart", method: "POST", body: HeartCheckInBody(
+            hrMeasured: !recentHR.isEmpty, hr: recentHR.last, recentHr: recentHR, moving: moving))
+    }
+
     // MARK: - Safety: mute / restrict, trusted circle, follow requests
 
     func fetchRelationships() async throws -> RelationshipsResponse {
@@ -806,6 +838,22 @@ private struct ChurchClearBody: Encodable {
 }
 private struct DevotionalResponse: Decodable { let devotional: ChurchDevotional? }
 private struct ChurchServiceResponse: Decodable { let service: ChurchWeeklyService? }
+private struct BreathingPatternsResponse: Decodable { let patterns: [BreathingPattern] }
+private struct BreathingVerseResponse: Decodable { let verse: BreathingVerseResult? }
+private struct BreathingCompleteBody: Encodable {
+    let pattern: String
+    let durationSec: Int
+    enum CodingKeys: String, CodingKey { case pattern; case durationSec = "duration_sec" }
+}
+private struct HeartCheckInBody: Encodable {
+    let hrMeasured: Bool
+    let hr: Int?
+    let recentHr: [Int]
+    let moving: Bool
+    enum CodingKeys: String, CodingKey {
+        case hrMeasured = "hr_measured", hr, recentHr = "recent_hr", moving
+    }
+}
 private struct PracticeNoteBody: Encodable { let note: String? }
 private struct OpenThreadBody: Encodable { let prompt: String? }
 private struct ReflectionBody: Encodable {
