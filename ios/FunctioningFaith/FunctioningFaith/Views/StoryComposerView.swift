@@ -67,7 +67,7 @@ struct StoryComposerView: View {
                 Picker("Photo type", selection: $category) {
                     ForEach(PhotoCategory.allCases) { item in Text(item.label).tag(item) }
                 }
-                Button("Remove photo", role: .destructive) { pickerItem = nil; previewImage = nil; uploadData = nil }
+                Button("Remove photo", role: .destructive, action: removePhoto)
             }
         }
     }
@@ -79,6 +79,22 @@ struct StoryComposerView: View {
             }
             .pickerStyle(.inline)
         }
+    }
+
+    // A real bug, not just a style choice: this used to be an inline
+    // closure directly inside the `if let previewImage { ... }` block in
+    // photoSection. That `if let` shadows the @State var previewImage with
+    // a local, immutable binding of the same name for the rest of that
+    // block -- so `previewImage = nil` inside a closure nested in there was
+    // assigning to the shadowed local constant, not the real state. Caught
+    // by CI actually failing to compile it ("cannot assign to value:
+    // 'previewImage' is a 'let' constant"), not by inspection. Matches
+    // PostComposerView's own removePhoto(), which was already a proper
+    // method for exactly this reason.
+    private func removePhoto() {
+        pickerItem = nil
+        previewImage = nil
+        uploadData = nil
     }
 
     private func prepare(_ item: PhotosPickerItem?) async {
