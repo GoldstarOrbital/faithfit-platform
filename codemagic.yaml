@@ -1,4 +1,56 @@
 workflows:
+  ios-testflight:
+    name: iOS TestFlight release
+    max_build_duration: 45
+    instance_type: mac_mini_m2
+    inputs:
+      submit_to_testflight:
+        description: Upload this signed IPA to TestFlight after a successful build
+        type: boolean
+        default: false
+    integrations:
+      app_store_connect: Functioning Faith TestFlight
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.functioningfaith.app
+      xcode: latest
+      vars:
+        IOS_PROJECT_DIR: ios/FunctioningFaith
+        XCODE_PROJECT: FunctioningFaith.xcodeproj
+        XCODE_SCHEME: FunctioningFaith
+        APP_STORE_APPLE_ID: 6804050319
+    scripts:
+      - name: Install XcodeGen
+        script: brew install xcodegen
+      - name: Generate the Xcode project
+        script: |
+          cd "$CM_BUILD_DIR/$IOS_PROJECT_DIR"
+          xcodegen generate --spec project.yml
+      - name: Set the next App Store build number
+        script: |
+          cd "$CM_BUILD_DIR/$IOS_PROJECT_DIR"
+          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-app-store-build-number "$APP_STORE_APPLE_ID")
+          agvtool new-version -all "$((LATEST_BUILD_NUMBER + 1))"
+      - name: Apply App Store signing profiles
+        script: |
+          cd "$CM_BUILD_DIR/$IOS_PROJECT_DIR"
+          xcode-project use-profiles
+      - name: Build signed IPA
+        script: |
+          cd "$CM_BUILD_DIR/$IOS_PROJECT_DIR"
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+    artifacts:
+      - ios/FunctioningFaith/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: ${{ inputs.submit_to_testflight }}
+
   ios-simulator-verify:
     name: iOS simulator verification
     max_build_duration: 30
