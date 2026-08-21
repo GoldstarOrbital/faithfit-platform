@@ -6,8 +6,8 @@
 
 Web primary tabs: **Home · Workout · Stats · Explore · Profile** (+ DMs / search / notifications in the chrome).
 
-Native primary tabs: **Home · Workouts · Explore · Messages · Profile**  
-(Stats is linked from Explore + Profile so Messages can stay one-tap; same data as web Stats.)
+Native primary tabs: **Home · Train · Explore · Messages · Profile**  
+(Stats stays linked from Explore + Profile so Messages can stay one-tap; Train is the Railway Workout tab — live GPS, manual log, journeys.)
 
 ---
 
@@ -20,10 +20,10 @@ Native primary tabs: **Home · Workouts · Explore · Messages · Profile**
 | Social onboarding | `SocialOnboardingView` | **Parity** |
 | Home feed (posts, likes, comments, stories rail) | `HomeFeedView`, `StoriesRail`, `CommentThreadView` | **Parity** (stories composer/viewer present) |
 | Post composer | `PostComposerView` | **Parity** |
-| Workout live GPS + HR | `WorkoutView`, `NativeWorkoutTracker` | **Parity** (native sensors) |
-| Workout log / detail / share | Partial via feed + API | **Partial** — deepen share sheet if needed |
-| Stats / goals / charts | `StatsView` | **Parity** (hub: Explore → Stats & goals) |
-| Explore index | `ExploreView` | **Parity** (expanded Discover + Faith & body) |
+| Workout live GPS + HR | `WorkoutView`, `NativeWorkoutTracker` | **Parity** (live / manual / journey + 18 activity types) |
+| Workout log / detail / share | Train recent log + feed share | **Parity** (manual log posts `/workouts/manual`; share still via feed) |
+| Stats / goals / charts | `StatsView` | **Parity** (weekly recap + goals CRUD; hub: Explore → Stats) |
+| Explore index | `ExploreView` + `ExploreCatalog` | **Parity** (same 12 Railway sections) |
 | Challenges join | Explore challenges | **Parity** |
 | Groups + pulse + messages | `GroupDetailView`, members | **Parity** |
 | Quests list | Explore quests | **Parity** (read-only list) |
@@ -86,20 +86,18 @@ App-wide `.tint(FFTheme.accent)` is set in `FunctioningFaithApp`.
 
 ## Remaining gaps (prioritized)
 
-1. **Leaderboard** explore sub-tab — API exists on web; add `LeaderboardView` if product wants weekly standings in-app.  
-2. **Saved posts** collection — web `renderSavedPosts`; wire if API client method exists.  
-3. **Goals CRUD** polish inside `StatsView` to match web goal rows 1:1.  
-4. **Sermon / church YouTube embed** — native can open URLs in Safari; in-app player optional.  
-5. **Google Health / Fitbit / Oura** connector rows — optional; HealthKit covers Watch.  
-6. **App Icon PNG** on disk via `scripts/install-app-icon.sh` before archive.
+1. **Sermon / church YouTube embed** — native opens URLs in Safari; in-app player optional.
+2. **Google Health / Fitbit / Oura** connector rows — optional; HealthKit covers Watch.
+3. **Journey 3D** remains web-only (`journey3d.js`); native uses list + live GPS session.
+4. **BLE heart-rate monitor** on Train — UI admits the reading; Core Bluetooth pairing is still the native-only follow-up.
 
 ---
 
 ## How to verify “everything is brought over”
 
-1. Walk web tab bar + Explore index on production.  
-2. For each row in the matrix marked **Parity**, open the same flow on a signed iOS build.  
-3. Anything **Partial** → file an issue or implement before submit.  
+1. Walk web tab bar + Explore index on production.
+2. For each row in the matrix marked **Parity**, open the same flow on a signed iOS build.
+3. Anything **Partial** → file an issue or implement before submit.
 4. Web-only table should **not** block App Store submission.
 
 Last reviewed against `webapp/public/app.js` + `ios/FunctioningFaith` on 2026-08-21.

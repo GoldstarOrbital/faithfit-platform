@@ -27,8 +27,56 @@ final class FunctioningFaithTests: XCTestCase {
     }
 
     func testElapsedTimeFormatting() {
-        // Example unit test target for WorkoutView's private formatting logic if extracted to a helper.
-        XCTAssertTrue(true)
+        XCTAssertEqual(TrainingMath.elapsedString(0), "00:00")
+        XCTAssertEqual(TrainingMath.elapsedString(65), "01:05")
+        XCTAssertEqual(TrainingMath.elapsedString(3661), "1:01:01")
+    }
+
+    func testHaversineAndRouteDistance() {
+        let km = TrainingMath.haversineKm(lat1: 0, lon1: 0, lat2: 0, lon2: 0)
+        XCTAssertEqual(km, 0, accuracy: 0.0001)
+        // One degree of latitude is ~111.2 km.
+        let oneDegree = TrainingMath.haversineKm(lat1: 0, lon1: 0, lat2: 1, lon2: 0)
+        XCTAssertEqual(oneDegree, 111.2, accuracy: 0.5)
+        let route = TrainingMath.routeDistanceKm([[0, 0], [1, 0], [1, 0]])
+        XCTAssertEqual(route, oneDegree, accuracy: 0.01)
+    }
+
+    func testPaceAndCaloriesHeuristicsMatchWeb() {
+        XCTAssertEqual(TrainingMath.paceString(elapsed: 0, km: 5), "—")
+        XCTAssertEqual(TrainingMath.paceString(elapsed: 1800, km: 5), "6:00")
+        XCTAssertEqual(TrainingMath.estimatedKcal(elapsed: 1800, km: 5), 300)
+        XCTAssertEqual(TrainingMath.estimatedKcal(elapsed: 1800, km: 0), 240)
+    }
+
+    func testActivityCatalogMatchesRailwayVocabulary() {
+        let types = Set(ActivityCatalog.fallback.map(\.type))
+        XCTAssertEqual(types.count, 18)
+        XCTAssertTrue(types.isSuperset(of: ["Run", "Walk", "Hike", "Trail Run", "Cycle", "Swim", "Row", "Strength", "Yoga", "Pickleball"]))
+    }
+
+    func testExploreCatalogHasRailwayTwelveSections() {
+        XCTAssertEqual(ExploreCatalogItem.allCases.count, 12)
+        XCTAssertEqual(ExploreCatalogItem.allCases.map(\.rawValue), [
+            "journeys", "challenges", "videos", "reels", "podcasts", "scripture",
+            "groups", "leaderboard", "breathe", "motivation", "news", "recruiting",
+        ])
+    }
+
+    func testWeeklyRecapDecodesRailwayShape() throws {
+        let json = #"{"workouts":4,"distance_km":18.2,"minutes":110,"active_days":3,"posts":1,"kudos":6,"replies":2,"focus":"Run","share_text":"This week I showed up."}"#
+        let recap = try JSONDecoder().decode(WeeklyRecap.self, from: Data(json.utf8))
+        XCTAssertEqual(recap.workouts, 4)
+        XCTAssertEqual(recap.distanceKm, 18.2, accuracy: 0.01)
+        XCTAssertEqual(recap.activeDays, 3)
+        XCTAssertEqual(recap.focus, "Run")
+    }
+
+    func testActivityTypeItemDecodesWebFlag() throws {
+        let json = #"{"type":"Run","icon":"🏃","d":true}"#
+        let item = try JSONDecoder().decode(ActivityTypeItem.self, from: Data(json.utf8))
+        XCTAssertEqual(item.type, "Run")
+        XCTAssertTrue(item.distance)
     }
 
     func testNativeAuthProvidersOnlyExposeSupportedProviderNames() async throws {

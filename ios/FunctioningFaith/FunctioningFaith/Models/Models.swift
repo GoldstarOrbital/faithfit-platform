@@ -1518,3 +1518,84 @@ struct DiscussedVerse: Decodable, Identifiable {
         case reflectionCount = "reflection_count", lastActivity = "last_activity"
     }
 }
+
+struct ActivityTypeItem: Decodable, Identifiable {
+    let type: String
+    let icon: String
+    let distance: Bool
+    var id: String { type }
+
+    enum CodingKeys: String, CodingKey {
+        case type, icon
+        case distance = "d"
+    }
+
+    init(type: String, icon: String, distance: Bool) {
+        self.type = type
+        self.icon = icon
+        self.distance = distance
+    }
+}
+
+struct LoggedWorkout: Decodable, Identifiable {
+    let id: String
+    let type: String
+    let startTime: String
+    let endTime: String?
+    let durationSec: Int?
+    let distanceKm: Double?
+    let calories: Int?
+    let note: String?
+    let source: String?
+    let paceMinPerKm: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case id, type, calories, note, source
+        case startTime = "start_time"
+        case endTime = "end_time"
+        case durationSec = "duration_sec"
+        case distanceKm = "distance_km"
+        case paceMinPerKm = "pace_min_per_km"
+    }
+}
+
+struct WorkoutLogPage: Decodable {
+    let workouts: [LoggedWorkout]
+    let nextBefore: String?
+    enum CodingKeys: String, CodingKey {
+        case workouts
+        case nextBefore = "next_before"
+    }
+}
+
+struct WeeklyRecap: Decodable {
+    let workouts: Int
+    let distanceKm: Double
+    let minutes: Int
+    let activeDays: Int
+    let posts: Int
+    let kudos: Int
+    let replies: Int
+    let focus: String?
+    let shareText: String
+    enum CodingKeys: String, CodingKey {
+        case workouts, minutes, posts, kudos, replies, focus
+        case distanceKm = "distance_km"
+        case activeDays = "active_days"
+        case shareText = "share_text"
+    }
+}
+
+struct ManualWorkoutResult: Decodable {
+    let id: String
+    let type: String
+    let calories: Int
+    let distanceKm: Double?
+    let durationSec: Int
+    enum CodingKeys: String, CodingKey {
+        case id, type, calories
+        case distanceKm = "distance_km"
+        case durationSec = "duration_sec"
+    }
+}
+

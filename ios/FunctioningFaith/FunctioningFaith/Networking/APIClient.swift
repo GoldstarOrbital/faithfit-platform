@@ -238,6 +238,44 @@ final class APIClient {
         let _: WorkoutStopResponse = try await request("/api/workouts/\(id.uuidString)/stop", method: "POST", body: WorkoutStop(gpsPoints: gpsPoints))
     }
 
+    func fetchActivityTypes() async throws -> [ActivityTypeItem] {
+        if useMock { return ActivityCatalog.fallback }
+        do {
+            return try await request("/api/activity-types")
+        } catch {
+            return ActivityCatalog.fallback
+        }
+    }
+
+    func logManualWorkout(type: String, durationMin: Double, distanceKm: Double?, note: String?) async throws -> ManualWorkoutResult {
+        if useMock {
+            return ManualWorkoutResult(id: UUID().uuidString, type: type, calories: TrainingMath.estimatedKcal(elapsed: durationMin * 60, km: distanceKm ?? 0), distanceKm: distanceKm, durationSec: Int(durationMin * 60))
+        }
+        return try await request("/api/workouts/manual", method: "POST", body: ManualWorkoutBody(
+            type: type,
+            durationMin: durationMin,
+            distanceKm: distanceKm,
+            note: note
+        ))
+    }
+
+    func fetchWorkouts(limit: Int = 20) async throws -> [LoggedWorkout] {
+        if useMock {
+            return [
+                LoggedWorkout(id: "mock-1", type: "Run", startTime: ISO8601DateFormatter().string(from: .now.addingTimeInterval(-3600)), endTime: ISO8601DateFormatter().string(from: .now), durationSec: 1800, distanceKm: 5.0, calories: 300, note: nil, source: "live", paceMinPerKm: 6.0),
+            ]
+        }
+        let page: WorkoutLogPage = try await request("/api/workouts?limit=\(limit)")
+        return page.workouts
+    }
+
+    func fetchWeeklyRecap() async throws -> WeeklyRecap {
+        if useMock {
+            return WeeklyRecap(workouts: 3, distanceKm: 12.4, minutes: 94, activeDays: 3, posts: 1, kudos: 4, replies: 2, focus: "Run", shareText: "This week I showed up for 3 workouts, 12.4 km.")
+        }
+        return try await request("/api/stats/recap")
+    }
+
     /// Uploads Apple Health-sourced workouts and daily step totals. The
     /// native client is already on an authenticated session cookie, so this
     /// is a plain POST — no OAuth handshake the way Strava/Google Health need
@@ -1231,6 +1269,17 @@ private struct NativeAppleAuthBody: Encodable {
 }
 private struct Registration: Encodable { let displayName: String; let email: String; let password: String; enum CodingKeys: String, CodingKey { case displayName = "display_name"; case email, password } }
 private struct WorkoutStart: Encodable { let type: String }
+private struct ManualWorkoutBody: Encodable {
+    let type: String
+    let durationMin: Double
+    let distanceKm: Double?
+    let note: String?
+    enum CodingKeys: String, CodingKey {
+        case type, note
+        case durationMin = "duration_min"
+        case distanceKm = "distance_km"
+    }
+}
 private struct GroupPulseBody: Encodable { let kind: String; let note: String; let day: String }
 private struct WorkoutStop: Encodable { let gpsPoints: [[Double]]; enum CodingKeys: String, CodingKey { case gpsPoints = "gps_path" } }
 private struct AuthResponse: Decodable {

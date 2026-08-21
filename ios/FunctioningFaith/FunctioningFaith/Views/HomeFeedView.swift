@@ -20,11 +20,23 @@ struct HomeFeedView: View {
 
     var body: some View {
         List {
+            HomeRhythmHeader()
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            HomeActionsRow()
+                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             StoriesRail()
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
             ScriptureHomeCard()
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            FromExploreRail()
+                .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
             MotivationCard()
@@ -313,4 +325,101 @@ struct VerseSnippetCard: View {
     }
 }
 
-#Preview { NavigationStack { HomeFeedView() } }
+struct HomeRhythmHeader: View {
+    @EnvironmentObject private var session: NativeSession
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("YOUR RHYTHM · TODAY")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .tracking(1.2)
+            Text("Keep moving, \(firstName)")
+                .font(FFTheme.display(28, weight: .bold, relativeTo: .title))
+                .foregroundStyle(FFTheme.ink)
+            Text("Small steps. Stronger faith. A community moving with you.")
+                .font(.subheadline)
+                .foregroundStyle(FFTheme.inkSoft)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var firstName: String {
+        session.profile?.displayName.split(separator: " ").first.map(String.init) ?? "friend"
+    }
+}
+
+struct HomeActionsRow: View {
+    @EnvironmentObject private var deepLinks: DeepLinkRouter
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Button {
+                deepLinks.selectedTab = .workouts
+            } label: {
+                actionCard(title: "Log activity", subtitle: "Keep your streak alive")
+            }
+            .buttonStyle(.plain)
+            NavigationLink {
+                JourneysListView()
+            } label: {
+                actionCard(title: "Explore routes", subtitle: "Bible & fantasy worlds")
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func actionCard(title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(FFTheme.ink)
+            Text(subtitle).font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+        .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
+    }
+}
+
+struct FromExploreRail: View {
+    private let items: [(ExploreCatalogItem, String)] = [
+        (.motivation, "Courage, dear heart"),
+        (.journeys, "Emmaus · 11 km"),
+        (.reels, "Short encouragement"),
+        (.groups, "Find or start one"),
+        (.scripture, "Search & discuss"),
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("From Explore")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(items, id: \.0.rawValue) { item, subtitle in
+                        NavigationLink {
+                            item.destination
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(item.name).font(.subheadline.weight(.semibold)).foregroundStyle(FFTheme.ink)
+                                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                            }
+                            .padding(12)
+                            .frame(width: 148, alignment: .leading)
+                            .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+}
+
+#Preview {
+    NavigationStack { HomeFeedView() }
+        .environmentObject(NativeSession())
+        .environmentObject(DeepLinkRouter())
+}
