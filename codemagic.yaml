@@ -57,6 +57,18 @@ workflows:
           xcode-project build-ipa \
             --project "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME"
+      - name: Verify final IPA metadata and icons
+        script: |
+          set -euo pipefail
+          ipa=$(find "$CM_BUILD_DIR/$IOS_PROJECT_DIR/build/ios/ipa" -name '*.ipa' -print -quit)
+          test -n "$ipa"
+          rm -rf /tmp/functioning-faith-ipa-check
+          mkdir -p /tmp/functioning-faith-ipa-check
+          unzip -qq "$ipa" -d /tmp/functioning-faith-ipa-check
+          app=/tmp/functioning-faith-ipa-check/Payload/FunctioningFaith.app
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$app/Info.plist"
+          test -f "$app/Assets.car"
+          test -f "$app/AppIcon76x76@2x.png"
     artifacts:
       - ios/FunctioningFaith/build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
