@@ -26,43 +26,12 @@ targets:
       - path: FunctioningFaith/Resources/AppIcon60x60@3x.png
       - path: FunctioningFaith/Resources/AppIcon76x76@2x.png
       - path: FunctioningFaith/Resources/AppIcon83.5x83.5@2x.png
-    info:
-      path: FunctioningFaith/Resources/Info.plist
-      properties:
-        CFBundleDisplayName: Functioning Faith
-        CFBundleIconName: AppIcon
-        UISupportedInterfaceOrientations:
-          - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationPortraitUpsideDown
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
-        UISupportedInterfaceOrientations~ipad:
-          - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationPortraitUpsideDown
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
-        CFBundleIcons:
-          CFBundlePrimaryIcon:
-            CFBundleIconFiles:
-              - AppIcon60x60
-              - AppIcon60x60@2x
-              - AppIcon60x60@3x
-        CFBundleIcons~ipad:
-          CFBundlePrimaryIcon:
-            CFBundleIconFiles:
-              - AppIcon76x76
-              - AppIcon76x76@2x
-              - AppIcon83.5x83.5@2x
-        FFAPIBaseURL: https://faithfit-demo-production.up.railway.app
-        FFAppleClientID: com.functioningfaith.app
-        # Prefer the system launch experience; branded splash can be added later.
-        UILaunchScreen:
-          UIColorName: ""
     entitlements:
       path: FunctioningFaith/Resources/FunctioningFaith.entitlements
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.functioningfaith.app
+        INFOPLIST_FILE: FunctioningFaith/Resources/Info.plist
         PRODUCT_MODULE_NAME: FunctioningFaith
         PRODUCT_NAME: FunctioningFaith
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
