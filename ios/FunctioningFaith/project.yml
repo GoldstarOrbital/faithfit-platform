@@ -28,6 +28,17 @@ targets:
       - path: FunctioningFaith/Resources/AppIcon83.5x83.5@2x.png
     entitlements:
       path: FunctioningFaith/Resources/FunctioningFaith.entitlements
+    postBuildScripts:
+      - name: Preserve App Store icon metadata
+        script: |
+          set -euo pipefail
+          plist="$TARGET_BUILD_DIR/$INFOPLIST_PATH"
+          plistbuddy=/usr/libexec/PlistBuddy
+          "$plistbuddy" -c 'Delete :CFBundleIconName' "$plist" || true
+          "$plistbuddy" -c 'Add :CFBundleIconName string AppIcon' "$plist"
+          for icon in AppIcon60x60@2x.png AppIcon60x60@3x.png AppIcon76x76@2x.png AppIcon83.5x83.5@2x.png; do
+            cp "$SRCROOT/FunctioningFaith/Resources/$icon" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/$icon"
+          done
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.functioningfaith.app
