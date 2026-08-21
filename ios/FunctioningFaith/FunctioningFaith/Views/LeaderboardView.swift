@@ -1,78 +1,126 @@
 import SwiftUI
 
-/// The last 7 days, scoped to the member plus who they follow -- never a
-/// global ranking, matching the server's own LEADERBOARD_METRICS route.
+/// Weekly standings for you and people you follow — mirrors web Explore → Leaderboard.
 struct LeaderboardView: View {
-    private static let metrics: [(key: String, label: String)] = [
-        ("distance_km", "Distance"), ("duration_min", "Time"), ("workouts", "Workouts"),
-    ]
-
-    @State private var metric = "distance_km"
-    @State private var entries: [LeaderboardEntry] = []
+    @State private var metric: LeaderboardMetric = .distanceKm
+    @State private var rows: [LeaderboardEntry] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
 
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("Metric", selection: $metric) {
-                ForEach(Self.metrics, id: \.key) { m in Text(m.label).tag(m.key) }
+        Group {
+            if isLoading && rows.isEmpty {
+                ProgressView("Loading leaderboard…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let errorMessage, rows.isEmpty {
+                FFErrorStateView(message: errorMessage) {
+                    Task { await load() }
+                }
+            } else {
+                List {
+                    Section {
+                        Picker("Metric", selection: $metric) {
+                            ForEach(LeaderboardMetric.allCases) { m in
+                                Text(m.label).tag(m)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                        .onChange(of: metric) { _, _ in
+                            Task { await load() }
+                        }
+                    } footer: {
+                        Text("You and everyone you follow, ranked by this week’s activity.")
+                    }
+
+                    if rows.isEmpty {
+                        Section {
+                            ContentUnavailableView(
+                                "Follow a few people",
+                                systemImage: "person.2",
+                                description: Text("When friends log workouts, they’ll show up here with you.")
+                            )
+                        }
+                        .listRowBackground(FFTheme.parchment1)
+                    } else {
+                        Section {
+                            ForEach(rows) { row in
+                                LeaderboardRow(entry: row, metric: metric)
+                            }
+                        }
+                        .listRowBackground(FFTheme.parchment1)
+                    }
+                }
+                .ffListChrome()
+                .listStyle(.insetGrouped)
+                .refreshable { await load() }
             }
-            .pickerStyle(.segmented)
-            .padding()
-            content
         }
         .navigationTitle("Leaderboard")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
-        .onChange(of: metric) { _, _ in Task { await load() } }
-        .refreshable { await load() }
-        .alert("Could not load the leaderboard", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: { Text(errorMessage ?? "") }
-    }
-
-    @ViewBuilder
-    private var content: some View {
-        if isLoading && entries.isEmpty {
-            ProgressView()
-            Spacer()
-        } else if entries.isEmpty {
-            ContentUnavailableView("Nothing this week", systemImage: "trophy", description: Text("Log a workout, or follow people who do, to see a ranking here."))
-        } else {
-            List(entries) { entry in
-                entryRow(entry)
-            }
-            .ffListChrome()
-            .listStyle(.plain)
-        }
-    }
-
-    private func entryRow(_ entry: LeaderboardEntry) -> some View {
-        HStack {
-            Text("\(entry.rank)").font(.subheadline.weight(.semibold)).frame(width: 28, alignment: .leading)
-            Text(entry.isMe ? "You" : entry.displayName)
-                .font(entry.isMe ? .subheadline.weight(.semibold) : .subheadline)
-            Spacer()
-            Text(valueLabel(entry.value)).font(.caption).foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 3)
-        .listRowBackground(entry.isMe ? Color.accentColor.opacity(0.1) : Color.clear)
-    }
-
-    private func valueLabel(_ value: Double) -> String {
-        switch metric {
-        case "distance_km": return String(format: "%.1f km", value)
-        case "duration_min": return "\(Int(value)) min"
-        default: return "\(Int(value)) workouts"
-        }
     }
 
     private func load() async {
         isLoading = true
-        do { entries = try await APIClient.shared.fetchLeaderboard(metric: metric) }
-        catch { errorMessage = error.localizedDescription }
+        errorMessage = nil
+        do {
+            rows = try await APIClient.shared.fetchLeaderboard(metric: metric)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
         isLoading = false
     }
 }
 
-#Preview { NavigationStack { LeaderboardView() } }
+private struct LeaderboardRow: View {
+    let entry: LeaderboardEntry
+    let metric: LeaderboardMetric
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Text(rankLabel)
+                .font(.title3.weight(.bold))
+                .frame(width: 36, alignment: .center)
+                .accessibilityLabel("Rank \(entry.rank)")
+
+            Image(systemName: "person.crop.circle.fill")
+                .font(.title2)
+                .foregroundStyle(entry.isMe ? FFTheme.meadow : FFTheme.inkSoft)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(entry.displayName)
+                        .font(.headline)
+                    if entry.isMe {
+                        Text("(you)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text(metric.format(entry.value))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 4)
+        .listRowBackground(entry.isMe ? FFTheme.parchment1.opacity(0.85) : nil)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var rankLabel: String {
+        switch entry.rank {
+        case 1: return "🥇"
+        case 2: return "🥈"
+        case 3: return "🥉"
+        default: return "\(entry.rank)"
+        }
+    }
+}
+
+#Preview {
+    NavigationStack { LeaderboardView() }
+}
