@@ -1,5 +1,8 @@
 import SwiftUI
 
+/// Explore hub — mirrors web `renderExplore` / `renderExploreIndex` surface area:
+/// reels, journeys, recruiting, people, challenges, groups, quests, and Discover links
+/// (scripture, breathwork, heart check-in, podcasts, church, news, videos, stats).
 struct ExploreView: View {
     @State private var suggestions: [SuggestedUser] = []
     @State private var isLoadingSuggestions = true
@@ -26,9 +29,40 @@ struct ExploreView: View {
                 } label: {
                     Label("Athlete Recruiting", systemImage: "figure.run.circle.fill")
                 }
+                NavigationLink {
+                    StatsView()
+                } label: {
+                    Label("Stats & goals", systemImage: "chart.bar.fill")
+                }
             } footer: {
-                Text("Journeys track real distance toward scripture-marked waypoints. Recruiting browses public, .edu-verified athlete profiles with real training data pulled from logged workouts.")
+                Text("Journeys track real distance toward scripture-marked waypoints. Recruiting browses public, .edu-verified athlete profiles. Stats mirrors the web Stats tab (moved here so Messages can stay in the tab bar).")
             }
+
+            Section {
+                NavigationLink { ScriptureView() } label: {
+                    Label("Scripture", systemImage: "book.fill")
+                }
+                NavigationLink { BibleBrowseView() } label: {
+                    Label("Bible browse", systemImage: "books.vertical")
+                }
+                NavigationLink { ScripturePracticeView() } label: {
+                    Label("Scripture practice", systemImage: "checkmark.circle")
+                }
+                NavigationLink { SavedVersesView() } label: {
+                    Label("Saved verses", systemImage: "bookmark.fill")
+                }
+                NavigationLink { BreathworkView() } label: {
+                    Label("Breathwork", systemImage: "wind")
+                }
+                NavigationLink { HeartCheckInView() } label: {
+                    Label("Heart check-in", systemImage: "heart.text.square")
+                }
+            } header: {
+                Text("Faith & body")
+            } footer: {
+                Text("Same surfaces as the web Scripture / Breathe flows — verified verse text only; models never author Scripture.")
+            }
+
             Section {
                 if isLoadingSuggestions {
                     ProgressView("Finding your community…")
@@ -40,7 +74,7 @@ struct ExploreView: View {
                         HStack(spacing: 12) {
                             Image(systemName: "person.crop.circle.fill")
                                 .font(.title2)
-                                .foregroundStyle(.indigo)
+                                .foregroundStyle(FFTheme.meadow)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(user.displayName).font(.headline)
                                 Text(user.reason).font(.caption).foregroundStyle(.secondary)
@@ -53,7 +87,7 @@ struct ExploreView: View {
                                 follow(user)
                             }
                             .buttonStyle(.borderedProminent)
-                            .tint(user.isFollowing ? .gray : .indigo)
+                            .tint(user.isFollowing ? .gray : FFTheme.meadow)
                             .disabled(user.isFollowing)
                         }
                         .padding(.vertical, 4)
@@ -62,8 +96,9 @@ struct ExploreView: View {
             } header: {
                 Text("People for you")
             } footer: {
-                Text("Suggestions are based on shared communities and mutual connections. You can unfollow any time from the web profile.")
+                Text("Suggestions are based on shared communities and mutual connections.")
             }
+
             Section("Challenges") {
                 if isLoadingContent {
                     ProgressView()
@@ -83,10 +118,11 @@ struct ExploreView: View {
                                     join(challenge)
                                 }
                                 .buttonStyle(.bordered)
+                                .tint(FFTheme.meadow)
                                 .disabled(challenge.joined)
                             }
                             ProgressView(value: Double(challenge.percent), total: 100)
-                                .tint(challenge.completed ? .green : .orange)
+                                .tint(challenge.completed ? FFTheme.emerald : FFTheme.hearth)
                             HStack {
                                 Text("\(challenge.percent)%")
                                 Spacer()
@@ -94,18 +130,19 @@ struct ExploreView: View {
                             }
                             .font(.caption2).foregroundStyle(.secondary)
                             if let reference = challenge.scriptureReference {
-                                Text(reference).font(.caption.weight(.semibold)).foregroundStyle(.indigo)
+                                Text(reference).font(.caption.weight(.semibold)).foregroundStyle(FFTheme.scripture)
                             }
                         }
                         .padding(.vertical, 5)
                     }
                 }
             }
+
             Section("Groups") {
                 if isLoadingContent {
                     ProgressView()
                 } else if groups.isEmpty {
-                    Text("No groups yet. Create one from the web app.").foregroundStyle(.secondary)
+                    Text("No groups yet.").foregroundStyle(.secondary)
                 } else {
                     ForEach(groups.prefix(8)) { group in
                         NavigationLink {
@@ -128,6 +165,7 @@ struct ExploreView: View {
                     }
                 }
             }
+
             Section("Quests") {
                 if isLoadingContent {
                     ProgressView()
@@ -139,11 +177,12 @@ struct ExploreView: View {
                                 Text(quest.description ?? "").font(.caption).foregroundStyle(.secondary)
                             }
                         } icon: {
-                            Image(systemName: "sparkles").foregroundStyle(.orange)
+                            Image(systemName: "sparkles").foregroundStyle(FFTheme.hearth)
                         }
                     }
                 }
             }
+
             Section("Discover") {
                 NavigationLink { PodcastsView() } label: {
                     Label("Podcasts", systemImage: "mic")
@@ -156,6 +195,9 @@ struct ExploreView: View {
                 }
                 NavigationLink { VideoLibraryView() } label: {
                     Label("Videos", systemImage: "play.rectangle")
+                }
+                NavigationLink { SearchView() } label: {
+                    Label("Search people & posts", systemImage: "magnifyingglass")
                 }
             }
         }
