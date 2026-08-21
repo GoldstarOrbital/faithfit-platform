@@ -7,7 +7,7 @@ workflows:
       submit_to_testflight:
         description: Upload this signed IPA to TestFlight after a successful build
         type: boolean
-        default: false
+        default: true
     integrations:
       app_store_connect: Functioning Faith TestFlight
     environment:
