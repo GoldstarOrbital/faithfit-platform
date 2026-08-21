@@ -16,16 +16,7 @@ targets:
       - path: FunctioningFaith
         excludes:
           - Resources/Info.plist
-          - Resources/PrivacyInfo.xcprivacy
           - Resources/FunctioningFaith.entitlements
-          - Resources/Assets.xcassets
-    resources:
-      - path: FunctioningFaith/Resources/PrivacyInfo.xcprivacy
-      - path: FunctioningFaith/Resources/Assets.xcassets
-      - path: FunctioningFaith/Resources/AppIcon60x60@2x.png
-      - path: FunctioningFaith/Resources/AppIcon60x60@3x.png
-      - path: FunctioningFaith/Resources/AppIcon76x76@2x.png
-      - path: FunctioningFaith/Resources/AppIcon83.5x83.5@2x.png
     entitlements:
       path: FunctioningFaith/Resources/FunctioningFaith.entitlements
     postBuildScripts:
