@@ -78,6 +78,9 @@ struct ChurchFinderView: View {
                     }
                     .disabled(isLoadingTranscript)
                 }
+                NavigationLink { ChurchVerificationView() } label: {
+                    Text("Become a verified church admin")
+                }
                 Button("Not your church?", role: .destructive) {
                     Task { await clearMyChurch() }
                 }

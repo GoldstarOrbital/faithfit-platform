@@ -1426,6 +1426,50 @@ struct ChurchServiceTranscript: Decodable {
     enum CodingKeys: String, CodingKey { case transcript, videoTitle = "video_title" }
 }
 
+// ---- Church admin verification: a real, human-reviewed application (edu
+// email + an associated church + project details + attestations), not
+// something that completes instantly via API calls -- see
+// lib/developer-verification.js's own state machine. Once `eligible`, a
+// member can link their church's real YouTube channel and website. ----
+
+struct DeveloperVerificationStatus: Decodable {
+    let status: String
+    let eligible: Bool
+    let termsCurrent: Bool?
+    let churchName: String?
+    let projectName: String?
+    let projectPurpose: String?
+    let eduEmail: String?
+    let eduEmailVerified: Bool?
+    let churchVerified: Bool?
+    let reviewNote: String?
+    enum CodingKeys: String, CodingKey {
+        case status, eligible
+        case termsCurrent = "terms_current"
+        case churchName = "church_name"
+        case projectName = "project_name", projectPurpose = "project_purpose"
+        case eduEmail = "edu_email", eduEmailVerified = "edu_email_verified"
+        case churchVerified = "church_verified", reviewNote = "review_note"
+    }
+}
+
+struct ClaimedChurch: Decodable {
+    let id: String
+    let name: String
+}
+
+struct ClaimChurchResponse: Decodable { let church: ClaimedChurch }
+
+/// Already camelCase from lib/youtube.js's own object literal (built in
+/// JS, not spread from a snake_case SQL row like almost everything else
+/// in this app) -- no CodingKeys needed, the keys already match.
+struct YouTubeChannelResult: Decodable, Identifiable {
+    let channelId: String
+    let title: String
+    let thumbnailUrl: String?
+    var id: String { channelId }
+}
+
 /// Discovery surface -- which verses people are actually talking about.
 struct DiscussedVerse: Decodable, Identifiable {
     let id: String

@@ -760,6 +760,68 @@ final class APIClient {
         return try await request("/api/church/service/summarize", method: "POST", body: EmptyBody())
     }
 
+    // MARK: - Church admin verification
+
+    func fetchDeveloperVerification() async throws -> DeveloperVerificationStatus {
+        if useMock {
+            return DeveloperVerificationStatus(status: "not_applied", eligible: false, termsCurrent: nil, churchName: nil,
+                                                projectName: nil, projectPurpose: nil, eduEmail: nil, eduEmailVerified: nil,
+                                                churchVerified: nil, reviewNote: nil)
+        }
+        return try await request("/api/developer/verification")
+    }
+
+    /// Claims/registers a church for verification purposes -- a distinct
+    /// row from the OSM search result ChurchFinderView already picked, so
+    /// this can't just reuse church_osm_id; the server needs a real
+    /// address + public contact email to review against.
+    func claimChurch(name: String, address: String, contactEmail: String) async throws -> ClaimedChurch {
+        if useMock { throw APIError.invalidResponse }
+        let r: ClaimChurchResponse = try await request("/api/developer/churches", method: "POST",
+                                                         body: ClaimChurchBody(name: name, address: address, contactEmail: contactEmail))
+        return r.church
+    }
+
+    @discardableResult
+    func applyForChurchVerification(eduEmail: String, churchID: String, churchContactEmail: String, projectName: String, projectPurpose: String) async throws -> DeveloperVerificationStatus {
+        if useMock { throw APIError.invalidResponse }
+        return try await request("/api/developer/apply", method: "POST", body: DeveloperApplyBody(
+            eduEmail: eduEmail, churchID: churchID, churchContactEmail: churchContactEmail,
+            projectName: projectName, projectPurpose: projectPurpose,
+            termsAccepted: true, accountabilityAccepted: true, contentStandardAccepted: true))
+    }
+
+    func searchYouTubeChannels(query: String) async throws -> [YouTubeChannelResult] {
+        if useMock { return [] }
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            throw APIError.invalidResponse
+        }
+        return try await request("/api/youtube/search-channels?q=\(encoded)")
+    }
+
+    func linkChurchYouTubeChannel(osmID: String, channelID: String, channelTitle: String) async throws {
+        if useMock { return }
+        guard let encoded = Self.pathSegmentEncoded(osmID) else { throw APIError.invalidResponse }
+        let _: ActionResponse = try await request("/api/churches/\(encoded)/link-youtube", method: "POST",
+                                                    body: LinkYouTubeBody(channelID: channelID, channelTitle: channelTitle))
+    }
+
+    func setChurchWebsite(osmID: String, websiteURL: String?) async throws {
+        if useMock { return }
+        guard let encoded = Self.pathSegmentEncoded(osmID) else { throw APIError.invalidResponse }
+        let _: ActionResponse = try await request("/api/churches/\(encoded)/website", method: "POST", body: ChurchWebsiteBody(websiteURL: websiteURL))
+    }
+
+    /// `.urlPathAllowed` deliberately leaves "/" unescaped (it's meant for
+    /// encoding a whole multi-segment path). An OSM id like "node/12345"
+    /// has a literal "/" that must become %2F here, or Express would see
+    /// an extra path segment and the route would never match.
+    private static func pathSegmentEncoded(_ value: String) -> String? {
+        var allowed = CharacterSet.urlPathAllowed
+        allowed.remove(charactersIn: "/")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed)
+    }
+
     // MARK: - Breathwork & heart check-in
 
     func fetchBreathingPatterns() async throws -> [BreathingPattern] {
@@ -1068,6 +1130,37 @@ private struct CreateEventBody: Encodable {
     }
 }
 private struct RSVPBody: Encodable { let status: String }
+private struct ClaimChurchBody: Encodable {
+    let name: String
+    let address: String
+    let contactEmail: String
+    enum CodingKeys: String, CodingKey { case name, address, contactEmail = "contact_email" }
+}
+private struct DeveloperApplyBody: Encodable {
+    let eduEmail: String
+    let churchID: String
+    let churchContactEmail: String
+    let projectName: String
+    let projectPurpose: String
+    let termsAccepted: Bool
+    let accountabilityAccepted: Bool
+    let contentStandardAccepted: Bool
+    enum CodingKeys: String, CodingKey {
+        case eduEmail = "edu_email", churchID = "church_id", churchContactEmail = "church_contact_email"
+        case projectName = "project_name", projectPurpose = "project_purpose"
+        case termsAccepted = "terms_accepted", accountabilityAccepted = "accountability_accepted"
+        case contentStandardAccepted = "content_standard_accepted"
+    }
+}
+private struct LinkYouTubeBody: Encodable {
+    let channelID: String
+    let channelTitle: String
+    enum CodingKeys: String, CodingKey { case channelID = "channel_id", channelTitle = "channel_title" }
+}
+private struct ChurchWebsiteBody: Encodable {
+    let websiteURL: String?
+    enum CodingKeys: String, CodingKey { case websiteURL = "website_url" }
+}
 private struct PracticeNoteBody: Encodable { let note: String? }
 private struct OpenThreadBody: Encodable { let prompt: String? }
 private struct ReflectionBody: Encodable {
