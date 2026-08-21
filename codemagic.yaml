@@ -48,8 +48,3 @@ workflows:
       - /tmp/xcodebuild_logs/*.log
       - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
       - $HOME/Library/Developer/Xcode/DerivedData/**/Logs/Test/*.xcresult
-    publishing:
-      email:
-        notify:
-          success: true
-          failure: true
