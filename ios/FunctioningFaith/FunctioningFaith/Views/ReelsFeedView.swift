@@ -11,20 +11,44 @@ struct ReelsFeedView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var playingReel: Reel?
+    @State private var showComposer = false
 
     var body: some View {
         Group {
             if isLoading && reels.isEmpty {
                 ProgressView()
             } else if reels.isEmpty {
-                ContentUnavailableView("No reels right now", systemImage: "play.rectangle", description: Text("Check back soon."))
+                ContentUnavailableView {
+                    Label("No reels right now", systemImage: "play.rectangle")
+                } description: {
+                    Text("Check back soon — or publish a short encouragement of your own.")
+                } actions: {
+                    Button("Create a Reel") { showComposer = true }
+                        .buttonStyle(.borderedProminent)
+                }
             } else {
-                List(reels) { reel in
-                    ReelCard(reel: reel, churchName: churchName,
-                             onPlay: { playingReel = reel },
-                             onLike: { react(reel, kind: "like") },
-                             onSave: { react(reel, kind: "save") },
-                             onNotInterested: { hide(reel) })
+                List {
+                    Section {
+                        Button {
+                            showComposer = true
+                        } label: {
+                            Label("Create a Reel", systemImage: "plus.circle.fill")
+                                .font(.headline)
+                        }
+                        .listRowBackground(FFTheme.parchment1)
+                        Text("Up to 60s · workout, nature, animals, or groups — paired with verified Scripture.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .listRowBackground(FFTheme.parchment1)
+                    }
+                    ForEach(reels) { reel in
+                        ReelCard(reel: reel, churchName: churchName,
+                                 onPlay: { playingReel = reel },
+                                 onLike: { react(reel, kind: "like") },
+                                 onSave: { react(reel, kind: "save") },
+                                 onNotInterested: { hide(reel) })
+                        .listRowBackground(FFTheme.parchment1)
+                    }
                 }
                 .ffListChrome()
                 .listStyle(.plain)
@@ -32,8 +56,23 @@ struct ReelsFeedView: View {
             }
         }
         .navigationTitle("Reels")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    showComposer = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .accessibilityLabel("Create a Reel")
+            }
+        }
         .task { await load() }
         .sheet(item: $playingReel) { reel in ReelPlayerView(reel: reel) }
+        .sheet(isPresented: $showComposer) {
+            ReelComposerView {
+                Task { await load() }
+            }
+        }
         .alert("Could not load reels", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
@@ -59,14 +98,11 @@ struct ReelsFeedView: View {
     }
 
     private func hide(_ reel: Reel) {
-        reels.removeAll { $0.id == reel.id } // optimistic -- a quiet preference, not worth waiting on
+        reels.removeAll { $0.id == reel.id }
         Task { try? await APIClient.shared.markReelNotInterested(videoID: reel.videoID) }
     }
 }
 
-/// Reel's stored properties are all `let` (matches Decodable's usual shape
-/// throughout this app), so an optimistic reaction update needs a copy
-/// constructor rather than in-place mutation.
 private extension Reel {
     func withLike(active: Bool, count: Int) -> Reel {
         Reel(videoID: videoID, title: title, description: description, thumbnailURL: thumbnailURL,

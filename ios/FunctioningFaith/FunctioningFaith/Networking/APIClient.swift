@@ -1077,11 +1077,11 @@ final class APIClient {
         return try await request("/api/search?q=\(encoded)")
     }
 
-    private func request<T: Decodable>(_ path: String, method: String = "GET") async throws -> T {
+    func request<T: Decodable>(_ path: String, method: String = "GET") async throws -> T {
         try await request(path, method: method, body: Optional<EmptyBody>.none)
     }
 
-    private func request<T: Decodable, Body: Encodable>(_ path: String, method: String = "GET", body: Body? = nil) async throws -> T {
+    func request<T: Decodable, Body: Encodable>(_ path: String, method: String = "GET", body: Body? = nil) async throws -> T {
         guard let url = URL(string: path, relativeTo: baseURL) else { throw APIError.invalidResponse }
         var request = URLRequest(url: url)
         request.httpMethod = method
