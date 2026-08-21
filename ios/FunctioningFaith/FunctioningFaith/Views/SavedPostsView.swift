@@ -54,7 +54,11 @@ struct SavedPostsView: View {
         .task { await load() }
         .sheet(item: $selectedPost) { post in
             NavigationStack {
-                CommentThreadView(post: post)
+                CommentThreadView(post: post) {
+                    if let index = posts.firstIndex(where: { $0.id == post.id }) {
+                        posts[index].commentCount += 1
+                    }
+                }
             }
         }
     }
