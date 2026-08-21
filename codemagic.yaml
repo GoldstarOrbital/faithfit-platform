@@ -1,0 +1,55 @@
+workflows:
+  ios-simulator-verify:
+    name: iOS simulator verification
+    max_build_duration: 30
+    instance_type: mac_mini_m2
+    triggering:
+      events:
+        - push
+        - pull_request
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+    environment:
+      xcode: latest
+      vars:
+        IOS_PROJECT_DIR: ios/FunctioningFaith
+        XCODE_PROJECT: FunctioningFaith.xcodeproj
+        XCODE_SCHEME: FunctioningFaith
+    scripts:
+      - name: Install XcodeGen
+        script: brew install xcodegen
+      - name: Generate the Xcode project
+        script: |
+          cd "$CM_BUILD_DIR/$IOS_PROJECT_DIR"
+          xcodegen generate --spec project.yml
+      - name: Build for the iOS Simulator
+        script: |
+          cd "$CM_BUILD_DIR/$IOS_PROJECT_DIR"
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+      - name: Run unit tests
+        script: |
+          cd "$CM_BUILD_DIR/$IOS_PROJECT_DIR"
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,OS=latest,name=iPhone 16 Pro' \
+            CODE_SIGNING_ALLOWED=NO \
+            test
+    artifacts:
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Logs/Test/*.xcresult
+    publishing:
+      email:
+        notify:
+          success: true
+          failure: true
