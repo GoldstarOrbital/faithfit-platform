@@ -14,42 +14,11 @@ struct ExploreView: View {
     var body: some View {
         List {
             Section {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: FFTheme.Space.sm) {
-                        NavigationLink {
-                            ReelsFeedView()
-                        } label: {
-                            FFQuickTile(systemImage: "play.rectangle.fill", label: "Reels", colors: [FFTheme.hearth, FFTheme.goldBright])
-                        }
-                        NavigationLink {
-                            JourneysListView()
-                        } label: {
-                            FFQuickTile(systemImage: "map.fill", label: "Journeys", colors: [FFTheme.meadow2, FFTheme.meadowDeep])
-                        }
-                        NavigationLink {
-                            AthleteSearchView()
-                        } label: {
-                            FFQuickTile(systemImage: "figure.run.circle.fill", label: "Recruiting", colors: [FFTheme.emerald, FFTheme.meadowDeep])
-                        }
-                        NavigationLink {
-                            StatsView()
-                        } label: {
-                            FFQuickTile(systemImage: "chart.bar.fill", label: "Stats", colors: [FFTheme.gold, FFTheme.hearth])
-                        }
-                        NavigationLink {
-                            LeaderboardView()
-                        } label: {
-                            FFQuickTile(systemImage: "trophy.fill", label: "Leaderboard", colors: [FFTheme.goldBright, FFTheme.gold])
-                        }
-                    }
-                    .padding(.horizontal, FFTheme.Space.xxs)
-                    .padding(.vertical, FFTheme.Space.xxs)
-                }
-                .buttonStyle(.plain)
+                ExploreCatalogGrid()
             } footer: {
-                Text("Journeys track real distance toward scripture-marked waypoints. Recruiting browses public, .edu-verified athlete profiles. Stats mirrors the web Stats tab (moved here so Messages can stay in the tab bar).")
+                Text("Same twelve sections as the Railway Explore index. Native uses lists and system controls instead of the web grid chrome.")
             }
-            .listRowInsets(EdgeInsets())
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             .listRowBackground(Color.clear)
 
             Section {
@@ -140,7 +109,7 @@ struct ExploreView: View {
                 } else if challenges.isEmpty {
                     Text("New challenges are being prepared.").foregroundStyle(.secondary)
                 } else {
-                    ForEach(challenges.prefix(6)) { challenge in
+                    ForEach(challenges) { challenge in
                         VStack(alignment: .leading, spacing: 7) {
                             HStack(alignment: .top) {
                                 FFIconBadge(systemImage: "flame.fill", tint: challenge.completed ? FFTheme.emerald : FFTheme.hearth)
@@ -225,6 +194,18 @@ struct ExploreView: View {
             .listRowBackground(FFTheme.parchment1)
 
             Section("Discover") {
+                NavigationLink { StatsView() } label: {
+                    HStack(spacing: FFTheme.Space.sm) {
+                        FFIconBadge(systemImage: "chart.bar.fill", tint: FFTheme.gold)
+                        Text("Stats & goals")
+                    }
+                }
+                NavigationLink { MotivationExploreView() } label: {
+                    HStack(spacing: FFTheme.Space.sm) {
+                        FFIconBadge(systemImage: "bolt.fill", tint: FFTheme.hearth)
+                        Text("Motivation")
+                    }
+                }
                 NavigationLink { PodcastsView() } label: {
                     HStack(spacing: FFTheme.Space.sm) {
                         FFIconBadge(systemImage: "mic.fill", tint: FFTheme.gold)

@@ -7,6 +7,7 @@ struct StatsView: View {
     @State private var breakdown: [ActivityBreakdownEntry] = []
     @State private var records: [String: [PersonalRecord]] = [:]
     @State private var goals: [TrainingGoal] = []
+    @State private var recap: WeeklyRecap?
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var periodTab = 0 // 0 = week, 1 = month, 2 = lifetime
@@ -18,6 +19,7 @@ struct StatsView: View {
                 ProgressView()
             } else if let summary {
                 List {
+                    if let recap { recapSection(recap) }
                     streakSection(summary)
                     totalsSection(summary)
                     goalsSection
@@ -52,8 +54,10 @@ struct StatsView: View {
             async let b = APIClient.shared.fetchActivityBreakdown()
             async let r = APIClient.shared.fetchPersonalRecords()
             async let g = APIClient.shared.fetchGoals()
+            async let rec = APIClient.shared.fetchWeeklyRecap()
             let (summaryResult, trendsResult, breakdownResult, recordsResult, goalsResult) = try await (s, t, b, r, g)
             summary = summaryResult; trends = trendsResult; breakdown = breakdownResult; records = recordsResult; goals = goalsResult
+            recap = try? await rec
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -116,6 +120,39 @@ struct StatsView: View {
 
     private func hasAnyRecord(_ r: SummaryRecords) -> Bool {
         r.longestDistanceKm != nil || r.longestDurationMin != nil || r.fastestPaceMinKm != nil || r.mostCalories != nil || r.highestHR != nil
+    }
+
+    @ViewBuilder
+    private func recapSection(_ recap: WeeklyRecap) -> some View {
+        Section {
+            HStack {
+                recapTile("\(recap.workouts)", "workouts")
+                recapTile(String(format: "%.1f", recap.distanceKm), "km")
+                recapTile("\(recap.minutes)", "minutes")
+                recapTile("\(recap.activeDays)", "active days")
+            }
+            Text(recap.shareText)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if recap.kudos > 0 || recap.replies > 0 {
+                Text("Your community sent \(recap.kudos) kudos and \(recap.replies) replies this week.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Your week in motion")
+        } footer: {
+            Text("A private recap of the last seven days.")
+        }
+        .listRowBackground(FFTheme.parchment1)
+    }
+
+    private func recapTile(_ value: String, _ label: String) -> some View {
+        VStack(spacing: 2) {
+            Text(value).font(.headline.monospacedDigit())
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder

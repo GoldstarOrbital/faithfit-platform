@@ -7,6 +7,7 @@ import Foundation
 /// still be timed but its route remains empty and the UI says so plainly.
 final class NativeWorkoutTracker: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published private(set) var points: [[Double]] = []
+    @Published private(set) var distanceKm: Double = 0
     @Published private(set) var authorization: CLAuthorizationStatus
 
     private let manager = CLLocationManager()
@@ -22,6 +23,7 @@ final class NativeWorkoutTracker: NSObject, ObservableObject, CLLocationManagerD
 
     func start() {
         points.removeAll(keepingCapacity: true)
+        distanceKm = 0
         manager.requestWhenInUseAuthorization()
         guard manager.authorizationStatus == .authorizedAlways || manager.authorizationStatus == .authorizedWhenInUse else { return }
         manager.startUpdatingLocation()
@@ -44,7 +46,11 @@ final class NativeWorkoutTracker: NSObject, ObservableObject, CLLocationManagerD
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         for location in locations where location.horizontalAccuracy >= 0 && location.horizontalAccuracy <= 100 {
-            points.append([location.coordinate.latitude, location.coordinate.longitude])
+            let next = [location.coordinate.latitude, location.coordinate.longitude]
+            if let last = points.last, last.count >= 2 {
+                distanceKm += TrainingMath.haversineKm(lat1: last[0], lon1: last[1], lat2: next[0], lon2: next[1])
+            }
+            points.append(next)
         }
         if points.count > 3000 { points.removeFirst(points.count - 3000) }
     }

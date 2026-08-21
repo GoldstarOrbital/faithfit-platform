@@ -17,7 +17,7 @@ struct RootTabView: View {
                     .tag(AppTab.home)
 
                 NavigationStack { WorkoutView() }
-                    .tabItem { Label("Workouts", systemImage: "figure.run") }
+                    .tabItem { Label("Train", systemImage: "figure.run") }
                     .tag(AppTab.workouts)
 
                 NavigationStack { ExploreView() }
