@@ -43,6 +43,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.functioningfaith.app
         INFOPLIST_FILE: FunctioningFaith/Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
         PRODUCT_MODULE_NAME: FunctioningFaith
         PRODUCT_NAME: FunctioningFaith
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
