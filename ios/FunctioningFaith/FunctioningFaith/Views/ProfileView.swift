@@ -34,6 +34,7 @@ struct ProfileView: View {
             signInSecuritySection
             notificationsSection
             remindersSection
+            savedPostsSection
             accountSection
         }
         .navigationTitle("Profile")
@@ -283,6 +284,14 @@ struct ProfileView: View {
         Section {
             NavigationLink { RemindersView() } label: {
                 Label("Reminders", systemImage: "bell.badge")
+            }
+        }
+    }
+
+    private var savedPostsSection: some View {
+        Section {
+            NavigationLink { SavedPostsView() } label: {
+                Label("Saved posts", systemImage: "bookmark")
             }
         }
     }

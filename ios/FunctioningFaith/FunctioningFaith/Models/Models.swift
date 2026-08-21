@@ -1470,6 +1470,22 @@ struct YouTubeChannelResult: Decodable, Identifiable {
     var id: String { channelId }
 }
 
+/// One row of the followed-community weekly leaderboard -- ranked over the
+/// last 7 days, scoped to the member plus who they follow (see the
+/// server's own LEADERBOARD_METRICS route: never a global ranking).
+struct LeaderboardEntry: Decodable, Identifiable {
+    let userID: String
+    let displayName: String
+    let value: Double
+    let isMe: Bool
+    let rank: Int
+    var id: String { userID }
+    enum CodingKeys: String, CodingKey {
+        case value, rank
+        case userID = "user_id", displayName = "display_name", isMe = "is_me"
+    }
+}
+
 /// Discovery surface -- which verses people are actually talking about.
 struct DiscussedVerse: Decodable, Identifiable {
     let id: String

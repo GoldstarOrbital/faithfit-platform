@@ -34,6 +34,11 @@ struct ExploreView: View {
                 } label: {
                     Label("Stats & goals", systemImage: "chart.bar.fill")
                 }
+                NavigationLink {
+                    LeaderboardView()
+                } label: {
+                    Label("Leaderboard", systemImage: "trophy.fill")
+                }
             } footer: {
                 Text("Journeys track real distance toward scripture-marked waypoints. Recruiting browses public, .edu-verified athlete profiles. Stats mirrors the web Stats tab (moved here so Messages can stay in the tab bar).")
             }

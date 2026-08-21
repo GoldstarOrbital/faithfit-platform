@@ -528,6 +528,29 @@ final class APIClient {
         return r.profile
     }
 
+    // MARK: - Saved posts
+
+    /// Same shape of simplification as fetchPosts(forTag:) just below: the
+    /// server's saved-posts query doesn't join like/comment counts or
+    /// workout/verse detail, so those render at their honest (zero/false)
+    /// defaults via FeedPost's own init rather than being guessed at.
+    func fetchSavedPosts() async throws -> [FeedPost] {
+        if useMock { return [] }
+        let r: SavedPostsResponse = try await request("/api/posts/saved")
+        return r.posts.map(\.model)
+    }
+
+    // MARK: - Leaderboard
+
+    /// `metric` must be one of "distance_km" (default), "duration_min", or
+    /// "workouts" -- anything else the server silently falls back to
+    /// distance, so callers pass a value from LeaderboardView's own fixed
+    /// picker rather than free text.
+    func fetchLeaderboard(metric: String = "distance_km") async throws -> [LeaderboardEntry] {
+        if useMock { return [] }
+        return try await request("/api/leaderboard?metric=\(metric)")
+    }
+
     // MARK: - Hashtags
 
     func fetchTrendingTags() async throws -> [TrendingTag] {
@@ -1312,6 +1335,28 @@ private struct JourneyProgressBody: Encodable { let addKm: Double; enum CodingKe
 private struct ReelReactionBody: Encodable { let kind: String }
 private struct AthleteSearchResponse: Decodable { let athletes: [AthleteSearchResult] }
 private struct AthleteProfileResponse: Decodable { let profile: AthleteProfile }
+private struct SavedPostsResponse: Decodable { let posts: [SavedPostDTO] }
+private struct SavedPostDTO: Decodable {
+    let id: UUID
+    let content: String?
+    let createdAt: String
+    let visibility: String?
+    let photoData: String?
+    let photoCategory: String?
+    let author: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, content, visibility, author
+        case createdAt = "created_at", photoData = "photo_data", photoCategory = "photo_category"
+    }
+
+    var model: FeedPost {
+        FeedPost(id: id, authorID: nil, authorName: author, content: content ?? "", workout: nil, verse: nil,
+                  createdAt: DateParser.parse(createdAt) ?? .now, photoData: photoData, photoCategory: photoCategory,
+                  visibility: visibility ?? "private", savedByMe: true)
+    }
+}
+
 private struct HashtagPostsResponse: Decodable { let tag: String; let posts: [HashtagPostDTO] }
 private struct HashtagPostDTO: Decodable {
     let id: UUID
