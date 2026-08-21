@@ -528,6 +528,26 @@ final class APIClient {
         return r.profile
     }
 
+    // MARK: - Training goals
+
+    func fetchGoals() async throws -> [TrainingGoal] {
+        if useMock { return [] }
+        return try await request("/api/goals")
+    }
+
+    @discardableResult
+    func createGoal(title: String, metric: String, target: Double, period: String, activityType: String?) async throws -> String {
+        if useMock { return UUID().uuidString }
+        let r: CreateGoalResponse = try await request("/api/goals", method: "POST", body: CreateGoalBody(
+            title: title, metric: metric, target: target, period: period, activityType: activityType))
+        return r.id
+    }
+
+    func deleteGoal(id: String) async throws {
+        if useMock { return }
+        let _: ActionResponse = try await request("/api/goals/\(id)", method: "DELETE")
+    }
+
     // MARK: - Saved posts
 
     /// Same shape of simplification as fetchPosts(forTag:) just below: the
@@ -1335,6 +1355,15 @@ private struct JourneyProgressBody: Encodable { let addKm: Double; enum CodingKe
 private struct ReelReactionBody: Encodable { let kind: String }
 private struct AthleteSearchResponse: Decodable { let athletes: [AthleteSearchResult] }
 private struct AthleteProfileResponse: Decodable { let profile: AthleteProfile }
+private struct CreateGoalResponse: Decodable { let id: String }
+private struct CreateGoalBody: Encodable {
+    let title: String
+    let metric: String
+    let target: Double
+    let period: String
+    let activityType: String?
+    enum CodingKeys: String, CodingKey { case title, metric, target, period, activityType = "activity_type" }
+}
 private struct SavedPostsResponse: Decodable { let posts: [SavedPostDTO] }
 private struct SavedPostDTO: Decodable {
     let id: UUID

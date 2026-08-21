@@ -1470,6 +1470,22 @@ struct YouTubeChannelResult: Decodable, Identifiable {
     var id: String { channelId }
 }
 
+struct TrainingGoal: Decodable, Identifiable {
+    let id: String
+    let title: String
+    let metric: String
+    let target: Double
+    let period: String
+    let activityType: String?
+    let progress: Double
+    let percent: Int
+    let completed: Bool
+    enum CodingKeys: String, CodingKey {
+        case id, title, metric, target, period, progress, percent, completed
+        case activityType = "activity_type"
+    }
+}
+
 /// One row of the followed-community weekly leaderboard -- ranked over the
 /// last 7 days, scoped to the member plus who they follow (see the
 /// server's own LEADERBOARD_METRICS route: never a global ranking).
