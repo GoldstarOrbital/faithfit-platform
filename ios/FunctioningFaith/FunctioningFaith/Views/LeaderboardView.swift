@@ -1,5 +1,37 @@
 import SwiftUI
 
+/// Fixed picker of metrics APIClient.fetchLeaderboard accepts (see its own
+/// doc comment) — server falls back to distance for anything else, so this
+/// is the only place a metric string gets typed.
+enum LeaderboardMetric: String, CaseIterable, Identifiable, Hashable {
+    case distanceKm = "distance_km"
+    case durationMin = "duration_min"
+    case workouts = "workouts"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .distanceKm: return "Distance"
+        case .durationMin: return "Time"
+        case .workouts: return "Workouts"
+        }
+    }
+
+    func format(_ value: Double) -> String {
+        switch self {
+        case .distanceKm:
+            return String(format: "%.1f km", value)
+        case .durationMin:
+            let minutes = Int(value)
+            return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"
+        case .workouts:
+            let count = Int(value)
+            return "\(count) workout\(count == 1 ? "" : "s")"
+        }
+    }
+}
+
 /// Weekly standings for you and people you follow — mirrors web Explore → Leaderboard.
 struct LeaderboardView: View {
     @State private var metric: LeaderboardMetric = .distanceKm
@@ -66,7 +98,7 @@ struct LeaderboardView: View {
         isLoading = true
         errorMessage = nil
         do {
-            rows = try await APIClient.shared.fetchLeaderboard(metric: metric)
+            rows = try await APIClient.shared.fetchLeaderboard(metric: metric.rawValue)
         } catch {
             errorMessage = error.localizedDescription
         }
