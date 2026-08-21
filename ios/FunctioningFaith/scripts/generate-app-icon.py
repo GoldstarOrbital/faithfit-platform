@@ -41,6 +41,12 @@ ICON_SIZES = {
     "AppIcon-76@2x-ipad.png": 152,
     "AppIcon-83.5@2x-ipad.png": 167,
 }
+LEGACY_ICON_SIZES = {
+    "AppIcon60x60@2x.png": 120,
+    "AppIcon60x60@3x.png": 180,
+    "AppIcon76x76@2x.png": 152,
+    "AppIcon83.5x83.5@2x.png": 167,
+}
 
 
 def draw_arc(draw: ImageDraw.ImageDraw, bbox, start, end, fill, width):
@@ -119,6 +125,11 @@ def generate(dest: Path) -> None:
     for filename, pixels in ICON_SIZES.items():
         out.resize((pixels, pixels), Image.Resampling.LANCZOS).save(
             dest.parent / filename, "PNG", optimize=True
+        )
+    legacy_dir = dest.parent.parent.parent
+    for filename, pixels in LEGACY_ICON_SIZES.items():
+        out.resize((pixels, pixels), Image.Resampling.LANCZOS).save(
+            legacy_dir / filename, "PNG", optimize=True
         )
     print(f"Wrote {dest} ({dest.stat().st_size} bytes)")
 
