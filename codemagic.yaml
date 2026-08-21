@@ -41,7 +41,7 @@ workflows:
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
             -configuration Debug \
-            -destination 'platform=iOS Simulator,OS=latest,name=iPhone 16 Pro' \
+            -destination 'platform=iOS Simulator,OS=26.4.1,name=iPhone 17 Pro' \
             CODE_SIGNING_ALLOWED=NO \
             test
     artifacts:
