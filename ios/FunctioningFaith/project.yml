@@ -27,6 +27,16 @@ targets:
       properties:
         CFBundleDisplayName: Functioning Faith
         CFBundleIconName: AppIcon
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         FFAPIBaseURL: https://faithfit-demo-production.up.railway.app
         FFAppleClientID: com.functioningfaith.app
         # Prefer the system launch experience; branded splash can be added later.
@@ -40,6 +50,9 @@ targets:
         PRODUCT_MODULE_NAME: FunctioningFaith
         PRODUCT_NAME: FunctioningFaith
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_KEY_CFBundleIconName: AppIcon
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
+        "INFOPLIST_KEY_UISupportedInterfaceOrientations~ipad": UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         TARGETED_DEVICE_FAMILY: "1,2"
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: "1"
