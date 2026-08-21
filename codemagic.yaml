@@ -36,6 +36,21 @@ workflows:
         script: |
           cd "$CM_BUILD_DIR/$IOS_PROJECT_DIR"
           xcode-project use-profiles
+      # Keep Xcode's complete archive output as an artifact. The Codemagic helper
+      # only reports its final exit status, which makes signing or plist failures
+      # impossible to diagnose from the build page.
+      - name: Archive preflight with full diagnostics
+        script: |
+          cd "$CM_BUILD_DIR/$IOS_PROJECT_DIR"
+          mkdir -p /tmp/xcodebuild_logs
+          set -o pipefail
+          xcodebuild \
+            -project "$XCODE_PROJECT" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$CM_BUILD_DIR/ios-archive-preflight/FunctioningFaith.xcarchive" \
+            archive 2>&1 | tee /tmp/xcodebuild_logs/archive-preflight.log
       - name: Build signed IPA
         script: |
           cd "$CM_BUILD_DIR/$IOS_PROJECT_DIR"
