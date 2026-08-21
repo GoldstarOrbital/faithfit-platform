@@ -14,54 +14,80 @@ struct ExploreView: View {
     var body: some View {
         List {
             Section {
-                NavigationLink {
-                    ReelsFeedView()
-                } label: {
-                    Label("Reels", systemImage: "play.rectangle.fill")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: FFTheme.Space.sm) {
+                        NavigationLink {
+                            ReelsFeedView()
+                        } label: {
+                            FFQuickTile(systemImage: "play.rectangle.fill", label: "Reels", colors: [FFTheme.hearth, FFTheme.goldBright])
+                        }
+                        NavigationLink {
+                            JourneysListView()
+                        } label: {
+                            FFQuickTile(systemImage: "map.fill", label: "Journeys", colors: [FFTheme.meadow2, FFTheme.meadowDeep])
+                        }
+                        NavigationLink {
+                            AthleteSearchView()
+                        } label: {
+                            FFQuickTile(systemImage: "figure.run.circle.fill", label: "Recruiting", colors: [FFTheme.emerald, FFTheme.meadowDeep])
+                        }
+                        NavigationLink {
+                            StatsView()
+                        } label: {
+                            FFQuickTile(systemImage: "chart.bar.fill", label: "Stats", colors: [FFTheme.gold, FFTheme.hearth])
+                        }
+                        NavigationLink {
+                            LeaderboardView()
+                        } label: {
+                            FFQuickTile(systemImage: "trophy.fill", label: "Leaderboard", colors: [FFTheme.goldBright, FFTheme.gold])
+                        }
+                    }
+                    .padding(.horizontal, FFTheme.Space.xxs)
+                    .padding(.vertical, FFTheme.Space.xxs)
                 }
-                NavigationLink {
-                    JourneysListView()
-                } label: {
-                    Label("Journeys", systemImage: "map.fill")
-                }
-                NavigationLink {
-                    AthleteSearchView()
-                } label: {
-                    Label("Athlete Recruiting", systemImage: "figure.run.circle.fill")
-                }
-                NavigationLink {
-                    StatsView()
-                } label: {
-                    Label("Stats & goals", systemImage: "chart.bar.fill")
-                }
-                NavigationLink {
-                    LeaderboardView()
-                } label: {
-                    Label("Leaderboard", systemImage: "trophy.fill")
-                }
+                .buttonStyle(.plain)
             } footer: {
                 Text("Journeys track real distance toward scripture-marked waypoints. Recruiting browses public, .edu-verified athlete profiles. Stats mirrors the web Stats tab (moved here so Messages can stay in the tab bar).")
             }
-            .listRowBackground(FFTheme.parchment1)
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
 
             Section {
                 NavigationLink { ScriptureView() } label: {
-                    Label("Scripture", systemImage: "book.fill")
+                    HStack(spacing: FFTheme.Space.sm) {
+                        FFIconBadge(systemImage: "book.fill", tint: FFTheme.scripture)
+                        Text("Scripture")
+                    }
                 }
                 NavigationLink { BibleBrowseView() } label: {
-                    Label("Bible browse", systemImage: "books.vertical")
+                    HStack(spacing: FFTheme.Space.sm) {
+                        FFIconBadge(systemImage: "books.vertical.fill", tint: FFTheme.scripture)
+                        Text("Bible browse")
+                    }
                 }
                 NavigationLink { ScripturePracticeView() } label: {
-                    Label("Scripture practice", systemImage: "checkmark.circle")
+                    HStack(spacing: FFTheme.Space.sm) {
+                        FFIconBadge(systemImage: "checkmark.circle.fill", tint: FFTheme.scripture)
+                        Text("Scripture practice")
+                    }
                 }
                 NavigationLink { SavedVersesView() } label: {
-                    Label("Saved verses", systemImage: "bookmark.fill")
+                    HStack(spacing: FFTheme.Space.sm) {
+                        FFIconBadge(systemImage: "bookmark.fill", tint: FFTheme.gold)
+                        Text("Saved verses")
+                    }
                 }
                 NavigationLink { BreathworkView() } label: {
-                    Label("Breathwork", systemImage: "wind")
+                    HStack(spacing: FFTheme.Space.sm) {
+                        FFIconBadge(systemImage: "wind", tint: FFTheme.hearth)
+                        Text("Breathwork")
+                    }
                 }
                 NavigationLink { HeartCheckInView() } label: {
-                    Label("Heart check-in", systemImage: "heart.text.square")
+                    HStack(spacing: FFTheme.Space.sm) {
+                        FFIconBadge(systemImage: "heart.text.square.fill", tint: FFTheme.seal)
+                        Text("Heart check-in")
+                    }
                 }
             } header: {
                 Text("Faith & body")
@@ -82,6 +108,8 @@ struct ExploreView: View {
                             Image(systemName: "person.crop.circle.fill")
                                 .font(.title2)
                                 .foregroundStyle(FFTheme.meadow)
+                                .background(FFTheme.parchment2, in: Circle())
+                                .ffGradientRing()
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(user.displayName).font(.headline)
                                 Text(user.reason).font(.caption).foregroundStyle(.secondary)
@@ -114,7 +142,8 @@ struct ExploreView: View {
                 } else {
                     ForEach(challenges.prefix(6)) { challenge in
                         VStack(alignment: .leading, spacing: 7) {
-                            HStack {
+                            HStack(alignment: .top) {
+                                FFIconBadge(systemImage: "flame.fill", tint: challenge.completed ? FFTheme.emerald : FFTheme.hearth)
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(challenge.name).font(.headline)
                                     Text(challenge.description ?? challenge.flavor ?? "")
@@ -155,17 +184,20 @@ struct ExploreView: View {
                         NavigationLink {
                             GroupDetailView(group: group)
                         } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(group.name).font(.headline)
-                                if let description = group.description {
-                                    Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            HStack(spacing: FFTheme.Space.sm) {
+                                FFIconBadge(systemImage: "person.3.fill", tint: FFTheme.meadow2)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(group.name).font(.headline)
+                                    if let description = group.description {
+                                        Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                                    }
+                                    HStack {
+                                        if let sport = group.sport { Label(sport, systemImage: "figure.run") }
+                                        Spacer()
+                                        Text("\(group.memberCount) members")
+                                    }
+                                    .font(.caption2).foregroundStyle(.secondary)
                                 }
-                                HStack {
-                                    if let sport = group.sport { Label(sport, systemImage: "figure.run") }
-                                    Spacer()
-                                    Text("\(group.memberCount) members")
-                                }
-                                .font(.caption2).foregroundStyle(.secondary)
                             }
                             .padding(.vertical, 4)
                         }
@@ -179,14 +211,14 @@ struct ExploreView: View {
                     ProgressView()
                 } else {
                     ForEach(quests) { quest in
-                        Label {
+                        HStack(spacing: FFTheme.Space.sm) {
+                            FFIconBadge(systemImage: "sparkles", tint: FFTheme.hearth)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(quest.name).font(.headline)
                                 Text(quest.description ?? "").font(.caption).foregroundStyle(.secondary)
                             }
-                        } icon: {
-                            Image(systemName: "sparkles").foregroundStyle(FFTheme.hearth)
                         }
+                        .padding(.vertical, 2)
                     }
                 }
             }
@@ -194,19 +226,34 @@ struct ExploreView: View {
 
             Section("Discover") {
                 NavigationLink { PodcastsView() } label: {
-                    Label("Podcasts", systemImage: "mic")
+                    HStack(spacing: FFTheme.Space.sm) {
+                        FFIconBadge(systemImage: "mic.fill", tint: FFTheme.gold)
+                        Text("Podcasts")
+                    }
                 }
                 NavigationLink { ChurchFinderView() } label: {
-                    Label("Find a church nearby", systemImage: "building.2")
+                    HStack(spacing: FFTheme.Space.sm) {
+                        FFIconBadge(systemImage: "building.2.fill", tint: FFTheme.scripture)
+                        Text("Find a church nearby")
+                    }
                 }
                 NavigationLink { NewsView() } label: {
-                    Label("News", systemImage: "newspaper")
+                    HStack(spacing: FFTheme.Space.sm) {
+                        FFIconBadge(systemImage: "newspaper.fill", tint: FFTheme.hearth)
+                        Text("News")
+                    }
                 }
                 NavigationLink { VideoLibraryView() } label: {
-                    Label("Videos", systemImage: "play.rectangle")
+                    HStack(spacing: FFTheme.Space.sm) {
+                        FFIconBadge(systemImage: "play.rectangle.fill", tint: FFTheme.meadow)
+                        Text("Videos")
+                    }
                 }
                 NavigationLink { SearchView() } label: {
-                    Label("Search people & posts", systemImage: "magnifyingglass")
+                    HStack(spacing: FFTheme.Space.sm) {
+                        FFIconBadge(systemImage: "magnifyingglass", tint: FFTheme.meadow)
+                        Text("Search people & posts")
+                    }
                 }
             }
             .listRowBackground(FFTheme.parchment1)

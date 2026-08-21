@@ -167,3 +167,69 @@ extension ButtonStyle where Self == FFPrimaryButtonStyle {
 extension ButtonStyle where Self == FFGhostButtonStyle {
     static var ffGhost: FFGhostButtonStyle { FFGhostButtonStyle() }
 }
+
+// MARK: - Icon badge / quick tile
+// Colored-backdrop icon treatment, used to give list rows a stronger visual
+// anchor than a flat-tinted SF Symbol — and a horizontal "quick launch" tile
+// for the same idea at hero scale (mirrors web `.breathe-orb` / story-ring
+// gradients rather than any single flat accent).
+
+struct FFIconBadge: View {
+    let systemImage: String
+    let tint: Color
+    var size: CGFloat = 30
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: size * 0.46, weight: .semibold))
+            .foregroundStyle(tint)
+            .frame(width: size, height: size)
+            .background(tint.opacity(0.16), in: RoundedRectangle(cornerRadius: size * 0.32, style: .continuous))
+    }
+}
+
+struct FFQuickTile: View {
+    let systemImage: String
+    let label: String
+    let colors: [Color]
+
+    var body: some View {
+        VStack(spacing: FFTheme.Space.xs) {
+            Image(systemName: systemImage)
+                .font(.system(size: 21, weight: .semibold))
+                .foregroundStyle(FFTheme.cream)
+                .frame(width: 52, height: 52)
+                .background(
+                    LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing),
+                    in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous)
+                        .strokeBorder(.white.opacity(0.22), lineWidth: 1)
+                )
+                .shadow(color: (colors.last ?? .clear).opacity(0.38), radius: 8, x: 0, y: 4)
+            Text(label)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(FFTheme.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+        }
+        .frame(width: 78)
+    }
+}
+
+extension View {
+    /// Conic-gradient ring matching web `.story-ring` (silver → emerald → gold sheen).
+    func ffGradientRing(lineWidth: CGFloat = 2.5) -> some View {
+        padding(lineWidth)
+            .overlay(
+                Circle().strokeBorder(
+                    AngularGradient(
+                        colors: [FFTheme.gold, FFTheme.emerald, FFTheme.goldBright, FFTheme.emerald2, FFTheme.gold],
+                        center: .center
+                    ),
+                    lineWidth: lineWidth
+                )
+            )
+    }
+}
