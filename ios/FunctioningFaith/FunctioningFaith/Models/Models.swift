@@ -1345,6 +1345,87 @@ struct VideoItem: Decodable, Identifiable {
     }
 }
 
+// ---- Badge catalog: every badge, earned or not, with progress toward the
+// locked ones -- distinct from ProfileView's own `profile.badges`, which is
+// earned-only (from /me). ----
+
+struct BadgeCatalogEntry: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let icon: String?
+    let earned: Bool
+    let earnedAt: String?
+    let progress: Int?
+    let target: Int?
+    let percent: Int?
+    enum CodingKeys: String, CodingKey {
+        case id, name, icon, earned, progress, target, percent
+        case earnedAt = "earned_at"
+    }
+}
+
+/// A rotating curated quote or scripture, distinct from the church
+/// devotional (which is tied to a specific linked church).
+struct MotivationQuote: Decodable {
+    let text: String
+    let attribution: String?
+}
+
+// ---- Followed friends' recent workouts + kudos: a dedicated rail,
+// separate from post likes on the main feed. ----
+
+struct FriendWorkout: Decodable, Identifiable {
+    let id: String
+    let authorID: String
+    let author: String
+    let workoutID: String
+    let workoutType: String?
+    let distanceKm: Double?
+    let calories: Int?
+    var kudosCount: Int
+    var kudosByMe: Bool
+    enum CodingKeys: String, CodingKey {
+        case id, author
+        case authorID = "author_id"
+        case workoutID = "workout_id", workoutType = "workout_type"
+        case distanceKm = "distance_km", calories
+        case kudosCount = "kudos_count", kudosByMe = "kudos_by_me"
+    }
+}
+
+struct FriendWorkoutsResponse: Decodable { let workouts: [FriendWorkout] }
+
+struct WorkoutKudosResult: Decodable {
+    let given: Bool
+    let count: Int
+}
+
+// ---- Church videos + this week's sermon transcript: the deeper Church
+// Finder surfaces beyond today's devotional / this week's service check. ----
+
+struct ChurchVideo: Decodable {
+    let provider: String
+    let videoID: String?
+    let title: String?
+    let thumbnailURL: String?
+    enum CodingKeys: String, CodingKey {
+        case provider, videoID = "video_id", title, thumbnailURL = "thumbnail_url"
+    }
+}
+
+struct ChurchVideosResponse: Decodable {
+    let videos: [ChurchVideo]
+    let source: String
+    let churchName: String?
+    enum CodingKeys: String, CodingKey { case videos, source, churchName = "church_name" }
+}
+
+struct ChurchServiceTranscript: Decodable {
+    let transcript: String
+    let videoTitle: String?
+    enum CodingKeys: String, CodingKey { case transcript, videoTitle = "video_title" }
+}
+
 /// Discovery surface -- which verses people are actually talking about.
 struct DiscussedVerse: Decodable, Identifiable {
     let id: String

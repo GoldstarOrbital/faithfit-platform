@@ -15,6 +15,7 @@ struct GroupDetailView: View {
     @State private var errorMessage: String?
     @State private var showAnnouncementEditor = false
     @State private var announcementDraft = ""
+    @State private var showEventComposer = false
 
     var body: some View {
         List {
@@ -129,21 +130,15 @@ struct GroupDetailView: View {
             if let events = detail?.events, !events.isEmpty {
                 Section("Upcoming") {
                     ForEach(events) { event in
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(event.title).font(.headline)
-                            if let description = event.description {
-                                Text(description).font(.caption).foregroundStyle(.secondary)
-                            }
-                            HStack {
-                                if let activity = event.activityType { Label(activity, systemImage: "figure.run") }
-                                if let location = event.locationName { Label(location, systemImage: "mappin") }
-                            }
-                            .font(.caption2).foregroundStyle(.secondary)
-                            Text("\(event.goingCount) going · \(event.interestedCount) interested")
-                                .font(.caption2).foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 4)
+                        eventRow(event)
                     }
+                    if detail?.isMember == true {
+                        Button("New event") { showEventComposer = true }
+                    }
+                }
+            } else if detail?.isMember == true {
+                Section("Upcoming") {
+                    Button("New event") { showEventComposer = true }
                 }
             }
         }
@@ -159,6 +154,14 @@ struct GroupDetailView: View {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "Please try again.")
+        }
+        .sheet(isPresented: $showEventComposer) {
+            NavigationStack {
+                GroupEventComposerView(groupID: group.id) {
+                    showEventComposer = false
+                    Task { await load() }
+                }
+            }
         }
         .sheet(isPresented: $showAnnouncementEditor) {
             NavigationStack {
@@ -268,6 +271,47 @@ struct GroupDetailView: View {
         ["moved": "🏃", "prayed": "🙏", "rested": "🌿"][kind] ?? "•"
     }
 
+    private func eventRow(_ event: GroupEvent) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(event.title).font(.headline)
+            if let description = event.description {
+                Text(description).font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
+                if let activity = event.activityType { Label(activity, systemImage: "figure.run") }
+                if let location = event.locationName { Label(location, systemImage: "mappin") }
+            }
+            .font(.caption2).foregroundStyle(.secondary)
+            Text("\(event.goingCount) going · \(event.interestedCount) interested")
+                .font(.caption2).foregroundStyle(.secondary)
+            if detail?.isMember == true {
+                HStack(spacing: 10) {
+                    rsvpButton(event, status: "going", label: "Going")
+                    rsvpButton(event, status: "interested", label: "Interested")
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func rsvpButton(_ event: GroupEvent, status: String, label: String) -> some View {
+        Button(label) {
+            Task { await rsvp(event, status: event.myRSVP == status ? "none" : status) }
+        }
+        .font(.caption.weight(.semibold))
+        .buttonStyle(.bordered)
+        .tint(event.myRSVP == status ? .orange : .secondary)
+    }
+
+    private func rsvp(_ event: GroupEvent, status: String) async {
+        do {
+            try await APIClient.shared.rsvpEvent(eventID: event.id, status: status)
+            await load()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func changeMembership(joining: Bool) {
         isChangingMembership = true
         Task {
@@ -303,6 +347,57 @@ struct GroupDetailView: View {
             }
             isSending = false
         }
+    }
+}
+
+private struct GroupEventComposerView: View {
+    let groupID: String
+    let onCreated: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var title = ""
+    @State private var eventDescription = ""
+    @State private var eventTime = Date().addingTimeInterval(86400)
+    @State private var locationName = ""
+    @State private var isSaving = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Form {
+            Section("Event") {
+                TextField("Title", text: $title)
+                TextField("Description", text: $eventDescription, axis: .vertical).lineLimit(2...4)
+                DatePicker("When", selection: $eventTime, in: Date()..., displayedComponents: [.date, .hourAndMinute])
+                TextField("Location (optional)", text: $locationName)
+            }
+        }
+        .navigationTitle("New Event")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") { Task { await save() } }
+                    .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty || isSaving)
+            }
+        }
+        .alert("Could not create event", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: { Text(errorMessage ?? "") }
+    }
+
+    private func save() async {
+        isSaving = true
+        do {
+            try await APIClient.shared.createGroupEvent(
+                groupID: groupID, title: title.trimmingCharacters(in: .whitespaces),
+                description: eventDescription.trimmingCharacters(in: .whitespaces).isEmpty ? nil : eventDescription,
+                activityType: nil, eventTime: eventTime,
+                locationName: locationName.trimmingCharacters(in: .whitespaces).isEmpty ? nil : locationName)
+            onCreated()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isSaving = false
     }
 }
 

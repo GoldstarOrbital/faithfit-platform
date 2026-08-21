@@ -9,7 +9,11 @@ struct ChurchFinderView: View {
     @State private var isSearching = false
     @State private var devotional: ChurchDevotional?
     @State private var weeklyService: ChurchWeeklyService?
+    @State private var churchVideos: [ChurchVideo] = []
     @State private var isLoadingMyChurch = false
+    @State private var transcript: ChurchServiceTranscript?
+    @State private var isLoadingTranscript = false
+    @State private var showTranscript = false
     @State private var errorMessage: String?
     @Environment(\.openURL) private var openURL
 
@@ -21,6 +25,17 @@ struct ChurchFinderView: View {
         .navigationTitle("Find a Church")
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadMyChurchContent() }
+        .sheet(isPresented: $showTranscript) {
+            NavigationStack {
+                ScrollView {
+                    Text(transcript?.transcript ?? "")
+                        .padding()
+                }
+                .navigationTitle(transcript?.videoTitle ?? "This Week's Sermon")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { showTranscript = false } } }
+            }
+        }
         .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
@@ -50,6 +65,19 @@ struct ChurchFinderView: View {
                         Text("No service video linked for this week yet.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                if !churchVideos.isEmpty {
+                    ForEach(Array(churchVideos.enumerated()), id: \.offset) { _, video in
+                        videoRow(video)
+                    }
+                }
+                if weeklyService != nil {
+                    Button {
+                        Task { await loadTranscript() }
+                    } label: {
+                        if isLoadingTranscript { ProgressView() } else { Text("Read this week's sermon") }
+                    }
+                    .disabled(isLoadingTranscript)
+                }
                 Button("Not your church?", role: .destructive) {
                     Task { await clearMyChurch() }
                 }
@@ -59,6 +87,21 @@ struct ChurchFinderView: View {
             } footer: {
                 Text("Devotionals and service video appear once your church's verified admin links a YouTube channel from the web app.")
             }
+        }
+    }
+
+    @ViewBuilder
+    private func videoRow(_ video: ChurchVideo) -> some View {
+        if video.provider == "youtube", let videoID = video.videoID {
+            NavigationLink {
+                YouTubeEmbedView(videoID: videoID)
+                    .navigationTitle(video.title ?? "Video")
+                    .navigationBarTitleDisplayMode(.inline)
+            } label: {
+                Text(video.title ?? "Recent video").font(.caption)
+            }
+        } else {
+            Text(video.title ?? "Recent video").font(.caption).foregroundStyle(.secondary)
         }
     }
 
@@ -162,6 +205,7 @@ struct ChurchFinderView: View {
             session.profile = try await APIClient.shared.fetchProfile()
             devotional = nil
             weeklyService = nil
+            churchVideos = []
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -172,7 +216,19 @@ struct ChurchFinderView: View {
         isLoadingMyChurch = true
         devotional = try? await APIClient.shared.fetchTodaysDevotional()
         weeklyService = try? await APIClient.shared.fetchThisWeeksService()
+        churchVideos = (try? await APIClient.shared.fetchChurchVideos())?.videos ?? []
         isLoadingMyChurch = false
+    }
+
+    private func loadTranscript() async {
+        isLoadingTranscript = true
+        do {
+            transcript = try await APIClient.shared.fetchServiceTranscript()
+            showTranscript = true
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isLoadingTranscript = false
     }
 }
 

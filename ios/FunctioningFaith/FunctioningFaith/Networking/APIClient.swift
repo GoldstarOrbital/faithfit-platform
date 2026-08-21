@@ -745,6 +745,21 @@ final class APIClient {
         return r.service
     }
 
+    func fetchChurchVideos() async throws -> ChurchVideosResponse {
+        if useMock { return ChurchVideosResponse(videos: [], source: "none", churchName: nil) }
+        return try await request("/api/church/videos")
+    }
+
+    /// No LLM summarization -- this fetches the real (auto-generated)
+    /// caption track for this week's service video so it can be read
+    /// aloud, exactly as lib/sermon-summary.js's own name is careful to
+    /// avoid implying. 400 if no church/channel is linked, 404 if no
+    /// captions exist for this week's video.
+    func fetchServiceTranscript() async throws -> ChurchServiceTranscript {
+        if useMock { throw APIError.invalidResponse }
+        return try await request("/api/church/service/summarize", method: "POST", body: EmptyBody())
+    }
+
     // MARK: - Breathwork & heart check-in
 
     func fetchBreathingPatterns() async throws -> [BreathingPattern] {
@@ -821,6 +836,47 @@ final class APIClient {
     func syncStrava() async throws -> StravaSyncResult {
         if useMock { throw APIError.invalidResponse }
         return try await request("/api/connectors/strava/sync", method: "POST", body: EmptyBody())
+    }
+
+    // MARK: - Badge catalog, motivation, friends' workouts, group events
+
+    func fetchBadgeCatalog() async throws -> [BadgeCatalogEntry] {
+        if useMock { return [] }
+        return try await request("/api/badges")
+    }
+
+    func fetchMotivationQuote() async throws -> MotivationQuote {
+        if useMock { return MotivationQuote(text: "Keep showing up. Your next step matters.", attribution: "Functioning Faith") }
+        return try await request("/api/motivation")
+    }
+
+    func fetchFriendsWorkouts(limit: Int = 5) async throws -> [FriendWorkout] {
+        if useMock { return [] }
+        let r: FriendWorkoutsResponse = try await request("/api/feed/friends-workouts?limit=\(limit)")
+        return r.workouts
+    }
+
+    @discardableResult
+    func kudosWorkout(id: String) async throws -> WorkoutKudosResult {
+        if useMock { return WorkoutKudosResult(given: true, count: 1) }
+        return try await request("/api/workouts/\(id)/kudos", method: "POST", body: EmptyBody())
+    }
+
+    @discardableResult
+    func createGroupEvent(groupID: String, title: String, description: String?, activityType: String?, eventTime: Date, locationName: String?) async throws -> GroupEvent {
+        if useMock { throw APIError.invalidResponse }
+        return try await request("/api/groups/\(groupID)/events", method: "POST", body: CreateEventBody(
+            title: title, description: description, activityType: activityType,
+            eventTime: ISO8601DateFormatter().string(from: eventTime), locationName: locationName))
+    }
+
+    /// `status` is "going", "interested", or "none" -- anything other than
+    /// the first two clears the member's RSVP, matching the server's own
+    /// branch exactly (it does not special-case a "none" literal, it just
+    /// treats "not going or interested" as "remove").
+    func rsvpEvent(eventID: String, status: String) async throws {
+        if useMock { return }
+        let _: ActionResponse = try await request("/api/events/\(eventID)/rsvp", method: "POST", body: RSVPBody(status: status))
     }
 
     // MARK: - Safety: mute / restrict, trusted circle, follow requests
@@ -1000,6 +1056,18 @@ private struct BibleVersionBody: Encodable {
     enum CodingKeys: String, CodingKey { case bibleVersionID = "bible_version_id" }
 }
 private struct AskVerseBody: Encodable { let question: String }
+private struct CreateEventBody: Encodable {
+    let title: String
+    let description: String?
+    let activityType: String?
+    let eventTime: String
+    let locationName: String?
+    enum CodingKeys: String, CodingKey {
+        case title, description
+        case activityType = "activity_type", eventTime = "event_time", locationName = "location_name"
+    }
+}
+private struct RSVPBody: Encodable { let status: String }
 private struct PracticeNoteBody: Encodable { let note: String? }
 private struct OpenThreadBody: Encodable { let prompt: String? }
 private struct ReflectionBody: Encodable {

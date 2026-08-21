@@ -15,6 +15,7 @@ struct ProfileView: View {
     @State private var healthKitSyncing = false
     @State private var pendingFollowRequests = 0
     @State private var showEditProfile = false
+    @State private var badgeCatalog: [BadgeCatalogEntry] = []
     @State private var connections: [ConnectedAccount] = []
     @State private var stravaConfigured = false
     @State private var isConnectingStrava = false
@@ -45,6 +46,7 @@ struct ProfileView: View {
             pendingFollowRequests = (try? await APIClient.shared.fetchFollowRequests().count) ?? 0
             stravaConfigured = (try? await APIClient.shared.isStravaConfigured()) ?? false
             await loadConnections()
+            badgeCatalog = (try? await APIClient.shared.fetchBadgeCatalog()) ?? []
         }
         .alert("Could not connect Strava", isPresented: Binding(get: { connectorError != nil }, set: { if !$0 { connectorError = nil } })) {
             Button("OK", role: .cancel) { connectorError = nil }
@@ -95,8 +97,27 @@ struct ProfileView: View {
     @ViewBuilder
     private func badgesSection(_ profile: UserProfile) -> some View {
         Section("Badges") {
-            ForEach(profile.badges) { badge in
-                Label(badge.name, systemImage: badge.iconURL)
+            if badgeCatalog.isEmpty {
+                ForEach(profile.badges) { badge in
+                    Label(badge.name, systemImage: badge.iconURL)
+                }
+            } else {
+                ForEach(badgeCatalog) { badge in
+                    badgeRow(badge)
+                }
+            }
+        }
+    }
+
+    private func badgeRow(_ badge: BadgeCatalogEntry) -> some View {
+        HStack {
+            Image(systemName: badge.icon ?? "star.fill")
+                .foregroundStyle(badge.earned ? .yellow : .secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(badge.name).foregroundStyle(badge.earned ? .primary : .secondary)
+                if !badge.earned, let percent = badge.percent {
+                    ProgressView(value: Double(percent), total: 100).tint(.orange)
+                }
             }
         }
     }
