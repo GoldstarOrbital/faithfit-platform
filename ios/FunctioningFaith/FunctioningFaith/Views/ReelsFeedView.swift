@@ -151,7 +151,7 @@ private struct ReelCard: View {
             }
             .font(.caption).foregroundStyle(.secondary)
             if let ref = reel.verseReference {
-                Text(ref).font(.caption.weight(.semibold).foregroundStyle(FFTheme.scripture)
+                Text(ref).font(.caption.weight(.semibold)).foregroundStyle(FFTheme.scripture)
             }
             HStack(spacing: 18) {
                 Button { onLike() } label: {
