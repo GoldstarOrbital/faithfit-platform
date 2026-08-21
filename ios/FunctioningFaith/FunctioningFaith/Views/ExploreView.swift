@@ -42,6 +42,7 @@ struct ExploreView: View {
             } footer: {
                 Text("Journeys track real distance toward scripture-marked waypoints. Recruiting browses public, .edu-verified athlete profiles. Stats mirrors the web Stats tab (moved here so Messages can stay in the tab bar).")
             }
+            .listRowBackground(FFTheme.parchment1)
 
             Section {
                 NavigationLink { ScriptureView() } label: {
@@ -67,6 +68,7 @@ struct ExploreView: View {
             } footer: {
                 Text("Same surfaces as the web Scripture / Breathe flows — verified verse text only; models never author Scripture.")
             }
+            .listRowBackground(FFTheme.parchment1)
 
             Section {
                 if isLoadingSuggestions {
@@ -91,8 +93,7 @@ struct ExploreView: View {
                             Button(user.isFollowing ? "Following" : "Follow") {
                                 follow(user)
                             }
-                            .buttonStyle(.borderedProminent)
-                            .tint(user.isFollowing ? .gray : FFTheme.meadow)
+                            .buttonStyle(.ffPrimary)
                             .disabled(user.isFollowing)
                         }
                         .padding(.vertical, 4)
@@ -103,6 +104,7 @@ struct ExploreView: View {
             } footer: {
                 Text("Suggestions are based on shared communities and mutual connections.")
             }
+            .listRowBackground(FFTheme.parchment1)
 
             Section("Challenges") {
                 if isLoadingContent {
@@ -122,8 +124,7 @@ struct ExploreView: View {
                                 Button(challenge.joined ? "Joined" : "Join") {
                                     join(challenge)
                                 }
-                                .buttonStyle(.bordered)
-                                .tint(FFTheme.meadow)
+                                .buttonStyle(.ffGhost)
                                 .disabled(challenge.joined)
                             }
                             ProgressView(value: Double(challenge.percent), total: 100)
@@ -142,6 +143,7 @@ struct ExploreView: View {
                     }
                 }
             }
+            .listRowBackground(FFTheme.parchment1)
 
             Section("Groups") {
                 if isLoadingContent {
@@ -170,6 +172,7 @@ struct ExploreView: View {
                     }
                 }
             }
+            .listRowBackground(FFTheme.parchment1)
 
             Section("Quests") {
                 if isLoadingContent {
@@ -187,6 +190,7 @@ struct ExploreView: View {
                     }
                 }
             }
+            .listRowBackground(FFTheme.parchment1)
 
             Section("Discover") {
                 NavigationLink { PodcastsView() } label: {
@@ -205,7 +209,9 @@ struct ExploreView: View {
                     Label("Search people & posts", systemImage: "magnifyingglass")
                 }
             }
+            .listRowBackground(FFTheme.parchment1)
         }
+        .ffListChrome()
         .navigationTitle("Explore")
         .task { await loadExplore() }
         .refreshable { await loadExplore() }

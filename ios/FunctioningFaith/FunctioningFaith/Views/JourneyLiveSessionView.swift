@@ -29,7 +29,7 @@ struct JourneyLiveSessionView: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            Text(journeyName).font(.title3.weight(.semibold))
+            Text(journeyName).font(FFTheme.display(20, weight: .semibold, relativeTo: .title3))
 
             Text(String(format: "%.2f km", tracker.sessionKm))
                 .font(.system(size: 56, weight: .bold, design: .rounded))
@@ -42,7 +42,7 @@ struct JourneyLiveSessionView: View {
 
             if let progress = tracker.latestProgress {
                 VStack(spacing: 4) {
-                    ProgressView(value: Double(progress.percent), total: 100).tint(progress.completed ? .green : .orange)
+                    ProgressView(value: Double(progress.percent), total: 100).tint(progress.completed ? FFTheme.emerald : FFTheme.hearth)
                     Text("\(progress.percent)% of the journey").font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(.horizontal, 32)
@@ -52,7 +52,7 @@ struct JourneyLiveSessionView: View {
                 VStack(spacing: 4) {
                     ForEach(tracker.justCrossed) { wp in
                         Label("Reached \(wp.title)", systemImage: "flag.checkered")
-                            .font(.subheadline.weight(.semibold)).foregroundStyle(.orange)
+                            .font(.subheadline.weight(.semibold)).foregroundStyle(FFTheme.hearth)
                     }
                 }
                 .transition(.opacity)
@@ -62,7 +62,7 @@ struct JourneyLiveSessionView: View {
                 Label(result.personalBest ? "Personal best segment! \(Self.timeLabel(result.durationSec))" : "Segment: \(Self.timeLabel(result.durationSec)) · #\(result.rank) on this road",
                       systemImage: result.personalBest ? "star.fill" : "stopwatch")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(result.personalBest ? .yellow : .secondary)
+                    .foregroundStyle(result.personalBest ? FFTheme.goldBright : .secondary)
             }
 
             Spacer()
@@ -72,8 +72,7 @@ struct JourneyLiveSessionView: View {
             } label: {
                 if isEnding { ProgressView() } else { Text("End session").frame(maxWidth: .infinity) }
             }
-            .buttonStyle(.borderedProminent)
-            .tint(.red)
+            .buttonStyle(.ffDestructive)
             .disabled(isEnding)
             .padding(.horizontal, 32)
         }
@@ -87,10 +86,10 @@ struct JourneyLiveSessionView: View {
     private var statusView: some View {
         switch tracker.authorization {
         case .authorizedAlways, .authorizedWhenInUse:
-            Label(tracker.sessionKm > 0 ? "Tracking" : "Locating…", systemImage: "location.fill").font(.caption).foregroundStyle(.green)
+            Label(tracker.sessionKm > 0 ? "Tracking" : "Locating…", systemImage: "location.fill").font(.caption).foregroundStyle(FFTheme.emerald)
         case .denied, .restricted:
             Label("Location permission is off -- this session can't record distance", systemImage: "location.slash")
-                .font(.caption).foregroundStyle(.red).multilineTextAlignment(.center).padding(.horizontal, 32)
+                .font(.caption).foregroundStyle(FFTheme.seal).multilineTextAlignment(.center).padding(.horizontal, 32)
         default:
             Label("Waiting for location permission", systemImage: "location").font(.caption).foregroundStyle(.secondary)
         }

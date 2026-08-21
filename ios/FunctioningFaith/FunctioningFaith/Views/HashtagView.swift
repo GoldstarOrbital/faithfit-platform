@@ -32,6 +32,7 @@ struct HashtagView: View {
                         )
                     }
                 }
+                .ffListChrome()
                 .listStyle(.plain)
                 .refreshable { await load() }
             }

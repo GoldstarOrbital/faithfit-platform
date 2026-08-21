@@ -37,6 +37,7 @@ struct ProfileView: View {
             savedPostsSection
             accountSection
         }
+        .ffListChrome()
         .navigationTitle("Profile")
         .task {
             if let current = session.profile {
@@ -93,6 +94,7 @@ struct ProfileView: View {
             if let church = profile.church, !church.isEmpty { Text(church).font(.caption).foregroundStyle(.secondary) }
             Button("Edit profile") { showEditProfile = true }
         } header: { Text("Stats") }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     @ViewBuilder
@@ -108,16 +110,17 @@ struct ProfileView: View {
                 }
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private func badgeRow(_ badge: BadgeCatalogEntry) -> some View {
         HStack {
             Image(systemName: badge.icon ?? "star.fill")
-                .foregroundStyle(badge.earned ? .yellow : .secondary)
+                .foregroundStyle(badge.earned ? FFTheme.goldBright : .secondary)
             VStack(alignment: .leading, spacing: 2) {
                 Text(badge.name).foregroundStyle(badge.earned ? .primary : .secondary)
                 if !badge.earned, let percent = badge.percent {
-                    ProgressView(value: Double(percent), total: 100).tint(.orange)
+                    ProgressView(value: Double(percent), total: 100).tint(FFTheme.hearth)
                 }
             }
         }
@@ -150,7 +153,7 @@ struct ProfileView: View {
                 }
                 .disabled(healthKitSyncing)
                 if let error = healthKit.lastSyncError {
-                    Text(error).font(.caption).foregroundStyle(.red)
+                    Text(error).font(.caption).foregroundStyle(FFTheme.seal)
                 }
             } else {
                 Button("Connect Apple Health") {
@@ -165,6 +168,7 @@ struct ProfileView: View {
         } footer: {
             Text("Reads workouts, step counts, and workout heart rate from Health — from your Apple Watch or any other app that writes into it (Fitbit, Garmin, Oura, and others all sync through Health). Functioning Faith never writes to your Health data.")
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     @ViewBuilder
@@ -195,6 +199,7 @@ struct ProfileView: View {
         } footer: {
             Text("Strava aggregates activity from most GPS watches and wearables (Garmin, Coros, Wahoo, and others), so connecting it brings that data in too.")
         }
+        .listRowBackground(FFTheme.parchment1)
         }
     }
 
@@ -230,6 +235,7 @@ struct ProfileView: View {
             Toggle("Personalize scripture with my biometrics", isOn: $scripturePersonalization)
                 .disabled(!biometricConsent)
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     @ViewBuilder
@@ -249,6 +255,7 @@ struct ProfileView: View {
             }
             NavigationLink("Muted, restricted & blocked") { SafetyView() }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private var signInSecuritySection: some View {
@@ -263,6 +270,7 @@ struct ProfileView: View {
             Text("This protects the signed-in app on this device. Account-level two-factor authentication and device sessions are managed by the server.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private var notificationsSection: some View {
@@ -278,6 +286,7 @@ struct ProfileView: View {
         } footer: {
             Text("You choose each category. Functioning Faith does not use notifications to create pressure or shame. You can change access any time in iOS Settings.")
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private var remindersSection: some View {
@@ -286,6 +295,7 @@ struct ProfileView: View {
                 Label("Reminders", systemImage: "bell.badge")
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private var savedPostsSection: some View {
@@ -294,6 +304,7 @@ struct ProfileView: View {
                 Label("Saved posts", systemImage: "bookmark")
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private var accountSection: some View {
@@ -305,6 +316,7 @@ struct ProfileView: View {
                 showingDeleteConfirmation = true
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     @ViewBuilder

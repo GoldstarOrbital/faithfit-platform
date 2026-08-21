@@ -22,6 +22,7 @@ struct AthleteProfileDetailView: View {
                     if !profile.endorsements.isEmpty { endorsementsSection(profile) }
                     linksSection(profile)
                 }
+                .ffListChrome()
             }
         }
         .navigationTitle(displayName)
@@ -53,6 +54,7 @@ struct AthleteProfileDetailView: View {
             if let heightCM = p.heightCM { Label(heightLabel(heightCM), systemImage: "ruler") }
             if let bio = p.bio, !bio.isEmpty { Text(bio).font(.callout).padding(.top, 4) }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private func heightLabel(_ cm: Int) -> String {
@@ -70,6 +72,7 @@ struct AthleteProfileDetailView: View {
                 if let hr = p.stats.avgHR90d { statTile("Avg HR", "\(hr) bpm") }
             }
         } header: { Text("Real training data") } footer: { Text("Pulled live from logged workouts, not self-reported.") }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private func statTile(_ title: String, _ value: String) -> some View {
@@ -90,14 +93,15 @@ struct AthleteProfileDetailView: View {
                 }
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     @ViewBuilder
     private func sourceBadge(_ stat: SportStatEntry) -> some View {
         if stat.confirmedBy > 0 {
-            Label("\(stat.confirmedBy)", systemImage: "checkmark.seal.fill").font(.caption2).foregroundStyle(.green)
+            Label("\(stat.confirmedBy)", systemImage: "checkmark.seal.fill").font(.caption2).foregroundStyle(FFTheme.emerald)
         } else if stat.source == "csv" {
-            Text("CSV").font(.caption2).foregroundStyle(.blue)
+            Text("CSV").font(.caption2).foregroundStyle(FFTheme.meadow)
         }
     }
 
@@ -109,6 +113,7 @@ struct AthleteProfileDetailView: View {
                 }
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private func teamsSection(_ p: AthleteProfile) -> some View {
@@ -122,6 +127,7 @@ struct AthleteProfileDetailView: View {
                 }
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private func awardsSection(_ p: AthleteProfile) -> some View {
@@ -134,6 +140,7 @@ struct AthleteProfileDetailView: View {
                 }
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private func endorsementsSection(_ p: AthleteProfile) -> some View {
@@ -147,6 +154,7 @@ struct AthleteProfileDetailView: View {
                 .padding(.vertical, 3)
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     @ViewBuilder
@@ -156,6 +164,7 @@ struct AthleteProfileDetailView: View {
                 if let s = p.maxprepsURL, let url = URL(string: s) { Link("MaxPreps", destination: url) }
                 if let s = p.gamechangerURL, let url = URL(string: s) { Link("GameChanger", destination: url) }
             }
+            .listRowBackground(FFTheme.parchment1)
         }
     }
 }

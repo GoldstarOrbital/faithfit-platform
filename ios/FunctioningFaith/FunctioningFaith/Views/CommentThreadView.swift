@@ -19,6 +19,7 @@ struct CommentThreadView: View {
                 }
                 .padding(.vertical, 4)
             }
+            .listRowBackground(FFTheme.parchment1)
 
             Section("Conversation") {
                 if isLoading {
@@ -41,14 +42,16 @@ struct CommentThreadView: View {
                                     .labelStyle(.titleAndIcon)
                             }
                             .buttonStyle(.borderless)
-                            .tint(comment.likedByMe ? .pink : .secondary)
+                            .tint(comment.likedByMe ? FFTheme.seal : .secondary)
                             .accessibilityLabel(comment.likedByMe ? "Unlike comment" : "Like comment")
                         }
                         .padding(.vertical, 3)
                     }
                 }
             }
+            .listRowBackground(FFTheme.parchment1)
         }
+        .ffListChrome()
         .listStyle(.plain)
         .navigationTitle("Conversation")
         .navigationBarTitleDisplayMode(.inline)

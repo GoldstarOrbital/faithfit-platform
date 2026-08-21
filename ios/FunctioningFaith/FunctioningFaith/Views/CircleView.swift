@@ -24,6 +24,7 @@ struct CircleView: View {
                     } footer: {
                         Text("Circle posts are only visible to people you add here. Membership is one-directional and silent -- they're never told they were added.")
                     }
+                    .listRowBackground(FFTheme.parchment1)
                     if !candidates.isEmpty {
                         Section("Your followers") {
                             ForEach(candidates) { candidate in
@@ -37,13 +38,16 @@ struct CircleView: View {
                                 }
                             }
                         }
+                        .listRowBackground(FFTheme.parchment1)
                     } else if !isLoading {
                         Section {
                             Text("Nobody follows you yet -- circle members can only be chosen from your followers.")
                                 .foregroundStyle(.secondary)
                         }
+                        .listRowBackground(FFTheme.parchment1)
                     }
                 }
+                .ffListChrome()
                 .refreshable { await load() }
             }
         }

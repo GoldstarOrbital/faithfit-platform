@@ -53,6 +53,7 @@ struct VideoLibraryView: View {
                 Button { playingVideo = video } label: { videoRow(video) }
                     .buttonStyle(.plain)
             }
+            .ffListChrome()
             .listStyle(.plain)
         }
     }

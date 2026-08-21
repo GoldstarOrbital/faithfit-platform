@@ -19,8 +19,10 @@ struct JourneysListView: View {
                                 NavigationLink(value: journey.key) { JourneyRow(journey: journey) }
                             }
                         }
+                        .listRowBackground(FFTheme.parchment1)
                     }
                 }
+                .ffListChrome()
                 .refreshable { await load() }
             }
         }
@@ -46,14 +48,14 @@ private struct JourneyRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(journey.name).font(.headline)
+                Text(journey.name).font(FFTheme.display(17))
                 Spacer()
-                if journey.completed { Image(systemName: "checkmark.seal.fill").foregroundStyle(.green) }
+                if journey.completed { Image(systemName: "checkmark.seal.fill").foregroundStyle(FFTheme.emerald) }
             }
             if let subtitle = journey.subtitle { Text(subtitle).font(.caption).foregroundStyle(.secondary) }
             if journey.joined, let percent = journey.percent {
                 ProgressView(value: Double(percent), total: 100)
-                    .tint(journey.completed ? .green : .orange)
+                    .tint(journey.completed ? FFTheme.emerald : FFTheme.hearth)
                 HStack {
                     Text("\(String(format: "%.1f", journey.progressKm ?? 0)) / \(String(format: "%.1f", journey.totalKm)) km")
                     Spacer()

@@ -34,7 +34,7 @@ struct StoriesRail: View {
                     VStack(spacing: 4) {
                         let allViewed = group.stories.allSatisfy(\.isViewed)
                         Circle()
-                            .strokeBorder(allViewed ? Color.secondary.opacity(0.4) : Color.orange, lineWidth: 2)
+                            .strokeBorder(allViewed ? Color.secondary.opacity(0.4) : FFTheme.hearth, lineWidth: 2)
                             .frame(width: 60, height: 60)
                             .overlay(Text(initials(group.authorName)).font(.headline))
                         Text(group.authorName).font(.caption2).lineLimit(1).frame(maxWidth: 66)

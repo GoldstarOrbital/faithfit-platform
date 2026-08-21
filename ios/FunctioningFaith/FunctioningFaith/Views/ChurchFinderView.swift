@@ -22,6 +22,7 @@ struct ChurchFinderView: View {
             myChurchSection
             searchSection
         }
+        .ffListChrome()
         .navigationTitle("Find a Church")
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadMyChurchContent() }
@@ -90,6 +91,7 @@ struct ChurchFinderView: View {
             } footer: {
                 Text("Devotionals and service video appear once your church's verified admin links a YouTube channel from the web app.")
             }
+            .listRowBackground(FFTheme.parchment1)
         }
     }
 
@@ -114,21 +116,25 @@ struct ChurchFinderView: View {
             Section {
                 HStack { Spacer(); ProgressView("Finding churches near you…"); Spacer() }
             }
+            .listRowBackground(FFTheme.parchment1)
         } else if !hasSearched {
             Section {
                 startPrompt
             }
+            .listRowBackground(FFTheme.parchment1)
         } else if churches.isEmpty {
             Section {
                 Text("No churches found nearby. Try again, or search from a different area.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            .listRowBackground(FFTheme.parchment1)
         } else {
             Section("Nearby") {
                 ForEach(churches) { church in
                     churchRow(church)
                 }
             }
+            .listRowBackground(FFTheme.parchment1)
         }
     }
 
@@ -139,7 +145,7 @@ struct ChurchFinderView: View {
             Text("Uses your location just for this search, via OpenStreetMap.")
                 .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
             Button("Search nearby") { Task { await search() } }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.ffPrimary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
@@ -163,7 +169,7 @@ struct ChurchFinderView: View {
                 Task { await setAsMyChurch(church) }
             } label: {
                 Image(systemName: isMyChurch(church) ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(isMyChurch(church) ? .green : .secondary)
+                    .foregroundStyle(isMyChurch(church) ? FFTheme.emerald : .secondary)
             }
             .buttonStyle(.plain)
         }

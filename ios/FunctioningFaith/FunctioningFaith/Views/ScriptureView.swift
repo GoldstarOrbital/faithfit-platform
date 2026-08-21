@@ -50,6 +50,7 @@ struct ScriptureView: View {
             randomVerseSection
             navigationSection
         }
+        .ffListChrome()
         .navigationTitle("Scripture")
         .task {
             await loadVerse()
@@ -71,7 +72,7 @@ struct ScriptureView: View {
             if isLoadingVerse && verse == nil {
                 ProgressView()
             } else if let verse {
-                Text(verse.text).font(.body)
+                Text(verse.text).font(FFTheme.serif())
                 Text(verse.reference).font(.subheadline).foregroundStyle(.secondary)
                 HStack {
                     Button {
@@ -91,6 +92,7 @@ struct ScriptureView: View {
         } header: {
             Text("A verse to sit with")
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private var navigationSection: some View {
@@ -120,6 +122,7 @@ struct ScriptureView: View {
                 Label("Bible translation", systemImage: "text.book.closed")
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private func loadVerse() async {

@@ -25,6 +25,7 @@ struct NotificationsView: View {
                         .onTapGesture { Task { await open(item) } }
                         .listRowBackground(item.isRead ? Color.clear : Color.accentColor.opacity(0.06))
                 }
+                .ffListChrome()
                 .refreshable { await load() }
             }
         }

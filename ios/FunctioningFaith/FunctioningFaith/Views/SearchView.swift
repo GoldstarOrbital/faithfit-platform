@@ -23,8 +23,10 @@ struct SearchView: View {
                                 resultRow(item, groupType: group.type)
                             }
                         }
+                        .listRowBackground(FFTheme.parchment1)
                     }
                 }
+                .ffListChrome()
             }
         }
         .navigationTitle("Search")

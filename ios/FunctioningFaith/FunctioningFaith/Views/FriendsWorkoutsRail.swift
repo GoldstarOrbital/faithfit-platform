@@ -16,7 +16,7 @@ struct MotivationCard: View {
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 12).fill(.orange.opacity(0.08)))
+                .background(RoundedRectangle(cornerRadius: 12).fill(FFTheme.hearth.opacity(0.08)))
             }
         }
         .task {
@@ -65,7 +65,7 @@ struct FriendsWorkoutsRail: View {
             }
             .font(.caption)
             .buttonStyle(.plain)
-            .foregroundStyle(workout.kudosByMe ? .orange : .secondary)
+            .foregroundStyle(workout.kudosByMe ? FFTheme.hearth : .secondary)
         }
         .padding(10)
         .frame(width: 140, alignment: .leading)

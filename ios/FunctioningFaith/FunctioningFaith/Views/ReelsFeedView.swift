@@ -26,6 +26,7 @@ struct ReelsFeedView: View {
                              onSave: { react(reel, kind: "save") },
                              onNotInterested: { hide(reel) })
                 }
+                .ffListChrome()
                 .listStyle(.plain)
                 .refreshable { await load() }
             }
@@ -114,15 +115,15 @@ private struct ReelCard: View {
             }
             .font(.caption).foregroundStyle(.secondary)
             if let ref = reel.verseReference {
-                Text(ref).font(.caption.weight(.semibold)).foregroundStyle(.indigo)
+                Text(ref).font(.caption.weight(.semibold)).foregroundStyle(FFTheme.scripture)
             }
             HStack(spacing: 18) {
                 Button { onLike() } label: {
                     Label("\(reel.likeCount)", systemImage: reel.likedByMe ? "heart.fill" : "heart")
-                }.foregroundStyle(reel.likedByMe ? .red : .primary)
+                }.foregroundStyle(reel.likedByMe ? FFTheme.seal : .primary)
                 Button { onSave() } label: {
                     Label("\(reel.saveCount)", systemImage: reel.savedByMe ? "bookmark.fill" : "bookmark")
-                }.foregroundStyle(reel.savedByMe ? .blue : .primary)
+                }.foregroundStyle(reel.savedByMe ? FFTheme.meadow : .primary)
                 Spacer()
                 Button(role: .destructive) { onNotInterested() } label: {
                     Label("Not interested", systemImage: "hand.thumbsdown")

@@ -26,6 +26,7 @@ struct StatsView: View {
                     if !breakdown.isEmpty { breakdownSection }
                     if !records.isEmpty { personalRecordsSection }
                 }
+                .ffListChrome()
                 .refreshable { await load() }
             } else {
                 ContentUnavailableView("No stats yet", systemImage: "chart.bar", description: Text("Complete a workout to start tracking your progress."))
@@ -78,6 +79,7 @@ struct StatsView: View {
         } header: {
             Text("Goals")
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private func goalRow(_ goal: TrainingGoal) -> some View {
@@ -87,7 +89,7 @@ struct StatsView: View {
                 Spacer()
                 if goal.completed { Image(systemName: "checkmark.seal.fill").foregroundStyle(.green) }
             }
-            ProgressView(value: Double(goal.percent), total: 100).tint(goal.completed ? .green : .orange)
+            ProgressView(value: Double(goal.percent), total: 100).tint(goal.completed ? FFTheme.emerald : FFTheme.hearth)
             Text("\(goalProgressLabel(goal)) · \(goal.period.capitalized)").font(.caption2).foregroundStyle(.secondary)
         }
         .padding(.vertical, 3)
@@ -121,17 +123,18 @@ struct StatsView: View {
         Section {
             HStack {
                 VStack(alignment: .leading) {
-                    Text("\(summary.streakDays)").font(.system(size: 34, weight: .bold))
+                    Text("\(summary.streakDays)").font(FFTheme.display(34, weight: .bold, relativeTo: .largeTitle))
                     Text(summary.streakDays == 1 ? "day streak" : "day streak").font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 VStack(alignment: .trailing) {
-                    Text("\(summary.activeDays)").font(.system(size: 34, weight: .bold))
+                    Text("\(summary.activeDays)").font(FFTheme.display(34, weight: .bold, relativeTo: .largeTitle))
                     Text("active days").font(.caption).foregroundStyle(.secondary)
                 }
             }
             .padding(.vertical, 6)
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     @ViewBuilder
@@ -150,6 +153,7 @@ struct StatsView: View {
                 statTile("Calories", "\(totals.calories)")
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private func statTile(_ title: String, _ value: String) -> some View {
@@ -173,6 +177,7 @@ struct StatsView: View {
             .frame(height: 160)
             .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     @ViewBuilder
@@ -184,6 +189,7 @@ struct StatsView: View {
             if let c = r.mostCalories { recordRow("Most calories", "\(c) kcal") }
             if let h = r.highestHR { recordRow("Highest heart rate", "\(h) bpm") }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private func recordRow(_ label: String, _ value: String) -> some View {
@@ -201,6 +207,7 @@ struct StatsView: View {
                 }
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private var personalRecordsSection: some View {
@@ -217,6 +224,7 @@ struct StatsView: View {
                 }
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private func formattedValue(_ r: PersonalRecord) -> String {
@@ -253,7 +261,9 @@ private struct GoalComposerView: View {
                     ForEach(periods, id: \.self) { p in Text(p.capitalized).tag(p) }
                 }
             }
+            .listRowBackground(FFTheme.parchment1)
         }
+        .ffListChrome()
         .navigationTitle("New Goal")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

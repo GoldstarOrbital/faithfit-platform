@@ -42,6 +42,7 @@ struct LeaderboardView: View {
             List(entries) { entry in
                 entryRow(entry)
             }
+            .ffListChrome()
             .listStyle(.plain)
         }
     }

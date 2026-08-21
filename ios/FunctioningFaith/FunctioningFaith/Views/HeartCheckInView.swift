@@ -36,7 +36,7 @@ struct HeartCheckInView: View {
             Text("See how your heart is doing right now, at rest.")
                 .multilineTextAlignment(.center).foregroundStyle(.secondary)
             Button("Check now") { Task { await check() } }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.ffPrimary)
         }
     }
 
@@ -65,7 +65,7 @@ struct HeartCheckInView: View {
                 } label: {
                     Label("Try \(suggested.name) (\(suggested.minutes) min)", systemImage: "wind")
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.ffPrimary)
             }
             Button("Check again") { Task { await check() } }
                 .font(.caption)

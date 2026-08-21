@@ -22,6 +22,7 @@ struct SafetyView: View {
                     section("Restricted", items: relationships.restricted, control: "restrict", note: "New message threads from them are blocked; existing conversations still work.")
                     section("Blocked", items: relationships.blocked, control: "block", note: "Neither of you can message the other.")
                 }
+                .ffListChrome()
                 .refreshable { await load() }
             }
         }
@@ -47,6 +48,7 @@ struct SafetyView: View {
                     }
                 }
             } header: { Text(title) } footer: { Text(note) }
+            .listRowBackground(FFTheme.parchment1)
         }
     }
 

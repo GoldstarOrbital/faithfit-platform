@@ -28,6 +28,7 @@ struct BibleBrowseView: View {
                         }
                     }
                 }
+                .ffListChrome()
             }
         }
         .navigationTitle("Read")
@@ -94,6 +95,7 @@ struct BiblePassageView: View {
                 List(passage.verses) { verse in
                     verseRow(verse)
                 }
+                .ffListChrome()
                 .listStyle(.plain)
             }
         }
@@ -112,7 +114,7 @@ struct BiblePassageView: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 20, alignment: .trailing)
             Text(verse.text)
-                .font(.body)
+                .font(FFTheme.serif())
             Spacer()
             NavigationLink {
                 VerseThreadView(reference: verse.reference)

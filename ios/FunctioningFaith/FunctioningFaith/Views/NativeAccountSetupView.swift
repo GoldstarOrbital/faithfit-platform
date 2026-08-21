@@ -25,9 +25,11 @@ struct NativeAccountSetupView: View {
                 } header: {
                     Text("Account safety")
                 }
+                .listRowBackground(FFTheme.parchment1)
 
                 if let errorMessage {
-                    Section { Text(errorMessage).foregroundStyle(.red) }
+                    Section { Text(errorMessage).foregroundStyle(FFTheme.seal) }
+                        .listRowBackground(FFTheme.parchment1)
                 }
 
                 Section {
@@ -40,7 +42,9 @@ struct NativeAccountSetupView: View {
                     .disabled(!acceptedTerms || !isEligibleAge || isSubmitting)
                     Button("Sign out", role: .destructive, action: onSignOut)
                 }
+                .listRowBackground(FFTheme.parchment1)
             }
+            .ffListChrome()
             .navigationTitle("One quick step")
         }
     }

@@ -20,6 +20,7 @@ struct RemindersView: View {
                     }
                     .onDelete(perform: delete)
                 }
+                .ffListChrome()
             }
         }
         .navigationTitle("Reminders")
@@ -115,6 +116,7 @@ struct ReminderComposerView: View {
                 TextField("Message", text: $message, axis: .vertical)
                     .lineLimit(2...4)
             }
+            .listRowBackground(FFTheme.parchment1)
             Section("When") {
                 DatePicker("Time", selection: $scheduledAt, in: Date()..., displayedComponents: [.date, .hourAndMinute])
                 Picker("Repeat", selection: $repeatRule) {
@@ -123,7 +125,9 @@ struct ReminderComposerView: View {
                     Text("Weekly").tag("weekly")
                 }
             }
+            .listRowBackground(FFTheme.parchment1)
         }
+        .ffListChrome()
         .navigationTitle("New Reminder")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

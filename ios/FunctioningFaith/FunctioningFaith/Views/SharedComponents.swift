@@ -42,7 +42,7 @@ struct FFEmptyStateView: View {
         } actions: {
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.ffPrimary)
                     .ffMinTapTarget()
             }
         }
@@ -62,7 +62,7 @@ struct FFErrorStateView: View {
         } actions: {
             if let onRetry {
                 Button(retryTitle, action: onRetry)
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.ffPrimary)
                     .ffMinTapTarget()
             }
         }
@@ -115,7 +115,55 @@ struct FFCard<Content: View>: View {
 
     var body: some View {
         content()
-            .padding(FFTheme.Space.md)
-            .background(.background.secondary, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
+            .ffCardChrome()
     }
+}
+
+// MARK: - Buttons
+// Mirror web `button.primary` (meadow gradient pill, cream text, Cinzel label)
+// and `button.ghost` (parchment outline).
+
+struct FFPrimaryButtonStyle: ButtonStyle {
+    var isDestructive: Bool = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(FFTheme.display(15, weight: .semibold, relativeTo: .subheadline))
+            .foregroundStyle(FFTheme.cream)
+            .padding(.horizontal, FFTheme.Space.md)
+            .padding(.vertical, FFTheme.Space.sm)
+            .frame(minHeight: FFTheme.minTapTarget)
+            .background(
+                LinearGradient(
+                    colors: isDestructive ? [FFTheme.seal, FFTheme.seal.opacity(0.85)] : [FFTheme.meadow2, FFTheme.meadow],
+                    startPoint: .top, endPoint: .bottom
+                ),
+                in: Capsule()
+            )
+            .opacity(configuration.isPressed ? 0.85 : 1)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+    }
+}
+
+struct FFGhostButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(FFTheme.serifSemibold(15, relativeTo: .subheadline))
+            .foregroundStyle(FFTheme.ink)
+            .padding(.horizontal, FFTheme.Space.md)
+            .padding(.vertical, FFTheme.Space.sm)
+            .frame(minHeight: FFTheme.minTapTarget)
+            .background(FFTheme.parchment2, in: Capsule())
+            .overlay(Capsule().strokeBorder(FFTheme.hairline, lineWidth: 1))
+            .opacity(configuration.isPressed ? 0.7 : 1)
+    }
+}
+
+extension ButtonStyle where Self == FFPrimaryButtonStyle {
+    static var ffPrimary: FFPrimaryButtonStyle { FFPrimaryButtonStyle() }
+    static var ffDestructive: FFPrimaryButtonStyle { FFPrimaryButtonStyle(isDestructive: true) }
+}
+
+extension ButtonStyle where Self == FFGhostButtonStyle {
+    static var ffGhost: FFGhostButtonStyle { FFGhostButtonStyle() }
 }

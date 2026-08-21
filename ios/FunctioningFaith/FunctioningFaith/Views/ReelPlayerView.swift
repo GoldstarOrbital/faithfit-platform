@@ -132,7 +132,7 @@ private struct ExternalWatchView: View {
             Image(systemName: "arrow.up.right.square").font(.system(size: 44)).foregroundStyle(.tint)
             Text(title ?? "This video").font(.headline).multilineTextAlignment(.center)
             Text("Opens outside the app.").font(.caption).foregroundStyle(.secondary)
-            Button("Watch") { openURL(url) }.buttonStyle(.borderedProminent)
+            Button("Watch") { openURL(url) }.buttonStyle(.ffPrimary)
         }
         .padding()
     }

@@ -35,6 +35,7 @@ struct VerseThreadView: View {
                         startSection
                     }
                 }
+                .ffListChrome()
                 .listStyle(.plain)
             }
         }
@@ -50,7 +51,7 @@ struct VerseThreadView: View {
     private var verseSection: some View {
         if let verse {
             Section {
-                Text(verse.text).font(.body)
+                Text(verse.text).font(FFTheme.serif())
                 if let openedByName = thread?.openedByName {
                     Text("Conversation started by \(openedByName)").font(.caption).foregroundStyle(.secondary)
                 }
@@ -58,6 +59,7 @@ struct VerseThreadView: View {
                     Text(prompt).font(.subheadline).italic()
                 }
             }
+            .listRowBackground(FFTheme.parchment1)
         }
     }
 
@@ -84,6 +86,7 @@ struct VerseThreadView: View {
                 }
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private var startSection: some View {
@@ -93,9 +96,10 @@ struct VerseThreadView: View {
             Button("Open this verse's conversation") {
                 Task { await openThread() }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.ffPrimary)
             .disabled(isSubmitting)
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private var reflectionsSection: some View {
@@ -108,6 +112,7 @@ struct VerseThreadView: View {
                 }
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     // Split out of reflectionsSection's ForEach for the same reason other
@@ -164,6 +169,7 @@ struct VerseThreadView: View {
             }
             .disabled(newReflection.trimmingCharacters(in: .whitespaces).isEmpty || isSubmitting)
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private func load() async {
@@ -279,6 +285,7 @@ struct DiscussedVersesView: View {
                         discussedRow(verse)
                     }
                 }
+                .ffListChrome()
             }
         }
         .navigationTitle("Discussions")

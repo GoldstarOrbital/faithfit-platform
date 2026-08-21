@@ -53,13 +53,17 @@ struct EditProfileView: View {
                         .onChange(of: displayName) { _, newValue in scheduleUsernameCheck(newValue) }
                     usernameStatusView
                 } header: { Text("Username") } footer: { Text("How people find and mention you. No two members can share one.") }
+                .listRowBackground(FFTheme.parchment1)
 
                 Section {
                     TextField("e.g. Philippians 4:13", text: $bioVerseRef)
                 } header: { Text("Bio verse") } footer: { Text("Must match a verse in the verified library -- \"Book Chapter:Verse\", e.g. \"Philippians 4:13\". Leave blank to clear it.") }
+                .listRowBackground(FFTheme.parchment1)
 
                 Section("Job") { TextField("e.g. Nurse", text: $job) }
+                    .listRowBackground(FFTheme.parchment1)
                 Section("Church") { TextField("e.g. Grace Community Church", text: $church) }
+                    .listRowBackground(FFTheme.parchment1)
 
                 Section {
                     Picker("Tradition", selection: $tradition) {
@@ -68,7 +72,9 @@ struct EditProfileView: View {
                 } footer: {
                     Text("Shapes how scripture is chosen for you mid-workout and how the companion answers your questions. Left blank, nothing is assumed.")
                 }
+                .listRowBackground(FFTheme.parchment1)
             }
+            .ffListChrome()
             .navigationTitle("Edit Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -94,12 +100,12 @@ struct EditProfileView: View {
         } else if let status = usernameStatus {
             if status.available {
                 if displayName != profile.displayName {
-                    Label("Available", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+                    Label("Available", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(FFTheme.emerald)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 4) {
                     Label(status.message ?? "That name is taken.", systemImage: "xmark.circle.fill")
-                        .font(.caption).foregroundStyle(.red)
+                        .font(.caption).foregroundStyle(FFTheme.seal)
                     if let suggestion = status.suggestion {
                         Button("Use \"\(suggestion)\" instead") { displayName = suggestion; scheduleUsernameCheck(suggestion) }
                             .font(.caption)

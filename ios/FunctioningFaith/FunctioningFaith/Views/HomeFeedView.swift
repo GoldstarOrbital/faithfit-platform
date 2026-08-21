@@ -56,7 +56,7 @@ struct HomeFeedView: View {
                         Button { toggleLike(post) } label: { Label(post.likedByMe ? "Unlike" : "Like", systemImage: post.likedByMe ? "heart.slash" : "heart.fill") }
                             .tint(.pink)
                         Button { toggleSave(post) } label: { Label(post.savedByMe ? "Unsave" : "Save", systemImage: post.savedByMe ? "bookmark.slash" : "bookmark.fill") }
-                            .tint(.blue)
+                            .tint(FFTheme.meadow)
                     }
             }
             if isLoadingMore {
@@ -68,6 +68,7 @@ struct HomeFeedView: View {
                 .listRowSeparator(.hidden)
             }
         }
+        .ffListChrome()
         .listStyle(.plain)
         .refreshable { await loadFeed() }
         .navigationTitle("Home")
@@ -195,7 +196,7 @@ struct HomeFeedView: View {
         ZStack(alignment: .topTrailing) {
             Image(systemName: systemName)
             if count > 0 {
-                Circle().fill(.red).frame(width: 8, height: 8).offset(x: 3, y: -3)
+                Circle().fill(FFTheme.seal).frame(width: 8, height: 8).offset(x: 3, y: -3)
             }
         }
     }
@@ -302,12 +303,12 @@ struct VerseSnippetCard: View {
     let verse: VerseSnippet
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(verse.reference).font(.caption.weight(.bold)).foregroundStyle(.indigo)
+            Text(verse.reference).font(.caption.weight(.bold)).foregroundStyle(FFTheme.scripture)
             Text(verse.snippet).font(.caption).italic()
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.indigo.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .background(FFTheme.scripture.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
         .accessibilityLabel("Scripture: \(verse.reference). \(verse.snippet)")
     }
 }

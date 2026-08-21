@@ -26,6 +26,7 @@ struct NewsView: View {
                     }
                     .buttonStyle(.plain)
                 }
+                .ffListChrome()
             }
         }
         .navigationTitle("News")

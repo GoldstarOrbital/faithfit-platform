@@ -27,7 +27,7 @@ struct SocialOnboardingView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 ProgressView(value: Double(step + 1), total: 3)
-                    .tint(.orange)
+                    .tint(FFTheme.hearth)
                     .padding(.horizontal, 24)
                     .padding(.top, 12)
 
@@ -43,13 +43,12 @@ struct SocialOnboardingView: View {
                 HStack(spacing: 12) {
                     if step > 0 {
                         Button("Back") { step -= 1 }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.ffGhost)
                     }
                     Button(step == 2 ? "Enter Functioning Faith" : "Continue") {
                         if step == 2 { finish() } else { step += 1 }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
+                    .buttonStyle(.ffPrimary)
                     .frame(maxWidth: .infinity)
                 }
                 .padding(24)
@@ -69,7 +68,7 @@ struct SocialOnboardingView: View {
             VStack(spacing: 22) {
                 Image(systemName: "figure.run.circle.fill")
                     .font(.system(size: 74))
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(FFTheme.hearth)
                     .accessibilityHidden(true)
                 Text("Welcome to your Christian fitness community")
                     .font(.largeTitle.bold())
@@ -174,14 +173,14 @@ struct SocialOnboardingView: View {
         HStack(spacing: 12) {
             Image(systemName: completed ? "checkmark.circle.fill" : "person.crop.circle")
                 .font(.title2)
-                .foregroundStyle(completed ? .green : .indigo)
+                .foregroundStyle(completed ? FFTheme.emerald : FFTheme.meadow)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.headline)
                 if !subtitle.isEmpty { Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
             }
             Spacer()
             Button(completed ? "Added" : actionTitle, action: action)
-                .buttonStyle(.bordered)
+                .buttonStyle(.ffGhost)
                 .disabled(completed)
         }
         .padding()
@@ -197,7 +196,7 @@ struct SocialOnboardingView: View {
                     Text(detail).font(.caption).foregroundStyle(.secondary)
                 }
             } icon: {
-                Image(systemName: icon).foregroundStyle(.orange)
+                Image(systemName: icon).foregroundStyle(FFTheme.hearth)
             }
         }
         .padding()

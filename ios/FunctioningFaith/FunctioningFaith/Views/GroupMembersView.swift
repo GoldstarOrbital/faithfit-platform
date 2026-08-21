@@ -20,12 +20,13 @@ struct GroupMembersView: View {
                     HStack {
                         VStack(alignment: .leading) {
                             Text(member.displayName)
-                            if member.isAdmin { Text("Admin").font(.caption).foregroundStyle(.indigo) }
+                            if member.isAdmin { Text("Admin").font(.caption).foregroundStyle(FFTheme.gold) }
                         }
                         Spacer()
                         Button("Remove", role: .destructive) { removeCandidate = member }
                     }
                 }
+                .ffListChrome()
                 .refreshable { await load() }
             }
         }

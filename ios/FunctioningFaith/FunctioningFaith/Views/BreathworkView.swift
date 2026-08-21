@@ -19,6 +19,7 @@ struct BreathworkView: View {
                         patternRow(pattern)
                     }
                 }
+                .ffListChrome()
             }
         }
         .navigationTitle("Breathe")
@@ -118,17 +119,17 @@ struct BreathingSessionView: View {
     @ViewBuilder
     private var controls: some View {
         if isComplete {
-            Label("Session complete", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+            Label("Session complete", systemImage: "checkmark.circle.fill").foregroundStyle(FFTheme.emerald)
             Button("Done") { Task { await finish() } }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.ffPrimary)
         } else {
             Button(isRunning ? "Pause" : "Start") {
                 isRunning ? pause() : start()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.ffPrimary)
             if totalElapsed > 0 {
                 Button("Finish now") { Task { await finish() } }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.ffGhost)
             }
         }
     }

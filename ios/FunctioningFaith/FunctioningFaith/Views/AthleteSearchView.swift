@@ -33,6 +33,7 @@ struct AthleteSearchView: View {
                         AthleteResultRow(athlete: athlete)
                     }
                 }
+                .ffListChrome()
             }
         }
         .navigationTitle("Athlete Recruiting")

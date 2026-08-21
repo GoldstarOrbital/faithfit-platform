@@ -22,7 +22,7 @@ struct GroupDetailView: View {
             if let announcement = detail?.announcement, !announcement.isEmpty {
                 Section {
                     VStack(alignment: .leading, spacing: 6) {
-                        Label("Pinned announcement", systemImage: "pin.fill").font(.caption.weight(.semibold)).foregroundStyle(.orange)
+                        Label("Pinned announcement", systemImage: "pin.fill").font(.caption.weight(.semibold)).foregroundStyle(FFTheme.hearth)
                         Text(announcement)
                         if detail?.isAdmin == true {
                             Button("Edit") { announcementDraft = announcement; showAnnouncementEditor = true }
@@ -31,10 +31,12 @@ struct GroupDetailView: View {
                     }
                     .padding(.vertical, 3)
                 }
+                .listRowBackground(FFTheme.parchment1)
             } else if detail?.isAdmin == true {
                 Section {
                     Button("Pin an announcement") { announcementDraft = ""; showAnnouncementEditor = true }
                 }
+                .listRowBackground(FFTheme.parchment1)
             }
             Section {
                 VStack(alignment: .leading, spacing: 8) {
@@ -57,7 +59,7 @@ struct GroupDetailView: View {
                 if let detail {
                     if detail.isAdmin {
                         Label("You manage this group", systemImage: "checkmark.seal.fill")
-                            .foregroundStyle(.indigo)
+                            .foregroundStyle(FFTheme.gold)
                         NavigationLink("Manage members") { GroupMembersView(groupID: group.id) }
                     } else {
                         Button(detail.isMember ? "Leave group" : "Join group", role: detail.isMember ? .destructive : nil) {
@@ -67,6 +69,7 @@ struct GroupDetailView: View {
                     }
                 }
             }
+            .listRowBackground(FFTheme.parchment1)
 
             if let detail, detail.isMember {
                 Section {
@@ -99,6 +102,7 @@ struct GroupDetailView: View {
                         if let count = pulse?.todayCount { Text("\(count) today").font(.caption).foregroundStyle(.secondary) }
                     }
                 }
+                .listRowBackground(FFTheme.parchment1)
 
                 Section("Conversation") {
                     if detail.messages.isEmpty {
@@ -125,6 +129,7 @@ struct GroupDetailView: View {
                         .accessibilityLabel("Send group message")
                     }
                 }
+                .listRowBackground(FFTheme.parchment1)
             }
 
             if let events = detail?.events, !events.isEmpty {
@@ -136,12 +141,15 @@ struct GroupDetailView: View {
                         Button("New event") { showEventComposer = true }
                     }
                 }
+                .listRowBackground(FFTheme.parchment1)
             } else if detail?.isMember == true {
                 Section("Upcoming") {
                     Button("New event") { showEventComposer = true }
                 }
+                .listRowBackground(FFTheme.parchment1)
             }
         }
+        .ffListChrome()
         .navigationTitle(group.name)
         .navigationBarTitleDisplayMode(.inline)
         .overlay { if isLoading { ProgressView() } }
@@ -172,7 +180,9 @@ struct GroupDetailView: View {
                     } footer: {
                         Text("Visible to every member, pinned above the conversation. Clear the text to unpin it.")
                     }
+                    .listRowBackground(FFTheme.parchment1)
                 }
+                .ffListChrome()
                 .navigationTitle("Announcement")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -201,14 +211,18 @@ struct GroupDetailView: View {
 
     @ViewBuilder
     private func pulseKindButton(_ kind: String, title: String, icon: String) -> some View {
-        Button {
-            selectedPulseKind = kind
-        } label: {
-            Label(title, systemImage: icon).font(.caption.weight(.semibold)).frame(maxWidth: .infinity)
+        if selectedPulseKind == kind {
+            Button { selectedPulseKind = kind } label: {
+                Label(title, systemImage: icon).font(.caption.weight(.semibold)).frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.ffPrimary)
+            .accessibilityAddTraits(.isSelected)
+        } else {
+            Button { selectedPulseKind = kind } label: {
+                Label(title, systemImage: icon).font(.caption.weight(.semibold)).frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.ffGhost)
         }
-        .buttonStyle(.bordered)
-        .tint(selectedPulseKind == kind ? .orange : .secondary)
-        .accessibilityAddTraits(selectedPulseKind == kind ? .isSelected : [])
     }
 
     @ViewBuilder
@@ -221,7 +235,7 @@ struct GroupDetailView: View {
             }
             Text([pulseTitle(checkin.kind), checkin.note].compactMap { $0 }.joined(separator: " · "))
             if let reference = checkin.verseReference {
-                Text(reference).font(.caption.weight(.semibold)).foregroundStyle(.indigo)
+                Text(reference).font(.caption.weight(.semibold)).foregroundStyle(FFTheme.scripture)
                 if let verse = checkin.verseText { Text(verse).font(.caption).italic().foregroundStyle(.secondary) }
             }
             if checkin.userID != session.profile?.id.uuidString {
@@ -294,13 +308,22 @@ struct GroupDetailView: View {
         .padding(.vertical, 4)
     }
 
+    @ViewBuilder
     private func rsvpButton(_ event: GroupEvent, status: String, label: String) -> some View {
-        Button(label) {
-            Task { await rsvp(event, status: event.myRSVP == status ? "none" : status) }
+        if event.myRSVP == status {
+            Button(label) {
+                Task { await rsvp(event, status: "none") }
+            }
+            .font(.caption.weight(.semibold))
+            .buttonStyle(.ffPrimary)
+            .accessibilityAddTraits(.isSelected)
+        } else {
+            Button(label) {
+                Task { await rsvp(event, status: status) }
+            }
+            .font(.caption.weight(.semibold))
+            .buttonStyle(.ffGhost)
         }
-        .font(.caption.weight(.semibold))
-        .buttonStyle(.bordered)
-        .tint(event.myRSVP == status ? .orange : .secondary)
     }
 
     private func rsvp(_ event: GroupEvent, status: String) async {
@@ -369,7 +392,9 @@ private struct GroupEventComposerView: View {
                 DatePicker("When", selection: $eventTime, in: Date()..., displayedComponents: [.date, .hourAndMinute])
                 TextField("Location (optional)", text: $locationName)
             }
+            .listRowBackground(FFTheme.parchment1)
         }
+        .ffListChrome()
         .navigationTitle("New Event")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

@@ -52,7 +52,7 @@ struct NativeAuthView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     Image(systemName: "figure.run.circle.fill")
-                        .font(.system(size: 64)).foregroundStyle(.orange)
+                        .font(.system(size: 64)).foregroundStyle(FFTheme.hearth)
                     Text("Functioning Faith").font(.largeTitle.bold())
                     Text(isRegistering ? "Build a rhythm that strengthens body and spirit." : "Welcome back to your rhythm.")
                         .multilineTextAlignment(.center).foregroundStyle(.secondary)
@@ -67,8 +67,7 @@ struct NativeAuthView: View {
                                     Label("Continue with \(providerTitle(provider))", systemImage: "person.badge.key.fill")
                                         .frame(maxWidth: .infinity).padding(.vertical, 8)
                                 }
-                                .buttonStyle(.bordered)
-                                .tint(.indigo)
+                                .buttonStyle(.ffGhost)
                                 .disabled(isSubmitting)
                             }
                         }
@@ -111,12 +110,12 @@ struct NativeAuthView: View {
             Text("Use 12+ characters and at least three of: lowercase, uppercase, number, or symbol.")
                 .font(.caption).foregroundStyle(.secondary)
         }
-        if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red).accessibilityAddTraits(.isStaticText) }
+        if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(FFTheme.seal).accessibilityAddTraits(.isStaticText) }
         Button(action: submit) {
             Group { if isSubmitting { ProgressView().tint(.white) } else { Text(isRegistering ? "Create account" : "Sign in") } }
                 .frame(maxWidth: .infinity).padding(.vertical, 12)
         }
-        .buttonStyle(.borderedProminent).disabled(isSubmitting || !canSubmit)
+        .buttonStyle(.ffPrimary).disabled(isSubmitting || !canSubmit)
     }
 
     @ViewBuilder
@@ -128,9 +127,9 @@ struct NativeAuthView: View {
             .keyboardType(.asciiCapable)
             .textInputAutocapitalization(.characters)
             .textFieldStyle(.roundedBorder)
-        if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
+        if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(FFTheme.seal) }
         Button("Verify", action: completeMfa)
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.ffPrimary)
             .disabled(mfaCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSubmitting)
         Button("Cancel") {
             mfaRequired = false; mfaCode = ""; errorMessage = nil

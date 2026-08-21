@@ -23,6 +23,7 @@ struct StoryComposerView: View {
             photoSection
             audienceSection
         }
+        .ffListChrome()
         .navigationTitle("New moment")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -53,6 +54,7 @@ struct StoryComposerView: View {
                 .onChange(of: content) { _, value in if value.count > 280 { content = String(value.prefix(280)) } }
             Text("\(content.count)/280 · visible for 24 hours").font(.caption2).foregroundStyle(.secondary)
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private var photoSection: some View {
@@ -70,6 +72,7 @@ struct StoryComposerView: View {
                 Button("Remove photo", role: .destructive, action: removePhoto)
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private var audienceSection: some View {
@@ -79,6 +82,7 @@ struct StoryComposerView: View {
             }
             .pickerStyle(.inline)
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     // A real bug, not just a style choice: this used to be an inline

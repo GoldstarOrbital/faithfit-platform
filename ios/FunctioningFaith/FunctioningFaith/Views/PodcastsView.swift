@@ -19,6 +19,7 @@ struct PodcastsView: View {
                         showRow(podcast)
                     }
                 }
+                .ffListChrome()
             }
         }
         .navigationTitle("Podcasts")
@@ -63,6 +64,7 @@ struct PodcastEpisodesView: View {
                 List(podcast.episodes) { episode in
                     episodeRow(episode)
                 }
+                .ffListChrome()
             }
         }
         .navigationTitle(podcast.title)

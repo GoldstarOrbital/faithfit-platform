@@ -18,6 +18,7 @@ struct ChurchVerificationView: View {
                     statusSection(status)
                     actionSection(status)
                 }
+                .ffListChrome()
             }
         }
         .navigationTitle("Church Verification")
@@ -45,6 +46,7 @@ struct ChurchVerificationView: View {
         } header: {
             Text("Status")
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     @ViewBuilder
@@ -55,6 +57,7 @@ struct ChurchVerificationView: View {
                     Label("Link YouTube channel & website", systemImage: "link")
                 }
             }
+            .listRowBackground(FFTheme.parchment1)
         } else if status.status == "not_applied" || status.status == "rejected" {
             Section {
                 NavigationLink {
@@ -65,6 +68,7 @@ struct ChurchVerificationView: View {
             } footer: {
                 Text("Requires a .edu email already linked to your account and a real church with a public contact email. A person reviews every application.")
             }
+            .listRowBackground(FFTheme.parchment1)
         }
     }
 
@@ -141,6 +145,7 @@ struct ChurchApplyView: View {
             } footer: {
                 Text("Must already be linked to your account with a verified email -- link a Google or Microsoft account using this address from the web app first if you haven't.")
             }
+            .listRowBackground(FFTheme.parchment1)
             Section("Your church") {
                 TextField("Church name", text: $churchName)
                 TextField("Address", text: $churchAddress, axis: .vertical).lineLimit(2...3)
@@ -149,17 +154,21 @@ struct ChurchApplyView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             }
+            .listRowBackground(FFTheme.parchment1)
             Section("Your project") {
                 TextField("Project name", text: $projectName)
                 TextField("Describe the project and its community purpose", text: $projectPurpose, axis: .vertical)
                     .lineLimit(3...6)
             }
+            .listRowBackground(FFTheme.parchment1)
             Section("Agreements") {
                 Toggle("I agree to the Functioning Faith developer terms", isOn: $agreedTerms)
                 Toggle("I accept accountability for content and conduct associated with my verified status", isOn: $agreedAccountability)
                 Toggle("I will follow the community content standards", isOn: $agreedContentStandard)
             }
+            .listRowBackground(FFTheme.parchment1)
         }
+        .ffListChrome()
         .navigationTitle("Apply")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -224,6 +233,7 @@ struct ChurchAdminLinkingView: View {
             } header: {
                 Text("YouTube channel")
             }
+            .listRowBackground(FFTheme.parchment1)
             Section {
                 TextField("https://yourchurch.org", text: $websiteURL)
                     .keyboardType(.URL)
@@ -234,7 +244,9 @@ struct ChurchAdminLinkingView: View {
             } header: {
                 Text("Official website")
             }
+            .listRowBackground(FFTheme.parchment1)
         }
+        .ffListChrome()
         .navigationTitle("Link Your Church")
         .navigationBarTitleDisplayMode(.inline)
         .alert("Could not complete that action", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {

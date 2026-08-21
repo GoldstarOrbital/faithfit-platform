@@ -25,6 +25,7 @@ struct JourneySegmentsView: View {
                         segmentSection(segment)
                     }
                 }
+                .ffListChrome()
             }
         }
         .navigationTitle("Segments")
@@ -53,6 +54,7 @@ struct JourneySegmentsView: View {
                     }
                 }
             }
+            .listRowBackground(FFTheme.parchment1)
         }
     }
 
@@ -78,6 +80,7 @@ struct JourneySegmentsView: View {
                 }
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private static func timeLabel(_ seconds: Double) -> String {

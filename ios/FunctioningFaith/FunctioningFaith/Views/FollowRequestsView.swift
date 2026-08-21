@@ -21,14 +21,15 @@ struct FollowRequestsView: View {
                         }
                         HStack {
                             Button("Accept") { Task { await decide(request, "accept") } }
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(.ffPrimary)
                             Button("Decline") { Task { await decide(request, "decline") } }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(.ffGhost)
                         }
                         .disabled(workingID == request.id)
                     }
                     .padding(.vertical, 4)
                 }
+                .ffListChrome()
                 .refreshable { await load() }
             }
         }

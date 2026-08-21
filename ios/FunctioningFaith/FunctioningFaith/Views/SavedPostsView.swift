@@ -32,6 +32,7 @@ struct SavedPostsView: View {
                         )
                     }
                 }
+                .ffListChrome()
                 .listStyle(.plain)
                 .refreshable { await load() }
             }

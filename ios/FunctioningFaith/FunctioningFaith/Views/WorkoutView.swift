@@ -21,7 +21,7 @@ struct WorkoutView: View {
             Text("BPM").font(.caption).foregroundStyle(.secondary)
             Text(tracker.statusText)
                 .font(.caption)
-                .foregroundStyle(tracker.points.isEmpty ? Color.secondary : Color.green)
+                .foregroundStyle(tracker.points.isEmpty ? Color.secondary : FFTheme.emerald)
                 .multilineTextAlignment(.center)
 
             Text(elapsedString)
@@ -35,7 +35,7 @@ struct WorkoutView: View {
                 Text(isActive ? "Stop" : "Start")
                     .font(.title2.weight(.semibold))
                     .frame(width: 120, height: 120)
-                    .background(isActive ? Color.red : Color.green)
+                    .background(isActive ? FFTheme.seal : FFTheme.emerald)
                     .foregroundStyle(.white)
                     .clipShape(Circle())
             }

@@ -18,4 +18,12 @@
   <key>NSFaceIDUsageDescription</key><string>Functioning Faith uses Face ID only when you enable biometric protection for your signed-in account.</string>
   <key>NSHealthShareUsageDescription</key><string>Functioning Faith reads your workouts, step counts, and workout heart rate from Health so activity recorded on your Apple Watch or another connected app appears in your training log. Functioning Faith never writes to your Health data.</string>
   <key>NSPhotoLibraryUsageDescription</key><string>Functioning Faith accesses your photo library only when you choose a photo for a post, story, or profile picture.</string>
+  <key>UIAppFonts</key>
+  <array>
+    <string>Cinzel-Variable.ttf</string>
+    <string>Spectral-Regular.ttf</string>
+    <string>Spectral-Medium.ttf</string>
+    <string>Spectral-SemiBold.ttf</string>
+    <string>Spectral-Italic.ttf</string>
+  </array>
 </dict></plist>

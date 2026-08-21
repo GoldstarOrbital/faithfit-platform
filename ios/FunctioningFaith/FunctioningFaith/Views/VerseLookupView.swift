@@ -23,12 +23,15 @@ struct VerseLookupView: View {
             } footer: {
                 Text("The local library covers 22 books. This looks up anything else through YouVersion, in your preferred translation.")
             }
+            .listRowBackground(FFTheme.parchment1)
             if isLoading {
                 Section { ProgressView() }
+                    .listRowBackground(FFTheme.parchment1)
             } else if let result {
                 resultSection(result)
             }
         }
+        .ffListChrome()
         .navigationTitle("Look Up a Verse")
         .navigationBarTitleDisplayMode(.inline)
         .alert("Could not look that up", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
@@ -38,7 +41,7 @@ struct VerseLookupView: View {
 
     private func resultSection(_ result: ResolvedPassage) -> some View {
         Section {
-            Text(result.text).font(.body)
+            Text(result.text).font(FFTheme.serif())
             HStack {
                 Text(result.reference).font(.caption).foregroundStyle(.secondary)
                 Spacer()
@@ -53,6 +56,7 @@ struct VerseLookupView: View {
                       systemImage: savedReferences.contains(result.reference) ? "bookmark.fill" : "bookmark")
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private func lookup() async {
@@ -114,6 +118,7 @@ struct BibleVersionPickerView: View {
                     Task { await select(nil) }
                 }
             }
+            .listRowBackground(FFTheme.parchment1)
             Section("Translations") {
                 ForEach(response.versions) { version in
                     versionRow(title: version.title ?? version.abbreviation ?? "Version \(version.id)", isSelected: selected == version.id) {
@@ -121,7 +126,9 @@ struct BibleVersionPickerView: View {
                     }
                 }
             }
+            .listRowBackground(FFTheme.parchment1)
         }
+        .ffListChrome()
     }
 
     private func versionRow(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {

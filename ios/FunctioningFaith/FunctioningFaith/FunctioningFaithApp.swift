@@ -9,6 +9,10 @@ struct FunctioningFaithApp: App {
     @AppStorage("onboarding.pendingUserID") private var pendingOnboardingUserID = ""
     @Environment(\.scenePhase) private var scenePhase
 
+    init() {
+        FFTheme.configureGlobalAppearance()
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {

@@ -24,14 +24,15 @@ struct JourneyDetailView: View {
                         }
                         .font(.caption).foregroundStyle(.secondary)
                         if let ref = detail.journey.scriptureRef {
-                            Text(ref).font(.caption.weight(.semibold)).foregroundStyle(.indigo)
+                            Text(ref).font(.caption.weight(.semibold)).foregroundStyle(FFTheme.scripture)
                         }
                     }
+                    .listRowBackground(FFTheme.parchment1)
 
                     Section {
                         if detail.joined {
                             ProgressView(value: Double(detail.percent), total: 100)
-                                .tint(detail.completed ? .green : .orange)
+                                .tint(detail.completed ? FFTheme.emerald : FFTheme.hearth)
                             HStack {
                                 Text("\(String(format: "%.1f", detail.progressKm)) / \(String(format: "%.0f", detail.journey.totalKm)) km")
                                 Spacer()
@@ -39,32 +40,36 @@ struct JourneyDetailView: View {
                             }
                             .font(.caption).foregroundStyle(.secondary)
                             if detail.completed {
-                                Label("Journey complete", systemImage: "checkmark.seal.fill").foregroundStyle(.green)
+                                Label("Journey complete", systemImage: "checkmark.seal.fill").foregroundStyle(FFTheme.emerald)
                             } else {
                                 Button("Start live session") { showLiveSession = true }
-                                    .buttonStyle(.borderedProminent)
+                                    .buttonStyle(.ffPrimary)
                                 Button("Leave journey", role: .destructive) { Task { await leave() } }
                                     .disabled(isChangingMembership)
                             }
                         } else {
                             Button("Join this journey") { Task { await join() } }
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(.ffPrimary)
                                 .disabled(isChangingMembership)
                         }
                     }
+                    .listRowBackground(FFTheme.parchment1)
 
                     Section {
                         NavigationLink { JourneySegmentsView(journeyKey: journeyKey) } label: {
                             Label("Segments & leaderboards", systemImage: "flag.checkered")
                         }
                     }
+                    .listRowBackground(FFTheme.parchment1)
 
                     Section("Waypoints") {
                         ForEach(detail.waypoints) { wp in
                             WaypointRow(waypoint: wp)
                         }
                     }
+                    .listRowBackground(FFTheme.parchment1)
                 }
+                .ffListChrome()
                 .refreshable { await load() }
             }
         }
@@ -110,14 +115,14 @@ private struct WaypointRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: waypoint.unlocked ? "mappin.circle.fill" : "lock.fill")
-                .foregroundStyle(waypoint.unlocked ? .orange : .secondary)
+                .foregroundStyle(waypoint.unlocked ? FFTheme.hearth : .secondary)
             VStack(alignment: .leading, spacing: 3) {
-                Text(waypoint.unlocked ? waypoint.title : "Locked").font(.subheadline.weight(.semibold))
+                Text(waypoint.unlocked ? waypoint.title : "Locked").font(FFTheme.display(15, weight: .semibold, relativeTo: .subheadline))
                 Text("\(String(format: "%.1f", waypoint.kmMark)) km mark").font(.caption2).foregroundStyle(.secondary)
                 if waypoint.unlocked {
                     if let narrative = waypoint.narrative { Text(narrative).font(.caption) }
                     if let ref = waypoint.scriptureRef {
-                        Text(ref).font(.caption.weight(.semibold)).foregroundStyle(.indigo)
+                        Text(ref).font(.caption.weight(.semibold)).foregroundStyle(FFTheme.scripture)
                         if let text = waypoint.scriptureText { Text(text).font(.caption).italic().foregroundStyle(.secondary) }
                     }
                 }

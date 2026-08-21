@@ -24,6 +24,7 @@ struct PostComposerView: View {
             photoSection
             audienceSection
         }
+        .ffListChrome()
         .navigationTitle("New post")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -57,6 +58,7 @@ struct PostComposerView: View {
                 .font(.caption2).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .trailing)
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private var photoSection: some View {
@@ -85,6 +87,7 @@ struct PostComposerView: View {
                     .font(.caption)
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private var audienceSection: some View {
@@ -96,6 +99,7 @@ struct PostComposerView: View {
             }
             .pickerStyle(.inline)
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private func removePhoto() {

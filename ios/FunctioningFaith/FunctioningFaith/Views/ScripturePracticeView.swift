@@ -21,6 +21,7 @@ struct ScripturePracticeView: View {
                         daysSection(state)
                     }
                 }
+                .ffListChrome()
             }
         }
         .navigationTitle("Scripture Practice")
@@ -38,13 +39,14 @@ struct ScripturePracticeView: View {
             Text(state.plan.subtitle).font(.subheadline).foregroundStyle(.secondary)
             if !state.started {
                 Button("Start this week") { Task { await start() } }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.ffPrimary)
                     .disabled(isSubmitting)
             } else if state.complete {
                 Label("You completed all \(state.plan.totalDays) days", systemImage: "checkmark.seal.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(FFTheme.emerald)
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private func daysSection(_ state: ScripturePracticeState) -> some View {
@@ -53,6 +55,7 @@ struct ScripturePracticeView: View {
                 dayRow(day)
             }
         }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     // Kept as its own method (not inlined into daysSection's ForEach) so
@@ -64,12 +67,12 @@ struct ScripturePracticeView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Image(systemName: day.completed ? "checkmark.circle.fill" : (day.available ? "circle" : "lock"))
-                    .foregroundStyle(day.completed ? .green : (day.available ? .accentColor : .secondary))
+                    .foregroundStyle(day.completed ? FFTheme.emerald : (day.available ? .accentColor : .secondary))
                 Text("Day \(day.number) · \(day.focus)").font(.headline)
             }
             if day.available || day.completed {
                 if let verse = day.verse {
-                    Text(verse.text).font(.body)
+                    Text(verse.text).font(FFTheme.serif())
                     Text(verse.reference).font(.caption).foregroundStyle(.secondary)
                 }
                 Text(day.prompt).font(.subheadline).foregroundStyle(.secondary)
@@ -83,7 +86,7 @@ struct ScripturePracticeView: View {
                     Button("Mark complete") {
                         Task { await complete(day.number) }
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.ffGhost)
                     .disabled(isSubmitting)
                 }
             } else {
