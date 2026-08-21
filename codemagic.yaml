@@ -68,6 +68,7 @@ workflows:
           app=/tmp/functioning-faith-ipa-check/Payload/FunctioningFaith.app
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$app/Info.plist"
           test -f "$app/Assets.car"
+          find "$app" \( -name 'Assets.car' -o -iname '*appicon*' \) -print | sort
           test -f "$app/AppIcon76x76@2x.png"
     artifacts:
       - ios/FunctioningFaith/build/ios/ipa/*.ipa
