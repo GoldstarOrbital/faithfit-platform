@@ -5,6 +5,7 @@ struct DMInboxView: View {
     /// Shared with RootTabView so the tab badge and inbox stay in sync.
     @EnvironmentObject private var store: DMStore
     @State private var isLoading = true
+    @State private var showNewMessage = false
 
     var body: some View {
         Group {
@@ -14,7 +15,7 @@ struct DMInboxView: View {
                 FFEmptyStateView(
                     title: "No conversations yet",
                     systemImage: "bubble.left.and.bubble.right",
-                    message: "Message someone from their profile to start a conversation."
+                    message: "Start a conversation by finding a member."
                 )
             } else {
                 List(store.threads) { thread in
@@ -28,6 +29,19 @@ struct DMInboxView: View {
             }
         }
         .navigationTitle("Messages")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showNewMessage = true } label: {
+                    Image(systemName: "square.and.pencil")
+                }
+                .accessibilityLabel("New message")
+            }
+        }
+        .sheet(isPresented: $showNewMessage) {
+            NavigationStack { NewMessageView() }
+                .environmentObject(session)
+                .environmentObject(store)
+        }
         .navigationDestination(for: DMThreadPreview.self) { thread in
             DMConversationView(threadID: thread.threadID, otherUserID: thread.otherUserID, otherName: thread.otherName)
                 .environmentObject(store)
@@ -48,6 +62,98 @@ struct DMInboxView: View {
             Text(store.loadError ?? "")
         }
     }
+}
+
+/// A real compose entry point inside the Messages tab. Search is deliberately
+/// restricted to member results: selecting a person opens the existing
+/// protected, permission-checked DM route rather than creating an unaudited
+/// second messaging surface.
+private struct NewMessageView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var session: NativeSession
+    @EnvironmentObject private var store: DMStore
+    @State private var query = ""
+    @State private var people: [SearchResultItem] = []
+    @State private var isSearching = false
+    @State private var errorMessage: String?
+    @State private var opened: NewConversationDestination?
+    @State private var searchTask: Task<Void, Never>?
+
+    var body: some View {
+        Group {
+            if query.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 {
+                ContentUnavailableView("Find someone", systemImage: "person.badge.plus", description: Text("Search by their name or username to start a message."))
+            } else if isSearching && people.isEmpty {
+                ProgressView()
+            } else if people.isEmpty {
+                ContentUnavailableView.search(text: query)
+            } else {
+                List(people) { person in
+                    Button { Task { await open(person) } } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "person.crop.circle.fill")
+                                .font(.title2).foregroundStyle(FFTheme.hearth)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(person.title).foregroundStyle(FFTheme.ink)
+                                if let subtitle = person.subtitle, !subtitle.isEmpty {
+                                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                }
+                            }
+                            Spacer()
+                            Image(systemName: "message.fill").foregroundStyle(.tint)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                .ffListChrome()
+            }
+        }
+        .navigationTitle("New message")
+        .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } } }
+        .searchable(text: $query, prompt: "Name or username")
+        .onChange(of: query) { _, value in
+            searchTask?.cancel()
+            let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard clean.count >= 2 else { people = []; return }
+            searchTask = Task {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                guard !Task.isCancelled else { return }
+                isSearching = true
+                defer { isSearching = false }
+                do {
+                    let response = try await APIClient.shared.search(clean)
+                    people = response.groups.first(where: { $0.type == "people" })?.items ?? []
+                } catch { errorMessage = error.localizedDescription }
+            }
+        }
+        .navigationDestination(item: $opened) { target in
+            DMConversationView(threadID: target.threadID, otherUserID: target.userID, otherName: target.name)
+                .environmentObject(store)
+        }
+        .alert("Could not open conversation", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: { Text(errorMessage ?? "") }
+    }
+
+    private func open(_ person: SearchResultItem) async {
+        guard let userID = UUID(uuidString: person.id), userID != session.profile?.id else {
+            errorMessage = "That member cannot be messaged from this account."
+            return
+        }
+        do {
+            if let myID = session.profile?.id { await store.configure(myUserID: myID) }
+            let threadID = try await store.openThread(withUserID: userID)
+            await store.loadInbox()
+            opened = NewConversationDestination(threadID: threadID, userID: userID, name: person.title)
+        } catch { errorMessage = error.localizedDescription }
+    }
+}
+
+private struct NewConversationDestination: Identifiable {
+    let threadID: String
+    let userID: UUID
+    let name: String
+    var id: String { threadID }
 }
 
 private struct DMThreadRow: View {

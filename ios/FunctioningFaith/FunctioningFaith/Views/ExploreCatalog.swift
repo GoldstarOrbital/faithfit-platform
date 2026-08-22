@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Railway `EXPLORE_SECTIONS` — the native Explore tab opens on this catalogue
 /// so the whole member product is visible at a glance, same as `renderExploreIndex`.
-enum ExploreCatalogItem: String, CaseIterable, Identifiable {
+enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
     case journeys, challenges, videos, reels, podcasts, scripture
     case groups, leaderboard, breathe, motivation, news, recruiting
 
@@ -97,7 +97,6 @@ enum ExploreCatalogItem: String, CaseIterable, Identifiable {
 
 struct ExploreCatalogGrid: View {
     private let columns = [GridItem(.flexible(), spacing: FFTheme.Space.sm), GridItem(.flexible(), spacing: FFTheme.Space.sm)]
-    @State private var selectedItem: ExploreCatalogItem?
 
     var body: some View {
         VStack(alignment: .leading, spacing: FFTheme.Space.sm) {
@@ -106,9 +105,7 @@ struct ExploreCatalogGrid: View {
                 .foregroundStyle(.secondary)
             LazyVGrid(columns: columns, spacing: FFTheme.Space.sm) {
                 ForEach(ExploreCatalogItem.allCases) { item in
-                    Button {
-                        selectedItem = item
-                    } label: {
+                    NavigationLink(value: item) {
                         VStack(alignment: .leading, spacing: 6) {
                             Image(systemName: item.systemImage)
                                 .font(.system(size: 18, weight: .semibold))
@@ -132,18 +129,11 @@ struct ExploreCatalogGrid: View {
                         .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
                         .contentShape(RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
                     }
-                    .buttonStyle(.plain)
                     .accessibilityHint("Open \(item.name)")
                 }
             }
         }
         .padding(.vertical, 4)
-        // The grid is embedded in a List row. State-driven navigation keeps
-        // each card's tap target independent instead of letting the list's
-        // row gesture treat the whole catalogue as one navigation control.
-        .navigationDestination(item: $selectedItem) { item in
-            item.destination
-        }
     }
 }
 

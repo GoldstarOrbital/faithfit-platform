@@ -48,6 +48,12 @@ struct JourneyLiveSessionView: View {
                 .padding(.horizontal, 32)
             }
 
+            if let error = tracker.lastError {
+                Label(error, systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption).foregroundStyle(FFTheme.seal)
+                    .multilineTextAlignment(.center).padding(.horizontal, 28)
+            }
+
             if !tracker.justCrossed.isEmpty {
                 VStack(spacing: 4) {
                     ForEach(tracker.justCrossed) { wp in

@@ -241,6 +241,12 @@ struct ExploreView: View {
         }
         .ffListChrome()
         .navigationTitle("Explore")
+        // Keep destination resolution at the NavigationStack level rather
+        // than inside a grid nested in a List. This prevents a list-row tap
+        // from replaying multiple catalogue selections on iOS.
+        .navigationDestination(for: ExploreCatalogItem.self) { item in
+            item.destination
+        }
         .task { await loadExplore() }
         .refreshable { await loadExplore() }
     }
