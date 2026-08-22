@@ -55,6 +55,11 @@ struct FunctioningFaithApp: App {
             .environmentObject(biometricLock)
             .environmentObject(network)
             .environmentObject(deepLinks)
+            // Every branded surface is parchment. Respecting a system dark
+            // text palette on that fixed light surface produces white-on-white
+            // labels, so keep the native app's readable light palette until a
+            // complete dark theme exists.
+            .preferredColorScheme(.light)
             .tint(FFTheme.accent)
             .task { await session.restore() }
             .onChange(of: scenePhase) { _, phase in

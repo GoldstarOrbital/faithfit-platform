@@ -124,11 +124,8 @@ private struct SearchPersonDestination: Hashable {
 private struct DMOpenerView: View {
     let userID: UUID
     let name: String
-    // DMConversationView reads a DMStore via @EnvironmentObject; nothing
-    // upstream of a search result provides one (unlike DMInboxView's own
-    // navigation chain, which injects the store it already owns), so this
-    // creates and supplies its own.
-    @StateObject private var store = DMStore()
+    @EnvironmentObject private var session: NativeSession
+    @EnvironmentObject private var store: DMStore
     @State private var threadID: String?
     @State private var errorMessage: String?
 
@@ -147,9 +144,16 @@ private struct DMOpenerView: View {
     }
 
     private func open() async {
-        do { threadID = try await APIClient.shared.openDMThread(withUserID: userID).threadID }
+        do {
+            if let id = session.profile?.id { await store.configure(myUserID: id) }
+            threadID = try await store.openThread(withUserID: userID)
+        }
         catch { errorMessage = error.localizedDescription }
     }
 }
 
-#Preview { NavigationStack { SearchView() } }
+#Preview {
+    NavigationStack { SearchView() }
+        .environmentObject(NativeSession())
+        .environmentObject(DMStore())
+}

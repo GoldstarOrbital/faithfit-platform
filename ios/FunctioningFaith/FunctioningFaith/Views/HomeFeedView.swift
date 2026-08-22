@@ -4,6 +4,8 @@ import UIKit
 #endif
 
 struct HomeFeedView: View {
+    @EnvironmentObject private var deepLinks: DeepLinkRouter
+    @EnvironmentObject private var dmStore: DMStore
     @State private var posts: [FeedPost] = []
     @State private var isLoading = true
     @State private var isLoadingMore = false
@@ -12,8 +14,6 @@ struct HomeFeedView: View {
     @State private var showComposer = false
     @State private var blockCandidate: (id: UUID, name: String)?
     @State private var showBlockConfirmation = false
-    @State private var showMessages = false
-    @State private var unreadMessages = 0
     @State private var showNotifications = false
     @State private var unreadNotifications = 0
     @State private var showSearch = false
@@ -96,22 +96,20 @@ struct HomeFeedView: View {
                 .accessibilityLabel(unreadNotifications > 0 ? "Notifications, \(unreadNotifications) unread" : "Notifications")
             }
             ToolbarItem(placement: .topBarTrailing) {
-                Button { showMessages = true } label: {
-                    badgedIcon("bubble.left.and.bubble.right", count: unreadMessages)
+                Button { deepLinks.selectedTab = .messages } label: {
+                    badgedIcon("bubble.left.and.bubble.right", count: dmStore.unreadTotal)
                 }
-                .accessibilityLabel(unreadMessages > 0 ? "Messages, \(unreadMessages) unread" : "Messages")
+                .accessibilityLabel(dmStore.unreadTotal > 0 ? "Messages, \(dmStore.unreadTotal) unread" : "Messages")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }
                     .accessibilityLabel("Search")
             }
         }
-        .navigationDestination(isPresented: $showMessages) { DMInboxView() }
         .navigationDestination(isPresented: $showNotifications) { NotificationsView() }
         .navigationDestination(isPresented: $showSearch) { SearchView() }
         .task {
             await loadFeed()
-            unreadMessages = (try? await APIClient.shared.fetchDMInbox().unread) ?? 0
             unreadNotifications = (try? await APIClient.shared.fetchNotifications().unreadCount) ?? 0
         }
         .sheet(isPresented: $showComposer) {
@@ -422,4 +420,5 @@ struct FromExploreRail: View {
     NavigationStack { HomeFeedView() }
         .environmentObject(NativeSession())
         .environmentObject(DeepLinkRouter())
+        .environmentObject(DMStore())
 }

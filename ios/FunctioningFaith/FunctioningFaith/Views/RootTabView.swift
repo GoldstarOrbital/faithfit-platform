@@ -33,6 +33,11 @@ struct RootTabView: View {
                     .tabItem { Label("Profile", systemImage: "person.crop.circle.fill") }
                     .tag(AppTab.profile)
             }
+            // A single authenticated message store must be available to every
+            // navigation path (home, search, notifications, and the tab). A
+            // view that creates an inbox without this environment object
+            // terminates at runtime as soon as it is opened.
+            .environmentObject(dmStore)
         }
         .task {
             if let id = session.profile?.id {

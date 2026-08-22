@@ -97,6 +97,7 @@ enum ExploreCatalogItem: String, CaseIterable, Identifiable {
 
 struct ExploreCatalogGrid: View {
     private let columns = [GridItem(.flexible(), spacing: FFTheme.Space.sm), GridItem(.flexible(), spacing: FFTheme.Space.sm)]
+    @State private var selectedItem: ExploreCatalogItem?
 
     var body: some View {
         VStack(alignment: .leading, spacing: FFTheme.Space.sm) {
@@ -105,8 +106,8 @@ struct ExploreCatalogGrid: View {
                 .foregroundStyle(.secondary)
             LazyVGrid(columns: columns, spacing: FFTheme.Space.sm) {
                 ForEach(ExploreCatalogItem.allCases) { item in
-                    NavigationLink {
-                        item.destination
+                    Button {
+                        selectedItem = item
                     } label: {
                         VStack(alignment: .leading, spacing: 6) {
                             Image(systemName: item.systemImage)
@@ -129,12 +130,20 @@ struct ExploreCatalogGrid: View {
                         .padding(12)
                         .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
                         .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
+                        .contentShape(RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityHint("Open \(item.name)")
                 }
             }
         }
         .padding(.vertical, 4)
+        // The grid is embedded in a List row. State-driven navigation keeps
+        // each card's tap target independent instead of letting the list's
+        // row gesture treat the whole catalogue as one navigation control.
+        .navigationDestination(item: $selectedItem) { item in
+            item.destination
+        }
     }
 }
 
