@@ -995,6 +995,17 @@ final class APIClient {
         return try await request("/api/connectors/strava/sync", method: "POST", body: EmptyBody())
     }
 
+    /// Registers the iPhone's APNs token after the member has explicitly
+    /// allowed notifications. The token is not a credential and is scoped to
+    /// this app + device; the server uses it only for opted-in categories.
+    func registerNativePushToken(_ token: String, categories: [String]) async throws {
+        if useMock { return }
+        let _: ActionResponse = try await request(
+            "/api/push/native-register", method: "POST",
+            body: NativePushTokenBody(platform: "ios", token: token, categories: categories)
+        )
+    }
+
     // MARK: - Badge catalog, motivation, friends' workouts, group events
 
     func fetchBadgeCatalog() async throws -> [BadgeCatalogEntry] {
@@ -1585,6 +1596,12 @@ struct CreatedPostResponse: Decodable {
 
 private struct ActionResponse: Decodable {
     let ok: Bool
+}
+
+private struct NativePushTokenBody: Encodable {
+    let platform: String
+    let token: String
+    let categories: [String]
 }
 
 private struct ReportBody: Encodable {

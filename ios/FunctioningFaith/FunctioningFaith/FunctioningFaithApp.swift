@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct FunctioningFaithApp: App {
+    @UIApplicationDelegateAdaptor(NotificationCoordinator.self) private var notificationCoordinator
     @StateObject private var session = NativeSession()
     @StateObject private var biometricLock = BiometricLock()
     @StateObject private var network = NetworkMonitor.shared
@@ -61,7 +62,10 @@ struct FunctioningFaithApp: App {
             // complete dark theme exists.
             .preferredColorScheme(.light)
             .tint(FFTheme.accent)
-            .task { await session.restore() }
+            .task {
+                await session.restore()
+                await NotificationCoordinator.shared.syncDeviceToken()
+            }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .background { biometricLock.lockWhenNeeded() }
                 if phase == .active && biometricLock.isLocked {

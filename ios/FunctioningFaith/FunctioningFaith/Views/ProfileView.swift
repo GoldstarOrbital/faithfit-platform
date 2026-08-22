@@ -260,10 +260,13 @@ struct ProfileView: View {
                 }
                 .disabled(isConnectingStrava)
             }
+            Link(destination: URL(string: "https://connect.garmin.com/modern/settings/connectedapps")!) {
+                Label("Set up Garmin Connect sync", systemImage: "applewatch.radiowaves.left.and.right")
+            }
         } header: {
-            Text("Connected Accounts")
+            Text("Garmin & connected accounts")
         } footer: {
-            Text("Strava aggregates activity from most GPS watches and wearables (Garmin, Coros, Wahoo, and others), so connecting it brings that data in too.")
+            Text("For a Garmin Forerunner: connect Garmin Connect to Strava, then connect Strava here and tap Sync now. Routes, distance, pace, and completed activities import without sharing your Garmin password with Functioning Faith.")
         }
         .listRowBackground(FFTheme.parchment1)
         }
@@ -396,10 +399,12 @@ struct ProfileView: View {
             }
         }
         .onChange(of: isOn.wrappedValue) { _, enabled in
-            guard enabled else { return }
             Task {
-                let granted = await NotificationCoordinator.shared.enable(category: category)
-                if !granted { isOn.wrappedValue = false }
+                if enabled {
+                    let granted = await NotificationCoordinator.shared.enable(category: category)
+                    if !granted { isOn.wrappedValue = false }
+                }
+                await NotificationCoordinator.shared.syncDeviceToken()
             }
         }
     }

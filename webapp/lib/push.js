@@ -28,6 +28,8 @@
 'use strict';
 
 const db = require('./db');
+const crypto = require('crypto');
+const http2 = require('http2');
 
 let webpush = null;
 try { webpush = require('web-push'); } catch { /* dependency absent: stay inert */ }
@@ -48,6 +50,9 @@ const DEFAULT_CATEGORIES = ['daily_verse', 'verse_reply', 'reminders', 'security
 function publicKey() { return process.env.VAPID_PUBLIC_KEY || null; }
 function isConfigured() {
   return !!(webpush && publicKey() && process.env.VAPID_PRIVATE_KEY);
+}
+function isNativeConfigured() {
+  return !!(process.env.APNS_KEY_ID && process.env.APPLE_TEAM_ID && process.env.APNS_AUTH_KEY);
 }
 
 function init() {
@@ -80,21 +85,15 @@ function init() {
     );
     CREATE INDEX IF NOT EXISTS idx_push_log_user ON push_log(user_id, sent_at);
 
-    -- Native APNs/FCM device tokens, registered by the real native app
-    -- (ios/FunctioningFaith's NotificationCoordinator, once it calls
-    -- POST /push/native-register -- see that file for current status) or a
+    -- Native APNs/FCM device tokens, registered by the real native app or a
     -- future Android client. Kept in a separate table from push_subscriptions
     -- because a device token
     -- is not a Web Push subscription: it has no p256dh/auth keypair, and
     -- delivering to it needs a different transport entirely.
     --
-    -- Storage here is complete; ACTUAL DELIVERY IS NOT WIRED. Sending to an
-    -- iOS token needs an APNs auth key (.p8 + Team ID + Key ID from an Apple
-    -- Developer account); sending to an Android token needs a Firebase
-    -- service-account credential. Neither exists yet. sendNative() below
-    -- degrades exactly like every other optional integration in this app
-    -- (gloo.js, youversion.js): registration works today, delivery logs
-    -- "not configured" until real credentials are set.
+    -- iOS delivery is active when APNS_AUTH_KEY, APNS_KEY_ID and APPLE_TEAM_ID
+    -- are configured. Android remains intentionally inert until a Firebase
+    -- service-account credential is added.
     CREATE TABLE IF NOT EXISTS native_push_tokens (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -162,8 +161,9 @@ function get(userId) {
  * deleted, because keeping it means trying forever.
  */
 async function send(userId, category, payload) {
-  if (!isConfigured()) return { sent: 0, skipped: 'not_configured' };
-  const subs = db.prepare('SELECT * FROM push_subscriptions WHERE user_id = ?').all(userId);
+  const subs = isConfigured()
+    ? db.prepare('SELECT * FROM push_subscriptions WHERE user_id = ?').all(userId)
+    : [];
   let sent = 0;
 
   for (const s of subs) {
@@ -192,13 +192,16 @@ async function send(userId, category, payload) {
     }
   }
 
+  const native = await sendNative(userId, category, payload);
+  sent += native.sent;
+
   try {
     db.prepare('INSERT INTO push_log (id, user_id, category, title, body, url, ok) VALUES (?,?,?,?,?,?,?)')
       .run(require('crypto').randomUUID(), userId, category,
            payload.title, payload.body, payload.url || null, sent > 0 ? 1 : 0);
   } catch { /* telemetry must not break a send */ }
 
-  return { sent };
+  return { sent, native };
 }
 
 /** Store (or refresh) a native APNs/FCM device token. Idempotent on token. */
@@ -219,15 +222,77 @@ function unregisterNativeToken(userId, token) {
   return r.changes > 0;
 }
 
-/**
- * Would-be native delivery. Always returns { sent: 0, skipped: 'not_configured' }
- * today -- see the schema comment above for exactly what is missing (an APNs
- * auth key, a Firebase service account) and why this cannot be faked. Kept as
- * a real function with the real signature so wiring actual delivery later is
- * "implement the two HTTP calls," not "first figure out where this goes."
- */
-async function sendNative(_userId, _category, _payload) {
-  return { sent: 0, skipped: 'not_configured' };
+let apnsJwt = null;
+function base64url(input) { return Buffer.from(input).toString('base64url'); }
+function apnsToken() {
+  const now = Math.floor(Date.now() / 1000);
+  if (apnsJwt && apnsJwt.expires > now + 30) return apnsJwt.value;
+  const header = base64url(JSON.stringify({ alg: 'ES256', kid: process.env.APNS_KEY_ID }));
+  const claims = base64url(JSON.stringify({ iss: process.env.APPLE_TEAM_ID, iat: now }));
+  const signingInput = `${header}.${claims}`;
+  const key = crypto.createPrivateKey(process.env.APNS_AUTH_KEY.replace(/\\n/g, '\n'));
+  const signature = crypto.sign('sha256', Buffer.from(signingInput), { key, dsaEncoding: 'ieee-p1363' });
+  apnsJwt = { value: `${signingInput}.${signature.toString('base64url')}`, expires: now + 50 * 60 };
+  return apnsJwt.value;
+}
+
+function nativeDestination(url) {
+  if (!url) return 'functioningfaith://home';
+  if (/^functioningfaith:/i.test(url)) return url;
+  if (/^https?:/i.test(url)) return url;
+  return `functioningfaith://${String(url).replace(/^\/+/, '')}`;
+}
+
+function apnsRequest(token, payload) {
+  return new Promise((resolve, reject) => {
+    const host = process.env.APNS_ENV === 'sandbox' ? 'api.sandbox.push.apple.com' : 'api.push.apple.com';
+    const client = http2.connect(`https://${host}`);
+    client.on('error', reject);
+    const req = client.request({
+      ':method': 'POST', ':path': `/3/device/${token}`,
+      authorization: `bearer ${apnsToken()}`,
+      'apns-topic': process.env.APNS_BUNDLE_ID || 'com.functioningfaith.app',
+      'apns-push-type': 'alert', 'apns-priority': '10',
+      'content-type': 'application/json',
+    });
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('response', headers => {
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => { client.close(); resolve({ status: Number(headers[':status']), body }); });
+    });
+    req.on('error', err => { client.close(); reject(err); });
+    req.end(JSON.stringify(payload));
+  });
+}
+
+/** Send opted-in iOS notifications through APNs using Apple token auth. */
+async function sendNative(userId, category, payload) {
+  if (!isNativeConfigured()) return { sent: 0, skipped: 'not_configured' };
+  const rows = db.prepare("SELECT * FROM native_push_tokens WHERE user_id = ? AND platform = 'ios'").all(userId);
+  let sent = 0;
+  for (const row of rows) {
+    let categories = [];
+    try { categories = JSON.parse(row.categories); } catch { /* invalid rows are ignored */ }
+    if (!categories.includes(category)) continue;
+    try {
+      const result = await apnsRequest(row.token, {
+        aps: { alert: { title: payload.title, body: payload.body }, sound: 'default', badge: 1 },
+        ff_url: nativeDestination(payload.url),
+      });
+      if (result.status === 200) {
+        db.prepare("UPDATE native_push_tokens SET last_sent_at = datetime('now'), failures = 0 WHERE id = ?").run(row.id);
+        sent++;
+      } else if (result.status === 400 || result.status === 410) {
+        db.prepare('DELETE FROM native_push_tokens WHERE id = ?').run(row.id);
+      } else {
+        db.prepare('UPDATE native_push_tokens SET failures = failures + 1 WHERE id = ?').run(row.id);
+      }
+    } catch {
+      db.prepare('UPDATE native_push_tokens SET failures = failures + 1 WHERE id = ?').run(row.id);
+    }
+  }
+  return { sent };
 }
 
 function history(userId, limit) {
@@ -237,13 +302,11 @@ function history(userId, limit) {
 
 function start() {
   init();
-  console.log(isConfigured()
-    ? '[push] web push enabled'
-    : '[push] no VAPID keys — in-app notifications only, nothing is sent off-app');
+  console.log(`[push] web=${isConfigured() ? 'enabled' : 'off'} ios=${isNativeConfigured() ? 'enabled' : 'off'}`);
 }
 
 module.exports = {
-  start, init, isConfigured, publicKey, subscribe, unsubscribe, setCategories,
+  start, init, isConfigured, isNativeConfigured, publicKey, subscribe, unsubscribe, setCategories,
   get, send, history, CATEGORIES, DEFAULT_CATEGORIES,
   registerNativeToken, unregisterNativeToken, sendNative,
 };
