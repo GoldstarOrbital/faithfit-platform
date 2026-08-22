@@ -477,6 +477,7 @@ const wCols2 = db.prepare("PRAGMA table_info(workouts)").all().map(c => c.name);
 if (!wCols2.includes('note')) db.exec("ALTER TABLE workouts ADD COLUMN note TEXT");
 if (!wCols2.includes('source')) db.exec("ALTER TABLE workouts ADD COLUMN source TEXT DEFAULT 'app'"); // app | manual | ble | import
 if (!wCols2.includes('elevation_gain_m')) db.exec("ALTER TABLE workouts ADD COLUMN elevation_gain_m REAL");
+if (!wCols2.includes('live_metrics')) db.exec("ALTER TABLE workouts ADD COLUMN live_metrics TEXT");
 if (!wCols2.includes('duration_sec')) db.exec("ALTER TABLE workouts ADD COLUMN duration_sec INTEGER");
 
 // --- themed challenges (Strava-style, scripture/LotR flavored) ---

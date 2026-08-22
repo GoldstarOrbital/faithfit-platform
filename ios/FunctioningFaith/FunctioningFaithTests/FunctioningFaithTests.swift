@@ -49,6 +49,16 @@ final class FunctioningFaithTests: XCTestCase {
         XCTAssertEqual(TrainingMath.estimatedKcal(elapsed: 1800, km: 0), 240)
     }
 
+    func testSkiingMetricsPrioritizeSpeedAndVertical() {
+        let metrics = TrainingMath.liveMetrics(
+            activity: "Skiing", elapsed: 600, distanceKm: 4.2,
+            currentSpeedKmh: 42.3, maxSpeedKmh: 61.8,
+            elevationGainM: 130, elevationLossM: 540, heartRate: 0
+        )
+        XCTAssertEqual(metrics.map(\.label), ["SPEED · KM/H", "TOP SPEED · KM/H", "DESCENT · M", "ASCENT · M"])
+        XCTAssertEqual(metrics[1].value, "61.8")
+    }
+
     func testActivityCatalogMatchesRailwayVocabulary() {
         let types = Set(ActivityCatalog.fallback.map(\.type))
         XCTAssertEqual(types.count, 18)

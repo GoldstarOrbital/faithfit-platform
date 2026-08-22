@@ -1637,7 +1637,7 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   const hrs = samples.map(s => s.heart_rate).filter(Boolean);
   const avgHr = hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
   const maxHr = hrs.length ? Math.max(...hrs) : null;
-  const { gps_distance_km, gps_points, gps_path, partner_user_ids } = req.body || {};
+  const { gps_distance_km, gps_points, gps_path, partner_user_ids, sport_metrics } = req.body || {};
   // Calories: use real GPS distance if we have one (running ~ 60 kcal/km), else fall back to a duration-based estimate.
   const durationMin = (Date.now() - new Date(workout.start_time).getTime()) / 60000;
   const calories = gps_distance_km > 0 ? Math.round(gps_distance_km * 60) : Math.round(durationMin * 8);
@@ -1663,8 +1663,14 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   const encouragement = effortLib.describeEffort(effort, pbs);
   const notable = effortLib.notableEffort(effort, pbs);
 
-  db.prepare("UPDATE workouts SET end_time = datetime('now'), avg_hr = ?, max_hr = ?, calories = ?, distance_km = ?, gps_points = ?, gps_path = ?, duration_sec = ?, effort_score = ?, time_in_zone = ?, peak_zone = ? WHERE id = ?")
+  const metrics = {};
+  for (const key of ['top_speed_kmh', 'elevation_gain_m', 'elevation_loss_m']) {
+    const value = Number(sport_metrics && sport_metrics[key]);
+    if (Number.isFinite(value) && value >= 0 && value <= (key === 'top_speed_kmh' ? 160 : 20000)) metrics[key] = +value.toFixed(2);
+  }
+  db.prepare("UPDATE workouts SET end_time = datetime('now'), avg_hr = ?, max_hr = ?, calories = ?, distance_km = ?, gps_points = ?, gps_path = ?, duration_sec = ?, elevation_gain_m = ?, live_metrics = ?, effort_score = ?, time_in_zone = ?, peak_zone = ? WHERE id = ?")
     .run(avgHr, maxHr, calories, gps_distance_km || null, pointCount, pathJson, durationSec,
+         metrics.elevation_gain_m || null, Object.keys(metrics).length ? JSON.stringify(metrics) : null,
          effort.effort_score, effort.time_in_zone ? JSON.stringify(effort.time_in_zone) : null, effort.peak_zone, workout.id);
 
   // Only notify when a real comparison against real history says this was notable.

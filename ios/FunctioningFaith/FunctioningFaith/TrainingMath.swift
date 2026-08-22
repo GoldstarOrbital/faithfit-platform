@@ -48,6 +48,44 @@ enum TrainingMath {
         if km > 0 { return Int((km * 60).rounded()) }
         return Int(((elapsed / 60) * 8).rounded())
     }
+
+    struct LiveMetric: Identifiable {
+        let value: String
+        let label: String
+        var id: String { label }
+    }
+
+    static func speedString(_ kmh: Double?) -> String {
+        guard let kmh, kmh > 0 else { return "—" }
+        return String(format: "%.1f", kmh)
+    }
+
+    static func liveMetrics(activity: String, elapsed: TimeInterval, distanceKm: Double,
+                            currentSpeedKmh: Double?, maxSpeedKmh: Double,
+                            elevationGainM: Double, elevationLossM: Double, heartRate: Int) -> [LiveMetric] {
+        let elapsedMetric = LiveMetric(value: elapsedString(elapsed), label: "ELAPSED")
+        let distance = LiveMetric(value: String(format: "%.2f", distanceKm), label: "DISTANCE · KM")
+        let heart = LiveMetric(value: heartRate > 0 ? "\(heartRate)" : "—", label: heartRate > 0 ? "HEART RATE · BPM" : "HEART RATE")
+        let calories = LiveMetric(value: "~\(estimatedKcal(elapsed: elapsed, km: distanceKm))", label: "CALORIES · EST.")
+        let pace = LiveMetric(value: paceString(elapsed: elapsed, km: distanceKm), label: "PACE · /KM")
+        let waterPace = LiveMetric(value: paceString(elapsed: elapsed, km: distanceKm * 10), label: "PACE · /100 M")
+        let speed = LiveMetric(value: speedString(currentSpeedKmh), label: "SPEED · KM/H")
+        let topSpeed = LiveMetric(value: speedString(maxSpeedKmh), label: "TOP SPEED · KM/H")
+        let ascent = LiveMetric(value: "\(Int(elevationGainM.rounded()))", label: "ASCENT · M")
+        let descent = LiveMetric(value: "\(Int(elevationLossM.rounded()))", label: "DESCENT · M")
+
+        switch activity {
+        case "Skiing": return [speed, topSpeed, descent, ascent]
+        case "Cycle": return [speed, topSpeed, distance, ascent]
+        case "Hike", "Trail Run": return [distance, ascent, pace, heart]
+        case "Swim", "Row": return [distance, waterPace, elapsedMetric, heart]
+        case "Run", "Walk": return [distance, pace, elapsedMetric, heart]
+        case "Pickleball": return [elapsedMetric, distance, heart, calories]
+        case "Elliptical", "Strength", "HIIT", "Yoga", "Pilates", "Climbing", "Tennis", "Basketball", "Workout":
+            return [elapsedMetric, heart, calories, LiveMetric(value: "Live", label: "SESSION")]
+        default: return [distance, pace, elapsedMetric, heart]
+        }
+    }
 }
 
 /// Same catalog as `webapp/routes/api.js` ACTIVITY_TYPES. Used when the

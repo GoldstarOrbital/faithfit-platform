@@ -146,10 +146,7 @@ struct WorkoutView: View {
             .tint(bluetooth.connectedName == nil ? FFTheme.walnut0 : FFTheme.meadow)
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                metric(String(format: "%.2f", tracker.distanceKm), "DISTANCE · KM")
-                metric(TrainingMath.paceString(elapsed: elapsed, km: tracker.distanceKm), "PACE · /KM")
-                metric(TrainingMath.elapsedString(elapsed), "ELAPSED")
-                metric(heartRate > 0 ? "\(heartRate)" : "—", heartRate > 0 ? "HEART RATE · BPM" : "HEART RATE")
+                ForEach(liveMetrics) { item in metric(item.value, item.label) }
             }
 
             Button(action: toggleWorkout) {
@@ -193,6 +190,13 @@ struct WorkoutView: View {
             guard point.count == 2 else { return nil }
             return CLLocationCoordinate2D(latitude: point[0], longitude: point[1])
         }
+    }
+
+    private var liveMetrics: [TrainingMath.LiveMetric] {
+        TrainingMath.liveMetrics(activity: selectedType, elapsed: elapsed, distanceKm: tracker.distanceKm,
+                                 currentSpeedKmh: tracker.currentSpeedKmh, maxSpeedKmh: tracker.maxSpeedKmh,
+                                 elevationGainM: tracker.elevationGainM, elevationLossM: tracker.elevationLossM,
+                                 heartRate: heartRate)
     }
 
     private var manualPanel: some View {
@@ -294,7 +298,10 @@ struct WorkoutView: View {
             let distance = tracker.distanceKm
             Task {
                 do {
-                    try await APIClient.shared.stopWorkout(id: id, gpsPoints: route, gpsDistanceKm: distance)
+                    try await APIClient.shared.stopWorkout(id: id, gpsPoints: route, gpsDistanceKm: distance,
+                                                           sportMetrics: ["top_speed_kmh": tracker.maxSpeedKmh,
+                                                                          "elevation_gain_m": tracker.elevationGainM,
+                                                                          "elevation_loss_m": tracker.elevationLossM])
                     await MainActor.run { showReflection = true }
                     recent = (try? await APIClient.shared.fetchWorkouts()) ?? recent
                 } catch {
