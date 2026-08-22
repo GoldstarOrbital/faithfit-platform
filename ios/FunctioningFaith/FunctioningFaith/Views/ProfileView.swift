@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct ProfileView: View {
     @EnvironmentObject private var session: NativeSession
