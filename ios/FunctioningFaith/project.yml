@@ -6,8 +6,9 @@ options:
 settings:
   base:
     SWIFT_VERSION: 5.9
-    # Set your Team ID in Xcode or override here before archive.
-    DEVELOPMENT_TEAM: ""
+    # Required for the app and its Live Activity extension to archive with
+    # their matching App Store provisioning profiles on CI.
+    DEVELOPMENT_TEAM: P3999S6HG4
 targets:
   FunctioningFaith:
     type: application
