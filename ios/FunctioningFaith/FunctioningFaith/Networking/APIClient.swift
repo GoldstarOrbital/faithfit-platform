@@ -1170,6 +1170,9 @@ final class APIClient {
         guard let url = URL(string: path, relativeTo: baseURL) else { throw APIError.invalidResponse }
         var request = URLRequest(url: url)
         request.httpMethod = method
+        // A tap must fail visibly rather than spin indefinitely on a captive
+        // portal or weak connection.
+        request.timeoutInterval = 20
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("ios-native-v1", forHTTPHeaderField: "X-Functioning-Faith-Client")
         if let body {

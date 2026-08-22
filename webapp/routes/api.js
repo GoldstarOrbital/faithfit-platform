@@ -1664,9 +1664,10 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   const notable = effortLib.notableEffort(effort, pbs);
 
   const metrics = {};
-  for (const key of ['top_speed_kmh', 'elevation_gain_m', 'elevation_loss_m']) {
+  for (const key of ['top_speed_kmh', 'elevation_gain_m', 'elevation_loss_m', 'cadence_rpm', 'power_w', 'peak_power_w']) {
     const value = Number(sport_metrics && sport_metrics[key]);
-    if (Number.isFinite(value) && value >= 0 && value <= (key === 'top_speed_kmh' ? 160 : 20000)) metrics[key] = +value.toFixed(2);
+    const ceiling = key === 'top_speed_kmh' ? 160 : key === 'cadence_rpm' ? 260 : key.includes('power') ? 3000 : 20000;
+    if (Number.isFinite(value) && value >= 0 && value <= ceiling) metrics[key] = +value.toFixed(2);
   }
   db.prepare("UPDATE workouts SET end_time = datetime('now'), avg_hr = ?, max_hr = ?, calories = ?, distance_km = ?, gps_points = ?, gps_path = ?, duration_sec = ?, elevation_gain_m = ?, live_metrics = ?, effort_score = ?, time_in_zone = ?, peak_zone = ? WHERE id = ?")
     .run(avgHr, maxHr, calories, gps_distance_km || null, pointCount, pathJson, durationSec,

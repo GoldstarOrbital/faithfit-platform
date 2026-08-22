@@ -10,7 +10,7 @@ struct WearableConnectView: View {
         NavigationStack {
             List {
                 Section {
-                    Text("Connect a Bluetooth heart-rate strap, sensor, or wearable that supports the standard Heart Rate Service. Apple Watch workouts sync through Apple Health.")
+                    Text("Connect Bluetooth heart-rate, cadence, cycling-power, or indoor-bike sensors. Apple Watch and vendor-locked watches sync through Apple Health or Strava.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -19,6 +19,9 @@ struct WearableConnectView: View {
                     Label(bluetooth.statusText, systemImage: bluetooth.connectedName == nil ? "dot.radiowaves.left.and.right" : "heart.fill")
                         .foregroundStyle(bluetooth.connectedName == nil ? .primary : FFTheme.meadow)
                     if let bpm = bluetooth.heartRate { LabeledContent("Live heart rate", value: "\(bpm) BPM") }
+                    if let cadence = bluetooth.cadenceRPM { LabeledContent("Cadence", value: "\(cadence) rpm") }
+                    if let watts = bluetooth.cyclingPowerWatts { LabeledContent("Cycling power", value: "\(watts) W") }
+                    if let speed = bluetooth.speedKmh { LabeledContent("Sensor speed", value: String(format: "%.1f km/h", speed)) }
                     if bluetooth.connectedName != nil {
                         Button("Disconnect", role: .destructive) { bluetooth.disconnect() }
                     }
@@ -31,7 +34,7 @@ struct WearableConnectView: View {
                         ForEach(bluetooth.devices) { device in
                             Button { bluetooth.connect(device) } label: {
                                 HStack {
-                                    Label(device.name, systemImage: "heart.circle")
+                                    Label(device.name, systemImage: "dot.radiowaves.left.and.right")
                                     Spacer()
                                     Text("\(device.rssi) dBm").font(.caption).foregroundStyle(.secondary)
                                 }

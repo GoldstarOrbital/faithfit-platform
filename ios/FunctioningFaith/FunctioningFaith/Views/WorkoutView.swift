@@ -138,12 +138,23 @@ struct WorkoutView: View {
             Button {
                 showWearables = true
             } label: {
-                Label(bluetooth.connectedName ?? "Connect wearable", systemImage: bluetooth.connectedName == nil ? "applewatch" : "heart.fill")
+                Label(bluetooth.connectedName ?? "Connect sensor", systemImage: bluetooth.connectedName == nil ? "applewatch" : "heart.fill")
                     .font(.caption.weight(.semibold))
                     .frame(maxWidth: .infinity, minHeight: 42)
             }
             .buttonStyle(.bordered)
             .tint(bluetooth.connectedName == nil ? FFTheme.walnut0 : FFTheme.meadow)
+
+            if bluetooth.hasLiveSensorData {
+                HStack(spacing: 10) {
+                    if let cadence = bluetooth.cadenceRPM { Label("\(cadence) rpm", systemImage: "gauge.with.dots.needle.50percent") }
+                    if let power = bluetooth.cyclingPowerWatts { Label("\(power) W", systemImage: "bolt.fill") }
+                    if let speed = bluetooth.speedKmh { Label(String(format: "%.1f km/h", speed), systemImage: "speedometer") }
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(FFTheme.inkSoft)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                 ForEach(liveMetrics) { item in metric(item.value, item.label) }
@@ -298,10 +309,13 @@ struct WorkoutView: View {
             let distance = tracker.distanceKm
             Task {
                 do {
-                    try await APIClient.shared.stopWorkout(id: id, gpsPoints: route, gpsDistanceKm: distance,
-                                                           sportMetrics: ["top_speed_kmh": tracker.maxSpeedKmh,
-                                                                          "elevation_gain_m": tracker.elevationGainM,
-                                                                          "elevation_loss_m": tracker.elevationLossM])
+                    var sportMetrics: [String: Double] = ["top_speed_kmh": max(tracker.maxSpeedKmh, bluetooth.speedKmh ?? 0),
+                                                           "elevation_gain_m": tracker.elevationGainM,
+                                                           "elevation_loss_m": tracker.elevationLossM]
+                    if let cadence = bluetooth.cadenceRPM { sportMetrics["cadence_rpm"] = Double(cadence) }
+                    if let power = bluetooth.cyclingPowerWatts { sportMetrics["power_w"] = Double(power) }
+                    if bluetooth.peakPowerWatts > 0 { sportMetrics["peak_power_w"] = Double(bluetooth.peakPowerWatts) }
+                    try await APIClient.shared.stopWorkout(id: id, gpsPoints: route, gpsDistanceKm: distance, sportMetrics: sportMetrics)
                     await MainActor.run { showReflection = true }
                     recent = (try? await APIClient.shared.fetchWorkouts()) ?? recent
                 } catch {
