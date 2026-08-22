@@ -1144,6 +1144,14 @@ final class APIClient {
         )
     }
 
+    /// Avatars stay out of profile lists; this fetch preserves the server's
+    /// visibility and block rules without bloating the main profile response.
+    func fetchAvatarData(userID: UUID) async throws -> String {
+        if useMock { throw APIError.invalidResponse }
+        let response: AvatarResponse = try await request("/api/users/\(userID.uuidString)/avatar")
+        return response.avatarData
+    }
+
     func fetchPrivacySettings() async throws -> PrivacySettings {
         try await request("/api/privacy")
     }
@@ -1580,6 +1588,10 @@ private struct UpdateProfileBody: Encodable {
     }
 }
 private struct UpdateProfileResponse: Decodable { let ok: Bool }
+private struct AvatarResponse: Decodable {
+    let avatarData: String
+    enum CodingKeys: String, CodingKey { case avatarData = "avatar_data" }
+}
 private struct ConsentBody: Encodable { let scope: String; let granted: Bool }
 private struct WorkoutBiometricBody: Encodable {
     let heartRate: Int

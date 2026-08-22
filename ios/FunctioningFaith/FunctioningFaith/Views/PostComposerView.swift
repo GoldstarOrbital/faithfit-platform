@@ -110,7 +110,7 @@ struct PostComposerView: View {
     }
 
     private var canPublish: Bool {
-        (!content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || uploadData != nil)
+        !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && (uploadData == nil || photoPolicyAccepted)
     }
 

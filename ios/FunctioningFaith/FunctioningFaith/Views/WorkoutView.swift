@@ -24,8 +24,12 @@ struct WorkoutView: View {
     @State private var mapPosition: MapCameraPosition = .automatic
     @State private var lastHeartRateRefresh = Date.distantPast
     @State private var lastBiometricUpload = Date.distantPast
+    @State private var lastHeartRateCalmCue = Date.distantPast
+    @State private var heartRateCalmMessage: String?
     @AppStorage("privacy.biometricIngest") private var biometricIngestEnabled = false
     @AppStorage("privacy.scripturePersonalization") private var scripturePersonalizationEnabled = false
+    @AppStorage("notifications.heartRateCalm") private var heartRateCalmNotifications = false
+    @AppStorage("notifications.heartRateCalm.threshold") private var heartRateCalmThreshold = 160
     @State private var workoutID: UUID?
     @State private var workoutVerse: VerseSnippet?
     @State private var errorMessage: String?
@@ -166,6 +170,14 @@ struct WorkoutView: View {
 
             if let workoutVerse {
                 VerseSnippetCard(verse: workoutVerse)
+            }
+            if let heartRateCalmMessage {
+                Label(heartRateCalmMessage, systemImage: "wind")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(FFTheme.meadowDeep)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
 
             Button(action: toggleWorkout) {
@@ -341,6 +353,8 @@ struct WorkoutView: View {
                     heartRate = 0
                     lastHeartRateRefresh = .distantPast
                     lastBiometricUpload = .distantPast
+                    lastHeartRateCalmCue = .distantPast
+                    heartRateCalmMessage = nil
                     workoutVerse = nil
                     isActive = true
                     tracker.start()
@@ -354,13 +368,24 @@ struct WorkoutView: View {
     private func refreshHeartRate() async {
         if let wearableHeartRate = bluetooth.heartRate {
             heartRate = wearableHeartRate
+            await deliverCalmCueIfNeeded()
             await submitBiometricSampleIfNeeded()
             return
         }
         let samples = (try? await HealthKitManager.shared.recentHeartRateSamples()) ?? []
         guard let latest = samples.last else { return }
         heartRate = Int(latest.rounded())
+        await deliverCalmCueIfNeeded()
         await submitBiometricSampleIfNeeded()
+    }
+
+    private func deliverCalmCueIfNeeded() async {
+        guard heartRateCalmNotifications,
+              heartRate >= heartRateCalmThreshold,
+              Date().timeIntervalSince(lastHeartRateCalmCue) >= 5 * 60 else { return }
+        lastHeartRateCalmCue = .now
+        heartRateCalmMessage = "Your heart rate is elevated. Ease your pace if you need to and take a few slow breaths."
+        await NotificationCoordinator.shared.deliverHeartRateCalmCue(heartRate: heartRate)
     }
 
     private func submitBiometricSampleIfNeeded() async {

@@ -87,6 +87,18 @@ final class NotificationCoordinator: NSObject, UIApplicationDelegate, UNUserNoti
         UIApplication.shared.open(url)
         #endif
     }
+
+    /// A local, opt-in wellness cue. It is deliberately not a medical alert;
+    /// WorkoutView only invokes it while a workout is active and rate-limits it.
+    func deliverHeartRateCalmCue(heartRate: Int) async {
+        let content = UNMutableNotificationContent()
+        content.title = "Take a calm moment"
+        content.body = "Your heart rate is \(heartRate) BPM. Ease your pace if you need to, and take a few slow breaths."
+        content.sound = .default
+        content.userInfo = ["ff_url": "functioningfaith://train"]
+        let request = UNNotificationRequest(identifier: "ff-heart-rate-calm-\(UUID().uuidString)", content: content, trigger: nil)
+        try? await UNUserNotificationCenter.current().add(request)
+    }
 }
 
 enum NotificationCategory: String, CaseIterable, Identifiable {

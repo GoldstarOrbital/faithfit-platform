@@ -23,6 +23,9 @@ struct ProfileView: View {
     @State private var isConnectingStrava = false
     @State private var connectorError: String?
     @State private var healthKitError: String?
+    @State private var avatarImage: UIImage?
+    @AppStorage("notifications.heartRateCalm") private var heartRateCalmNotifications = false
+    @AppStorage("notifications.heartRateCalm.threshold") private var heartRateCalmThreshold = 160
 
     var body: some View {
         Form {
@@ -47,6 +50,10 @@ struct ProfileView: View {
                 profile = current
             } else {
                 profile = try? await APIClient.shared.fetchProfile()
+            }
+            if let userID = profile?.id,
+               let dataURL = try? await APIClient.shared.fetchAvatarData(userID: userID) {
+                avatarImage = ImageUpload.decode(dataURL)
             }
             pendingFollowRequests = (try? await APIClient.shared.fetchFollowRequests().count) ?? 0
             stravaConfigured = (try? await APIClient.shared.isStravaConfigured()) ?? false
@@ -83,6 +90,11 @@ struct ProfileView: View {
                 EditProfileView(profile: profile) { updated in
                     self.profile = updated
                     session.profile = updated
+                    Task {
+                        if let dataURL = try? await APIClient.shared.fetchAvatarData(userID: updated.id) {
+                            avatarImage = ImageUpload.decode(dataURL)
+                        }
+                    }
                 }
             }
         }
@@ -98,8 +110,19 @@ struct ProfileView: View {
     @ViewBuilder
     private func statsSection(_ profile: UserProfile) -> some View {
         Section {
-            Text("\(profile.displayName)")
-            Text("Level \(profile.level) · \(profile.xp) XP")
+            HStack(spacing: 14) {
+                Group {
+                    if let avatarImage { Image(uiImage: avatarImage).resizable().scaledToFill() }
+                    else { Image(systemName: "person.crop.circle.fill").resizable().scaledToFit().padding(10).foregroundStyle(FFTheme.meadow) }
+                }
+                .frame(width: 72, height: 72)
+                .background(FFTheme.parchment2, in: Circle())
+                .clipShape(Circle())
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(profile.displayName).font(.title3.weight(.bold))
+                    Text("Level \(profile.level) · \(profile.xp) XP").foregroundStyle(.secondary)
+                }
+            }
             if let bio = profile.bio, !bio.isEmpty { Text(bio).font(.caption).foregroundStyle(.secondary) }
             if let job = profile.job, !job.isEmpty { Text(job).font(.caption).foregroundStyle(.secondary) }
             if let church = profile.church, !church.isEmpty { Text(church).font(.caption).foregroundStyle(.secondary) }
@@ -404,6 +427,25 @@ struct ProfileView: View {
             notificationToggle(.scripture, isOn: $scriptureNotifications)
             notificationToggle(.community, isOn: $communityNotifications)
             notificationToggle(.reminders, isOn: $reminderNotifications)
+            Toggle(isOn: $heartRateCalmNotifications) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Heart-rate calm cue")
+                    Text("During an active workout, send one gentle cue when your live heart rate reaches your chosen threshold.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .onChange(of: heartRateCalmNotifications) { _, enabled in
+                Task {
+                    if enabled && !(await NotificationCoordinator.shared.enable(category: .reminders)) {
+                        heartRateCalmNotifications = false
+                    }
+                }
+            }
+            if heartRateCalmNotifications {
+                Stepper("Cue at \(heartRateCalmThreshold) BPM", value: $heartRateCalmThreshold, in: 100...210, step: 5)
+                Text("A wellness reminder, not medical advice or an emergency alert. Limited to once every five minutes during a workout.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Button("Manage notification permissions") {
                 NotificationCoordinator.shared.openSystemSettings()
             }

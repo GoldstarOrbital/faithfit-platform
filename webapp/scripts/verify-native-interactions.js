@@ -22,6 +22,9 @@ const profile = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views
 const rootTabs = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'RootTabView.swift');
 const journeys = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'JourneysListView.swift');
 const journeyVisual = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'JourneyWorldVisual.swift');
+const postComposer = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'PostComposerView.swift');
+const reelComposer = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'ReelComposerView.swift');
+const notifications = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Networking', 'NotificationCoordinator.swift');
 
 assert.match(client, /request\.timeoutInterval = 20/, 'native taps need a finite network deadline');
 for (const route of ['/feed', '/explore', '/dms', '/notifications', '/journeys', '/groups/nearby', '/workouts/start', '/workouts/:id/stop']) {
@@ -53,5 +56,12 @@ assert.match(rootTabs, /NavigationStack\(path: \$explorePath\)/, 'Explore needs 
 assert.match(rootTabs, /if tab == \.explore \{ explorePath = NavigationPath\(\) \}/, 'reselecting Explore must clear stale destinations');
 assert.match(journeys, /JourneyRouteCard\(journey: journey\)/, 'Journeys need direct, rich route cards instead of inert rows');
 assert.match(journeyVisual, /figure\.run\.circle\.fill/, 'Journey map needs a member position marker');
+assert.match(client, /func fetchAvatarData\(userID: UUID\)/, 'profile needs a privacy-scoped avatar fetch');
+assert.match(profile, /fetchAvatarData\(userID: userID\)/, 'Profile must render the member’s stored avatar');
+assert.match(postComposer, /!content\.trimmingCharacters\(in: \.whitespacesAndNewlines\)\.isEmpty/, 'photo posts need a caption for Scripture matching');
+assert.match(reelComposer, /video\/quicktime/, 'iPhone MOV files must be encoded as QuickTime uploads');
+assert.match(profile, /Heart-rate calm cue/, 'members need an explicit calm-cue preference');
+assert.match(workout, /Date\(\)\.timeIntervalSince\(lastHeartRateCalmCue\) >= 5 \* 60/, 'heart-rate calm cues must be rate limited');
+assert.match(notifications, /deliverHeartRateCalmCue/, 'the calm cue must reach the local-notification coordinator');
 
 console.log(JSON.stringify({ native_action_contracts: true, timeout_boundary_seconds: 20, bluetooth_profiles: ['heart_rate', 'cycling_speed_cadence', 'cycling_power', 'fitness_machine'] }));
