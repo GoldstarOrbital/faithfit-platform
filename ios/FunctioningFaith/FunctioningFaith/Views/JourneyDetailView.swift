@@ -15,6 +15,8 @@ struct JourneyDetailView: View {
             } else if let detail {
                 List {
                     Section {
+                        JourneyWorldVisual(world: detail.journey.world, progress: detail.percent)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
                         if let subtitle = detail.journey.subtitle { Text(subtitle).font(.callout) }
                         if let description = detail.journey.description { Text(description).font(.caption).foregroundStyle(.secondary) }
                         HStack {
@@ -42,7 +44,7 @@ struct JourneyDetailView: View {
                             if detail.completed {
                                 Label("Journey complete", systemImage: "checkmark.seal.fill").foregroundStyle(FFTheme.emerald)
                             } else {
-                                Button("Start live session") { showLiveSession = true }
+                                Button("Start live route") { showLiveSession = true }
                                     .buttonStyle(.ffPrimary)
                                 Button("Leave journey", role: .destructive) { Task { await leave() } }
                                     .disabled(isChangingMembership)

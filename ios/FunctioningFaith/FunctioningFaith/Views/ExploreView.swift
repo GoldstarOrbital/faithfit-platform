@@ -16,7 +16,7 @@ struct ExploreView: View {
             Section {
                 ExploreCatalogGrid()
             } footer: {
-                Text("Same twelve sections as the Railway Explore index. Native uses lists and system controls instead of the web grid chrome.")
+                Text("Choose any section directly. Returning to Explore always brings you back to this dashboard.")
             }
             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             .listRowBackground(Color.clear)

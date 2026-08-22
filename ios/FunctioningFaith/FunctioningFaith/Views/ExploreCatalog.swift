@@ -101,8 +101,8 @@ struct ExploreCatalogGrid: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: FFTheme.Space.sm) {
-            Text("Everything Functioning Faith has beyond your own training. Pick a section.")
-                .font(.subheadline)
+            Text("Jump straight into a community, route, reel, or resource.")
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(.secondary)
             LazyVGrid(columns: columns, spacing: FFTheme.Space.sm) {
                 ForEach(ExploreCatalogItem.allCases) { item in

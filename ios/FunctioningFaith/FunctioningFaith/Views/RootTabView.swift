@@ -6,6 +6,7 @@ struct RootTabView: View {
     @EnvironmentObject private var deepLinks: DeepLinkRouter
     @AppStorage("onboarding.pendingUserID") private var pendingOnboardingUserID = ""
     @StateObject private var dmStore = DMStore()
+    @State private var explorePath = NavigationPath()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,7 +21,7 @@ struct RootTabView: View {
                     .tabItem { Label("Train", systemImage: "figure.run") }
                     .tag(AppTab.workouts)
 
-                NavigationStack { ExploreView().ffRootBrand() }
+                NavigationStack(path: $explorePath) { ExploreView().ffRootBrand() }
                     .tabItem { Label("Explore", systemImage: "safari.fill") }
                     .tag(AppTab.explore)
 
@@ -51,6 +52,11 @@ struct RootTabView: View {
                 pendingOnboardingUserID = ""
             }
         }
+        .onChange(of: deepLinks.selectedTab) { tab in
+            // Explore is a dashboard, not a linear wizard. Returning to this
+            // tab must show the dashboard instead of a retained detail stack.
+            if tab == .explore { explorePath = NavigationPath() }
+        }
     }
 
     private var onboardingIsPresented: Binding<Bool> {
@@ -70,10 +76,11 @@ private extension View {
                 Image("BrandMark")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 40, height: 40)
-                    .padding(3)
-                    .background(.white, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(FFTheme.gold.opacity(0.32), lineWidth: 1))
+                    .frame(width: 46, height: 46)
+                    .padding(2)
+                    .background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(FFTheme.goldBright.opacity(0.7), lineWidth: 1.25))
+                    .shadow(color: .black.opacity(0.22), radius: 4, x: 0, y: 2)
                     .accessibilityLabel("Functioning Faith")
             }
         }
