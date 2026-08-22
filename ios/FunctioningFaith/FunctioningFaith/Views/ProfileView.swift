@@ -20,6 +20,7 @@ struct ProfileView: View {
     @State private var stravaConfigured = false
     @State private var isConnectingStrava = false
     @State private var connectorError: String?
+    @State private var healthKitError: String?
 
     var body: some View {
         Form {
@@ -53,6 +54,9 @@ struct ProfileView: View {
         .alert("Could not connect Strava", isPresented: Binding(get: { connectorError != nil }, set: { if !$0 { connectorError = nil } })) {
             Button("OK", role: .cancel) { connectorError = nil }
         } message: { Text(connectorError ?? "") }
+        .alert("Apple Health needs attention", isPresented: Binding(get: { healthKitError != nil }, set: { if !$0 { healthKitError = nil } })) {
+            Button("OK", role: .cancel) { healthKitError = nil }
+        } message: { Text(healthKitError ?? "") }
         .confirmationDialog("Delete your Functioning Faith account?", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete permanently", role: .destructive) {
                 Task {
@@ -130,16 +134,19 @@ struct ProfileView: View {
     private var healthKitSection: some View {
         Section {
             if !healthKit.isAvailable {
-                Text("Health data isn't available on this device.")
-                    .foregroundStyle(.secondary)
+                healthStatusCard(
+                    icon: "heart.slash.fill",
+                    tint: FFTheme.muted,
+                    title: "Apple Health isn't available",
+                    detail: "Health data can only be connected on an iPhone or iPad with Apple Health."
+                )
             } else if healthKit.authorizationRequested {
-                if let lastSyncedAt = healthKit.lastSyncedAt {
-                    Text("Last synced \(lastSyncedAt.formatted(.relative(presentation: .named)))")
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Connected — not yet synced")
-                        .foregroundStyle(.secondary)
-                }
+                healthStatusCard(
+                    icon: "heart.text.square.fill",
+                    tint: FFTheme.meadow,
+                    title: "Apple Health connected",
+                    detail: healthDetail
+                )
                 Button {
                     Task {
                         healthKitSyncing = true
@@ -149,19 +156,50 @@ struct ProfileView: View {
                         healthKitSyncing = false
                     }
                 } label: {
-                    if healthKitSyncing { ProgressView() } else { Text("Sync now") }
-                }
-                .disabled(healthKitSyncing)
-                if let error = healthKit.lastSyncError {
-                    Text(error).font(.caption).foregroundStyle(FFTheme.seal)
-                }
-            } else {
-                Button("Connect Apple Health") {
-                    Task {
-                        do { try await healthKit.requestAuthorization() }
-                        catch { /* surfaced via lastSyncError on next sync attempt */ }
+                    HStack {
+                        if healthKitSyncing { ProgressView() }
+                        Text(healthKitSyncing ? "Syncing activity…" : "Sync Apple Health now")
                     }
                 }
+                .buttonStyle(.ffPrimary)
+                .disabled(healthKitSyncing)
+                if let error = healthKit.lastSyncError {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(FFTheme.seal)
+                } else if let result = healthKit.lastSyncResult, result.imported == 0 && result.stepDaysSynced == 0 {
+                    Label("No new Health activity was found. Check Health sharing if you expected data.", systemImage: "info.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(FFTheme.inkSoft)
+                }
+            } else {
+                healthStatusCard(
+                    icon: "heart.circle.fill",
+                    tint: FFTheme.hearth,
+                    title: "Bring your activity together",
+                    detail: "Import workouts, steps, and workout heart rate from Apple Health and Apple Watch."
+                )
+                Button {
+                    Task {
+                        do {
+                            try await healthKit.requestAuthorization()
+                            healthKitSyncing = true
+                            await healthKit.syncRecentWorkouts { payload in
+                                try await APIClient.shared.syncAppleHealth(payload)
+                            }
+                            healthKitSyncing = false
+                        } catch {
+                            healthKitError = error.localizedDescription
+                        }
+                    }
+                } label: {
+                    HStack {
+                        if healthKitSyncing { ProgressView() }
+                        Text(healthKitSyncing ? "Connecting Apple Health…" : "Connect Apple Health")
+                    }
+                }
+                .buttonStyle(.ffPrimary)
+                .disabled(healthKitSyncing)
             }
         } header: {
             Text("Apple Health & Watch")
@@ -169,6 +207,34 @@ struct ProfileView: View {
             Text("Reads workouts, step counts, and workout heart rate from Health — from your Apple Watch or any other app that writes into it (Fitbit, Garmin, Oura, and others all sync through Health). Functioning Faith never writes to your Health data.")
         }
         .listRowBackground(FFTheme.parchment1)
+    }
+
+    private var healthDetail: String {
+        if let result = healthKit.lastSyncResult {
+            let workoutText = result.imported == 1 ? "1 workout" : "\(result.imported) workouts"
+            let stepText = result.stepDaysSynced == 1 ? "1 day of steps" : "\(result.stepDaysSynced) days of steps"
+            return "Last sync imported \(workoutText) and \(stepText)."
+        }
+        if let lastSyncedAt = healthKit.lastSyncedAt {
+            return "Last synced \(lastSyncedAt.formatted(.relative(presentation: .named)))."
+        }
+        return "Ready to sync your recent activity."
+    }
+
+    private func healthStatusCard(icon: String, tint: Color, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: FFTheme.Space.sm) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(FFTheme.cream)
+                .frame(width: 42, height: 42)
+                .background(tint, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.headline).foregroundStyle(FFTheme.ink)
+                Text(detail).font(.caption).foregroundStyle(FFTheme.inkSoft)
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
     }
 
     @ViewBuilder

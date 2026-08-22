@@ -27,9 +27,11 @@ final class HealthKitManager: ObservableObject {
     @Published private(set) var authorizationRequested: Bool = false
     @Published private(set) var lastSyncedAt: Date?
     @Published private(set) var lastSyncError: String?
+    @Published private(set) var lastSyncResult: SyncResult?
 
     private let store = HKHealthStore()
     private let lastSyncKey = "healthkit.lastWorkoutSyncStart"
+    private let authorizationRequestedKey = "healthkit.authorizationRequested"
     private let userDefaults = UserDefaults.standard
 
     // The `HKQuantityType(.stepCount)` typed-literal initializer is a newer
@@ -51,6 +53,11 @@ final class HealthKitManager: ObservableObject {
 
     private init() {
         lastSyncedAt = userDefaults.object(forKey: "healthkit.lastSyncedAt") as? Date
+        // HealthKit deliberately does not reveal read authorization for an
+        // individual type. Remembering that the system sheet was completed
+        // gives the UI an honest, stable connection state after relaunch
+        // without claiming that access was granted.
+        authorizationRequested = userDefaults.bool(forKey: authorizationRequestedKey) || lastSyncedAt != nil
     }
 
     /// True once the system has recorded a decision either way. HealthKit
@@ -61,8 +68,15 @@ final class HealthKitManager: ObservableObject {
     /// error to alarm the member with.
     func requestAuthorization() async throws {
         guard isAvailable else { throw HealthKitError.unavailable }
-        try await store.requestAuthorization(toShare: [], read: readTypes)
-        authorizationRequested = true
+        do {
+            try await store.requestAuthorization(toShare: [], read: readTypes)
+            authorizationRequested = true
+            userDefaults.set(true, forKey: authorizationRequestedKey)
+            lastSyncError = nil
+        } catch {
+            lastSyncError = error.localizedDescription
+            throw error
+        }
     }
 
     /// Pulls workouts since the last successful sync (or the last 30 days on
@@ -71,6 +85,10 @@ final class HealthKitManager: ObservableObject {
     /// closure so this stays testable without a live server.
     func syncRecentWorkouts(upload: (SyncPayload) async throws -> SyncResult) async {
         guard isAvailable else { lastSyncError = "Health data is not available on this device."; return }
+        guard authorizationRequested else {
+            lastSyncError = "Connect Apple Health before syncing your activity."
+            return
+        }
         do {
             let since = userDefaults.object(forKey: lastSyncKey) as? Date ?? Date().addingTimeInterval(-30 * 24 * 3600)
             let workouts = try await fetchWorkouts(since: since)
@@ -89,11 +107,12 @@ final class HealthKitManager: ObservableObject {
                 ))
             }
             let steps = try await dailyStepTotals(since: since)
-            _ = try await upload(SyncPayload(workouts: syncedWorkouts, dailySteps: steps))
+            let result = try await upload(SyncPayload(workouts: syncedWorkouts, dailySteps: steps))
             userDefaults.set(Date(), forKey: lastSyncKey)
             let now = Date()
             userDefaults.set(now, forKey: "healthkit.lastSyncedAt")
             lastSyncedAt = now
+            lastSyncResult = result
             lastSyncError = nil
         } catch {
             lastSyncError = error.localizedDescription
