@@ -71,7 +71,9 @@ workflows:
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$app/Info.plist"
           # HealthKit must be present in the signed app, not merely in the
           # source entitlements file.
-          codesign -d --entitlements :- "$app" 2>/tmp/functioning-faith-entitlements.plist
+          # codesign writes an `Executable=…` diagnostic before the plist on
+          # some Xcode releases. Retain only the XML payload before parsing.
+          codesign -d --entitlements :- "$app" 2>&1 | sed -n '/<plist /,$p' > /tmp/functioning-faith-entitlements.plist
           /usr/libexec/PlistBuddy -c 'Print :com.apple.developer.healthkit' /tmp/functioning-faith-entitlements.plist | grep -qx true
           test -f "$app/Assets.car"
           find "$app" \( -name 'Assets.car' -o -iname '*appicon*' \) -print | sort
