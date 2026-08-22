@@ -9,21 +9,26 @@ final class NativeWorkoutTracker: NSObject, ObservableObject, CLLocationManagerD
     @Published private(set) var points: [[Double]] = []
     @Published private(set) var distanceKm: Double = 0
     @Published private(set) var authorization: CLAuthorizationStatus
+    @Published private(set) var lastAccuracyMeters: Double?
 
     private let manager = CLLocationManager()
+    private var lastAcceptedLocation: CLLocation?
 
     override init() {
         authorization = manager.authorizationStatus
         super.init()
         manager.delegate = self
-        manager.desiredAccuracy = kCLLocationAccuracyBest
-        manager.distanceFilter = 5
+        manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
+        manager.distanceFilter = 3
         manager.activityType = .fitness
+        manager.pausesLocationUpdatesAutomatically = false
     }
 
     func start() {
         points.removeAll(keepingCapacity: true)
         distanceKm = 0
+        lastAcceptedLocation = nil
+        lastAccuracyMeters = nil
         manager.requestWhenInUseAuthorization()
         guard manager.authorizationStatus == .authorizedAlways || manager.authorizationStatus == .authorizedWhenInUse else { return }
         manager.startUpdatingLocation()
@@ -31,9 +36,17 @@ final class NativeWorkoutTracker: NSObject, ObservableObject, CLLocationManagerD
 
     func stop() { manager.stopUpdatingLocation() }
 
+    var isLocationReady: Bool {
+        lastAcceptedLocation != nil && (lastAccuracyMeters ?? .infinity) <= 50
+    }
+
     var statusText: String {
         switch authorization {
-        case .authorizedAlways, .authorizedWhenInUse: return points.isEmpty ? "Locating…" : "GPS route recording"
+        case .authorizedAlways, .authorizedWhenInUse:
+            if let accuracy = lastAccuracyMeters {
+                return isLocationReady ? "GPS locked · ±\(Int(accuracy.rounded())) m" : "Improving GPS · ±\(Int(accuracy.rounded())) m"
+            }
+            return "Locating…"
         case .denied, .restricted: return "Location permission is off — workout will have no route"
         default: return "Waiting for location permission"
         }
@@ -45,12 +58,23 @@ final class NativeWorkoutTracker: NSObject, ObservableObject, CLLocationManagerD
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        for location in locations where location.horizontalAccuracy >= 0 && location.horizontalAccuracy <= 100 {
+        for location in locations {
+            // Ignore stale or low-confidence readings so a poor initial fix
+            // cannot draw a misleading route or inflate distance.
+            guard location.timestamp.timeIntervalSinceNow > -10,
+                  location.horizontalAccuracy >= 0,
+                  location.horizontalAccuracy <= 50 else { continue }
+            lastAccuracyMeters = location.horizontalAccuracy
             let next = [location.coordinate.latitude, location.coordinate.longitude]
-            if let last = points.last, last.count >= 2 {
-                distanceKm += TrainingMath.haversineKm(lat1: last[0], lon1: last[1], lat2: next[0], lon2: next[1])
+            if let last = lastAcceptedLocation {
+                let deltaMeters = location.distance(from: last)
+                // Less than two metres is normally GPS wander; a kilometre
+                // jump between callbacks is never a credible workout trace.
+                guard deltaMeters >= 2, deltaMeters <= 1_000 else { continue }
+                distanceKm += deltaMeters / 1_000
             }
             points.append(next)
+            lastAcceptedLocation = location
         }
         if points.count > 3000 { points.removeFirst(points.count - 3000) }
     }

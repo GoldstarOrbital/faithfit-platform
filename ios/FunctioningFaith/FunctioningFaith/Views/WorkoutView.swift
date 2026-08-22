@@ -1,4 +1,5 @@
 import SwiftUI
+import MapKit
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -19,6 +20,8 @@ struct WorkoutView: View {
     @State private var isActive = false
     @State private var elapsed: TimeInterval = 0
     @State private var heartRate = 0
+    @State private var mapPosition: MapCameraPosition = .automatic
+    @State private var lastHeartRateRefresh = Date.distantPast
     @State private var workoutID: UUID?
     @State private var errorMessage: String?
     @State private var showReflection = false
@@ -69,6 +72,18 @@ struct WorkoutView: View {
             }
         }
         .onReceive(timer) { _ in if isActive { elapsed += 1 } }
+        .onReceive(timer) { _ in
+            guard isActive, Date().timeIntervalSince(lastHeartRateRefresh) >= 15 else { return }
+            lastHeartRateRefresh = .now
+            Task { await refreshHeartRate() }
+        }
+        .onChange(of: tracker.points) { _, points in
+            guard let last = points.last, last.count == 2 else { return }
+            mapPosition = .region(MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: last[0], longitude: last[1]),
+                span: MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
+            ))
+        }
         .sheet(isPresented: $showReflection) { PostWorkoutReflectionView() }
         .alert("Workout unavailable", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
@@ -103,29 +118,25 @@ struct WorkoutView: View {
 
     private var livePanel: some View {
         VStack(spacing: 16) {
-            VStack(spacing: 4) {
-                Text(heartRate > 0 ? "\(heartRate)" : "—")
-                    .font(.system(size: 64, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                Text("BPM · connect a monitor on device")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            liveMap
+
+            HStack(spacing: 8) {
+                Label(tracker.statusText, systemImage: tracker.isLocationReady ? "location.fill" : "location")
+                Spacer()
+                Text(isActive ? "LIVE" : "READY")
+                    .font(.caption2.weight(.bold))
+                    .padding(.horizontal, 8).padding(.vertical, 4)
+                    .background(isActive ? FFTheme.seal : FFTheme.meadow, in: Capsule())
+                    .foregroundStyle(FFTheme.cream)
             }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(tracker.isLocationReady ? FFTheme.meadowDeep : FFTheme.inkSoft)
 
-            Text(TrainingMath.elapsedString(elapsed))
-                .font(.system(size: 40, weight: .medium, design: .rounded))
-                .monospacedDigit()
-                .accessibilityLabel("Elapsed time \(TrainingMath.elapsedString(elapsed))")
-
-            Text(tracker.statusText)
-                .font(.caption)
-                .foregroundStyle(tracker.points.isEmpty ? Color.secondary : FFTheme.emerald)
-                .multilineTextAlignment(.center)
-
-            HStack {
-                metric(String(format: "%.2f", tracker.distanceKm), "km")
-                metric(TrainingMath.paceString(elapsed: elapsed, km: tracker.distanceKm), "pace /km")
-                metric("\(TrainingMath.estimatedKcal(elapsed: elapsed, km: tracker.distanceKm))", "kcal est.")
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                metric(String(format: "%.2f", tracker.distanceKm), "DISTANCE · KM")
+                metric(TrainingMath.paceString(elapsed: elapsed, km: tracker.distanceKm), "PACE · /KM")
+                metric(TrainingMath.elapsedString(elapsed), "ELAPSED")
+                metric(heartRate > 0 ? "\(heartRate)" : "—", heartRate > 0 ? "HEART RATE · BPM" : "HEART RATE")
             }
 
             Button(action: toggleWorkout) {
@@ -139,8 +150,36 @@ struct WorkoutView: View {
             .accessibilityLabel(isActive ? "Stop workout" : "Start workout")
             .frame(maxWidth: .infinity)
         }
-        .padding(.vertical, 8)
+        .padding(FFTheme.Space.sm)
         .frame(maxWidth: .infinity)
+        .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.lg, style: .continuous))
+    }
+
+    private var liveMap: some View {
+        Map(position: $mapPosition, interactionModes: .all) {
+            UserAnnotation()
+            if tracker.points.count > 1 {
+                MapPolyline(coordinates: routeCoordinates)
+                    .stroke(FFTheme.emerald, style: StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round))
+            }
+        }
+        .frame(height: 265)
+        .clipShape(RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
+        .overlay(alignment: .bottomLeading) {
+            Text(tracker.points.count > 1 ? "LIVE ROUTE" : "YOUR ROUTE WILL APPEAR HERE")
+                .font(.caption2.weight(.bold))
+                .padding(.horizontal, 10).padding(.vertical, 7)
+                .background(.ultraThinMaterial, in: Capsule())
+                .padding(10)
+        }
+        .accessibilityLabel(tracker.points.count > 1 ? "Live workout route" : "Map ready to record your route")
+    }
+
+    private var routeCoordinates: [CLLocationCoordinate2D] {
+        tracker.points.compactMap { point in
+            guard point.count == 2 else { return nil }
+            return CLLocationCoordinate2D(latitude: point[0], longitude: point[1])
+        }
     }
 
     private var manualPanel: some View {
@@ -214,11 +253,13 @@ struct WorkoutView: View {
     }
 
     private func metric(_ value: String, _ label: String) -> some View {
-        VStack(spacing: 2) {
-            Text(value).font(.title3.weight(.semibold).monospacedDigit())
-            Text(label).font(.caption2).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 3) {
+            Text(value).font(.title2.weight(.bold).monospacedDigit()).foregroundStyle(FFTheme.ink)
+            Text(label).font(.caption2.weight(.semibold)).foregroundStyle(FFTheme.inkSoft)
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
+        .padding(10)
+        .background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private func labeledField(_ title: String, text: Binding<String>, keyboard: UIKeyboardType) -> some View {
@@ -237,9 +278,10 @@ struct WorkoutView: View {
             isActive = false
             tracker.stop()
             let route = tracker.points
+            let distance = tracker.distanceKm
             Task {
                 do {
-                    try await APIClient.shared.stopWorkout(id: id, gpsPoints: route)
+                    try await APIClient.shared.stopWorkout(id: id, gpsPoints: route, gpsDistanceKm: distance)
                     await MainActor.run { showReflection = true }
                     recent = (try? await APIClient.shared.fetchWorkouts()) ?? recent
                 } catch {
@@ -255,6 +297,7 @@ struct WorkoutView: View {
                     workoutID = started.id
                     elapsed = 0
                     heartRate = 0
+                    lastHeartRateRefresh = .distantPast
                     isActive = true
                     tracker.start()
                 }
@@ -262,6 +305,12 @@ struct WorkoutView: View {
                 await MainActor.run { errorMessage = error.localizedDescription }
             }
         }
+    }
+
+    private func refreshHeartRate() async {
+        let samples = (try? await HealthKitManager.shared.recentHeartRateSamples()) ?? []
+        guard let latest = samples.last else { return }
+        heartRate = Int(latest.rounded())
     }
 
     private func saveManual() async {

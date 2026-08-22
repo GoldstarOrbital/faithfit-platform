@@ -233,9 +233,9 @@ final class APIClient {
         return WorkoutSummary(id: response.id, type: type, startTime: .now, endTime: nil, calories: nil, avgHR: nil)
     }
 
-    func stopWorkout(id: UUID, gpsPoints: [[Double]]) async throws {
+    func stopWorkout(id: UUID, gpsPoints: [[Double]], gpsDistanceKm: Double) async throws {
         if useMock { return }
-        let _: WorkoutStopResponse = try await request("/api/workouts/\(id.uuidString)/stop", method: "POST", body: WorkoutStop(gpsPoints: gpsPoints))
+        let _: WorkoutStopResponse = try await request("/api/workouts/\(id.uuidString)/stop", method: "POST", body: WorkoutStop(gpsPoints: gpsPoints, gpsDistanceKm: gpsDistanceKm))
     }
 
     func fetchActivityTypes() async throws -> [ActivityTypeItem] {
@@ -1281,7 +1281,14 @@ private struct ManualWorkoutBody: Encodable {
     }
 }
 private struct GroupPulseBody: Encodable { let kind: String; let note: String; let day: String }
-private struct WorkoutStop: Encodable { let gpsPoints: [[Double]]; enum CodingKeys: String, CodingKey { case gpsPoints = "gps_path" } }
+private struct WorkoutStop: Encodable {
+    let gpsPoints: [[Double]]
+    let gpsDistanceKm: Double
+    enum CodingKeys: String, CodingKey {
+        case gpsPoints = "gps_path"
+        case gpsDistanceKm = "gps_distance_km"
+    }
+}
 private struct AuthResponse: Decodable {
     let ok: Bool?
     let mfaRequired: Bool?
