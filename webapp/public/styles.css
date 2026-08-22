@@ -1809,8 +1809,10 @@ button.primary:disabled { opacity:.55; cursor:not-allowed; filter:saturate(.6); 
 header.topbar { --logo-ink: var(--parch-2); --logo-gold: var(--hearth-soft); }
 
 header.topbar .brand-mark { display: inline-flex; }
-header.topbar .brand-mark svg {
+header.topbar .brand-mark-image {
   width: 34px; height: 34px;
+  display: block;
+  border-radius: 10px;
   filter: drop-shadow(0 1px 2px rgba(0,0,0,.45));
 }
 /* The mark is the brand now; nothing needs to sit beside it. */
@@ -1826,7 +1828,7 @@ header.topbar .brand { gap: 0; }
 }
 
 @media (max-width: 420px) {
-  header.topbar .brand-mark svg { width: 30px; height: 30px; }
+  header.topbar .brand-mark-image { width: 30px; height: 30px; }
 }
 
 /* ---------------------------------------------------------------------------

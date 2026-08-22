@@ -87,11 +87,9 @@ private extension View {
                 Image("BrandMark")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 38, height: 38)
-                    .padding(2)
-                    .background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(FFTheme.goldBright.opacity(0.7), lineWidth: 1.25))
-                    .shadow(color: .black.opacity(0.22), radius: 4, x: 0, y: 2)
+                    .frame(width: 42, height: 42)
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .shadow(color: .black.opacity(0.18), radius: 3, x: 0, y: 2)
                     .accessibilityLabel("Functioning Faith")
             }
         }
