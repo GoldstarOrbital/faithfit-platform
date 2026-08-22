@@ -106,7 +106,9 @@ struct ExploreCatalogGrid: View {
                 .foregroundStyle(.secondary)
             LazyVGrid(columns: columns, spacing: FFTheme.Space.sm) {
                 ForEach(ExploreCatalogItem.allCases) { item in
-                    NavigationLink(value: item) {
+                    NavigationLink {
+                        item.destination
+                    } label: {
                         VStack(alignment: .leading, spacing: 6) {
                             Image(systemName: item.systemImage)
                                 .font(.system(size: 18, weight: .semibold))

@@ -1137,10 +1137,10 @@ final class APIClient {
     /// Empty string clears bioVerseRef/tradition (server semantics: `''`
     /// means "unset", matching the web form exactly); job/church have no
     /// such special case and just get stored as-is, empty or not.
-    func updateProfile(displayName: String, bioVerseRef: String, job: String, church: String, tradition: String) async throws {
+    func updateProfile(displayName: String, bioVerseRef: String, job: String, church: String, tradition: String, avatarData: String? = nil) async throws {
         let _: UpdateProfileResponse = try await request(
             "/api/profile", method: "PUT",
-            body: UpdateProfileBody(displayName: displayName, bioVerseRef: bioVerseRef, job: job, church: church, tradition: tradition)
+            body: UpdateProfileBody(displayName: displayName, bioVerseRef: bioVerseRef, job: job, church: church, tradition: tradition, avatarData: avatarData)
         )
     }
 
@@ -1553,8 +1553,9 @@ struct UsernameCheckResult: Decodable {
 
 private struct UpdateProfileBody: Encodable {
     let displayName: String, bioVerseRef: String, job: String, church: String, tradition: String
+    let avatarData: String?
     enum CodingKeys: String, CodingKey {
-        case displayName = "display_name", bioVerseRef = "bio_verse_ref", job, church, tradition
+        case displayName = "display_name", bioVerseRef = "bio_verse_ref", job, church, tradition, avatarData = "avatar_data"
     }
 }
 private struct UpdateProfileResponse: Decodable { let ok: Bool }

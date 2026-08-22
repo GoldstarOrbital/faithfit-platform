@@ -69,6 +69,10 @@ workflows:
           unzip -qq "$ipa" -d /tmp/functioning-faith-ipa-check
           app=/tmp/functioning-faith-ipa-check/Payload/FunctioningFaith.app
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$app/Info.plist"
+          # HealthKit must be present in the signed app, not merely in the
+          # source entitlements file.
+          codesign -d --entitlements :- "$app" 2>/tmp/functioning-faith-entitlements.plist
+          /usr/libexec/PlistBuddy -c 'Print :com.apple.developer.healthkit' /tmp/functioning-faith-entitlements.plist | grep -qx true
           test -f "$app/Assets.car"
           find "$app" \( -name 'Assets.car' -o -iname '*appicon*' \) -print | sort
           test -f "$app/AppIcon76x76@2x.png"

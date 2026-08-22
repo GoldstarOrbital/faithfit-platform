@@ -67,11 +67,13 @@ private extension View {
     func ffRootBrand() -> some View {
         toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Image("BrandMarkTransparent")
+                Image("BrandMark")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 28, height: 28)
-                    .padding(2)
+                    .frame(width: 40, height: 40)
+                    .padding(3)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).stroke(FFTheme.gold.opacity(0.32), lineWidth: 1))
                     .accessibilityLabel("Functioning Faith")
             }
         }

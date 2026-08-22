@@ -57,8 +57,10 @@ struct NativeAuthView: View {
                 ScrollView {
                     VStack(spacing: 20) {
                         VStack(spacing: 10) {
-                            Image("BrandMarkTransparent")
-                                .resizable().scaledToFit().frame(width: 74, height: 74)
+                            Image("BrandMark")
+                                .resizable().scaledToFit().frame(width: 88, height: 88)
+                                .padding(5)
+                                .background(.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
                             Text("Functioning Faith").font(.system(size: 32, weight: .bold, design: .rounded)).foregroundStyle(FFTheme.ink)
                             Text(isRegistering ? "Create a rhythm for your body, mind, and spirit." : "Move with purpose. Stay connected in faith.")
                                 .font(.subheadline).multilineTextAlignment(.center).foregroundStyle(FFTheme.inkSoft)

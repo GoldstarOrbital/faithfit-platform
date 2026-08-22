@@ -15,6 +15,9 @@ const sensors = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Netwo
 const workout = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'WorkoutView.swift');
 const exploreCatalog = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'ExploreCatalog.swift');
 const dmInbox = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'DMInboxView.swift');
+const profileEditor = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'EditProfileView.swift');
+const reels = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'ReelsFeedView.swift');
+const project = read('..', 'ios', 'FunctioningFaith', 'project.yml');
 
 assert.match(client, /request\.timeoutInterval = 20/, 'native taps need a finite network deadline');
 for (const route of ['/feed', '/explore', '/dms', '/notifications', '/journeys', '/groups/nearby', '/workouts/start', '/workouts/:id/stop']) {
@@ -32,5 +35,9 @@ for (const property of ['name', 'username', 'description', 'sport', 'locationNam
   assert.match(exploreCatalog, new RegExp(`@State private var ${property}\\b`), `group creation state must expose a SwiftUI binding for ${property}`);
 }
 assert.match(dmInbox, /struct NewConversationDestination: Identifiable, Hashable/, 'message compose destinations must satisfy navigationDestination item requirements');
+assert.match(profileEditor, /PhotosPicker\(selection: \$avatarPickerItem, matching: \.images\)/, 'members must be able to choose a profile photo');
+assert.match(profileEditor, /avatarData: avatarData\.map\(ImageUpload\.dataURL\(from:\)\)/, 'profile photo must be sent through the validated profile update API');
+assert.match(reels, /ScrollView\s*\{\s*LazyVStack/s, 'Reels must have a dedicated vertical scrolling feed');
+assert.match(project, /CODE_SIGN_ENTITLEMENTS: FunctioningFaith\/Resources\/FunctioningFaith\.entitlements/, 'HealthKit entitlement must be attached to generated release projects');
 
 console.log(JSON.stringify({ native_action_contracts: true, timeout_boundary_seconds: 20, bluetooth_profiles: ['heart_rate', 'cycling_speed_cadence', 'cycling_power', 'fitness_machine'] }));

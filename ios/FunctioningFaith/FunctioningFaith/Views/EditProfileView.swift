@@ -1,11 +1,12 @@
 import SwiftUI
+import PhotosUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
-/// Covers the fields most worth editing from a phone: username, bio verse,
-/// job, church, tradition. Deliberately NOT ported here: avatar upload,
-/// bio link, fitness group/gym, age, heart-rate reference figures,
-/// location-based church search -- each is its own real feature (photo
-/// picker + validation, a second free-text field, etc.), not a one-line
-/// addition to this form. Worth a dedicated pass later.
+/// Covers the fields most worth editing from a phone: profile photo, username,
+/// bio verse, job, church, and tradition. Images use the shared compression
+/// policy so the native picker honors the same server limits as the web app.
 struct EditProfileView: View {
     let profile: UserProfile
     let onSaved: (UserProfile) -> Void
@@ -18,6 +19,10 @@ struct EditProfileView: View {
     @State private var tradition: String
     @State private var isSaving = false
     @State private var errorMessage: String?
+    @State private var avatarPickerItem: PhotosPickerItem?
+    @State private var avatarPreview: Image?
+    @State private var avatarData: Data?
+    @State private var isPreparingAvatar = false
 
     @State private var usernameStatus: UsernameCheckResult?
     @State private var isCheckingUsername = false
@@ -47,6 +52,7 @@ struct EditProfileView: View {
     var body: some View {
         NavigationStack {
             Form {
+                profilePhotoSection
                 Section {
                     TextField("Username", text: $displayName)
                         .textInputAutocapitalization(.words)
@@ -94,6 +100,36 @@ struct EditProfileView: View {
     }
 
     @ViewBuilder
+    private var profilePhotoSection: some View {
+        Section("Profile photo") {
+            HStack(spacing: 14) {
+                Group {
+                    if let avatarPreview {
+                        avatarPreview.resizable().scaledToFill()
+                    } else {
+                        Image(systemName: "person.crop.circle.fill")
+                            .resizable().scaledToFit().padding(9).foregroundStyle(FFTheme.meadow)
+                    }
+                }
+                .frame(width: 68, height: 68)
+                .background(FFTheme.parchment2, in: Circle())
+                .clipShape(Circle())
+
+                PhotosPicker(selection: $avatarPickerItem, matching: .images) {
+                    Label(avatarData == nil ? "Add profile photo" : "Change profile photo", systemImage: "photo")
+                }
+                .onChange(of: avatarPickerItem) { _, item in
+                    Task { await prepareAvatar(item) }
+                }
+            }
+            if isPreparingAvatar { ProgressView("Preparing photo…") }
+            Text("Use a clear, appropriate photo that helps people recognize you in groups and messages.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        .listRowBackground(FFTheme.parchment1)
+    }
+
+    @ViewBuilder
     private var usernameStatusView: some View {
         if isCheckingUsername {
             Text("Checking…").font(.caption).foregroundStyle(.secondary)
@@ -132,6 +168,27 @@ struct EditProfileView: View {
         }
     }
 
+    private func prepareAvatar(_ item: PhotosPickerItem?) async {
+        guard let item else { return }
+        isPreparingAvatar = true
+        defer { isPreparingAvatar = false }
+        do {
+            guard let source = try await item.loadTransferable(type: Data.self) else {
+                throw ImageUpload.UploadError.invalidImage
+            }
+            let prepared = try ImageUpload.prepare(source)
+            avatarData = prepared
+            #if canImport(UIKit)
+            if let image = UIImage(data: prepared) { avatarPreview = Image(uiImage: image) }
+            #endif
+        } catch {
+            avatarPickerItem = nil
+            avatarData = nil
+            avatarPreview = nil
+            errorMessage = error.localizedDescription
+        }
+    }
+
     private func save() async {
         isSaving = true
         do {
@@ -140,7 +197,8 @@ struct EditProfileView: View {
                 bioVerseRef: bioVerseRef.trimmingCharacters(in: .whitespaces),
                 job: job.trimmingCharacters(in: .whitespaces),
                 church: church.trimmingCharacters(in: .whitespaces),
-                tradition: tradition
+                tradition: tradition,
+                avatarData: avatarData.map(ImageUpload.dataURL(from:))
             )
             let fresh = try await APIClient.shared.fetchProfile()
             onSaved(fresh)

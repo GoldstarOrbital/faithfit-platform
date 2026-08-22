@@ -27,31 +27,35 @@ struct ReelsFeedView: View {
                         .buttonStyle(.borderedProminent)
                 }
             } else {
-                List {
-                    Section {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: FFTheme.Space.md) {
+                        VStack(alignment: .leading, spacing: FFTheme.Space.xs) {
                         Button {
                             showComposer = true
                         } label: {
                             Label("Create a Reel", systemImage: "plus.circle.fill")
                                 .font(.headline)
                         }
-                        .listRowBackground(FFTheme.parchment1)
                         Text("Up to 60s · workout, nature, animals, or groups — paired with verified Scripture.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .listRowBackground(FFTheme.parchment1)
-                    }
+                        }
+                        .padding()
+                        .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
                     ForEach(reels) { reel in
                         ReelCard(reel: reel, churchName: churchName,
                                  onPlay: { playingReel = reel },
                                  onLike: { react(reel, kind: "like") },
                                  onSave: { react(reel, kind: "save") },
                                  onNotInterested: { hide(reel) })
-                        .listRowBackground(FFTheme.parchment1)
+                        .padding()
+                        .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
                     }
+                    }
+                    .padding(.horizontal, FFTheme.Space.md)
+                    .padding(.vertical, FFTheme.Space.sm)
                 }
-                .ffListChrome()
-                .listStyle(.plain)
+                .background(FFTheme.parchment0)
                 .refreshable { await load() }
             }
         }
