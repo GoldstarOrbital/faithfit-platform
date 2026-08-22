@@ -1151,11 +1151,17 @@ router.post('/consent', requireAuth, (req, res) => {
   if (!['biometric_ingest', 'scripture_personalization'].includes(scope)) {
     return res.status(400).json({ error: 'invalid_scope' });
   }
+  if (scope === 'scripture_personalization' && granted && !hasActiveConsent(req.session.userId, 'biometric_ingest')) {
+    return res.status(400).json({ error: 'biometric_consent_required' });
+  }
   if (granted) {
     const existing = db.prepare('SELECT * FROM user_consents WHERE user_id = ? AND scope = ? AND revoked_at IS NULL').get(req.session.userId, scope);
     if (!existing) db.prepare('INSERT INTO user_consents (id, user_id, scope) VALUES (?, ?, ?)').run(randomUUID(), req.session.userId, scope);
   } else {
     db.prepare("UPDATE user_consents SET revoked_at = datetime('now') WHERE user_id = ? AND scope = ? AND revoked_at IS NULL").run(req.session.userId, scope);
+    if (scope === 'biometric_ingest') {
+      db.prepare("UPDATE user_consents SET revoked_at = datetime('now') WHERE user_id = ? AND scope = 'scripture_personalization' AND revoked_at IS NULL").run(req.session.userId);
+    }
   }
   accountSecurity.audit(req.session.userId, 'consent_changed', req, { scope, granted: !!granted });
   res.json({ ok: true });
