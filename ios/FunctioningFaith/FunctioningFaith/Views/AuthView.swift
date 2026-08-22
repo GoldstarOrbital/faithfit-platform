@@ -40,6 +40,8 @@ struct NativeAuthView: View {
     @State private var password = ""
     @State private var dateOfBirth = Calendar.current.date(byAdding: .year, value: -18, to: .now) ?? .now
     @State private var acceptedTerms = false
+    @State private var usernameStatus: UsernameCheckResult?
+    @State private var usernameCheckTask: Task<Void, Never>?
     @State private var errorMessage: String?
     @State private var isSubmitting = false
     @State private var providers: [NativeAuthProvider] = []
@@ -93,7 +95,15 @@ struct NativeAuthView: View {
     @ViewBuilder
     private var credentialForm: some View {
         if isRegistering {
-            TextField("Name", text: $name).textContentType(.name).textFieldStyle(.roundedBorder)
+            TextField("Username", text: $name)
+                .textContentType(.username)
+                .textInputAutocapitalization(.words)
+                .textFieldStyle(.roundedBorder)
+                .onChange(of: name) { _, value in scheduleUsernameCheck(value) }
+            if let usernameStatus {
+                Label(usernameStatus.available ? "Username available" : (usernameStatus.message ?? "Username unavailable"), systemImage: usernameStatus.available ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .font(.caption).foregroundStyle(usernameStatus.available ? FFTheme.emerald : FFTheme.seal)
+            }
             DatePicker("Date of birth", selection: $dateOfBirth, in: ...Date(), displayedComponents: .date)
                 .datePickerStyle(.compact)
             Toggle("I am at least 13 and accept the Terms and Privacy Policy", isOn: $acceptedTerms)
@@ -236,7 +246,7 @@ struct NativeAuthView: View {
     private var canSubmit: Bool {
         guard !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !password.isEmpty else { return false }
         if !isRegistering { return true }
-        return !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && passwordMeetsPolicy && isEligibleAge && acceptedTerms
+        return !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && usernameStatus?.available != false && passwordMeetsPolicy && isEligibleAge && acceptedTerms
     }
 
     private var isEligibleAge: Bool {
@@ -252,6 +262,17 @@ struct NativeAuthView: View {
             password.rangeOfCharacter(from: CharacterSet.alphanumerics.inverted) != nil,
         ]
         return classes.filter { $0 }.count >= 3
+    }
+
+    private func scheduleUsernameCheck(_ value: String) {
+        usernameCheckTask?.cancel()
+        let candidate = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard candidate.count >= 2 else { usernameStatus = nil; return }
+        usernameCheckTask = Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            usernameStatus = try? await APIClient.shared.checkUsernameAvailable(candidate)
+        }
     }
 }
 

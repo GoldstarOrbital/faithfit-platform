@@ -523,7 +523,12 @@ router.post('/auth/native/apple', async (req, res) => {
     res.json({ ok: true, account_setup_required: accountSetupRequired });
   } catch (err) {
     const status = err.code === 'account_link_required' ? 409 : 401;
-    res.status(status).json({ error: err.code || 'invalid_apple_credential' });
+    res.status(status).json({
+      error: err.code || 'invalid_apple_credential',
+      hint: err.code === 'account_link_required'
+        ? 'This email already has an account. Sign in with its existing method, then link Apple from Profile security settings.'
+        : undefined,
+    });
   }
 });
 
