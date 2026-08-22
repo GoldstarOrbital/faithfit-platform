@@ -149,7 +149,7 @@ private struct NewMessageView: View {
     }
 }
 
-private struct NewConversationDestination: Identifiable {
+private struct NewConversationDestination: Identifiable, Hashable {
     let threadID: String
     let userID: UUID
     let name: String
