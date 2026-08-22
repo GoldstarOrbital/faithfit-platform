@@ -71,6 +71,27 @@ workflows:
           xcode-project build-ipa \
             --project "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME"
+      - name: Preserve HealthKit entitlement in exported IPA
+        script: |
+          set -euo pipefail
+          ipa=$(find "$CM_BUILD_DIR/$IOS_PROJECT_DIR/build/ios/ipa" -name '*.ipa' -print -quit)
+          test -n "$ipa"
+          work=/tmp/functioning-faith-healthkit-resign
+          rm -rf "$work"
+          mkdir -p "$work"
+          unzip -qq "$ipa" -d "$work"
+          app="$work/Payload/FunctioningFaith.app"
+          # Xcode's export step is currently omitting HealthKit even though
+          # the active App Store profile authorizes it. Preserve all existing
+          # distribution entitlements, add the authorized key, and re-sign.
+          codesign -d --entitlements :- "$app" 2>&1 | sed -n '/<plist /,$p' > "$work/entitlements.plist"
+          /usr/libexec/PlistBuddy -c 'Add :com.apple.developer.healthkit bool true' "$work/entitlements.plist" || \
+            /usr/libexec/PlistBuddy -c 'Set :com.apple.developer.healthkit true' "$work/entitlements.plist"
+          identity=$(security find-identity -v -p codesigning | sed -n 's/.* \([A-F0-9]\{40\}\) \"Apple Distribution:.*/\1/p' | head -n 1)
+          test -n "$identity"
+          codesign --force --sign "$identity" --entitlements "$work/entitlements.plist" --generate-entitlement-der "$app"
+          rm -f "$ipa"
+          (cd "$work" && zip -qry "$ipa" .)
       - name: Verify final IPA metadata and icons
         script: |
           set -euo pipefail
