@@ -797,6 +797,17 @@ struct ExploreGroup: Codable, Identifiable {
     }
 }
 
+struct NearbyGroup: Decodable, Identifiable {
+    let id: String; let name: String; let description: String?; let username: String?
+    let churchName: String?; let locationName: String?; let sport: String?
+    let memberCount: Int?; let distanceKm: Double?
+    enum CodingKeys: String, CodingKey {
+        case id, name, description, username, sport
+        case churchName = "church_name", locationName = "location_name"
+        case memberCount = "member_count", distanceKm = "distance_km"
+    }
+}
+
 struct ExploreQuest: Codable, Identifiable {
     let id: String
     let name: String

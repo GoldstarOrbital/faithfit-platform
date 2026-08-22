@@ -4371,6 +4371,20 @@ router.post('/churches/:osmId/website', requireAuth, requireVerifiedChurchAdmin,
   res.json({ ok: true });
 });
 
+// A member may opt into the public website attached to the Apple Maps place
+// they selected as their own church. It never edits an arbitrary church and
+// never overwrites an admin-provided website.
+router.post('/churches/:osmId/selected-website', requireAuth, (req, res) => {
+  const osmId = req.params.osmId;
+  const website = String((req.body || {}).website_url || '').trim();
+  const me = db.prepare('SELECT church_osm_id, church_name FROM users WHERE id = ?').get(req.session.userId);
+  if (!me || me.church_osm_id !== osmId) return res.status(400).json({ error: 'church_not_on_profile' });
+  if (!isHttpUrl(website)) return res.status(400).json({ error: 'invalid_url' });
+  const church = ensureChurchRow(osmId, me.church_name);
+  if (!church.website_url) db.prepare('UPDATE churches SET website_url = ? WHERE id = ?').run(website, church.id);
+  res.json({ ok: true });
+});
+
 // Fetch the church's real website and return whatever video embeds are
 // literally present on it right now (fetched live — not cached/guessed).
 router.get('/churches/:osmId/website-videos', requireAuth, async (req, res) => {

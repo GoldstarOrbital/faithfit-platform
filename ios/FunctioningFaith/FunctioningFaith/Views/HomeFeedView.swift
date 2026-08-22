@@ -28,6 +28,10 @@ struct HomeFeedView: View {
                 .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
+            HomeCommunityPulse()
+                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             StoriesRail()
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
@@ -433,4 +437,33 @@ struct FromExploreRail: View {
         .environmentObject(NativeSession())
         .environmentObject(DeepLinkRouter())
         .environmentObject(DMStore())
+}
+
+/// A brighter, useful home surface: it gives the member an immediate next
+/// community action rather than adding decoration with no destination.
+struct HomeCommunityPulse: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label("YOUR COMMUNITY", systemImage: "sparkles")
+                    .font(.caption.weight(.bold)).tracking(1)
+                Spacer()
+                Text("MOVE TOGETHER").font(.caption2.weight(.bold)).foregroundStyle(FFTheme.cream)
+                    .padding(.horizontal, 8).padding(.vertical, 4).background(FFTheme.hearth, in: Capsule())
+            }
+            Text("Find your people for the next mile.")
+                .font(FFTheme.display(22, weight: .bold, relativeTo: .title3)).foregroundStyle(FFTheme.ink)
+            HStack(spacing: 10) {
+                NavigationLink { GroupsHubView() } label: { pulseAction("Find groups", "person.3.fill") }
+                NavigationLink { ChurchFinderView() } label: { pulseAction("Your church", "building.2.fill") }
+            }
+        }
+        .padding(16)
+        .background(LinearGradient(colors: [FFTheme.goldBright.opacity(0.34), FFTheme.hearthSoft.opacity(0.35), FFTheme.parchment1], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: FFTheme.Radius.lg, style: .continuous))
+    }
+
+    private func pulseAction(_ title: String, _ icon: String) -> some View {
+        Label(title, systemImage: icon).font(.caption.weight(.bold)).foregroundStyle(FFTheme.cream)
+            .frame(maxWidth: .infinity, minHeight: 42).background(FFTheme.walnut0, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
 }

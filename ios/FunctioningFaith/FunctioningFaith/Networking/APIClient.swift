@@ -124,6 +124,22 @@ final class APIClient {
         let _: ActionResponse = try await request("/api/groups/\(encoded)/\(action)", method: "POST", body: EmptyBody())
     }
 
+    func fetchNearbyGroups(lat: Double, lng: Double, radiusKm: Int = 25) async throws -> [NearbyGroup] {
+        if useMock { return [] }
+        let r: NearbyGroupsResponse = try await request("/api/groups/nearby?lat=\(lat)&lng=\(lng)&radius_km=\(radiusKm)")
+        return r.groups
+    }
+
+    func createGroup(name: String, username: String, description: String, sport: String, locationName: String, latitude: Double?, longitude: Double?, visibility: String, church: UserProfile?) async throws -> NearbyGroup {
+        if useMock { throw APIError.invalidResponse }
+        let r: CreateGroupResponse = try await request("/api/groups", method: "POST", body: CreateGroupBody(
+            name: name, username: username, description: description, sport: sport, locationName: locationName,
+            lat: latitude, lng: longitude, visibility: visibility,
+            churchOSMID: church?.churchOsmID, churchName: church?.churchName
+        ))
+        return r.group
+    }
+
     /// Organiser-only. Passing an empty string clears the pinned note --
     /// matches the server's own semantics (`text || null`), not a separate
     /// delete endpoint.
@@ -907,6 +923,12 @@ final class APIClient {
         let _: ActionResponse = try await request("/api/churches/\(encoded)/website", method: "POST", body: ChurchWebsiteBody(websiteURL: websiteURL))
     }
 
+    func setSelectedChurchWebsite(osmID: String, websiteURL: String) async throws {
+        if useMock { return }
+        guard let encoded = Self.pathSegmentEncoded(osmID) else { throw APIError.invalidResponse }
+        let _: ActionResponse = try await request("/api/churches/\(encoded)/selected-website", method: "POST", body: ChurchWebsiteBody(websiteURL: websiteURL))
+    }
+
     /// `.urlPathAllowed` deliberately leaves "/" unescaped (it's meant for
     /// encoding a whole multi-segment path). An OSM id like "node/12345"
     /// has a literal "/" that must become %2F here, or Express would see
@@ -1314,6 +1336,16 @@ private struct WorkoutStop: Encodable {
         case gpsPoints = "gps_path"
         case gpsDistanceKm = "gps_distance_km"
         case sportMetrics = "sport_metrics"
+    }
+}
+private struct NearbyGroupsResponse: Decodable { let groups: [NearbyGroup] }
+private struct CreateGroupResponse: Decodable { let group: NearbyGroup }
+private struct CreateGroupBody: Encodable {
+    let name: String; let username: String; let description: String; let sport: String; let locationName: String
+    let lat: Double?; let lng: Double?; let visibility: String; let churchOSMID: String?; let churchName: String?
+    enum CodingKeys: String, CodingKey {
+        case name, username, description, sport, visibility, lat, lng
+        case locationName = "location_name", churchOSMID = "church_osm_id", churchName = "church_name"
     }
 }
 private struct AuthResponse: Decodable {

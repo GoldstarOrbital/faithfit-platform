@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreLocation
 
 /// Railway `EXPLORE_SECTIONS` — the native Explore tab opens on this catalogue
 /// so the whole member product is visible at a glance, same as `renderExploreIndex`.
@@ -214,11 +215,32 @@ struct ChallengesHubView: View {
 }
 
 struct GroupsHubView: View {
+    @EnvironmentObject private var session: NativeSession
+    @StateObject private var locator = ChurchLocator()
     @State private var groups: [ExploreGroup] = []
+    @State private var nearby: [NearbyGroup] = []
     @State private var isLoading = true
+    @State private var isFindingNearby = false
+    @State private var showCreate = false
+    @State private var errorMessage: String?
 
     var body: some View {
         List {
+            Section {
+                Button { Task { await findNearby() } } label: {
+                    Label(isFindingNearby ? "Finding groups…" : "Find groups near me", systemImage: "location.magnifyingglass")
+                }
+                .disabled(isFindingNearby)
+                if !nearby.isEmpty {
+                    ForEach(nearby) { group in
+                        NavigationLink { GroupDetailView(group: exploreGroup(group)) } label: {
+                            GroupDiscoveryRow(group: group)
+                        }
+                    }
+                }
+            } header: { Text("Near you") } footer: {
+                Text("Only public groups that choose an approximate location appear here.")
+            }
             if isLoading {
                 ProgressView()
             } else if groups.isEmpty {
@@ -241,11 +263,96 @@ struct GroupsHubView: View {
         }
         .ffListChrome()
         .navigationTitle("Groups")
+        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { showCreate = true } label: { Image(systemName: "plus.circle.fill") }.accessibilityLabel("Create group") } }
+        .sheet(isPresented: $showCreate) {
+            NavigationStack { CreateGroupView { await load() } }
+                .environmentObject(session)
+        }
+        .alert("Groups", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+            Button("OK", role: .cancel) { errorMessage = nil }
+        } message: { Text(errorMessage ?? "") }
         .task {
+            await load()
+        }
+    }
+
+    private func load() async {
             isLoading = true
             groups = (try? await APIClient.shared.fetchExploreContent())?.groups ?? []
             isLoading = false
+    }
+
+    private func findNearby() async {
+        isFindingNearby = true
+        defer { isFindingNearby = false }
+        do {
+            let point = try await locator.currentLocation()
+            nearby = try await APIClient.shared.fetchNearbyGroups(lat: point.coordinate.latitude, lng: point.coordinate.longitude)
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func exploreGroup(_ group: NearbyGroup) -> ExploreGroup {
+        ExploreGroup(id: group.id, name: group.name, description: group.description, username: group.username,
+                     churchName: group.churchName, locationName: group.locationName, sport: group.sport,
+                     memberCount: group.memberCount ?? 0)
+    }
+}
+
+private struct GroupDiscoveryRow: View {
+    let group: NearbyGroup
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack { Text(group.name).font(.headline); Spacer(); if let distance = group.distanceKm { Text(String(format: "%.1f km", distance)).font(.caption.weight(.semibold)).foregroundStyle(.tint) } }
+            Text([group.sport, group.locationName, group.churchName].compactMap { $0 }.joined(separator: " · "))
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
+        .padding(.vertical, 3)
+    }
+}
+
+private struct CreateGroupView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var session: NativeSession
+    @StateObject private var locator = ChurchLocator()
+    @State private var name = "", username = "", description = "", sport = "", locationName = ""
+    @State private var isPrivate = false, useCurrentLocation = true, isSaving = false
+    @State private var errorMessage: String?
+    let onCreated: () async -> Void
+
+    var body: some View {
+        Form {
+            Section("Group") {
+                TextField("Name", text: $name)
+                TextField("Group username", text: $username)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                TextField("Sport or focus (optional)", text: $sport)
+                TextField("What is this group for?", text: $description, axis: .vertical).lineLimit(3...6)
+            }
+            Section("Discovery") {
+                Toggle("Use my current location for discovery", isOn: $useCurrentLocation)
+                TextField("Location name (optional)", text: $locationName)
+                Toggle("Private group", isOn: $isPrivate)
+                Text("You are the group admin. Public groups can be found nearby; private groups are invite-only.").font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Button(isSaving ? "Creating…" : "Create group") { Task { await create() } }
+                    .frame(maxWidth: .infinity).disabled(isSaving || name.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .navigationTitle("Create group")
+        .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } } }
+        .alert("Could not create group", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) { Button("OK", role: .cancel) {} } message: { Text(errorMessage ?? "") }
+    }
+
+    private func create() async {
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            let location = useCurrentLocation ? try await locator.currentLocation() : nil
+            _ = try await APIClient.shared.createGroup(name: name.trimmingCharacters(in: .whitespaces), username: username.trimmingCharacters(in: .whitespaces), description: description, sport: sport, locationName: locationName, latitude: location?.coordinate.latitude, longitude: location?.coordinate.longitude, visibility: isPrivate ? "private" : "public", church: session.profile)
+            await onCreated()
+            dismiss()
+        } catch { errorMessage = error.localizedDescription }
     }
 }
 

@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreLocation
+import MapKit
 
 struct ChurchFinderView: View {
     @EnvironmentObject private var session: NativeSession
@@ -202,10 +203,24 @@ struct ChurchFinderView: View {
         do {
             try await APIClient.shared.setMyChurch(church)
             session.profile = try await APIClient.shared.fetchProfile()
+            // Apple Maps may expose the church's public website as part of
+            // the selected place. Resolve only the exact selected church,
+            // then let the server fetch its real embeds/weekly service.
+            await syncAppleMapsWebsite(for: church)
             await loadMyChurchContent()
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func syncAppleMapsWebsite(for church: NearbyChurch) async {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = church.name
+        request.region = MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: church.lat, longitude: church.lng),
+                                            latitudinalMeters: 2_000, longitudinalMeters: 2_000)
+        guard let response = try? await MKLocalSearch(request: request).start(),
+              let site = response.mapItems.first(where: { $0.url != nil })?.url?.absoluteString else { return }
+        try? await APIClient.shared.setSelectedChurchWebsite(osmID: church.osmID, websiteURL: site)
     }
 
     private func clearMyChurch() async {
