@@ -33,6 +33,10 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.functioningfaith.app
+        # Keep the HealthKit entitlement attached even when the project is
+        # regenerated on CI; the entitlement file alone is not enough if a
+        # generated build setting ever drops its reference.
+        CODE_SIGN_ENTITLEMENTS: FunctioningFaith/Resources/FunctioningFaith.entitlements
         INFOPLIST_FILE: FunctioningFaith/Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         PRODUCT_MODULE_NAME: FunctioningFaith

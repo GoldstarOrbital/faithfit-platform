@@ -320,17 +320,17 @@ final class APIClient {
 
     func likePost(id: UUID) async throws -> PostReactionResponse {
         if useMock { return PostReactionResponse(liked: true, likeCount: 1) }
-        return try await request("/api/posts/\(id.uuidString)/like", method: "POST", body: EmptyBody())
+        return try await request("/api/posts/\(id.uuidString.lowercased())/like", method: "POST", body: EmptyBody())
     }
 
     func savePost(id: UUID) async throws -> PostSaveResponse {
         if useMock { return PostSaveResponse(saved: true) }
-        return try await request("/api/posts/\(id.uuidString)/save", method: "POST", body: EmptyBody())
+        return try await request("/api/posts/\(id.uuidString.lowercased())/save", method: "POST", body: EmptyBody())
     }
 
     func fetchComments(postID: UUID) async throws -> [FeedComment] {
         if useMock { return [] }
-        let response: CommentListResponse = try await request("/api/posts/\(postID.uuidString)/comments")
+        let response: CommentListResponse = try await request("/api/posts/\(postID.uuidString.lowercased())/comments")
         return response.comments.map(\.model)
     }
 
@@ -338,13 +338,13 @@ final class APIClient {
         if useMock {
             return FeedComment(id: UUID(), content: content, author: MockData.profile.displayName, createdAt: ISO8601DateFormatter().string(from: .now), likeCount: 0, likedByMe: false)
         }
-        let response: CommentDTO = try await request("/api/posts/\(postID.uuidString)/comments", method: "POST", body: CommentBody(content: content))
+        let response: CommentDTO = try await request("/api/posts/\(postID.uuidString.lowercased())/comments", method: "POST", body: CommentBody(content: content))
         return response.model
     }
 
     func likeComment(id: UUID) async throws -> CommentReactionResponse {
         if useMock { return CommentReactionResponse(liked: true, likeCount: 1) }
-        return try await request("/api/comments/\(id.uuidString)/like", method: "POST", body: EmptyBody())
+        return try await request("/api/comments/\(id.uuidString.lowercased())/like", method: "POST", body: EmptyBody())
     }
 
     func createPost(content: String, visibility: String, photoData: String?, photoCategory: String?) async throws -> CreatedPostResponse {
@@ -358,7 +358,7 @@ final class APIClient {
 
     func reportPost(id: UUID, reason: String) async throws {
         if useMock { return }
-        let _: ActionResponse = try await request("/api/posts/\(id.uuidString)/report", method: "POST", body: ReportBody(reason: reason))
+        let _: ActionResponse = try await request("/api/posts/\(id.uuidString.lowercased())/report", method: "POST", body: ReportBody(reason: reason))
     }
 
     func blockUser(id: UUID) async throws {

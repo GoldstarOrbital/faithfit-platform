@@ -14,6 +14,7 @@ struct WorkoutView: View {
     }
 
     @StateObject private var tracker = NativeWorkoutTracker()
+    @ObservedObject private var bluetooth = BluetoothHeartRateManager.shared
     @State private var mode: Mode = .live
     @State private var activityTypes: [ActivityTypeItem] = ActivityCatalog.fallback
     @State private var selectedType = "Run"
@@ -25,6 +26,7 @@ struct WorkoutView: View {
     @State private var workoutID: UUID?
     @State private var errorMessage: String?
     @State private var showReflection = false
+    @State private var showWearables = false
     @State private var manualMinutes = "30"
     @State private var manualKm = "5"
     @State private var manualNote = ""
@@ -85,6 +87,7 @@ struct WorkoutView: View {
             ))
         }
         .sheet(isPresented: $showReflection) { PostWorkoutReflectionView() }
+        .sheet(isPresented: $showWearables) { WearableConnectView() }
         .alert("Workout unavailable", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "Please try again.") }
@@ -131,6 +134,16 @@ struct WorkoutView: View {
             }
             .font(.caption.weight(.semibold))
             .foregroundStyle(tracker.isLocationReady ? FFTheme.meadowDeep : FFTheme.inkSoft)
+
+            Button {
+                showWearables = true
+            } label: {
+                Label(bluetooth.connectedName ?? "Connect wearable", systemImage: bluetooth.connectedName == nil ? "applewatch" : "heart.fill")
+                    .font(.caption.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 42)
+            }
+            .buttonStyle(.bordered)
+            .tint(bluetooth.connectedName == nil ? FFTheme.walnut0 : FFTheme.meadow)
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                 metric(String(format: "%.2f", tracker.distanceKm), "DISTANCE · KM")
@@ -308,6 +321,10 @@ struct WorkoutView: View {
     }
 
     private func refreshHeartRate() async {
+        if let wearableHeartRate = bluetooth.heartRate {
+            heartRate = wearableHeartRate
+            return
+        }
         let samples = (try? await HealthKitManager.shared.recentHeartRateSamples()) ?? []
         guard let latest = samples.last else { return }
         heartRate = Int(latest.rounded())
