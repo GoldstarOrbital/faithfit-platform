@@ -4,7 +4,8 @@ import AVFoundation
 import UniformTypeIdentifiers
 
 /// Member Reel studio — mirrors web `openReelStudio` criteria:
-/// - MP4 preferred (WebM accepted by server but not playable on iOS)
+/// - MP4 and Apple's QuickTime .mov are playable on iOS (WebM can be hosted
+///   for web viewers but cannot be played by AVFoundation)
 /// - ≤ 4MB, ≤ 60 seconds
 /// - Category: workout / nature / animal / group (never solo vanity)
 /// - Caption required (server pairs verified Scripture)
@@ -167,7 +168,7 @@ struct ReelComposerView: View {
 
         do {
             guard let movie = try await item.loadTransferable(type: ReelMovieFile.self) else {
-                statusMessage = "Could not read that video. Choose an MP4 under 4MB."
+                statusMessage = "Could not read that video. Choose an MP4 or MOV under 4MB."
                 return
             }
             let url = movie.url
@@ -196,6 +197,8 @@ struct ReelComposerView: View {
             let mime: String
             if ext == "webm" {
                 mime = "video/webm"
+            } else if ext == "mov" || ext == "qt" {
+                mime = "video/quicktime"
             } else {
                 mime = "video/mp4"
             }
@@ -220,7 +223,7 @@ struct ReelComposerView: View {
                     : "Ready to publish."
             }
         } catch {
-            statusMessage = "Could not prepare that video. Use an MP4 under 4MB and 60 seconds."
+            statusMessage = "Could not prepare that video. Use an MP4 or MOV under 4MB and 60 seconds."
             clearTempFiles()
         }
     }

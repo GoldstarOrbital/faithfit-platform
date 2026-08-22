@@ -119,9 +119,9 @@ function validateImage(dataUrl) {
 // hand: ffmpeg and browser MediaRecorder write `isom`; Android and several
 // desktop tools write `mp42`.
 const MP4_VIDEO_BRANDS = new Set(['isom', 'iso2', 'iso4', 'iso5', 'iso6', 'iso8', 'mp41', 'mp42', 'avc1', 'mmp4', 'dash', 'cmfc', 'M4V ']);
-// Brands that share the ISO container but are not web-playable video. `qt  ` is
-// QuickTime — what an iPhone's camera roll hands over — and is called out
-// separately below so the member gets an answer they can act on.
+// Brands that share the ISO container but are not video. `qt  ` is QuickTime,
+// the format iPhone's camera roll commonly supplies; it is handled as a valid
+// movie container below after the same structural checks as MP4.
 const ISO_STILL_IMAGE_BRANDS = new Set(['heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'hevm', 'hevs', 'mif1', 'msf1', 'miaf', 'avif', 'avis', 'jpeg', 'j2ki', 'crx ']);
 const QUICKTIME_BRAND = 'qt  ';
 // A 4MB file has no legitimate reason to hold thousands of top-level boxes;
@@ -214,10 +214,7 @@ function inspectMp4(buf) {
   if (brands.some(b => ISO_STILL_IMAGE_BRANDS.has(b))) {
     return fail('invalid_video', 'That looks like a photo (HEIC/AVIF), not a video. Choose a video file.');
   }
-  if (brands[0] === QUICKTIME_BRAND) {
-    return fail('invalid_video', 'That is a QuickTime .mov, which does not play everywhere. Export or share it as MP4 and try again.');
-  }
-  if (!MP4_VIDEO_BRANDS.has(brands[0])) {
+  if (brands[0] !== QUICKTIME_BRAND && !MP4_VIDEO_BRANDS.has(brands[0])) {
     return fail('invalid_video', 'That MP4 uses a format the app cannot confirm is playable video.');
   }
 
@@ -377,7 +374,7 @@ function inspectWebm(buf) {
 /**
  * Validate a short video upload.
  *
- * @param {string} dataUrl  data:video/mp4;base64,... or data:video/webm;base64,...
+ * @param {string} dataUrl  data:video/mp4;base64,..., data:video/quicktime;base64,..., or data:video/webm;base64,...
  * @param {string} [category]  self-certified subject; checked when supplied.
  * @returns {{ok:true, bytes:number, format:string, duration_s:number|null, category:string|null}
  *          |{ok:false, error:string, hint:string}}
@@ -387,17 +384,17 @@ function inspectWebm(buf) {
  */
 function validateVideo(dataUrl, category) {
   if (typeof dataUrl !== 'string' || !dataUrl) {
-    return fail('invalid_video', 'Choose an MP4 or WebM video.');
+    return fail('invalid_video', 'Choose an MP4, MOV, or WebM video.');
   }
   if (dataUrl.length > MAX_VIDEO_DATA_URL_CHARS) {
     return fail('video_too_large', `Video must be under ${Math.round(MAX_VIDEO_BYTES / (1024 * 1024))}MB.`);
   }
-  const match = /^data:video\/(mp4|webm);base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl);
-  if (!match) return fail('invalid_video', 'Choose an MP4 or WebM video.');
+  const match = /^data:video\/(mp4|quicktime|webm);base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl);
+  if (!match) return fail('invalid_video', 'Choose an MP4, MOV, or WebM video.');
 
   let decoded;
-  try { decoded = Buffer.from(match[2], 'base64'); } catch { return fail('invalid_video', 'Choose an MP4 or WebM video.'); }
-  if (!decoded.length) return fail('invalid_video', 'Choose an MP4 or WebM video.');
+  try { decoded = Buffer.from(match[2], 'base64'); } catch { return fail('invalid_video', 'Choose an MP4, MOV, or WebM video.'); }
+  if (!decoded.length) return fail('invalid_video', 'Choose an MP4, MOV, or WebM video.');
   if (decoded.length > MAX_VIDEO_BYTES) {
     return fail('video_too_large', `Video must be under ${Math.round(MAX_VIDEO_BYTES / (1024 * 1024))}MB. Trim the clip or record at a lower quality.`);
   }
@@ -405,7 +402,7 @@ function validateVideo(dataUrl, category) {
   // The label picks the parser; the bytes decide the outcome. A WAV renamed to
   // .webm, or a HEIC photo posted as video/mp4, fails here.
   const declared = match[1];
-  const inspected = declared === 'mp4' ? inspectMp4(decoded) : inspectWebm(decoded);
+  const inspected = declared === 'webm' ? inspectWebm(decoded) : inspectMp4(decoded);
   if (!inspected.ok) return inspected;
 
   // Only enforced when the container told us plainly. An unreadable duration is

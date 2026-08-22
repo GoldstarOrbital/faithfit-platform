@@ -57,6 +57,16 @@ final class APIClient {
         (try await fetchSessionState()).profile
     }
 
+    func fetchMemberProfile(userID: UUID) async throws -> MemberProfileResponse {
+        if useMock {
+            return MemberProfileResponse(
+                user: MemberProfile(id: userID, displayName: "Member", bioVerseRef: "Philippians 4:13", bioVerseText: "I can do all this through him who gives me strength.", bioLinkURL: nil, bioLinkLabel: nil, verifiedDeveloper: false, hasAvatar: false),
+                stats: MemberProfileStats(workouts: 0, followers: 0, following: 0), isFollowing: false, isBlocked: false
+            )
+        }
+        return try await request("/api/users/\(userID.uuidString.lowercased())")
+    }
+
     func fetchSessionState() async throws -> NativeSessionState {
         if useMock { return NativeSessionState(profile: MockData.profile, accountSetupRequired: false) }
         let response: MeDTO = try await request("/api/me")
@@ -235,7 +245,11 @@ final class APIClient {
 
     func stopWorkout(id: UUID, gpsPoints: [[Double]], gpsDistanceKm: Double) async throws {
         if useMock { return }
-        let _: WorkoutStopResponse = try await request("/api/workouts/\(id.uuidString)/stop", method: "POST", body: WorkoutStop(gpsPoints: gpsPoints, gpsDistanceKm: gpsDistanceKm))
+        // UUID.uuidString is uppercase on Apple platforms. Workout IDs are
+        // generated and stored by Node as lowercase strings, and SQLite's `=`
+        // comparison is case-sensitive. Keep the wire ID canonical so stopping
+        // the exact workout we started cannot become a false 404.
+        let _: WorkoutStopResponse = try await request("/api/workouts/\(id.uuidString.lowercased())/stop", method: "POST", body: WorkoutStop(gpsPoints: gpsPoints, gpsDistanceKm: gpsDistanceKm))
     }
 
     func fetchActivityTypes() async throws -> [ActivityTypeItem] {

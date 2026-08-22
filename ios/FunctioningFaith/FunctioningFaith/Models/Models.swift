@@ -97,6 +97,46 @@ struct UserProfile: Codable, Identifiable {
     var bibleVersionID: Int? = nil
 }
 
+/// Privacy-safe public profile returned by GET /api/users/:id. This is a
+/// deliberately smaller model than the signed-in account profile: the server
+/// never includes another member's email, location, church, or health data.
+struct MemberProfile: Decodable, Identifiable {
+    let id: UUID
+    let displayName: String
+    let bioVerseRef: String?
+    let bioVerseText: String?
+    let bioLinkURL: String?
+    let bioLinkLabel: String?
+    let verifiedDeveloper: Bool
+    let hasAvatar: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id, displayName = "display_name", bioVerseRef = "bio_verse_ref"
+        case bioVerseText = "bio_verse_text", bioLinkURL = "bio_link_url"
+        case bioLinkLabel = "bio_link_label", verifiedDeveloper = "verified_developer"
+        case hasAvatar = "has_avatar"
+    }
+}
+
+struct MemberProfileStats: Decodable {
+    let workouts: Int
+    let followers: Int?
+    let following: Int?
+}
+
+struct MemberProfileResponse: Decodable {
+    let user: MemberProfile
+    let stats: MemberProfileStats
+    let isFollowing: Bool
+    let isBlocked: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case user, stats
+        case isFollowing = "is_following"
+        case isBlocked = "is_blocked"
+    }
+}
+
 // ---- Bible beyond the local 22-book library: the YouVersion Platform
 // covers the full canon in eleven English translations. Local text is
 // still preferred where it exists; this only fills the gap -- see

@@ -66,11 +66,11 @@ private extension View {
     func ffRootBrand() -> some View {
         toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Image("BrandMark")
+                Image("BrandMarkTransparent")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 32, height: 32)
-                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .frame(width: 28, height: 28)
+                    .padding(2)
                     .accessibilityLabel("Functioning Faith")
             }
         }

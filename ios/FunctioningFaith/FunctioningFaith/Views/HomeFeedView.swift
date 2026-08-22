@@ -222,9 +222,21 @@ struct FeedPostRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(post.authorName)
-                .font(.system(.subheadline, design: .default).weight(.semibold))
-                .accessibilityAddTraits(.isHeader)
+            if let authorID = post.authorID {
+                NavigationLink {
+                    MemberProfileView(userID: authorID)
+                } label: {
+                    Label(post.authorName, systemImage: "person.circle.fill")
+                        .font(.system(.subheadline, design: .default).weight(.semibold))
+                        .foregroundStyle(FFTheme.ink)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open \(post.authorName)'s profile")
+            } else {
+                Text(post.authorName)
+                    .font(.system(.subheadline, design: .default).weight(.semibold))
+                    .accessibilityAddTraits(.isHeader)
+            }
 
             Text(post.content)
                 .font(.system(size: 16))

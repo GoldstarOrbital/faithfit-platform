@@ -63,16 +63,25 @@ struct YouTubeEmbedView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
         config.allowsInlineMediaPlayback = true
+        config.mediaTypesRequiringUserActionForPlayback = []
+        // YouTube now rejects some anonymous native iframe loads. Giving the
+        // embed a real first-party origin lets YouTube identify the player
+        // without leaking user data or requiring a YouTube account.
+        config.defaultWebpagePreferences.allowsContentJavaScript = true
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.scrollView.isScrollEnabled = false
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        guard let encoded = videoID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
-              let url = URL(string: "https://www.youtube.com/embed/\(encoded)?playsinline=1")
-        else { return }
-        webView.load(URLRequest(url: url))
+        guard let encoded = videoID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return }
+        let origin = "https://faithfit-demo-production.up.railway.app"
+        let html = """
+        <!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
+        <style>html,body,iframe{margin:0;width:100%;height:100%;border:0;background:#17110d}</style></head>
+        <body><iframe src=\"https://www.youtube-nocookie.com/embed/\(encoded)?playsinline=1&rel=0&origin=\(origin)\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture\" allowfullscreen></iframe></body></html>
+        """
+        webView.loadHTMLString(html, baseURL: URL(string: origin))
     }
 }
 #endif
@@ -99,9 +108,8 @@ private struct NativeVideoPlayerView: View {
     }
 
     private func prepare() {
-        // The server only ever stores video/mp4 or video/webm here -- see
-        // lib/media.js's validateVideo, which rejects anything else at
-        // upload time. AVFoundation has no WebM/VP8/VP9 decoder on iOS (a
+        // The server stores MP4, QuickTime MOV, or WebM here. AVFoundation has
+        // no WebM/VP8/VP9 decoder on iOS (a
         // real, documented platform gap, not an edge case worth guessing
         // past) -- rather than hand AVPlayer a file it will silently fail
         // to play, that case gets an honest message instead.
@@ -112,7 +120,8 @@ private struct NativeVideoPlayerView: View {
         guard let comma = dataURL.firstIndex(of: ","),
               let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...]))
         else { errorMessage = "This video could not be decoded."; return }
-        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("mp4")
+        let fileExtension = dataURL.hasPrefix("data:video/quicktime") ? "mov" : "mp4"
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension(fileExtension)
         do {
             try data.write(to: tempURL)
             player = AVPlayer(url: tempURL)
