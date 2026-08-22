@@ -51,13 +51,33 @@ struct NativeAuthView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 18) {
-                    Image(systemName: "figure.run.circle.fill")
-                        .font(.system(size: 64)).foregroundStyle(FFTheme.hearth)
-                    Text("Functioning Faith").font(.largeTitle.bold())
-                    Text(isRegistering ? "Build a rhythm that strengthens body and spirit." : "Welcome back to your rhythm.")
-                        .multilineTextAlignment(.center).foregroundStyle(.secondary)
+            ZStack {
+                LinearGradient(colors: [FFTheme.parchment0, FFTheme.parchment2], startPoint: .top, endPoint: .bottom)
+                    .ignoresSafeArea()
+                ScrollView {
+                    VStack(spacing: 20) {
+                        VStack(spacing: 10) {
+                            Image("BrandMarkTransparent")
+                                .resizable().scaledToFit().frame(width: 74, height: 74)
+                            Text("Functioning Faith").font(.system(size: 32, weight: .bold, design: .rounded)).foregroundStyle(FFTheme.ink)
+                            Text(isRegistering ? "Create a rhythm for your body, mind, and spirit." : "Move with purpose. Stay connected in faith.")
+                                .font(.subheadline).multilineTextAlignment(.center).foregroundStyle(FFTheme.inkSoft)
+                        }
+                        .padding(.top, 26)
+
+                        VStack(spacing: 16) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(isRegistering ? "Create your account" : "Welcome back")
+                                        .font(.title3.weight(.bold)).foregroundStyle(FFTheme.ink)
+                                    Text(isRegistering ? "A few details, then you’re ready to go." : "Sign in to continue your rhythm.")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: isRegistering ? "sparkles" : "figure.run")
+                                    .foregroundStyle(FFTheme.hearth)
+                                    .padding(10).background(FFTheme.parchment2, in: Circle())
+                            }
                     if mfaRequired {
                         mfaChallenge
                     } else {
@@ -80,12 +100,21 @@ struct NativeAuthView: View {
                             .disabled(isSubmitting)
                         Button(isRegistering ? "Already have an account? Sign in" : "New here? Create an account") {
                             isRegistering.toggle(); errorMessage = nil
-                        }.buttonStyle(.plain).foregroundStyle(.secondary)
+                        }.buttonStyle(.plain).foregroundStyle(FFTheme.meadowDeep)
                     }
+                        }
+                        .padding(20)
+                        .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(FFTheme.gold.opacity(0.22), lineWidth: 1))
+
+                        Label("Private by default · Scripture grounded · Built for your real life", systemImage: "lock.shield")
+                            .font(.caption2.weight(.medium)).foregroundStyle(FFTheme.inkSoft)
+                            .padding(.bottom, 20)
+                    }
+                    .padding(.horizontal, 20)
                 }
-                .padding(24)
             }
-            .navigationTitle("Your space")
+            .navigationBarHidden(true)
             .task {
                 providers = (try? await APIClient.shared.fetchAuthProviders()) ?? []
             }
@@ -95,10 +124,11 @@ struct NativeAuthView: View {
     @ViewBuilder
     private var credentialForm: some View {
         if isRegistering {
-            TextField("Username", text: $name)
+            fieldLabel("Username")
+            TextField("Choose a username", text: $name)
                 .textContentType(.username)
                 .textInputAutocapitalization(.words)
-                .textFieldStyle(.roundedBorder)
+                .ffAuthField()
                 .onChange(of: name) { _, value in scheduleUsernameCheck(value) }
             if let usernameStatus {
                 Label(usernameStatus.available ? "Username available" : (usernameStatus.message ?? "Username unavailable"), systemImage: usernameStatus.available ? "checkmark.circle.fill" : "xmark.circle.fill")
@@ -114,8 +144,10 @@ struct NativeAuthView: View {
             }
             .font(.footnote)
         }
-        TextField("Email", text: $email).textContentType(.emailAddress).textInputAutocapitalization(.never).keyboardType(.emailAddress).textFieldStyle(.roundedBorder)
-        SecureField(isRegistering ? "Password (12+ characters)" : "Password", text: $password).textContentType(isRegistering ? .newPassword : .password).textFieldStyle(.roundedBorder)
+        fieldLabel("Email")
+        TextField("you@example.com", text: $email).textContentType(.emailAddress).textInputAutocapitalization(.never).keyboardType(.emailAddress).ffAuthField()
+        fieldLabel("Password")
+        SecureField(isRegistering ? "12+ characters" : "Your password", text: $password).textContentType(isRegistering ? .newPassword : .password).ffAuthField()
         if isRegistering {
             Text("Use 12+ characters and at least three of: lowercase, uppercase, number, or symbol.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -126,6 +158,10 @@ struct NativeAuthView: View {
                 .frame(maxWidth: .infinity).padding(.vertical, 12)
         }
         .buttonStyle(.ffPrimary).disabled(isSubmitting || !canSubmit)
+    }
+
+    private func fieldLabel(_ text: String) -> some View {
+        Text(text).font(.caption.weight(.bold)).foregroundStyle(FFTheme.inkSoft).frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -273,6 +309,15 @@ struct NativeAuthView: View {
             guard !Task.isCancelled else { return }
             usernameStatus = try? await APIClient.shared.checkUsernameAvailable(candidate)
         }
+    }
+}
+
+private extension View {
+    func ffAuthField() -> some View {
+        self
+            .padding(.horizontal, 13).frame(minHeight: 50)
+            .background(FFTheme.parchment0, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(FFTheme.walnut0.opacity(0.14), lineWidth: 1))
     }
 }
 
