@@ -439,7 +439,10 @@ struct ProfileView: View {
             }
             .onChange(of: heartRateCalmNotifications) { _, enabled in
                 Task {
-                    if enabled && !(await NotificationCoordinator.shared.enable(category: .reminders)) {
+                    let notificationsEnabled = enabled
+                        ? await NotificationCoordinator.shared.enable(category: .reminders)
+                        : true
+                    if !notificationsEnabled {
                         heartRateCalmNotifications = false
                     }
                 }
