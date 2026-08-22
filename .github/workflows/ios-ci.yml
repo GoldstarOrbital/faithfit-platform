@@ -31,14 +31,21 @@ jobs:
 
       - name: Build for iOS Simulator
         working-directory: ios/FunctioningFaith
-        run: >-
-          xcodebuild
-          -project FunctioningFaith.xcodeproj
-          -scheme FunctioningFaith
-          -configuration Debug
-          -destination 'generic/platform=iOS Simulator'
-          CODE_SIGNING_ALLOWED=NO
-          build
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project FunctioningFaith.xcodeproj \
+            -scheme FunctioningFaith \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee /tmp/functioning-faith-ios-build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo '--- Swift/Xcode errors ---'
+            grep -Ei '(^|: )(error|fatal error):' /tmp/functioning-faith-ios-build.log || true
+            exit "$status"
+          fi
 
       - name: Run unit tests
         working-directory: ios/FunctioningFaith
