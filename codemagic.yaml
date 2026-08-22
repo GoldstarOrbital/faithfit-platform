@@ -91,6 +91,9 @@ workflows:
           test -n "$identity"
           codesign --force --sign "$identity" --entitlements "$work/entitlements.plist" --generate-entitlement-der "$app"
           rm -f "$ipa"
+          # The helper plist is only input to codesign; an IPA may contain
+          # only Apple-recognized bundle paths at its archive root.
+          rm -f "$work/entitlements.plist"
           (cd "$work" && zip -qry "$ipa" .)
       - name: Verify final IPA metadata and icons
         script: |
