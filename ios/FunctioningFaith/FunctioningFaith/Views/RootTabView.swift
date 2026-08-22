@@ -83,11 +83,10 @@ private extension View {
 private extension View {
     @ViewBuilder
     func ffCurrentTabBehavior() -> some View {
-        if #available(iOS 26.0, *) {
-            self.tabBarMinimizeBehavior(.onScrollDown)
-        } else {
-            self
-        }
+        // Keep the tab bar stable until the iOS 26 SDK is available on every
+        // supported CI runner. The native API cannot be referenced by older
+        // Xcode toolchains, even inside an availability check.
+        self
     }
 }
 
