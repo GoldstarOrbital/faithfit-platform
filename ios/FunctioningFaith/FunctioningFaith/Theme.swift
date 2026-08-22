@@ -185,13 +185,31 @@ extension View {
     /// border, soft outer shadow. Prefer wrapping content in `FFCard` for new
     /// screens; this modifier is for spots that can't use the container directly.
     func ffCardChrome() -> some View {
-        padding(FFTheme.Space.md)
-            .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.lg, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: FFTheme.Radius.lg, style: .continuous)
-                    .strokeBorder(FFTheme.hairline, lineWidth: 1)
-            )
-            .shadow(color: FFTheme.walnut.opacity(0.14), radius: 10, x: 0, y: 4)
+        ffAdaptiveCardSurface()
+    }
+
+    /// iOS 26 adopts the system Liquid Glass material while the established
+    /// high-contrast parchment treatment remains the fallback on iOS 17–25.
+    @ViewBuilder
+    func ffAdaptiveCardSurface() -> some View {
+        if #available(iOS 26.0, *) {
+            self.padding(FFTheme.Space.md)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: FFTheme.Radius.lg, style: .continuous))
+        } else {
+            self.padding(FFTheme.Space.md)
+                .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.lg, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: FFTheme.Radius.lg, style: .continuous).strokeBorder(FFTheme.hairline, lineWidth: 1))
+                .shadow(color: FFTheme.walnut.opacity(0.14), radius: 10, x: 0, y: 4)
+        }
+    }
+
+    @ViewBuilder
+    func ffAdaptiveButtonSurface(isDestructive: Bool) -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(.regular.tint(isDestructive ? FFTheme.seal : FFTheme.meadow), in: Capsule())
+        } else {
+            self.background(LinearGradient(colors: isDestructive ? [FFTheme.seal, FFTheme.seal.opacity(0.85)] : [FFTheme.meadow2, FFTheme.meadow], startPoint: .top, endPoint: .bottom), in: Capsule())
+        }
     }
 
     /// Parchment page background behind a List/Form, replacing the default

@@ -133,13 +133,7 @@ struct FFPrimaryButtonStyle: ButtonStyle {
             .padding(.horizontal, FFTheme.Space.md)
             .padding(.vertical, FFTheme.Space.sm)
             .frame(minHeight: FFTheme.minTapTarget)
-            .background(
-                LinearGradient(
-                    colors: isDestructive ? [FFTheme.seal, FFTheme.seal.opacity(0.85)] : [FFTheme.meadow2, FFTheme.meadow],
-                    startPoint: .top, endPoint: .bottom
-                ),
-                in: Capsule()
-            )
+            .ffAdaptiveButtonSurface(isDestructive: isDestructive)
             .opacity(configuration.isPressed ? 0.85 : 1)
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
     }

@@ -38,6 +38,7 @@ struct RootTabView: View {
             // view that creates an inbox without this environment object
             // terminates at runtime as soon as it is opened.
             .environmentObject(dmStore)
+            .ffCurrentTabBehavior()
         }
         .task {
             if let id = session.profile?.id {
@@ -73,6 +74,17 @@ private extension View {
                     .padding(2)
                     .accessibilityLabel("Functioning Faith")
             }
+        }
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func ffCurrentTabBehavior() -> some View {
+        if #available(iOS 26.0, *) {
+            self.tabBarMinimizeBehavior(.onScrollDown)
+        } else {
+            self
         }
     }
 }

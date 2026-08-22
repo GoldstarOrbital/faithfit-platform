@@ -29,10 +29,19 @@ final class APIClient {
 
     /// Production by default; override with Info.plist `FFAPIBaseURL` (see AppConfig).
     var baseURL = AppConfig.apiBaseURL
-    private let session = URLSession.shared
+    private let session: URLSession
     private let decoder: JSONDecoder
 
     private init() {
+        // Feed and catalog requests reuse Railway cache headers on return to
+        // the app. Mutations remain non-cacheable HTTP requests.
+        let configuration = URLSessionConfiguration.default
+        configuration.requestCachePolicy = .useProtocolCachePolicy
+        configuration.urlCache = URLCache(memoryCapacity: 16 * 1024 * 1024, diskCapacity: 64 * 1024 * 1024, diskPath: "functioning-faith-api")
+        configuration.timeoutIntervalForRequest = 20
+        configuration.timeoutIntervalForResource = 45
+        configuration.waitsForConnectivity = true
+        session = URLSession(configuration: configuration)
         decoder = JSONDecoder()
     }
 
