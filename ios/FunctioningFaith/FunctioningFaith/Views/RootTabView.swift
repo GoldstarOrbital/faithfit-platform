@@ -12,24 +12,24 @@ struct RootTabView: View {
             OfflineBanner()
 
             TabView(selection: $deepLinks.selectedTab) {
-                NavigationStack { HomeFeedView() }
+                NavigationStack { HomeFeedView().ffRootBrand() }
                     .tabItem { Label("Home", systemImage: "house.fill") }
                     .tag(AppTab.home)
 
-                NavigationStack { WorkoutView() }
+                NavigationStack { WorkoutView().ffRootBrand() }
                     .tabItem { Label("Train", systemImage: "figure.run") }
                     .tag(AppTab.workouts)
 
-                NavigationStack { ExploreView() }
+                NavigationStack { ExploreView().ffRootBrand() }
                     .tabItem { Label("Explore", systemImage: "safari.fill") }
                     .tag(AppTab.explore)
 
-                NavigationStack { DMInboxView().environmentObject(dmStore) }
+                NavigationStack { DMInboxView().environmentObject(dmStore).ffRootBrand() }
                     .tabItem { Label("Messages", systemImage: "bubble.left.and.bubble.right.fill") }
                     .badge(dmStore.unreadTotal > 0 ? dmStore.unreadTotal : 0)
                     .tag(AppTab.messages)
 
-                NavigationStack { ProfileView() }
+                NavigationStack { ProfileView().ffRootBrand() }
                     .tabItem { Label("Profile", systemImage: "person.crop.circle.fill") }
                     .tag(AppTab.profile)
             }
@@ -57,6 +57,23 @@ struct RootTabView: View {
             get: { SocialOnboardingGate.shouldPresent(pendingUserID: pendingOnboardingUserID, profileID: session.profile?.id) },
             set: { if !$0 { pendingOnboardingUserID = "" } }
         )
+    }
+}
+
+private extension View {
+    /// Keeps the approved mark in the unused leading navigation space on every
+    /// root tab, while allowing pushed screens to keep a normal back button.
+    func ffRootBrand() -> some View {
+        toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Image("BrandMark")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 32, height: 32)
+                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .accessibilityLabel("Functioning Faith")
+            }
+        }
     }
 }
 
