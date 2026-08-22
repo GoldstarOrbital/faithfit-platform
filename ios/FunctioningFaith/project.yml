@@ -19,6 +19,9 @@ targets:
           - Resources/FunctioningFaith.entitlements
     entitlements:
       path: FunctioningFaith/Resources/FunctioningFaith.entitlements
+    dependencies:
+      - target: FunctioningFaithWidgets
+        embed: true
     postBuildScripts:
       - name: Preserve App Store icon metadata
         script: |
@@ -55,6 +58,22 @@ targets:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
         Release:
           SWIFT_OPTIMIZATION_LEVEL: "-O"
+  FunctioningFaithWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: FunctioningFaithWidgets
+        excludes:
+          - Info.plist
+      - path: FunctioningFaith/Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.functioningfaith.app.widgets
+        INFOPLIST_FILE: FunctioningFaithWidgets/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        PRODUCT_MODULE_NAME: FunctioningFaithWidgets
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
   FunctioningFaithTests:
     type: bundle.unit-test
     platform: iOS

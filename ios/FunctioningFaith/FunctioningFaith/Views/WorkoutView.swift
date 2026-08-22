@@ -81,7 +81,13 @@ struct WorkoutView: View {
                     .accessibilityLabel("Heart rate check-in")
             }
         }
-        .onReceive(timer) { _ in if isActive { elapsed += 1 } }
+        .onReceive(timer) { _ in
+            guard isActive else { return }
+            elapsed += 1
+            // ActivityKit updates are intentionally paced; the timer continues
+            // live in the widget without waking the extension every second.
+            if Int(elapsed) % 10 == 0 { updateLiveActivity() }
+        }
         .onReceive(timer) { _ in
             guard isActive, Date().timeIntervalSince(lastHeartRateRefresh) >= 15 else { return }
             lastHeartRateRefresh = .now
@@ -325,6 +331,7 @@ struct WorkoutView: View {
             guard let id = workoutID else { return }
             isActive = false
             tracker.stop()
+            Task { await WorkoutLiveActivityManager.shared.end() }
             let route = tracker.points
             let distance = tracker.distanceKm
             Task {
@@ -358,6 +365,7 @@ struct WorkoutView: View {
                     workoutVerse = nil
                     isActive = true
                     tracker.start()
+                    WorkoutLiveActivityManager.shared.start(sport: selectedType)
                 }
             } catch {
                 await MainActor.run { errorMessage = error.localizedDescription }
@@ -368,6 +376,7 @@ struct WorkoutView: View {
     private func refreshHeartRate() async {
         if let wearableHeartRate = bluetooth.heartRate {
             heartRate = wearableHeartRate
+            updateLiveActivity()
             await deliverCalmCueIfNeeded()
             await submitBiometricSampleIfNeeded()
             return
@@ -375,6 +384,7 @@ struct WorkoutView: View {
         let samples = (try? await HealthKitManager.shared.recentHeartRateSamples()) ?? []
         guard let latest = samples.last else { return }
         heartRate = Int(latest.rounded())
+        updateLiveActivity()
         await deliverCalmCueIfNeeded()
         await submitBiometricSampleIfNeeded()
     }
@@ -386,6 +396,15 @@ struct WorkoutView: View {
         lastHeartRateCalmCue = .now
         heartRateCalmMessage = "Your heart rate is elevated. Ease your pace if you need to and take a few slow breaths."
         await NotificationCoordinator.shared.deliverHeartRateCalmCue(heartRate: heartRate)
+    }
+
+    private func updateLiveActivity() {
+        guard isActive else { return }
+        WorkoutLiveActivityManager.shared.update(
+            distanceKm: tracker.distanceKm,
+            speedKmh: tracker.currentSpeedKmh ?? bluetooth.speedKmh,
+            heartRate: heartRate > 0 ? heartRate : bluetooth.heartRate
+        )
     }
 
     private func submitBiometricSampleIfNeeded() async {

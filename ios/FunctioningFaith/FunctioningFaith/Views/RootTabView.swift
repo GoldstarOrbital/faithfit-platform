@@ -6,13 +6,13 @@ struct RootTabView: View {
     @EnvironmentObject private var deepLinks: DeepLinkRouter
     @AppStorage("onboarding.pendingUserID") private var pendingOnboardingUserID = ""
     @StateObject private var dmStore = DMStore()
-    @State private var explorePath = NavigationPath()
+    @State private var exploreRootID = UUID()
 
     var body: some View {
         VStack(spacing: 0) {
             OfflineBanner()
 
-            TabView(selection: $deepLinks.selectedTab) {
+            TabView(selection: tabSelection) {
                 NavigationStack { HomeFeedView().ffRootBrand() }
                     .tabItem { Label("Home", systemImage: "house.fill") }
                     .tag(AppTab.home)
@@ -21,7 +21,8 @@ struct RootTabView: View {
                     .tabItem { Label("Train", systemImage: "figure.run") }
                     .tag(AppTab.workouts)
 
-                NavigationStack(path: $explorePath) { ExploreView().ffRootBrand() }
+                NavigationStack { ExploreView().ffRootBrand() }
+                    .id(exploreRootID)
                     .tabItem { Label("Explore", systemImage: "safari.fill") }
                     .tag(AppTab.explore)
 
@@ -52,10 +53,8 @@ struct RootTabView: View {
                 pendingOnboardingUserID = ""
             }
         }
-        .onChange(of: deepLinks.selectedTab) { tab in
-            // Explore is a dashboard, not a linear wizard. Returning to this
-            // tab must show the dashboard instead of a retained detail stack.
-            if tab == .explore { explorePath = NavigationPath() }
+        .onChange(of: deepLinks.selectedTab) { _, tab in
+            if tab == .explore { resetExplore() }
         }
     }
 
@@ -65,6 +64,18 @@ struct RootTabView: View {
             set: { if !$0 { pendingOnboardingUserID = "" } }
         )
     }
+
+    private var tabSelection: Binding<AppTab> {
+        Binding(
+            get: { deepLinks.selectedTab },
+            set: { tab in
+                if tab == .explore, deepLinks.selectedTab != .explore { resetExplore() }
+                deepLinks.selectedTab = tab
+            }
+        )
+    }
+
+    private func resetExplore() { exploreRootID = UUID() }
 }
 
 private extension View {
@@ -76,7 +87,7 @@ private extension View {
                 Image("BrandMark")
                     .resizable()
                     .scaledToFit()
-                    .frame(width: 46, height: 46)
+                    .frame(width: 38, height: 38)
                     .padding(2)
                     .background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(FFTheme.goldBright.opacity(0.7), lineWidth: 1.25))
@@ -85,6 +96,7 @@ private extension View {
             }
         }
     }
+
 }
 
 private extension View {

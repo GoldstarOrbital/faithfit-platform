@@ -24,6 +24,9 @@
     </dict>
   </array>
   <key>NSLocationWhenInUseUsageDescription</key><string>Functioning Faith uses your location only while you choose to record a live workout route or search for a church nearby.</string>
+  <key>NSLocationAlwaysAndWhenInUseUsageDescription</key><string>When you choose to record a live workout, Functioning Faith continues recording your route and live training data while the app is in the background. You can stop the workout at any time.</string>
+  <key>UIBackgroundModes</key><array><string>location</string></array>
+  <key>NSSupportsLiveActivities</key><true/>
   <key>NSBluetoothAlwaysUsageDescription</key><string>Functioning Faith uses Bluetooth only when you choose to connect a heart-rate monitor or fitness sensor.</string>
   <key>NSBluetoothPeripheralUsageDescription</key><string>Functioning Faith uses Bluetooth only when you choose to connect a heart-rate monitor or fitness sensor.</string>
   <key>NSUserNotificationsUsageDescription</key><string>Choose notifications for Scripture, replies, and reminders that help you follow your rhythm.</string>

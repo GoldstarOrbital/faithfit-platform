@@ -26,6 +26,7 @@ final class NativeWorkoutTracker: NSObject, ObservableObject, CLLocationManagerD
         manager.distanceFilter = 3
         manager.activityType = .fitness
         manager.pausesLocationUpdatesAutomatically = false
+        manager.allowsBackgroundLocationUpdates = true
     }
 
     func start() {
@@ -37,7 +38,7 @@ final class NativeWorkoutTracker: NSObject, ObservableObject, CLLocationManagerD
         maxSpeedKmh = 0
         elevationGainM = 0
         elevationLossM = 0
-        manager.requestWhenInUseAuthorization()
+        manager.requestAlwaysAuthorization()
         guard manager.authorizationStatus == .authorizedAlways || manager.authorizationStatus == .authorizedWhenInUse else { return }
         manager.startUpdatingLocation()
     }
