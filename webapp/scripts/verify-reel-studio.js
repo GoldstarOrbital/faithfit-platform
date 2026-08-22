@@ -14,7 +14,7 @@ const app = read('public', 'app.js');
 const sources = read('lib', 'reel-sources.js');
 
 assert.match(server, /camera=\(self\), microphone=\(self\)/, 'Reel recording needs same-origin camera and mic permissions');
-assert.match(server, /express\.json\(\{ limit: '6mb' \}\)/, 'the guarded 4MB Reel payload must reach validation');
+assert.match(server, /express\.json\(\{ limit: '12mb' \}\)/, 'the guarded 8MB Reel payload must reach validation');
 assert.match(api, /'functioning_faith' AS provider/, 'validated public video posts must be returned to Reels as owned media');
 assert.match(api, /p\.video_category IN \('workout','nature','animal','group'\)/, 'owned Reel feed must retain the anti-vanity category gate');
 assert.match(app, /function openReelStudio\(/, 'Reels needs an in-app creation surface');
