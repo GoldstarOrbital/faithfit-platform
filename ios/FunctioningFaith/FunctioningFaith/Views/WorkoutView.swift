@@ -23,7 +23,11 @@ struct WorkoutView: View {
     @State private var heartRate = 0
     @State private var mapPosition: MapCameraPosition = .automatic
     @State private var lastHeartRateRefresh = Date.distantPast
+    @State private var lastBiometricUpload = Date.distantPast
+    @AppStorage("privacy.biometricIngest") private var biometricIngestEnabled = false
+    @AppStorage("privacy.scripturePersonalization") private var scripturePersonalizationEnabled = false
     @State private var workoutID: UUID?
+    @State private var workoutVerse: VerseSnippet?
     @State private var errorMessage: String?
     @State private var showReflection = false
     @State private var showWearables = false
@@ -158,6 +162,10 @@ struct WorkoutView: View {
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                 ForEach(liveMetrics) { item in metric(item.value, item.label) }
+            }
+
+            if let workoutVerse {
+                VerseSnippetCard(verse: workoutVerse)
             }
 
             Button(action: toggleWorkout) {
@@ -332,6 +340,8 @@ struct WorkoutView: View {
                     elapsed = 0
                     heartRate = 0
                     lastHeartRateRefresh = .distantPast
+                    lastBiometricUpload = .distantPast
+                    workoutVerse = nil
                     isActive = true
                     tracker.start()
                 }
@@ -344,11 +354,25 @@ struct WorkoutView: View {
     private func refreshHeartRate() async {
         if let wearableHeartRate = bluetooth.heartRate {
             heartRate = wearableHeartRate
+            await submitBiometricSampleIfNeeded()
             return
         }
         let samples = (try? await HealthKitManager.shared.recentHeartRateSamples()) ?? []
         guard let latest = samples.last else { return }
         heartRate = Int(latest.rounded())
+        await submitBiometricSampleIfNeeded()
+    }
+
+    private func submitBiometricSampleIfNeeded() async {
+        guard biometricIngestEnabled, heartRate > 0, let workoutID,
+              Date().timeIntervalSince(lastBiometricUpload) >= 60 else { return }
+        lastBiometricUpload = .now
+        do {
+            let result = try await APIClient.shared.recordWorkoutBiometrics(id: workoutID, heartRate: heartRate)
+            if scripturePersonalizationEnabled, let verse = result.verse { workoutVerse = verse }
+        } catch {
+            // Live workout recording remains usable if a moment cannot be sent.
+        }
     }
 
     private func saveManual() async {

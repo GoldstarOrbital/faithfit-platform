@@ -18,6 +18,7 @@ const dmInbox = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views
 const profileEditor = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'EditProfileView.swift');
 const reels = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'ReelsFeedView.swift');
 const project = read('..', 'ios', 'FunctioningFaith', 'project.yml');
+const profile = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'ProfileView.swift');
 
 assert.match(client, /request\.timeoutInterval = 20/, 'native taps need a finite network deadline');
 for (const route of ['/feed', '/explore', '/dms', '/notifications', '/journeys', '/groups/nearby', '/workouts/start', '/workouts/:id/stop']) {
@@ -39,5 +40,11 @@ assert.match(profileEditor, /PhotosPicker\(selection: \$avatarPickerItem, matchi
 assert.match(profileEditor, /avatarData: avatarData\.map\(ImageUpload\.dataURL\(from:\)\)/, 'profile photo must be sent through the validated profile update API');
 assert.match(reels, /ScrollView\s*\{\s*LazyVStack/s, 'Reels must have a dedicated vertical scrolling feed');
 assert.match(project, /CODE_SIGN_ENTITLEMENTS: FunctioningFaith\/Resources\/FunctioningFaith\.entitlements/, 'HealthKit entitlement must be attached to generated release projects');
+assert.match(api, /router\.get\('\/consent', requireAuth/, 'native app must be able to restore opt-in consent choices');
+assert.match(client, /func fetchPrivacySettings\(\)/, 'native app must load persisted privacy controls');
+assert.match(client, /func setConsent\(scope: String, granted: Bool\)/, 'native app must persist biometric consent');
+assert.match(profile, /await APIClient\.shared\.fetchPrivacySettings\(\)/, 'profile must restore saved privacy choices');
+assert.match(workout, /guard biometricIngestEnabled, heartRate > 0, let workoutID/, 'biometric uploads must remain explicit opt-in');
+assert.match(workout, /Date\(\)\.timeIntervalSince\(lastBiometricUpload\) >= 60/, 'biometric uploads must be rate limited');
 
 console.log(JSON.stringify({ native_action_contracts: true, timeout_boundary_seconds: 20, bluetooth_profiles: ['heart_rate', 'cycling_speed_cadence', 'cycling_power', 'fitness_machine'] }));

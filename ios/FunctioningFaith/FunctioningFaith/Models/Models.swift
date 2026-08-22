@@ -97,6 +97,21 @@ struct UserProfile: Codable, Identifiable {
     var bibleVersionID: Int? = nil
 }
 
+struct PrivacySettings: Codable {
+    var profileVisibility: String
+    var followerListVisibility: String
+    var messagePermission: String
+    var tagPermission: String
+    var commentPermission: String
+
+    enum CodingKeys: String, CodingKey {
+        case profileVisibility = "profile_visibility", followerListVisibility = "follower_list_visibility"
+        case messagePermission = "message_permission", tagPermission = "tag_permission", commentPermission = "comment_permission"
+    }
+
+    static let `default` = PrivacySettings(profileVisibility: "public", followerListVisibility: "public", messagePermission: "everyone", tagPermission: "everyone", commentPermission: "everyone")
+}
+
 /// Privacy-safe public profile returned by GET /api/users/:id. This is a
 /// deliberately smaller model than the signed-in account profile: the server
 /// never includes another member's email, location, church, or health data.

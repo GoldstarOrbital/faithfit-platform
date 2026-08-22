@@ -10,8 +10,10 @@ struct ProfileView: View {
     @AppStorage("notifications.community") private var communityNotifications = false
     @AppStorage("notifications.reminders") private var reminderNotifications = false
     @State private var profile: UserProfile?
-    @State private var biometricConsent = false
-    @State private var scripturePersonalization = false
+    @AppStorage("privacy.biometricIngest") private var biometricConsent = false
+    @AppStorage("privacy.scripturePersonalization") private var scripturePersonalization = false
+    @State private var privacySettings = PrivacySettings.default
+    @State private var privacySaving = false
     @State private var healthKitSyncing = false
     @State private var pendingFollowRequests = 0
     @State private var showEditProfile = false
@@ -50,6 +52,11 @@ struct ProfileView: View {
             stravaConfigured = (try? await APIClient.shared.isStravaConfigured()) ?? false
             await loadConnections()
             badgeCatalog = (try? await APIClient.shared.fetchBadgeCatalog()) ?? []
+            if let saved = try? await APIClient.shared.fetchPrivacySettings() { privacySettings = saved }
+            if let consent = try? await APIClient.shared.fetchConsentStatus() {
+                biometricConsent = consent.scopes.contains("biometric_ingest")
+                scripturePersonalization = consent.scopes.contains("scripture_personalization")
+            }
         }
         .alert("Could not connect Strava", isPresented: Binding(get: { connectorError != nil }, set: { if !$0 { connectorError = nil } })) {
             Button("OK", role: .cancel) { connectorError = nil }
@@ -300,11 +307,61 @@ struct ProfileView: View {
 
     private var privacySection: some View {
         Section("Privacy") {
+            Picker("Profile visibility", selection: $privacySettings.profileVisibility) {
+                Text("Everyone").tag("public")
+                Text("Followers").tag("followers")
+                Text("Only me").tag("private")
+            }
+            Picker("Who can message me", selection: $privacySettings.messagePermission) {
+                Text("Everyone").tag("everyone")
+                Text("Followers").tag("followers")
+                Text("Nobody").tag("nobody")
+            }
+            Picker("Who can tag me", selection: $privacySettings.tagPermission) {
+                Text("Everyone").tag("everyone")
+                Text("Followers").tag("followers")
+                Text("Nobody").tag("nobody")
+            }
+            Picker("Who can comment", selection: $privacySettings.commentPermission) {
+                Text("Everyone").tag("everyone")
+                Text("Followers").tag("followers")
+                Text("Nobody").tag("nobody")
+            }
             Toggle("Share biometrics for workout tracking", isOn: $biometricConsent)
+                .onChange(of: biometricConsent) { _, enabled in
+                    Task { await saveConsent(scope: "biometric_ingest", granted: enabled) }
+                    if !enabled { scripturePersonalization = false }
+                }
             Toggle("Personalize scripture with my biometrics", isOn: $scripturePersonalization)
                 .disabled(!biometricConsent)
+                .onChange(of: scripturePersonalization) { _, enabled in
+                    Task { await saveConsent(scope: "scripture_personalization", granted: enabled) }
+                }
+            if privacySaving { ProgressView("Saving privacy…") }
+            Text("Biometric readings are used only during an active workout after you opt in. Personalization can be turned off at any time.")
+                .font(.caption).foregroundStyle(.secondary)
         }
         .listRowBackground(FFTheme.parchment1)
+        .onChange(of: privacySettings.profileVisibility) { _, _ in Task { await savePrivacy() } }
+        .onChange(of: privacySettings.messagePermission) { _, _ in Task { await savePrivacy() } }
+        .onChange(of: privacySettings.tagPermission) { _, _ in Task { await savePrivacy() } }
+        .onChange(of: privacySettings.commentPermission) { _, _ in Task { await savePrivacy() } }
+    }
+
+    private func savePrivacy() async {
+        privacySaving = true
+        defer { privacySaving = false }
+        do { privacySettings = try await APIClient.shared.updatePrivacySettings(privacySettings) }
+        catch { connectorError = "Privacy settings could not be saved: \(error.localizedDescription)" }
+    }
+
+    private func saveConsent(scope: String, granted: Bool) async {
+        do { try await APIClient.shared.setConsent(scope: scope, granted: granted) }
+        catch {
+            if scope == "biometric_ingest" { biometricConsent.toggle() }
+            else { scripturePersonalization.toggle() }
+            connectorError = "Your privacy choice could not be saved: \(error.localizedDescription)"
+        }
     }
 
     @ViewBuilder

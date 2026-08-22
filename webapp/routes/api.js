@@ -4371,6 +4371,11 @@ router.post('/churches/:osmId/website', requireAuth, requireVerifiedChurchAdmin,
   }
   res.json({ ok: true });
 });
+router.get('/consent', requireAuth, (req, res) => {
+  const scopes = db.prepare('SELECT scope FROM user_consents WHERE user_id = ? AND revoked_at IS NULL ORDER BY scope')
+    .all(req.session.userId).map(row => row.scope);
+  res.json({ scopes });
+});
 
 // A member may opt into the public website attached to the Apple Maps place
 // they selected as their own church. It never edits an arbitrary church and

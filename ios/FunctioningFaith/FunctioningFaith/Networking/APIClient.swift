@@ -1349,6 +1349,26 @@ private struct WorkoutStop: Encodable {
         case gpsDistanceKm = "gps_distance_km"
         case sportMetrics = "sport_metrics"
     }
+
+    func fetchPrivacySettings() async throws -> PrivacySettings {
+        try await request("/api/privacy")
+    }
+
+    func updatePrivacySettings(_ settings: PrivacySettings) async throws -> PrivacySettings {
+        try await request("/api/privacy", method: "PATCH", body: settings)
+    }
+
+    func fetchConsentStatus() async throws -> ConsentStatus {
+        try await request("/api/consent")
+    }
+
+    func setConsent(scope: String, granted: Bool) async throws {
+        let _: ActionResponse = try await request("/api/consent", method: "POST", body: ConsentBody(scope: scope, granted: granted))
+    }
+
+    func recordWorkoutBiometrics(id: UUID, heartRate: Int) async throws -> WorkoutBiometricResponse {
+        try await request("/api/workouts/\(id.uuidString)/sample", method: "POST", body: WorkoutBiometricBody(heartRate: heartRate))
+    }
 }
 private struct NearbyGroupsResponse: Decodable { let groups: [NearbyGroup] }
 private struct CreateGroupResponse: Decodable { let group: NearbyGroup }
@@ -1559,6 +1579,16 @@ private struct UpdateProfileBody: Encodable {
     }
 }
 private struct UpdateProfileResponse: Decodable { let ok: Bool }
+private struct ConsentBody: Encodable { let scope: String; let granted: Bool }
+private struct WorkoutBiometricBody: Encodable {
+    let heartRate: Int
+    enum CodingKeys: String, CodingKey { case heartRate = "heart_rate" }
+}
+struct ConsentStatus: Decodable { let scopes: [String] }
+struct WorkoutBiometricResponse: Decodable {
+    let verse: VerseSnippet?
+    let suppressed: Bool?
+}
 
 private struct AppleHealthSyncBody: Encodable {
     struct Workout: Encodable {
