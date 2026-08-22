@@ -37,7 +37,19 @@ workflows:
       - name: Apply App Store signing profiles
         script: |
           cd "$CM_BUILD_DIR/$IOS_PROJECT_DIR"
-          xcode-project use-profiles
+          # Bind the fetched App Store profile to this generated project only.
+          # Leaving the project implicit can let the helper select a stale or
+          # unrelated project when its search path changes.
+          xcode-project use-profiles --project "$XCODE_PROJECT"
+      - name: Verify HealthKit signing configuration
+        script: |
+          cd "$CM_BUILD_DIR/$IOS_PROJECT_DIR"
+          mkdir -p /tmp/xcodebuild_logs
+          xcodebuild -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" \
+            -configuration Release -showBuildSettings | tee /tmp/xcodebuild_logs/signing-settings.log
+          xcodebuild -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" \
+            -configuration Release -showBuildSettings | \
+            grep -E 'CODE_SIGN_ENTITLEMENTS = .*FunctioningFaith\.entitlements'
       # Keep Xcode's complete archive output as an artifact. The Codemagic helper
       # only reports its final exit status, which makes signing or plist failures
       # impossible to diagnose from the build page.
