@@ -13,6 +13,7 @@ const api = read('routes', 'api.js');
 const client = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Networking', 'APIClient.swift');
 const sensors = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Networking', 'BluetoothHeartRateManager.swift');
 const workout = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'WorkoutView.swift');
+const exploreCatalog = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'ExploreCatalog.swift');
 
 assert.match(client, /request\.timeoutInterval = 20/, 'native taps need a finite network deadline');
 for (const route of ['/feed', '/explore', '/dms', '/notifications', '/journeys', '/groups/nearby', '/workouts/start', '/workouts/:id/stop']) {
@@ -26,5 +27,8 @@ assert.match(sensors, /parseCyclingPower/, 'power data must be decoded');
 assert.match(workout, /"cadence_rpm"/, 'workout completion must retain cadence');
 assert.match(workout, /"peak_power_w"/, 'workout completion must retain peak power');
 assert.match(api, /'cadence_rpm', 'power_w', 'peak_power_w'/, 'server must validate sensor metrics');
+for (const property of ['name', 'username', 'description', 'sport', 'locationName', 'isPrivate', 'useCurrentLocation', 'isSaving']) {
+  assert.match(exploreCatalog, new RegExp(`@State private var ${property}\\b`), `group creation state must expose a SwiftUI binding for ${property}`);
+}
 
 console.log(JSON.stringify({ native_action_contracts: true, timeout_boundary_seconds: 20, bluetooth_profiles: ['heart_rate', 'cycling_speed_cadence', 'cycling_power', 'fitness_machine'] }));

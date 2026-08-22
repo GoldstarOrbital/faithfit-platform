@@ -314,8 +314,17 @@ private struct CreateGroupView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var session: NativeSession
     @StateObject private var locator = ChurchLocator()
-    @State private var name = "", username = "", description = "", sport = "", locationName = ""
-    @State private var isPrivate = false, useCurrentLocation = true, isSaving = false
+    // Property-wrapper attributes only apply to the first declaration in a
+    // comma-separated list. Keep these separate so every control has a SwiftUI
+    // binding and mutations made by `create()` persist in the view state.
+    @State private var name = ""
+    @State private var username = ""
+    @State private var description = ""
+    @State private var sport = ""
+    @State private var locationName = ""
+    @State private var isPrivate = false
+    @State private var useCurrentLocation = true
+    @State private var isSaving = false
     @State private var errorMessage: String?
     let onCreated: () async -> Void
 
