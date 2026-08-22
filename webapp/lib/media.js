@@ -37,14 +37,16 @@ const CATEGORY_HINT = 'Uploads can only be workout/gear, nature, animals, or gro
 // ---- caps ------------------------------------------------------------------
 const MAX_IMAGE_BYTES = 250 * 1024; // 250KB — matches the existing photo cap exactly.
 
-// 4MB. This is not a guess at what feels generous; it is the largest number that
+// 8MB. This is still intentionally bounded because a video lives as a base64
+// data URL in SQLite, but it accommodates a short iPhone MOV without asking a
+// member to pre-compress it before sharing.
 // stays honest given how the file is stored. Video here lives as a base64 data
 // URL inside the posts row, so 4MB of video is ~5.5MB of text in SQLite, in the
 // request body, and in any SELECT that touches the column. That does not scale
 // and object storage (upload to a bucket, store a URL) is the real answer later.
 // Until then the cap is set where a clip is still worth watching — roughly
 // 10-20 seconds of 720p H.264 — and where a feed page cannot blow up memory.
-const MAX_VIDEO_BYTES = 4 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 8 * 1024 * 1024;
 
 // The size cap alone does not make a video *short*: a 10-minute talk at a low
 // bitrate fits inside 4MB comfortably. This is a separate ceiling on running

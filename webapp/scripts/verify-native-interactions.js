@@ -25,6 +25,7 @@ const journeyVisual = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 
 const postComposer = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'PostComposerView.swift');
 const reelComposer = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'ReelComposerView.swift');
 const notifications = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Networking', 'NotificationCoordinator.swift');
+const media = read('lib', 'media.js');
 
 assert.match(client, /request\.timeoutInterval = 20/, 'native taps need a finite network deadline');
 for (const route of ['/feed', '/explore', '/dms', '/notifications', '/journeys', '/groups/nearby', '/workouts/start', '/workouts/:id/stop']) {
@@ -60,6 +61,8 @@ assert.match(client, /func fetchAvatarData\(userID: UUID\)/, 'profile needs a pr
 assert.match(profile, /fetchAvatarData\(userID: userID\)/, 'Profile must render the member’s stored avatar');
 assert.match(postComposer, /!content\.trimmingCharacters\(in: \.whitespacesAndNewlines\)\.isEmpty/, 'photo posts need a caption for Scripture matching');
 assert.match(reelComposer, /video\/quicktime/, 'iPhone MOV files must be encoded as QuickTime uploads');
+assert.match(media, /const MAX_VIDEO_BYTES = 8 \* 1024 \* 1024/, 'the server must accommodate a short iPhone MOV');
+assert.match(reelComposer, /private static let maxBytes = 8 \* 1024 \* 1024/, 'the native reel picker must match the server upload cap');
 assert.match(profile, /Heart-rate calm cue/, 'members need an explicit calm-cue preference');
 assert.match(workout, /Date\(\)\.timeIntervalSince\(lastHeartRateCalmCue\) >= 5 \* 60/, 'heart-rate calm cues must be rate limited');
 assert.match(notifications, /deliverHeartRateCalmCue/, 'the calm cue must reach the local-notification coordinator');
