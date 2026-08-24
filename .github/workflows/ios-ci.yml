@@ -52,11 +52,9 @@ jobs:
 
       - name: Run unit tests
         working-directory: ios/FunctioningFaith
-        run: >-
-          xcodebuild
-          -project FunctioningFaith.xcodeproj
-          -scheme FunctioningFaith
-          -configuration Debug
-          -destination 'platform=iOS Simulator,OS=latest,name=iPhone 16 Pro'
-          CODE_SIGNING_ALLOWED=NO
-          test
+        run: |
+          set +e
+          python3 -c 'import subprocess,sys; log=open("/tmp/functioning-faith-ios-tests.log","w"); result=subprocess.run(sys.argv[1:],stdout=log,stderr=subprocess.STDOUT,timeout=900); log.close(); sys.exit(result.returncode)' xcodebuild -project FunctioningFaith.xcodeproj -scheme FunctioningFaith -configuration Debug -destination 'platform=iOS Simulator,OS=latest,name=iPhone 16 Pro' CODE_SIGNING_ALLOWED=NO test
+          status=$?
+          cat /tmp/functioning-faith-ios-tests.log
+          exit "$status"
