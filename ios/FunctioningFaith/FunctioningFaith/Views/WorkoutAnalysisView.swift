@@ -69,7 +69,14 @@ struct WorkoutAnalysisView: View {
                 .ffListChrome()
                 .refreshable { await load() }
             } else if let errorMessage {
-                ContentUnavailableView("Activity analysis unavailable", systemImage: "chart.line.uptrend.xyaxis", description: Text(errorMessage))
+                ContentUnavailableView {
+                    Label("Activity analysis unavailable", systemImage: "chart.line.uptrend.xyaxis")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("Try again") { Task { await load() } }
+                        .buttonStyle(.ffPrimary)
+                }
             } else {
                 ProgressView("Loading activity…")
             }
@@ -89,6 +96,7 @@ struct WorkoutAnalysisView: View {
     }
 
     private func load() async {
+        errorMessage = nil
         do {
             analysis = try await APIClient.shared.fetchWorkoutAnalysis(id: workoutID)
             intelligence = try? await APIClient.shared.fetchWorkoutIntelligenceSummary(id: workoutID)
