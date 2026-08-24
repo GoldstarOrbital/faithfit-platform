@@ -1019,6 +1019,10 @@ struct NativeGroupDetail {
     var memberCount: Int
     var isMember: Bool
     let isAdmin: Bool
+    /// Admin role plus an independently-verified church affiliation --
+    /// never purchasable, never self-declared. See isVerifiedLeader in
+    /// routes/api.js for the exact qualification.
+    let isVerifiedLeader: Bool
     var messages: [GroupMessage]
     let events: [GroupEvent]
     var announcement: String? = nil
@@ -1030,10 +1034,12 @@ struct GroupMemberEntry: Decodable, Identifiable {
     let role: String?
     let displayName: String
     let hasAvatar: Bool
+    let verifiedLeader: Bool
     var id: String { userID }
     var isAdmin: Bool { role == "admin" }
     enum CodingKeys: String, CodingKey {
-        case userID = "user_id", role; case displayName = "display_name"; case hasAvatar = "has_avatar"
+        case userID = "user_id", role; case displayName = "display_name"
+        case hasAvatar = "has_avatar"; case verifiedLeader = "verified_leader"
     }
 }
 

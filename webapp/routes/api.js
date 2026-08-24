@@ -2630,6 +2630,18 @@ function isGroupAdmin(groupId, userId) {
   return !!db.prepare("SELECT 1 FROM group_members WHERE group_id = ? AND user_id = ? AND role = 'admin'")
     .get(groupId, userId);
 }
+
+// A leader is "verified" only by admin status + an independently-verified
+// church affiliation -- never purchasable, never self-declared. See the
+// admin review flow in lib/developer-verification.js for what verifying a
+// church actually requires.
+function isVerifiedLeader(groupId, userId) {
+  if (!isGroupAdmin(groupId, userId)) return false;
+  return !!db.prepare(`
+    SELECT 1 FROM users u JOIN churches c ON c.osm_id = u.church_osm_id
+    WHERE u.id = ? AND c.verification_status = 'verified'
+  `).get(userId);
+}
 function groupUsername(value) {
   return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
 }
@@ -2780,7 +2792,7 @@ router.get('/groups/:id', requireAuth, (req, res) => {
     WHERE e.group_id = @gid AND e.event_time >= datetime('now')
     ORDER BY e.event_time ASC
   `).all({ gid: group.id, me: req.session.userId }) : [];
-  res.json({ group, member_count: memberCount, is_member: isMember, is_admin: isGroupAdmin(group.id, req.session.userId), messages, events });
+  res.json({ group, member_count: memberCount, is_member: isMember, is_admin: isGroupAdmin(group.id, req.session.userId), is_verified_leader: isVerifiedLeader(group.id, req.session.userId), messages, events });
 });
 
 router.post('/groups/:id/join', requireAuth, (req, res) => {
@@ -2828,10 +2840,17 @@ router.get('/groups/:id/members', requireAuth, (req, res) => {
   const group = db.prepare('SELECT id FROM groups WHERE id = ?').get(req.params.id);
   if (!group) return res.status(404).json({ error: 'not_found' });
   if (!isGroupMember(group.id, req.session.userId)) return res.status(404).json({ error: 'not_found' });
+  // A leader is "verified" only by role + a real, independently-verified
+  // church affiliation (see lib/developer-verification.js's admin review
+  // flow for what that verification actually involves) -- never purchasable,
+  // never self-declared.
   const members = db.prepare(`
     SELECT m.user_id, m.role, u.display_name,
-           CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar
-    FROM group_members m JOIN users u ON u.id = m.user_id
+           CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar,
+           CASE WHEN m.role = 'admin' AND c.verification_status = 'verified' THEN 1 ELSE 0 END AS verified_leader
+    FROM group_members m
+    JOIN users u ON u.id = m.user_id
+    LEFT JOIN churches c ON c.osm_id = u.church_osm_id
     WHERE m.group_id = ?
     ORDER BY (m.role = 'admin') DESC, u.display_name
   `).all(group.id);

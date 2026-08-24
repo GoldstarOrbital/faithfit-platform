@@ -19,8 +19,20 @@ struct GroupMembersView: View {
                 List(members) { member in
                     HStack {
                         VStack(alignment: .leading) {
-                            Text(member.displayName)
-                            if member.isAdmin { Text("Admin").font(.caption).foregroundStyle(FFTheme.gold) }
+                            HStack(spacing: 4) {
+                                Text(member.displayName)
+                                if member.verifiedLeader {
+                                    Image(systemName: "checkmark.seal.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(FFTheme.goldBright)
+                                        .accessibilityLabel("Verified leader")
+                                }
+                            }
+                            if member.isAdmin {
+                                Text(member.verifiedLeader ? "Verified leader" : "Admin")
+                                    .font(.caption)
+                                    .foregroundStyle(member.verifiedLeader ? FFTheme.goldBright : FFTheme.gold)
+                            }
                         }
                         Spacer()
                         Button("Remove", role: .destructive) { removeCandidate = member }

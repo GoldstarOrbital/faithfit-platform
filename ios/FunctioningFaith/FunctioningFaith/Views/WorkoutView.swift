@@ -374,6 +374,7 @@ struct WorkoutView: View {
                         completedSportMetrics = sportMetrics
                         completedRoute = route
                         completedWorkout = completion
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
                     }
                     recent = (try? await APIClient.shared.fetchWorkouts()) ?? recent
                 } catch {
@@ -473,6 +474,7 @@ struct WorkoutView: View {
                 encouragement: "Every faithful step counts. Keep building the rhythm God has given you.",
                 effort: nil
             )
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
             recent = (try? await APIClient.shared.fetchWorkouts()) ?? recent
         } catch {
             errorMessage = error.localizedDescription

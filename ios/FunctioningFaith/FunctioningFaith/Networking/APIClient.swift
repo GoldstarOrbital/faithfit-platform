@@ -1847,6 +1847,7 @@ private struct GroupDetailResponse: Decodable {
     let memberCount: Int
     let isMember: Bool
     let isAdmin: Bool
+    let isVerifiedLeader: Bool
     let messages: [GroupMessage]
     let events: [GroupEvent]
 
@@ -1855,6 +1856,7 @@ private struct GroupDetailResponse: Decodable {
         case memberCount = "member_count"
         case isMember = "is_member"
         case isAdmin = "is_admin"
+        case isVerifiedLeader = "is_verified_leader"
     }
 
     var model: NativeGroupDetail {
@@ -1863,6 +1865,7 @@ private struct GroupDetailResponse: Decodable {
             memberCount: memberCount,
             isMember: isMember,
             isAdmin: isAdmin,
+            isVerifiedLeader: isVerifiedLeader,
             messages: messages,
             events: events,
             announcement: group.announcement,
@@ -1983,6 +1986,7 @@ enum MockData {
         memberCount: exploreContent.groups[0].memberCount,
         isMember: true,
         isAdmin: false,
+        isVerifiedLeader: false,
         messages: [GroupMessage(id: "message-preview", content: "See everyone at sunrise!", createdAt: "2026-08-11 06:00:00", authorID: "preview-author", author: "Sam T.")],
         events: [GroupEvent(id: "event-preview", title: "Saturday 5K", description: "Easy community run.", activityType: "Run", eventTime: "2026-08-15 07:00:00", locationName: "River Trail", goingCount: 8, interestedCount: 3, myRSVP: "going")]
     )

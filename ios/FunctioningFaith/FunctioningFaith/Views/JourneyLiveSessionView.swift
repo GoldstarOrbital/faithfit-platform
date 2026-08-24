@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// The web app renders this as a real-time 3D flythrough; this is the same
 /// underlying mechanic (real GPS distance, streamed to the server in small
@@ -202,6 +205,9 @@ struct JourneyLiveSessionView: View {
     private func checkForCompletedSegments() {
         for wp in tracker.justCrossed where !recordedWaypointIDs.contains(wp.id) {
             recordedWaypointIDs.insert(wp.id)
+            #if canImport(UIKit)
+            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+            #endif
             guard let segment = segments.first(where: { abs($0.toKm - wp.kmMark) < 0.01 }) else { continue }
             let start = lastBoundaryAt ?? startedAt ?? .now
             let duration = Date.now.timeIntervalSince(start)

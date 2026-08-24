@@ -58,8 +58,14 @@ struct GroupDetailView: View {
 
                 if let detail {
                     if detail.isAdmin {
-                        Label("You manage this group", systemImage: "checkmark.seal.fill")
-                            .foregroundStyle(FFTheme.gold)
+                        if detail.isVerifiedLeader {
+                            Label("Verified group leader", systemImage: "checkmark.seal.fill")
+                                .foregroundStyle(FFTheme.goldBright)
+                                .accessibilityHint("Admin with an independently verified church affiliation")
+                        } else {
+                            Label("You manage this group", systemImage: "checkmark.seal.fill")
+                                .foregroundStyle(FFTheme.gold)
+                        }
                         NavigationLink("Manage members") { GroupMembersView(groupID: group.id) }
                     } else {
                         Button(detail.isMember ? "Leave group" : "Join group", role: detail.isMember ? .destructive : nil) {
