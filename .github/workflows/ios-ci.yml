@@ -37,15 +37,10 @@ jobs:
       - name: Build for iOS Simulator
         working-directory: ios/FunctioningFaith
         run: |
-          set -o pipefail
-          xcodebuild \
-            -project FunctioningFaith.xcodeproj \
-            -scheme FunctioningFaith \
-            -configuration Debug \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO \
-            build 2>&1 | tee /tmp/functioning-faith-ios-build.log
-          status=${PIPESTATUS[0]}
+          set +e
+          python3 -c 'import subprocess,sys; log=open("/tmp/functioning-faith-ios-build.log","w"); result=subprocess.run(sys.argv[1:],stdout=log,stderr=subprocess.STDOUT,timeout=900); log.close(); sys.exit(result.returncode)' xcodebuild -project FunctioningFaith.xcodeproj -scheme FunctioningFaith -configuration Debug -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+          status=$?
+          cat /tmp/functioning-faith-ios-build.log
           if [ "$status" -ne 0 ]; then
             echo '--- Swift/Xcode errors ---'
             grep -Ei '(^|: )(error|fatal error):' /tmp/functioning-faith-ios-build.log || true

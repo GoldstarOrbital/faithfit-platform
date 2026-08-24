@@ -17,16 +17,11 @@ struct ReelsFeedView: View {
     var body: some View {
         Group {
             if isLoading && reels.isEmpty {
-                ProgressView()
+                FFLoadingView(message: "Loading Reels…")
+            } else if let errorMessage, reels.isEmpty {
+                FFErrorStateView(message: errorMessage, onRetry: { Task { await load() } })
             } else if reels.isEmpty {
-                ContentUnavailableView {
-                    Label("No reels right now", systemImage: "play.rectangle")
-                } description: {
-                    Text("Check back soon — or publish a short encouragement of your own.")
-                } actions: {
-                    Button("Create a Reel") { showComposer = true }
-                        .buttonStyle(.ffPrimary)
-                }
+                FFEmptyStateView(title: "No Reels right now", systemImage: "play.rectangle", message: "Check back soon — or publish a short encouragement of your own.", actionTitle: "Create a Reel", action: { showComposer = true })
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: FFTheme.Space.md) {
@@ -87,26 +82,34 @@ struct ReelsFeedView: View {
 
     private func load() async {
         isLoading = true
+        errorMessage = nil
         do {
             let response = try await APIClient.shared.fetchReels()
+            guard !Task.isCancelled else { return }
             reels = response.videos
             churchName = response.churchName
-        } catch { errorMessage = error.localizedDescription }
+        } catch {
+            guard !Task.isCancelled else { return }
+            errorMessage = error.localizedDescription
+        }
         isLoading = false
     }
 
     private func react(_ reel: Reel, kind: String) {
         guard let idx = reels.firstIndex(where: { $0.id == reel.id }) else { return }
         Task {
-            guard let result = try? await APIClient.shared.reactToReel(videoID: reel.videoID, kind: kind) else { return }
-            if kind == "like" { reels[idx] = reels[idx].withLike(active: result.active, count: result.count) }
-            else { reels[idx] = reels[idx].withSave(active: result.active, count: result.count) }
+            do {
+                let result = try await APIClient.shared.reactToReel(videoID: reel.videoID, kind: kind)
+                guard !Task.isCancelled else { return }
+                if kind == "like" { reels[idx] = reels[idx].withLike(active: result.active, count: result.count) }
+                else { reels[idx] = reels[idx].withSave(active: result.active, count: result.count) }
+            } catch { errorMessage = error.localizedDescription }
         }
     }
 
     private func hide(_ reel: Reel) {
         reels.removeAll { $0.id == reel.id }
-        Task { try? await APIClient.shared.markReelNotInterested(videoID: reel.videoID) }
+        Task { do { try await APIClient.shared.markReelNotInterested(videoID: reel.videoID) } catch { errorMessage = error.localizedDescription } }
     }
 
     private func openComments(for reel: Reel) {
