@@ -29,6 +29,7 @@ struct ProfileView: View {
     @State private var avatarImage: UIImage?
     @AppStorage("notifications.heartRateCalm") private var heartRateCalmNotifications = false
     @AppStorage("notifications.heartRateCalm.threshold") private var heartRateCalmThreshold = 160
+    @AppStorage("appearance.accentTheme") private var accentThemeRaw = FFTheme.AccentTheme.meadow.rawValue
 
     var body: some View {
         Form {
@@ -41,6 +42,7 @@ struct ProfileView: View {
             privacySection
             safetySection
             signInSecuritySection
+            appearanceSection
             notificationsSection
             remindersSection
             savedPostsSection
@@ -485,6 +487,34 @@ struct ProfileView: View {
             NavigationLink { SavedPostsView() } label: {
                 Label("Saved posts", systemImage: "bookmark")
             }
+        }
+        .listRowBackground(FFTheme.parchment1)
+    }
+
+    private var appearanceSection: some View {
+        Section {
+            ForEach(FFTheme.AccentTheme.allCases) { theme in
+                Button {
+                    accentThemeRaw = theme.rawValue
+                } label: {
+                    HStack(spacing: FFTheme.Space.sm) {
+                        Circle()
+                            .fill(LinearGradient(colors: theme.swatch, startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .frame(width: 26, height: 26)
+                            .overlay(Circle().strokeBorder(FFTheme.hairline, lineWidth: 1))
+                        Text(theme.label).foregroundStyle(FFTheme.ink)
+                        Spacer()
+                        if accentThemeRaw == theme.rawValue {
+                            Image(systemName: "checkmark").foregroundStyle(theme.tint)
+                        }
+                    }
+                }
+                .accessibilityAddTraits(accentThemeRaw == theme.rawValue ? [.isButton, .isSelected] : .isButton)
+            }
+        } header: {
+            Text("Appearance")
+        } footer: {
+            Text("Choose which accent leads across the app. Free for every member.")
         }
         .listRowBackground(FFTheme.parchment1)
     }

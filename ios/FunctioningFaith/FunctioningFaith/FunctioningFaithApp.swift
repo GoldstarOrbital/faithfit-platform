@@ -8,6 +8,7 @@ struct FunctioningFaithApp: App {
     @StateObject private var network = NetworkMonitor.shared
     @StateObject private var deepLinks = DeepLinkRouter()
     @AppStorage("onboarding.pendingUserID") private var pendingOnboardingUserID = ""
+    @AppStorage("appearance.accentTheme") private var accentThemeRaw = FFTheme.AccentTheme.meadow.rawValue
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -61,7 +62,7 @@ struct FunctioningFaithApp: App {
             // labels, so keep the native app's readable light palette until a
             // complete dark theme exists.
             .preferredColorScheme(.light)
-            .tint(FFTheme.accent)
+            .tint(FFTheme.AccentTheme(rawValue: accentThemeRaw)?.tint ?? FFTheme.accent)
             .task {
                 await session.restore()
                 await NotificationCoordinator.shared.syncDeviceToken()

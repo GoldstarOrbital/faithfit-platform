@@ -80,6 +80,39 @@ enum FFTheme {
     /// Text-on-walnut (header/tab bar)
     static let cream = parchment2
 
+    /// User-selectable app-wide tint, free for every member. Every case is a
+    /// color already in the palette above -- this is a choice of which brand
+    /// accent leads, not a second color system.
+    enum AccentTheme: String, CaseIterable, Identifiable {
+        case meadow, hearth, scripture
+
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .meadow: return "Meadow"
+            case .hearth: return "Hearth"
+            case .scripture: return "Scripture"
+            }
+        }
+
+        var tint: Color {
+            switch self {
+            case .meadow: return FFTheme.meadow
+            case .hearth: return FFTheme.hearth
+            case .scripture: return FFTheme.scripture
+            }
+        }
+
+        var swatch: [Color] {
+            switch self {
+            case .meadow: return [FFTheme.meadow2, FFTheme.meadowDeep]
+            case .hearth: return [FFTheme.hearth, FFTheme.goldBright]
+            case .scripture: return [FFTheme.scripture, FFTheme.meadowDeep]
+            }
+        }
+    }
+
     // MARK: - Typography
     // Web: Cinzel (display) over Spectral (body serif), both bundled locally
     // (see ios/FunctioningFaith/Fonts-THIRD-PARTY for the SIL OFL license text).
