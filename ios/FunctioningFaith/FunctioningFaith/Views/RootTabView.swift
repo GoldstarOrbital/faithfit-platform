@@ -89,10 +89,13 @@ private extension View {
             ToolbarItem(placement: .topBarLeading) {
                 Image("BrandMark")
                     .resizable()
-                    .scaledToFit()
+                    .aspectRatio(contentMode: .fill)
+                    // The source asset has parchment padding baked around the
+                    // mark itself -- scale past it before clipping so the
+                    // circle shows the mark, not a square of that padding.
+                    .frame(width: 58, height: 58)
                     .frame(width: 42, height: 42)
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .shadow(color: .black.opacity(0.18), radius: 3, x: 0, y: 2)
+                    .clipShape(Circle())
                     .accessibilityLabel("Functioning Faith")
             }
         }

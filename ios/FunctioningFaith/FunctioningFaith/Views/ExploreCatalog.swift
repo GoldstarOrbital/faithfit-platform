@@ -106,9 +106,7 @@ struct ExploreCatalogGrid: View {
                 .foregroundStyle(.secondary)
             LazyVGrid(columns: columns, spacing: FFTheme.Space.sm) {
                 ForEach(ExploreCatalogItem.allCases) { item in
-                    NavigationLink {
-                        item.destination
-                    } label: {
+                    NavigationLink(value: item) {
                         VStack(alignment: .leading, spacing: FFTheme.Space.xs) {
                             Image(systemName: item.systemImage)
                                 .font(.system(size: 18, weight: .semibold))
@@ -137,6 +135,16 @@ struct ExploreCatalogGrid: View {
             }
         }
         .padding(.vertical, FFTheme.Space.xxs)
+        // Value-based routing, not a destination closure per tile: with a
+        // NavigationLink(destination:) inside a LazyVGrid, the grid's own
+        // view-recycling can resolve a tap against a neighboring cell's
+        // destination instead of the tapped one -- exactly the "every tile
+        // opens Athlete Recruiting" report. Routing through one shared
+        // navigationDestination(for:) keyed on the tapped value sidesteps
+        // that entirely.
+        .navigationDestination(for: ExploreCatalogItem.self) { item in
+            item.destination
+        }
     }
 }
 
