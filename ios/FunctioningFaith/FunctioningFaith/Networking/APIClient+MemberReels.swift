@@ -10,7 +10,8 @@ extension APIClient {
         return try await request(
             "/api/posts",
             method: "POST",
-            body: ReelPostBody(content: caption, visibility: "public", videoData: videoDataURL, videoCategory: category)
+            body: ReelPostBody(content: caption, visibility: "public", videoData: videoDataURL, videoCategory: category),
+            timeoutInterval: 90
         )
     }
 }

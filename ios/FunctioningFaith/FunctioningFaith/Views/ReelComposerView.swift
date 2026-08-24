@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// Member Reel studio — mirrors web `openReelStudio` criteria:
 /// - MP4 and Apple's QuickTime .mov are playable on iOS (WebM can be hosted
 ///   for web viewers but cannot be played by AVFoundation)
-/// - ≤ 8MB, ≤ 60 seconds
+/// - ≤ 10MB, ≤ 60 seconds
 /// - Category: workout / nature / animal / group (never solo vanity)
 /// - Caption required (server pairs verified Scripture)
 /// - Rights + community-purpose attestation
@@ -35,7 +35,7 @@ struct ReelComposerView: View {
         NavigationStack {
             Form {
                 Section {
-                    Text("Up to 60 seconds and 8MB. Show a workout, nature, animals, or a group — never a solo vanity clip. Every Reel is paired with verified Scripture.")
+                    Text("Up to 60 seconds and 10MB. Show a workout, nature, animals, or a group — never a solo vanity clip. Every Reel is paired with verified Scripture.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }

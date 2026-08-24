@@ -92,6 +92,13 @@ struct EditProfileView: View {
             .alert("Could not save", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK", role: .cancel) { errorMessage = nil }
             } message: { Text(errorMessage ?? "") }
+            .task {
+                guard avatarPreview == nil,
+                      let dataURL = try? await APIClient.shared.fetchAvatarData(userID: profile.id) else { return }
+                #if canImport(UIKit)
+                if let image = ImageUpload.decode(dataURL) { avatarPreview = Image(uiImage: image) }
+                #endif
+            }
         }
     }
 

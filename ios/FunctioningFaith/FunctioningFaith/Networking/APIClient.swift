@@ -70,7 +70,8 @@ final class APIClient {
         if useMock {
             return MemberProfileResponse(
                 user: MemberProfile(id: userID, displayName: "Member", bioVerseRef: "Philippians 4:13", bioVerseText: "I can do all this through him who gives me strength.", bioLinkURL: nil, bioLinkLabel: nil, verifiedDeveloper: false, hasAvatar: false),
-                stats: MemberProfileStats(workouts: 0, followers: 0, following: 0), isFollowing: false, isBlocked: false
+                stats: MemberProfileStats(workouts: 0, followers: 0, following: 0), posts: [], isMe: false,
+                isFollowing: false, isBlocked: false, followRequested: false
             )
         }
         return try await request("/api/users/\(userID.uuidString.lowercased())")
@@ -1142,7 +1143,8 @@ final class APIClient {
     func updateProfile(displayName: String, bioVerseRef: String, job: String, church: String, tradition: String, avatarData: String? = nil) async throws {
         let _: UpdateProfileResponse = try await request(
             "/api/profile", method: "PUT",
-            body: UpdateProfileBody(displayName: displayName, bioVerseRef: bioVerseRef, job: job, church: church, tradition: tradition, avatarData: avatarData)
+            body: UpdateProfileBody(displayName: displayName, bioVerseRef: bioVerseRef, job: job, church: church, tradition: tradition, avatarData: avatarData),
+            timeoutInterval: 45
         )
     }
 
@@ -1150,7 +1152,9 @@ final class APIClient {
     /// visibility and block rules without bloating the main profile response.
     func fetchAvatarData(userID: UUID) async throws -> String {
         if useMock { throw APIError.invalidResponse }
-        let response: AvatarResponse = try await request("/api/users/\(userID.uuidString)/avatar")
+        // Avatar updates must be visible immediately after saving. A harmless
+        // cache-buster avoids showing the pre-save image from URLCache.
+        let response: AvatarResponse = try await request("/api/users/\(userID.uuidString.lowercased())/avatar?refresh=\(UUID().uuidString)")
         return response.avatarData
     }
 
@@ -1205,13 +1209,13 @@ final class APIClient {
         try await request(path, method: method, body: Optional<EmptyBody>.none)
     }
 
-    func request<T: Decodable, Body: Encodable>(_ path: String, method: String = "GET", body: Body? = nil) async throws -> T {
+    func request<T: Decodable, Body: Encodable>(_ path: String, method: String = "GET", body: Body? = nil, timeoutInterval: TimeInterval = 20) async throws -> T {
         guard let url = URL(string: path, relativeTo: baseURL) else { throw APIError.invalidResponse }
         var request = URLRequest(url: url)
         request.httpMethod = method
         // A tap must fail visibly rather than spin indefinitely on a captive
         // portal or weak connection.
-        request.timeoutInterval = 20
+        request.timeoutInterval = timeoutInterval
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("ios-native-v1", forHTTPHeaderField: "X-Functioning-Faith-Client")
         if let body {
@@ -1586,6 +1590,19 @@ private struct UpdateProfileBody: Encodable {
     let avatarData: String?
     enum CodingKeys: String, CodingKey {
         case displayName = "display_name", bioVerseRef = "bio_verse_ref", job, church, tradition, avatarData = "avatar_data"
+    }
+
+    // Do not send `avatar_data: null` when someone edits only a profile field;
+    // omission preserves their existing picture. A separate explicit removal
+    // flow can intentionally send null when that feature is added.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(displayName, forKey: .displayName)
+        try container.encode(bioVerseRef, forKey: .bioVerseRef)
+        try container.encode(job, forKey: .job)
+        try container.encode(church, forKey: .church)
+        try container.encode(tradition, forKey: .tradition)
+        try container.encodeIfPresent(avatarData, forKey: .avatarData)
     }
 }
 private struct UpdateProfileResponse: Decodable { let ok: Bool }

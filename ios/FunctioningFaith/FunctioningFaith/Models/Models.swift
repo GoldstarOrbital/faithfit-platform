@@ -169,13 +169,40 @@ struct MemberProfileStats: Decodable {
 struct MemberProfileResponse: Decodable {
     let user: MemberProfile
     let stats: MemberProfileStats
+    let posts: [MemberProfilePost]
+    let isMe: Bool
     let isFollowing: Bool
     let isBlocked: Bool
+    let followRequested: Bool
 
     enum CodingKeys: String, CodingKey {
-        case user, stats
+        case user, stats, posts
+        case isMe = "is_me"
         case isFollowing = "is_following"
         case isBlocked = "is_blocked"
+        case followRequested = "follow_requested"
+    }
+}
+
+/// Post preview intentionally mirrors only the fields the public-profile API
+/// releases. It never implies that a member's private activity is public.
+struct MemberProfilePost: Decodable, Identifiable {
+    let id: UUID
+    let content: String
+    let createdAt: String
+    let photoData: String?
+    let photoCategory: String?
+    let videoData: String?
+    let videoCategory: String?
+    let verseReference: String?
+    let verseText: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, content
+        case createdAt = "created_at"
+        case photoData = "photo_data", photoCategory = "photo_category"
+        case videoData = "video_data", videoCategory = "video_category"
+        case verseReference = "verse_reference", verseText = "verse_text"
     }
 }
 

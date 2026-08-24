@@ -113,7 +113,10 @@ struct ProfileView: View {
     @ViewBuilder
     private func statsSection(_ profile: UserProfile) -> some View {
         Section {
-            HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("YOUR PROFILE")
+                    .font(.caption.weight(.bold)).tracking(1.1).foregroundStyle(FFTheme.meadowDeep)
+                HStack(spacing: 14) {
                 Group {
                     if let avatarImage { Image(uiImage: avatarImage).resizable().scaledToFill() }
                     else { Image(systemName: "person.crop.circle.fill").resizable().scaledToFit().padding(10).foregroundStyle(FFTheme.meadow) }
@@ -125,11 +128,16 @@ struct ProfileView: View {
                     Text(profile.displayName).font(.title3.weight(.bold))
                     Text("Level \(profile.level) · \(profile.xp) XP").foregroundStyle(.secondary)
                 }
+                }
             }
             if let bio = profile.bio, !bio.isEmpty { Text(bio).font(.caption).foregroundStyle(.secondary) }
             if let job = profile.job, !job.isEmpty { Text(job).font(.caption).foregroundStyle(.secondary) }
             if let church = profile.church, !church.isEmpty { Text(church).font(.caption).foregroundStyle(.secondary) }
-            Button("Edit profile") { showEditProfile = true }
+            Button { showEditProfile = true } label: {
+                Label("Edit profile", systemImage: "slider.horizontal.3")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.ffGhost)
         } header: { Text("Stats") }
         .listRowBackground(FFTheme.parchment1)
     }

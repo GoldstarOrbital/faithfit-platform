@@ -28,10 +28,11 @@ const appInfo = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Resou
 const widgetProject = read('..', 'ios', 'FunctioningFaith', 'project.yml');
 const postComposer = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'PostComposerView.swift');
 const reelComposer = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'ReelComposerView.swift');
+const reelClient = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Networking', 'APIClient+MemberReels.swift');
 const notifications = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Networking', 'NotificationCoordinator.swift');
 const media = read('lib', 'media.js');
 
-assert.match(client, /request\.timeoutInterval = 20/, 'native taps need a finite network deadline');
+assert.match(client, /request\.timeoutInterval = timeoutInterval/, 'native requests need an explicit finite deadline');
 for (const route of ['/feed', '/explore', '/dms', '/notifications', '/journeys', '/groups/nearby', '/workouts/start', '/workouts/:id/stop']) {
   assert.match(api, new RegExp(`router\\.(?:get|post|put|patch|delete)\\('${route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`), `missing server route ${route}`);
 }
@@ -49,6 +50,12 @@ for (const property of ['name', 'username', 'description', 'sport', 'locationNam
 assert.match(dmInbox, /struct NewConversationDestination: Identifiable, Hashable/, 'message compose destinations must satisfy navigationDestination item requirements');
 assert.match(profileEditor, /PhotosPicker\(selection: \$avatarPickerItem, matching: \.images\)/, 'members must be able to choose a profile photo');
 assert.match(profileEditor, /avatarData: avatarData\.map\(ImageUpload\.dataURL\(from:\)\)/, 'profile photo must be sent through the validated profile update API');
+assert.match(client, /fetchAvatarData\(userID: UUID\).*refresh=/s, 'avatar reads must bypass stale image cache after an update');
+assert.match(reelClient, /timeoutInterval: 90/, 'member Reel uploads need a mobile-safe request deadline');
+const memberProfile = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'MemberProfileView.swift');
+assert.match(memberProfile, /fetchAvatarData\(userID: userID\)/, 'member profiles must load the stored avatar');
+assert.match(memberProfile, /Label\("Message", systemImage: "paperplane\.fill"\)/, 'member profiles must open a direct-message action');
+assert.match(memberProfile, /momentsSection\(profile\.posts\)/, 'member profiles must show the API-approved public post grid');
 assert.match(reels, /ScrollView\s*\{\s*LazyVStack/s, 'Reels must have a dedicated vertical scrolling feed');
 assert.match(project, /CODE_SIGN_ENTITLEMENTS: FunctioningFaith\/Resources\/FunctioningFaith\.entitlements/, 'HealthKit entitlement must be attached to generated release projects');
 assert.match(api, /router\.get\('\/consent', requireAuth/, 'native app must be able to restore opt-in consent choices');
