@@ -1424,6 +1424,21 @@ struct JourneyGhostsResponse: Decodable {
     let note: String?
 }
 
+// ---- Athlete intelligence: server-calculated from completed, real sessions ----
+struct AthleteTrainingIntelligence: Decodable {
+    let trainingLog: [AthleteTrainingEntry]
+    let fitness: AthleteFitness
+    let bestEfforts: [String: AthleteBestEffort]
+    enum CodingKeys: String, CodingKey { case fitness; case trainingLog = "training_log"; case bestEfforts = "best_efforts" }
+}
+struct AthleteTrainingEntry: Decodable, Identifiable {
+    let id: String; let type: String; let endTime: String; let distanceKm: Double; let durationSec: Double; let relativeEffort: Int; let paceMinPerKm: Double?
+    enum CodingKeys: String, CodingKey { case id,type; case endTime="end_time"; case distanceKm="distance_km"; case durationSec="duration_sec"; case relativeEffort="relative_effort"; case paceMinPerKm="pace_min_per_km" }
+}
+struct AthleteFitness: Decodable { let ctl: Double; let atl: Double; let form: Double; let label: String; let disclaimer: String }
+struct AthleteBestEffort: Decodable { let workoutID: String; let paceMinPerKm: Double; let distanceKm: Double; enum CodingKeys: String, CodingKey { case workoutID="workout_id"; case paceMinPerKm="pace_min_per_km"; case distanceKm="distance_km" } }
+struct BeaconResult: Decodable { let ok: Bool; let expiresAt: String; enum CodingKeys: String, CodingKey { case ok; case expiresAt="expires_at" } }
+
 // ---- Christian news: real headlines from each outlet's public RSS feed,
 // summary only, never the full copyrighted article -- see lib/news.js. ----
 

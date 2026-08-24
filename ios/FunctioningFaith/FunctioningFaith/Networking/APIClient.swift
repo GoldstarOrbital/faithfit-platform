@@ -311,6 +311,16 @@ final class APIClient {
         return page.workouts
     }
 
+    func fetchAthleteIntelligence() async throws -> AthleteTrainingIntelligence {
+        if useMock { return AthleteTrainingIntelligence(trainingLog: [], fitness: AthleteFitness(ctl: 0, atl: 0, form: 0, label: "Balanced", disclaimer: "Training guidance only."), bestEfforts: [:]) }
+        return try await request("/api/training/intelligence")
+    }
+
+    func updateWorkoutBeacon(id: UUID, recipientID: UUID, latitude: Double, longitude: Double, accuracyM: Double?) async throws -> BeaconResult {
+        if useMock { return BeaconResult(ok: true, expiresAt: ISO8601DateFormatter().string(from: .now.addingTimeInterval(14_400))) }
+        return try await request("/api/workouts/\(id.uuidString.lowercased())/beacon", method: "POST", body: WorkoutBeaconBody(recipientID: recipientID.uuidString.lowercased(), latitude: latitude, longitude: longitude, accuracyM: accuracyM))
+    }
+
     func fetchWeeklyRecap() async throws -> WeeklyRecap {
         if useMock {
             return WeeklyRecap(workouts: 3, distanceKm: 12.4, minutes: 94, activeDays: 3, posts: 1, kudos: 4, replies: 2, focus: "Run", shareText: "This week I showed up for 3 workouts, 12.4 km.")
@@ -1362,6 +1372,10 @@ private struct NativeAppleAuthBody: Encodable {
 }
 private struct Registration: Encodable { let displayName: String; let email: String; let password: String; enum CodingKeys: String, CodingKey { case displayName = "display_name"; case email, password } }
 private struct WorkoutStart: Encodable { let type: String }
+private struct WorkoutBeaconBody: Encodable {
+    let recipientID: String; let latitude: Double; let longitude: Double; let accuracyM: Double?
+    enum CodingKeys: String, CodingKey { case recipientID = "recipient_id"; case latitude, longitude; case accuracyM = "accuracy_m" }
+}
 private struct ManualWorkoutBody: Encodable {
     let type: String
     let durationMin: Double

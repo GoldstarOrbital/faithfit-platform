@@ -20,6 +20,12 @@ struct StatsView: View {
             } else if let summary {
                 List {
                     if let recap { recapSection(recap) }
+                    Section {
+                        NavigationLink { AthleteIntelligenceView() } label: {
+                            Label("Athlete Intelligence", systemImage: "chart.line.uptrend.xyaxis")
+                        }
+                    }
+                    .listRowBackground(FFTheme.parchment1)
                     streakSection(summary)
                     totalsSection(summary)
                     goalsSection
