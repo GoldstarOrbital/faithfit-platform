@@ -7,6 +7,7 @@ struct StoriesRail: View {
     @State private var stories: [Story] = []
     @State private var showComposer = false
     @State private var viewingAuthor: String?
+    @State private var loadError: String?
 
     private var byAuthor: [(authorID: String, authorName: String, stories: [Story])] {
         var order: [String] = []
@@ -48,6 +49,16 @@ struct StoriesRail: View {
             .padding(.horizontal)
         }
         .task { await load() }
+        .overlay(alignment: .bottom) {
+            if let loadError {
+                HStack(spacing: 8) {
+                    Text(loadError).font(.caption).foregroundStyle(.secondary)
+                    Button("Try again") { Task { await load() } }
+                        .buttonStyle(.ffGhost)
+                }
+                .padding(.horizontal)
+            }
+        }
         .sheet(isPresented: $showComposer) {
             NavigationStack { StoryComposerView { Task { await load() } } }
         }
@@ -59,7 +70,14 @@ struct StoriesRail: View {
     }
 
     private func load() async {
-        stories = (try? await APIClient.shared.fetchStories()) ?? []
+        loadError = nil
+        do {
+            stories = try await APIClient.shared.fetchStories()
+        } catch is CancellationError {
+            return
+        } catch {
+            loadError = "Couldn’t load moments."
+        }
     }
 
     private func initials(_ name: String) -> String {
