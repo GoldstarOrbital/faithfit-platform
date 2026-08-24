@@ -49,7 +49,7 @@ enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
         case .challenges: return "flame.fill"
         case .videos: return "play.rectangle.fill"
         case .reels: return "rectangle.stack.fill"
-        case .podcasts: return "mic.fill"
+        case .podcasts: return "microphone.fill"
         case .scripture: return "book.fill"
         case .groups: return "person.3.fill"
         case .leaderboard: return "trophy.fill"

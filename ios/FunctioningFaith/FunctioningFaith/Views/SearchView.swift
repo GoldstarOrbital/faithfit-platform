@@ -95,10 +95,10 @@ struct SearchView: View {
         switch groupType {
         case "posts": return "text.bubble"
         case "journeys": return "map"
-        case "challenges": return "flag.checkered"
+        case "challenges": return "flag.pattern.checkered"
         case "groups": return "person.3"
         case "videos": return "play.rectangle"
-        case "podcasts": return "mic"
+        case "podcasts": return "microphone"
         case "scripture": return "book"
         default: return "magnifyingglass"
         }

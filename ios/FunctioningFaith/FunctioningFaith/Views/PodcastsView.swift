@@ -10,7 +10,7 @@ struct PodcastsView: View {
             if isLoading && podcasts.isEmpty {
                 ProgressView()
             } else if podcasts.isEmpty {
-                ContentUnavailableView("No podcasts available", systemImage: "mic", description: Text("Check back soon."))
+                ContentUnavailableView("No podcasts available", systemImage: "microphone", description: Text("Check back soon."))
             } else {
                 List(podcasts) { podcast in
                     NavigationLink {
@@ -59,7 +59,7 @@ struct PodcastEpisodesView: View {
     var body: some View {
         Group {
             if podcast.episodes.isEmpty {
-                ContentUnavailableView("No episodes yet", systemImage: "mic.slash", description: Text("This show hasn't published anything we could fetch."))
+                ContentUnavailableView("No episodes yet", systemImage: "microphone.slash", description: Text("This show hasn't published anything we could fetch."))
             } else {
                 List(podcast.episodes) { episode in
                     episodeRow(episode)

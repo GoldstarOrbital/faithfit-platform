@@ -57,7 +57,7 @@ struct JourneyLiveSessionView: View {
             if !tracker.justCrossed.isEmpty {
                 VStack(spacing: 4) {
                     ForEach(tracker.justCrossed) { wp in
-                        Label("Reached \(wp.title)", systemImage: "flag.checkered")
+                        Label("Reached \(wp.title)", systemImage: "flag.pattern.checkered")
                             .font(.subheadline.weight(.semibold)).foregroundStyle(FFTheme.hearth)
                     }
                 }

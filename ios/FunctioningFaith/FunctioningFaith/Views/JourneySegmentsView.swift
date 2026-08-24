@@ -16,7 +16,7 @@ struct JourneySegmentsView: View {
             if isLoading && segments.isEmpty {
                 ProgressView()
             } else if segments.isEmpty {
-                ContentUnavailableView("No segments yet", systemImage: "flag.checkered",
+                ContentUnavailableView("No segments yet", systemImage: "flag.pattern.checkered",
                                         description: Text("This route doesn't have timed segments."))
             } else {
                 List {

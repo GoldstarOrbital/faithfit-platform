@@ -208,7 +208,7 @@ struct ExploreView: View {
                 }
                 NavigationLink { PodcastsView() } label: {
                     HStack(spacing: FFTheme.Space.sm) {
-                        FFIconBadge(systemImage: "mic.fill", tint: FFTheme.gold)
+                        FFIconBadge(systemImage: "microphone.fill", tint: FFTheme.gold)
                         Text("Podcasts")
                     }
                 }
