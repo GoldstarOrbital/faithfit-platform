@@ -3,14 +3,6 @@ import SwiftUI
 // MARK: - Async edge states (loading / empty / error)
 // Built for small screens: clear hierarchy, large tap targets, recovery actions.
 
-enum FFLoadState: Equatable {
-    case idle
-    case loading
-    case loaded
-    case empty(title: String, systemImage: String, message: String)
-    case failed(String)
-}
-
 struct FFLoadingView: View {
     var message: String = "Loading…"
 
@@ -67,44 +59,6 @@ struct FFErrorStateView: View {
             }
         }
         .accessibilityElement(children: .combine)
-    }
-}
-
-/// Generic container: pick the right edge state for a screen body.
-struct FFAsyncContainer<Content: View>: View {
-    let state: FFLoadState
-    var onRetry: (() -> Void)? = nil
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        switch state {
-        case .idle, .loading:
-            FFLoadingView()
-        case .loaded:
-            content()
-        case .empty(let title, let image, let message):
-            FFEmptyStateView(title: title, systemImage: image, message: message)
-        case .failed(let message):
-            FFErrorStateView(message: message, onRetry: onRetry)
-        }
-    }
-}
-
-// MARK: - Section chrome
-
-struct FFSectionHeader: View {
-    let title: String
-    var subtitle: String? = nil
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: FFTheme.Space.xxs) {
-            Text(title).font(FFTheme.section())
-            if let subtitle {
-                Text(subtitle).font(FFTheme.caption()).foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityAddTraits(.isHeader)
     }
 }
 
