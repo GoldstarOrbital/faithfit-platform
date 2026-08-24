@@ -31,7 +31,12 @@ workflows:
         APP_STORE_APPLE_ID: 6804050319
     scripts:
       - name: Install XcodeGen
-        script: brew install xcodegen
+        script: |
+          if command -v xcodegen >/dev/null 2>&1; then
+            xcodegen --version
+          else
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
+          fi
       - name: Generate the Xcode project
         script: |
           cd "$CM_BUILD_DIR/$IOS_PROJECT_DIR"
