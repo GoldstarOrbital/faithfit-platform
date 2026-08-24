@@ -3270,6 +3270,19 @@ router.post('/routes', requireAuth, (req,res) => {
   res.status(201).json({id,distance_km:+(meters/1000).toFixed(2)});
 });
 
+// Heatmaps are density cells, not raw activity tracks. Personal history stays
+// private; the community layer uses only routes the owner has explicitly
+// published to the public feed and deliberately rounds locations to ~110m.
+router.get('/heatmap', requireAuth, (req,res) => {
+  const community = req.query.scope === 'community';
+  const rows = community
+    ? db.prepare(`SELECT w.gps_path FROM workouts w JOIN posts p ON p.workout_id=w.id AND p.user_id=w.user_id WHERE p.visibility='public' AND p.show_route=1 AND w.gps_path IS NOT NULL LIMIT 500`).all()
+    : db.prepare('SELECT gps_path FROM workouts WHERE user_id=? AND gps_path IS NOT NULL AND end_time IS NOT NULL LIMIT 500').all(req.session.userId);
+  const cells = new Map();
+  rows.forEach(r => { try { const path=JSON.parse(r.gps_path); for(let i=0;i<path.length;i+=Math.max(1,Math.floor(path.length/80))){ const p=path[i]; if(!Array.isArray(p)||p.length!==2) continue; const lat=+Number(p[0]).toFixed(3), lon=+Number(p[1]).toFixed(3), key=`${lat},${lon}`; cells.set(key,(cells.get(key)||0)+1); } } catch {} });
+  res.json({ scope:community?'community':'personal', cells:[...cells.entries()].map(([key,count])=>{const [latitude,longitude]=key.split(',').map(Number);return {latitude,longitude,count};}), privacy: community ? 'Public routes only, rounded density cells.' : 'Your private recorded route density.' });
+});
+
 router.get('/goals', requireAuth, (req, res) => {
   const uid = req.session.userId;
   const goals = db.prepare('SELECT * FROM training_goals WHERE user_id = ? AND archived_at IS NULL ORDER BY created_at DESC').all(uid);
@@ -5815,7 +5828,10 @@ router.get('/journeys/:key/segments', (req, res) => {
   res.json({
     segments: segs.map(sg => ({
       ...sg,
-      leaderboard: segments.leaderboard(j.id, sg.index, 5),
+      // The free community board intentionally shows the top ten. A full-board
+      // entitlement is not yet available, so this endpoint never implies that
+      // every ranking is visible to a free account.
+      leaderboard: segments.leaderboard(j.id, sg.index, 10),
       your_best_sec: me ? (db.prepare(`SELECT MIN(duration_sec) AS b FROM journey_segment_times
                                        WHERE user_id = ? AND journey_id = ? AND segment_index = ?`)
         .get(me, j.id, sg.index).b || null) : null,
