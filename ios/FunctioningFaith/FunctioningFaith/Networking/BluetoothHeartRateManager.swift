@@ -24,7 +24,10 @@ final class BluetoothHeartRateManager: NSObject, ObservableObject {
     @Published private(set) var connectedName: String?
     @Published private(set) var isScanning = false
 
-    private var central: CBCentralManager!
+    // CoreBluetooth initialization is asynchronous. Keep this optional instead
+    // of an implicitly-unwrapped reference so a failed/late initialization
+    // cannot crash a workout or device picker.
+    private var central: CBCentralManager?
     private var connectedPeripheral: CBPeripheral?
     private let heartRateService = CBUUID(string: "180D")
     private let heartRateMeasurement = CBUUID(string: "2A37")
@@ -45,6 +48,10 @@ final class BluetoothHeartRateManager: NSObject, ObservableObject {
     }
 
     func scan() {
+        guard let central else {
+            statusText = "Bluetooth is still starting. Please try again."
+            return
+        }
         guard central.state == .poweredOn else {
             statusText = bluetoothStateDescription(central.state)
             return
@@ -57,6 +64,10 @@ final class BluetoothHeartRateManager: NSObject, ObservableObject {
     }
 
     func connect(_ device: WearableDevice) {
+        guard let central else {
+            statusText = "Bluetooth is still starting. Please try again."
+            return
+        }
         central.stopScan()
         isScanning = false
         statusText = "Connecting to \(device.name)…"
@@ -65,7 +76,7 @@ final class BluetoothHeartRateManager: NSObject, ObservableObject {
     }
 
     func disconnect() {
-        guard let connectedPeripheral else { return }
+        guard let central, let connectedPeripheral else { return }
         central.cancelPeripheralConnection(connectedPeripheral)
     }
 
