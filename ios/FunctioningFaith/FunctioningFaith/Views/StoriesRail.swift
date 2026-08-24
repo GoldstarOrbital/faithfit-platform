@@ -15,7 +15,10 @@ struct StoriesRail: View {
             if groups[s.userID] == nil { order.append(s.userID) }
             groups[s.userID, default: []].append(s)
         }
-        return order.map { id in (id, groups[id]!.first!.author, groups[id]!) }
+        return order.compactMap { id in
+            guard let authorStories = groups[id], let first = authorStories.first else { return nil }
+            return (id, first.author, authorStories)
+        }
     }
 
     var body: some View {
