@@ -3146,7 +3146,7 @@ router.get('/stats/activity-breakdown', requireAuth, (req, res) => {
   res.json(rows.map(r => ({ type: r.type, count: r.count, distance_km: +Number(r.distance_km).toFixed(2), duration_min: Math.round(r.duration_sec / 60), calories: r.calories })));
 });
 
-// ---- premium progress: training log, load/freshness and custom goals ------
+// ---- Training progress: log, load/freshness and custom goals --------------
 function periodBounds(period, now = new Date()) {
   const end = new Date(now);
   const start = new Date(now);
@@ -3250,7 +3250,7 @@ router.get('/workouts/:id/analysis', requireAuth, (req, res) => {
   // comparison aid, never a claim that two GPS routes are identical.
   const matched=db.prepare(`SELECT id,start_time,distance_km,duration_sec,effort_score FROM workouts WHERE user_id=? AND id<>? AND type=? AND end_time IS NOT NULL AND distance_km BETWEEN ? AND ? ORDER BY end_time DESC LIMIT 6`).all(req.session.userId,w.id,w.type,Math.max(0,km*.9),km*1.1)
     .map(x=>({...x,pace_min_per_km:x.distance_km>.05?+((x.duration_sec/60)/x.distance_km).toFixed(2):null}));
-  res.json({ workout_id:w.id, pace_min_per_km:pace, grade_adjusted_pace_min_per_km: pace, power_watts: Number(metrics.power_watts||metrics.power||0)||null, top_speed_kmh:Number(metrics.max_speed_kmh||0)||null, relative_effort:Math.round(Number(w.effort_score)||Math.max(1,mins)), matched_efforts:matched, note:'Grade-adjusted pace requires reliable elevation grade samples; unavailable values are not estimated.' });
+  res.json({ workout_id:w.id, pace_min_per_km:pace, grade_adjusted_pace_min_per_km: null, power_watts: Number(metrics.power_watts||metrics.power||0)||null, top_speed_kmh:Number(metrics.max_speed_kmh||0)||null, relative_effort:Math.round(Number(w.effort_score)||Math.max(1,mins)), matched_efforts:matched, note:'Grade-adjusted pace requires reliable elevation grade samples; it is unavailable for this activity rather than estimated.' });
 });
 
 router.post('/workouts/:id/beacon', requireAuth, (req, res) => {
@@ -5833,10 +5833,10 @@ router.get('/journeys/:key/segments', (req, res) => {
   res.json({
     segments: segs.map(sg => ({
       ...sg,
-      // The free community board intentionally shows the top ten. A full-board
-      // entitlement is not yet available, so this endpoint never implies that
-      // every ranking is visible to a free account.
-      leaderboard: segments.leaderboard(j.id, sg.index, 10),
+      // Full standings are available to every member. Rankings use each
+      // rider's actual best recorded time, so repeated rides cannot fill a
+      // board with duplicate entries.
+      leaderboard: segments.leaderboard(j.id, sg.index),
       your_best_sec: me ? (db.prepare(`SELECT MIN(duration_sec) AS b FROM journey_segment_times
                                        WHERE user_id = ? AND journey_id = ? AND segment_index = ?`)
         .get(me, j.id, sg.index).b || null) : null,

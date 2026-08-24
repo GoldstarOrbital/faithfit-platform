@@ -90,9 +90,16 @@ function recordSegment(userId, journeyId, seg, durationSec, measured) {
   };
 }
 
-/** Leaderboard for one segment: each rider's best, fastest first. */
-function leaderboard(journeyId, segmentIndex, limit = 10) {
-  return db.prepare(`SELECT u.id AS user_id, u.display_name, u.avatar_data,
+/**
+ * Leaderboard for one segment: each rider's best, fastest first.
+ *
+ * Segment rankings are a free community feature. `limit` is optional only for
+ * constrained internal views; the member-facing route deliberately passes no
+ * limit, so every recorded rider receives their real position.
+ */
+function leaderboard(journeyId, segmentIndex, limit = null) {
+  const limited = Number.isInteger(limit) && limit > 0;
+  const sql = `SELECT u.id AS user_id, u.display_name, u.avatar_data,
                             MIN(t.duration_sec) AS best_sec,
                             MAX(t.measured) AS measured
                      FROM journey_segment_times t
@@ -100,8 +107,11 @@ function leaderboard(journeyId, segmentIndex, limit = 10) {
                      WHERE t.journey_id = ? AND t.segment_index = ?
                      GROUP BY u.id
                      ORDER BY best_sec ASC
-                     LIMIT ?`)
-    .all(journeyId, segmentIndex, limit)
+                     ${limited ? 'LIMIT ?' : ''}`;
+  const rows = limited
+    ? db.prepare(sql).all(journeyId, segmentIndex, limit)
+    : db.prepare(sql).all(journeyId, segmentIndex);
+  return rows
     .map((r, i) => ({
       position: i + 1,
       user_id: r.user_id,

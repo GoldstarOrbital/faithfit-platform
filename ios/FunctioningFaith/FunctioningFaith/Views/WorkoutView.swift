@@ -310,22 +310,26 @@ struct WorkoutView: View {
             Text("Recent")
                 .font(.headline)
             ForEach(recent.prefix(8)) { workout in
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(workout.type).font(.subheadline.weight(.semibold))
-                        Text(workout.startTime.prefix(16)).font(.caption).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 2) {
-                        if let km = workout.distanceKm {
-                            Text(String(format: "%.2f km", km)).font(.subheadline.monospacedDigit())
+                NavigationLink {
+                    WorkoutAnalysisView(workoutID: workout.id)
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(workout.type).font(.subheadline.weight(.semibold))
+                            Text(workout.startTime.prefix(16)).font(.caption).foregroundStyle(.secondary)
                         }
-                        if let sec = workout.durationSec {
-                            Text(TrainingMath.elapsedString(TimeInterval(sec))).font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 2) {
+                            if let km = workout.distanceKm {
+                                Text(String(format: "%.2f km", km)).font(.subheadline.monospacedDigit())
+                            }
+                            if let sec = workout.durationSec {
+                                Text(TrainingMath.elapsedString(TimeInterval(sec))).font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
-                .padding(.vertical, 6)
+                .padding(.vertical, 4)
             }
         }
     }

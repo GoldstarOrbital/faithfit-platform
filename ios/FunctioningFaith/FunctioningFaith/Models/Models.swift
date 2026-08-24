@@ -1444,6 +1444,42 @@ struct BeaconResult: Decodable { let ok: Bool; let expiresAt: String; enum Codin
 struct WorkoutHeatmap: Decodable { let scope: String; let cells: [HeatmapCell]; let privacy: String }
 struct HeatmapCell: Decodable, Identifiable { let latitude: Double; let longitude: Double; let count: Int; var id: String { "\(latitude),\(longitude)" } }
 struct SavedRouteResult: Decodable { let id: String; let distanceKm: Double; enum CodingKeys: String, CodingKey { case id; case distanceKm = "distance_km" } }
+struct WorkoutAnalysis: Decodable {
+    let workoutID: String
+    let paceMinPerKm: Double?
+    let gradeAdjustedPaceMinPerKm: Double?
+    let powerWatts: Double?
+    let topSpeedKmh: Double?
+    let relativeEffort: Int
+    let matchedEfforts: [MatchedWorkoutEffort]
+    let note: String
+    enum CodingKeys: String, CodingKey {
+        case note
+        case workoutID = "workout_id"
+        case paceMinPerKm = "pace_min_per_km"
+        case gradeAdjustedPaceMinPerKm = "grade_adjusted_pace_min_per_km"
+        case powerWatts = "power_watts"
+        case topSpeedKmh = "top_speed_kmh"
+        case relativeEffort = "relative_effort"
+        case matchedEfforts = "matched_efforts"
+    }
+}
+struct MatchedWorkoutEffort: Decodable, Identifiable {
+    let id: String
+    let startTime: String
+    let distanceKm: Double
+    let durationSec: Double
+    let effortScore: Double?
+    let paceMinPerKm: Double?
+    enum CodingKeys: String, CodingKey {
+        case id
+        case startTime = "start_time"
+        case distanceKm = "distance_km"
+        case durationSec = "duration_sec"
+        case effortScore = "effort_score"
+        case paceMinPerKm = "pace_min_per_km"
+    }
+}
 
 // ---- Christian news: real headlines from each outlet's public RSS feed,
 // summary only, never the full copyrighted article -- see lib/news.js. ----

@@ -316,6 +316,15 @@ final class APIClient {
         return try await request("/api/training/intelligence")
     }
 
+    func fetchWorkoutAnalysis(id: String) async throws -> WorkoutAnalysis {
+        if useMock {
+            return WorkoutAnalysis(workoutID: id, paceMinPerKm: nil, gradeAdjustedPaceMinPerKm: nil,
+                                   powerWatts: nil, topSpeedKmh: nil, relativeEffort: 0,
+                                   matchedEfforts: [], note: "No grade samples in preview.")
+        }
+        return try await request("/api/workouts/\(id)/analysis")
+    }
+
     func updateWorkoutBeacon(id: UUID, recipientID: UUID, latitude: Double, longitude: Double, accuracyM: Double?) async throws -> BeaconResult {
         if useMock { return BeaconResult(ok: true, expiresAt: ISO8601DateFormatter().string(from: .now.addingTimeInterval(14_400))) }
         return try await request("/api/workouts/\(id.uuidString.lowercased())/beacon", method: "POST", body: WorkoutBeaconBody(recipientID: recipientID.uuidString.lowercased(), latitude: latitude, longitude: longitude, accuracyM: accuracyM))
