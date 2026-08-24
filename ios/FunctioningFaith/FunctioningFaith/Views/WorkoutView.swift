@@ -171,8 +171,7 @@ struct WorkoutView: View {
                     .font(.caption.weight(.semibold))
                     .frame(maxWidth: .infinity, minHeight: 42)
             }
-            .buttonStyle(.bordered)
-            .tint(bluetooth.connectedName == nil ? FFTheme.walnut0 : FFTheme.meadow)
+            .buttonStyle(.ffGhost)
 
             if bluetooth.hasLiveSensorData {
                 HStack(spacing: 10) {
@@ -190,7 +189,7 @@ struct WorkoutView: View {
                     Label("Share safety beacon", systemImage: "location.circle.fill")
                         .font(.caption.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 42)
                 }
-                .buttonStyle(.bordered).tint(FFTheme.hearth)
+                .buttonStyle(.ffGhost)
                 .accessibilityHint("Shares your live workout location only with trusted people you select")
             }
 

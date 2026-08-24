@@ -26,7 +26,7 @@ struct FunctioningFaithApp: App {
                         if !network.isOnline {
                             Text("Waiting for a connection…")
                                 .font(FFTheme.caption())
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(FFTheme.hearth)
                         }
                     }
                     .padding(FFTheme.Space.lg)

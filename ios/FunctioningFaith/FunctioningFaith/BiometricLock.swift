@@ -45,11 +45,11 @@ struct BiometricLockView: View {
     @EnvironmentObject private var lock: BiometricLock
 
     var body: some View {
-        VStack(spacing: 18) {
-            Image(systemName: "lock.shield.fill").font(.system(size: 48)).foregroundStyle(.tint)
+        VStack(spacing: FFTheme.Space.md) {
+            Image(systemName: "lock.shield.fill").font(.system(size: 48)).foregroundStyle(FFTheme.meadow)
             Text("Functioning Faith is locked").font(.title2.bold())
             Text("Use Face ID, Touch ID, or your device passcode to continue.").multilineTextAlignment(.center).foregroundStyle(.secondary)
-            Button("Unlock") { Task { _ = await lock.unlock() } }.buttonStyle(.borderedProminent)
-        }.padding(30).task { _ = await lock.unlock() }
+            Button("Unlock") { Task { _ = await lock.unlock() } }.buttonStyle(.ffPrimary)
+        }.padding(FFTheme.Space.xl).task { _ = await lock.unlock() }
     }
 }

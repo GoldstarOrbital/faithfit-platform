@@ -24,7 +24,7 @@ struct ReelsFeedView: View {
                     Text("Check back soon — or publish a short encouragement of your own.")
                 } actions: {
                     Button("Create a Reel") { showComposer = true }
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.ffPrimary)
                 }
             } else {
                 ScrollView {

@@ -109,14 +109,14 @@ struct ExploreCatalogGrid: View {
                     NavigationLink {
                         item.destination
                     } label: {
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: FFTheme.Space.xs) {
                             Image(systemName: item.systemImage)
                                 .font(.system(size: 18, weight: .semibold))
                                 .foregroundStyle(FFTheme.cream)
                                 .frame(width: 36, height: 36)
                                 .background(
                                     LinearGradient(colors: item.colors, startPoint: .topLeading, endPoint: .bottomTrailing),
-                                    in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    in: RoundedRectangle(cornerRadius: FFTheme.Radius.sm, style: .continuous)
                                 )
                             Text(item.name)
                                 .font(.headline)
@@ -127,7 +127,7 @@ struct ExploreCatalogGrid: View {
                                 .lineLimit(3)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                        .padding(12)
+                        .padding(FFTheme.Space.sm)
                         .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
                         .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
                         .contentShape(RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
@@ -136,7 +136,7 @@ struct ExploreCatalogGrid: View {
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, FFTheme.Space.xxs)
     }
 }
 

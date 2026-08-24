@@ -103,7 +103,7 @@ struct StatsView: View {
             HStack {
                 Text(goal.title).font(.subheadline.weight(.medium))
                 Spacer()
-                if goal.completed { Image(systemName: "checkmark.seal.fill").foregroundStyle(.green) }
+                if goal.completed { Image(systemName: "checkmark.seal.fill").foregroundStyle(FFTheme.emerald) }
             }
             ProgressView(value: Double(goal.percent), total: 100).tint(goal.completed ? FFTheme.emerald : FFTheme.hearth)
             Text("\(goalProgressLabel(goal)) · \(goal.period.capitalized)").font(.caption2).foregroundStyle(.secondary)

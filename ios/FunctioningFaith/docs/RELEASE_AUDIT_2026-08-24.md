@@ -26,3 +26,20 @@ is considered verified.
 | Finding | Location | Resolution |
 | --- | --- | --- |
 | The signed TestFlight workflow could be started manually but had no `main` push trigger, so a native change could miss release verification. | `codemagic.yaml:ios-testflight` | Added an explicit `push` trigger limited to `main`; Codemagic remains the signing and TestFlight delivery path. |
+
+## Batch 3 — native visual system consistency
+
+| Finding | Location | Resolution |
+| --- | --- | --- |
+| Native root used a literal system orange status color. | `FunctioningFaithApp.swift:29` | Replaced with `FFTheme.hearth`. |
+| Biometric lock and Reels empty state used default prominent system button chrome. | `BiometricLock.swift:52`, `Views/ReelsFeedView.swift:27` | Replaced with the branded `ffPrimary` style. |
+| Workout sensor and beacon controls used default bordered button chrome. | `Views/WorkoutView.swift:174`, `Views/WorkoutView.swift:193` | Replaced with `ffGhost`. |
+| Completed goals relied on system green alone. | `Views/StatsView.swift:106` | Replaced with the branded emerald token. |
+| Explore tiles used literal spacing/radius values. | `Views/ExploreCatalog.swift:112-134` | Replaced relevant padding, vertical spacing, and corner radius literals with `FFTheme` tokens. |
+
+### Verification
+
+- Repository search found no remaining `.bordered` / `.borderedProminent`
+  button styles or literal brand `foregroundStyle` colors.
+- `npm --prefix webapp run verify:native-interactions` passed.
+- `node --check webapp/routes/api.js` and `git diff --check` passed.
