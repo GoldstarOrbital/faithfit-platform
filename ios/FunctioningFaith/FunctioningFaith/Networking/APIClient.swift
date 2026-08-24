@@ -325,6 +325,13 @@ final class APIClient {
         return try await request("/api/workouts/\(id)/analysis")
     }
 
+    func fetchWorkoutIntelligenceSummary(id: String) async throws -> WorkoutIntelligenceSummary {
+        if useMock {
+            return WorkoutIntelligenceSummary(summary: "Preview activity summary.", nextStep: "Choose your next activity when ready.", source: "recorded_metrics", disclaimer: "Training guidance only.")
+        }
+        return try await request("/api/workouts/\(id)/intelligence-summary")
+    }
+
     func updateWorkoutBeacon(id: UUID, recipientID: UUID, latitude: Double, longitude: Double, accuracyM: Double?) async throws -> BeaconResult {
         if useMock { return BeaconResult(ok: true, expiresAt: ISO8601DateFormatter().string(from: .now.addingTimeInterval(14_400))) }
         return try await request("/api/workouts/\(id.uuidString.lowercased())/beacon", method: "POST", body: WorkoutBeaconBody(recipientID: recipientID.uuidString.lowercased(), latitude: latitude, longitude: longitude, accuracyM: accuracyM))
@@ -338,6 +345,12 @@ final class APIClient {
     func saveRoute(name: String, activityType: String, path: [[Double]]) async throws -> SavedRouteResult {
         if useMock { return SavedRouteResult(id: UUID().uuidString, distanceKm: 0) }
         return try await request("/api/routes", method: "POST", body: SaveRouteBody(name: name, activityType: activityType, path: path))
+    }
+
+    func fetchSavedRoutes() async throws -> [SavedRoute] {
+        if useMock { return [] }
+        let response: SavedRoutesResponse = try await request("/api/routes")
+        return response.routes
     }
 
     func fetchWeeklyRecap() async throws -> WeeklyRecap {

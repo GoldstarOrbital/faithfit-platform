@@ -27,6 +27,9 @@ struct StatsView: View {
                         NavigationLink { HeatmapView() } label: {
                             Label("Route heatmap", systemImage: "map.fill")
                         }
+                        NavigationLink { RouteBuilderView() } label: {
+                            Label("Build a route", systemImage: "map")
+                        }
                     }
                     .listRowBackground(FFTheme.parchment1)
                     streakSection(summary)

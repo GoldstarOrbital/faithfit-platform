@@ -6,12 +6,22 @@ import SwiftUI
 struct WorkoutAnalysisView: View {
     let workoutID: String
     @State private var analysis: WorkoutAnalysis?
+    @State private var intelligence: WorkoutIntelligenceSummary?
     @State private var errorMessage: String?
 
     var body: some View {
         Group {
             if let analysis {
                 List {
+                    if let intelligence {
+                        Section("Workout summary") {
+                            Text(intelligence.summary)
+                            Text(intelligence.nextStep).font(.subheadline).foregroundStyle(.secondary)
+                            Text(intelligence.source == "gloo" ? "Personalized from your recorded activity." : "Based on recorded activity metrics.")
+                                .font(.caption2).foregroundStyle(.secondary)
+                            Text(intelligence.disclaimer).font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
                     Section("Activity intelligence") {
                         metricRow("Relative effort", "\(analysis.relativeEffort) RE")
                         if let pace = analysis.paceMinPerKm {
@@ -79,7 +89,10 @@ struct WorkoutAnalysisView: View {
     }
 
     private func load() async {
-        do { analysis = try await APIClient.shared.fetchWorkoutAnalysis(id: workoutID) }
+        do {
+            analysis = try await APIClient.shared.fetchWorkoutAnalysis(id: workoutID)
+            intelligence = try? await APIClient.shared.fetchWorkoutIntelligenceSummary(id: workoutID)
+        }
         catch { errorMessage = error.localizedDescription }
     }
 }

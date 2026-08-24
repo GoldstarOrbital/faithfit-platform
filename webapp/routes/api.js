@@ -3253,6 +3253,40 @@ router.get('/workouts/:id/analysis', requireAuth, (req, res) => {
   res.json({ workout_id:w.id, pace_min_per_km:pace, grade_adjusted_pace_min_per_km: null, power_watts: Number(metrics.power_watts||metrics.power||0)||null, top_speed_kmh:Number(metrics.max_speed_kmh||0)||null, relative_effort:Math.round(Number(w.effort_score)||Math.max(1,mins)), matched_efforts:matched, note:'Grade-adjusted pace requires reliable elevation grade samples; it is unavailable for this activity rather than estimated.' });
 });
 
+// A post-workout reflection is grounded in this activity's stored metrics. If
+// Gloo is not configured or temporarily unavailable, the deterministic result
+// still gives every member an honest summary instead of failing the screen.
+router.get('/workouts/:id/intelligence-summary', requireAuth, async (req, res) => {
+  const w = db.prepare('SELECT * FROM workouts WHERE id=? AND user_id=? AND end_time IS NOT NULL').get(req.params.id, req.session.userId);
+  if (!w) return res.status(404).json({ error: 'not_found' });
+  const minutes = Math.round(Number(w.duration_sec || 0) / 60);
+  const km = Number(w.distance_km || 0);
+  const effort = Math.round(Number(w.effort_score) || Math.max(1, minutes));
+  const distance = km > 0.05 ? `${km.toFixed(2)} km` : 'a recorded session';
+  const fallback = {
+    summary: `You completed ${distance} of ${w.type} in ${minutes} minutes with a Relative Effort of ${effort}.`,
+    next_step: 'Review how the effort felt before planning your next session.',
+    source: 'recorded_metrics',
+    disclaimer: 'Training guidance only; not medical advice.',
+  };
+  if (!gloo.isConfigured()) return res.json(fallback);
+  try {
+    const user = db.prepare('SELECT tradition FROM users WHERE id=?').get(req.session.userId) || {};
+    const out = await gloo.chatJson({
+      kind: 'workout_intelligence_summary', userId: req.session.userId,
+      tradition: gloo.normaliseTradition(user.tradition), cache: false, maxTokens: 220,
+      messages: [{ role: 'user', content:
+        `Write a concise workout reflection using only these facts: activity=${w.type}; minutes=${minutes}; distance_km=${km.toFixed(2)}; relative_effort=${effort}; average_hr=${w.avg_hr || 'unavailable'}; elevation_gain_m=${w.elevation_gain_m || 0}. ` +
+        'Return JSON only: {"summary":"one factual encouraging sentence","next_step":"one practical non-medical suggestion"}. Do not quote scripture, diagnose, or invent metrics.' }],
+    });
+    const j = out && out.json;
+    if (!j || !String(j.summary || '').trim()) return res.json(fallback);
+    res.json({ summary: String(j.summary).slice(0, 320), next_step: String(j.next_step || fallback.next_step).slice(0, 220), source: 'gloo', disclaimer: fallback.disclaimer });
+  } catch {
+    res.json(fallback);
+  }
+});
+
 router.post('/workouts/:id/beacon', requireAuth, (req, res) => {
   const w=db.prepare('SELECT id FROM workouts WHERE id=? AND user_id=? AND end_time IS NULL').get(req.params.id,req.session.userId);
   const { recipient_id, latitude, longitude, accuracy_m }=req.body||{};

@@ -1444,6 +1444,31 @@ struct BeaconResult: Decodable { let ok: Bool; let expiresAt: String; enum Codin
 struct WorkoutHeatmap: Decodable { let scope: String; let cells: [HeatmapCell]; let privacy: String }
 struct HeatmapCell: Decodable, Identifiable { let latitude: Double; let longitude: Double; let count: Int; var id: String { "\(latitude),\(longitude)" } }
 struct SavedRouteResult: Decodable { let id: String; let distanceKm: Double; enum CodingKeys: String, CodingKey { case id; case distanceKm = "distance_km" } }
+struct SavedRoute: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let activityType: String
+    let distanceKm: Double
+    let path: [[Double]]
+    let createdAt: String
+    enum CodingKeys: String, CodingKey {
+        case id, name, path
+        case activityType = "activity_type"
+        case distanceKm = "distance_km"
+        case createdAt = "created_at"
+    }
+}
+struct SavedRoutesResponse: Decodable { let routes: [SavedRoute] }
+struct WorkoutIntelligenceSummary: Decodable {
+    let summary: String
+    let nextStep: String
+    let source: String
+    let disclaimer: String
+    enum CodingKeys: String, CodingKey {
+        case summary, source, disclaimer
+        case nextStep = "next_step"
+    }
+}
 struct WorkoutAnalysis: Decodable {
     let workoutID: String
     let paceMinPerKm: Double?
