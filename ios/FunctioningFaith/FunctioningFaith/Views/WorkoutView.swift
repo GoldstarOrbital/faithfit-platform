@@ -36,6 +36,7 @@ struct WorkoutView: View {
     @State private var completedWorkout: WorkoutCompletion?
     @State private var completedSportMetrics: [String: Double] = [:]
     @State private var showWearables = false
+    @State private var showBeacon = false
     @State private var manualMinutes = "30"
     @State private var manualKm = "5"
     @State private var manualNote = ""
@@ -111,6 +112,9 @@ struct WorkoutView: View {
             )
         }
         .sheet(isPresented: $showWearables) { WearableConnectView() }
+        .sheet(isPresented: $showBeacon) {
+            if let workoutID { BeaconSafetyView(workoutID: workoutID, location: tracker.points.last) }
+        }
         .alert("Workout unavailable", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "Please try again.") }
@@ -177,6 +181,15 @@ struct WorkoutView: View {
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(FFTheme.inkSoft)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if isActive {
+                Button { showBeacon = true } label: {
+                    Label("Share safety beacon", systemImage: "location.circle.fill")
+                        .font(.caption.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 42)
+                }
+                .buttonStyle(.bordered).tint(FFTheme.hearth)
+                .accessibilityHint("Shares your live workout location only with trusted people you select")
             }
 
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
