@@ -312,7 +312,7 @@ final class APIClient {
     }
 
     func fetchAthleteIntelligence() async throws -> AthleteTrainingIntelligence {
-        if useMock { return AthleteTrainingIntelligence(trainingLog: [], fitness: AthleteFitness(ctl: 0, atl: 0, form: 0, label: "Balanced", disclaimer: "Training guidance only."), bestEfforts: [:]) }
+        if useMock { return AthleteTrainingIntelligence(trainingLog: [], fitness: AthleteFitness(ctl: 0, atl: 0, form: 0, label: "Balanced", disclaimer: "Training guidance only."), bestEfforts: [:], racePrediction: nil) }
         return try await request("/api/training/intelligence")
     }
 

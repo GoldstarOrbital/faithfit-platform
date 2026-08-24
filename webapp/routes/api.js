@@ -3232,7 +3232,12 @@ router.get('/training/intelligence', requireAuth, (req, res) => {
   });
   const best = {};
   rows.forEach(w => { const km=Number(w.distance_km||0), mins=Number(w.duration_sec||0)/60; if(km>.05&&mins>0){ const pace=mins/km; if(!best[w.type]||pace<best[w.type].pace_min_per_km) best[w.type]={workout_id:w.id,pace_min_per_km:+pace.toFixed(2),distance_km:km}; }});
-  res.json({ training_log: recent, fitness: { ctl:+ctl.toFixed(1), atl:+atl.toFixed(1), form:+(ctl-atl).toFixed(1), label: ctl-atl < -10 ? 'High load' : ctl-atl > 10 ? 'Fresh' : 'Balanced', disclaimer:'Training guidance only; not medical advice.' }, best_efforts: best });
+  // Riegel projection from the best recorded run. It is deliberately a range
+  // and names the source session; it is a planning estimate, never a promise.
+  const runRows=rows.filter(w=>/run/i.test(String(w.type||''))&&Number(w.distance_km)>.4&&Number(w.duration_sec)>0);
+  let racePrediction=null;
+  if(runRows.length){ const source=runRows.reduce((a,w)=>(w.duration_sec/Math.pow(w.distance_km,1.06))<(a.duration_sec/Math.pow(a.distance_km,1.06))?w:a); const est=(distance)=>Number(source.duration_sec)*Math.pow(distance/Number(source.distance_km),1.06); racePrediction={ source_workout_id:source.id, based_on_km:+Number(source.distance_km).toFixed(2), predictions:[5,10,21.0975].map(km=>({distance_km:km,estimated_sec:Math.round(est(km)),range_sec:Math.round(est(km)*.06)})), disclaimer:'Planning estimate from your recorded run, not a guaranteed race time or medical guidance.' }; }
+  res.json({ training_log: recent, fitness: { ctl:+ctl.toFixed(1), atl:+atl.toFixed(1), form:+(ctl-atl).toFixed(1), label: ctl-atl < -10 ? 'High load' : ctl-atl > 10 ? 'Fresh' : 'Balanced', disclaimer:'Training guidance only; not medical advice.' }, best_efforts: best, race_prediction:racePrediction });
 });
 
 router.get('/workouts/:id/analysis', requireAuth, (req, res) => {

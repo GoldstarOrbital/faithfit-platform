@@ -27,12 +27,20 @@ struct AthleteIntelligenceView: View {
                     Section("Best efforts") {
                         ForEach(data.bestEfforts.keys.sorted(), id:\.self) { type in if let effort=data.bestEfforts[type] { HStack { Text(type); Spacer(); Text(String(format:"%.2f min/km · %.1f km",effort.paceMinPerKm,effort.distanceKm)).foregroundStyle(.secondary) } } }
                     }
+                    if let forecast = data.racePrediction {
+                        Section("Race-time planning") {
+                            Text("Based on your best recorded \(String(format: "%.1f", forecast.basedOnKm)) km run").font(.caption).foregroundStyle(.secondary)
+                            ForEach(forecast.predictions) { p in HStack { Text(String(format:"%.1f km",p.distanceKm)); Spacer(); Text(time(p.estimatedSec) + " ± " + time(p.rangeSec)).monospacedDigit() } }
+                            Text(forecast.disclaimer).font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
                 }.ffListChrome().refreshable { await load() }
             } else if let error { ContentUnavailableView("Athlete intelligence unavailable", systemImage:"chart.line.uptrend.xyaxis", description:Text(error)) }
             else { ProgressView("Loading training…") }
         }.navigationTitle("Athlete Intelligence").task { await load() }
     }
     private func tile(_ title:String,_ value:String)->some View { VStack { Text(value).font(.title3.bold()); Text(title).font(.caption2).foregroundStyle(.secondary) }.frame(maxWidth:.infinity) }
+    private func time(_ seconds: Int) -> String { "\(seconds / 60):\(String(format: "%02d", seconds % 60))" }
     private func load() async { do { data=try await APIClient.shared.fetchAthleteIntelligence() } catch { self.error=error.localizedDescription } }
 }
 #Preview { NavigationStack { AthleteIntelligenceView() } }

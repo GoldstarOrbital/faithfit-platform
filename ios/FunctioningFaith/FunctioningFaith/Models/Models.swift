@@ -1429,7 +1429,8 @@ struct AthleteTrainingIntelligence: Decodable {
     let trainingLog: [AthleteTrainingEntry]
     let fitness: AthleteFitness
     let bestEfforts: [String: AthleteBestEffort]
-    enum CodingKeys: String, CodingKey { case fitness; case trainingLog = "training_log"; case bestEfforts = "best_efforts" }
+    let racePrediction: RacePrediction?
+    enum CodingKeys: String, CodingKey { case fitness; case trainingLog = "training_log"; case bestEfforts = "best_efforts"; case racePrediction = "race_prediction" }
 }
 struct AthleteTrainingEntry: Decodable, Identifiable {
     let id: String; let type: String; let endTime: String; let distanceKm: Double; let durationSec: Double; let relativeEffort: Int; let paceMinPerKm: Double?
@@ -1437,6 +1438,8 @@ struct AthleteTrainingEntry: Decodable, Identifiable {
 }
 struct AthleteFitness: Decodable { let ctl: Double; let atl: Double; let form: Double; let label: String; let disclaimer: String }
 struct AthleteBestEffort: Decodable { let workoutID: String; let paceMinPerKm: Double; let distanceKm: Double; enum CodingKeys: String, CodingKey { case workoutID="workout_id"; case paceMinPerKm="pace_min_per_km"; case distanceKm="distance_km" } }
+struct RacePrediction: Decodable { let basedOnKm: Double; let predictions: [RacePredictionEntry]; let disclaimer: String; enum CodingKeys: String, CodingKey { case basedOnKm="based_on_km"; case predictions, disclaimer } }
+struct RacePredictionEntry: Decodable, Identifiable { let distanceKm: Double; let estimatedSec: Int; let rangeSec: Int; var id: Double { distanceKm }; enum CodingKeys: String, CodingKey { case distanceKm="distance_km"; case estimatedSec="estimated_sec"; case rangeSec="range_sec" } }
 struct BeaconResult: Decodable { let ok: Bool; let expiresAt: String; enum CodingKeys: String, CodingKey { case ok; case expiresAt="expires_at" } }
 struct WorkoutHeatmap: Decodable { let scope: String; let cells: [HeatmapCell]; let privacy: String }
 struct HeatmapCell: Decodable, Identifiable { let latitude: Double; let longitude: Double; let count: Int; var id: String { "\(latitude),\(longitude)" } }
