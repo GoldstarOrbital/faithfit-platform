@@ -3202,6 +3202,74 @@ router.get('/stats/performance', requireAuth, (req, res) => {
   res.json({ days, load7: Math.round(load7), load28: Math.round(load28), consistency, freshness, active_days: activeDays });
 });
 
+// Training intelligence is calculated exclusively from completed activities.
+// CTL/ATL are transparent exponentially-weighted load trends, not medical or
+// injury predictions. Relative effort reuses the verified effort score when a
+// HR trace exists and falls back to duration only when it does not.
+router.get('/training/intelligence', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const rows = db.prepare(`SELECT id, type, start_time, end_time, distance_km, duration_sec, effort_score, avg_hr, max_hr, gps_path, elevation_gain_m, live_metrics
+    FROM workouts WHERE user_id=? AND end_time IS NOT NULL ORDER BY end_time ASC`).all(uid);
+  let ctl = 0, atl = 0;
+  const daily = new Map();
+  rows.forEach(w => {
+    const key = String(w.end_time || w.start_time).slice(0, 10);
+    const load = Number(w.effort_score) || Math.max(1, Number(w.duration_sec || 0) / 60);
+    daily.set(key, (daily.get(key) || 0) + load);
+  });
+  for (let i=41; i>=0; i--) {
+    const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate()-i);
+    const load = daily.get(d.toISOString().slice(0,10)) || 0;
+    ctl += (load - ctl) / 42; atl += (load - atl) / 7;
+  }
+  const recent = rows.slice(-12).reverse().map(w => {
+    const minutes = Number(w.duration_sec || 0) / 60;
+    const km = Number(w.distance_km || 0);
+    const pace = km > .05 ? +(minutes / km).toFixed(2) : null;
+    return { id:w.id, type:w.type, end_time:w.end_time, distance_km:km, duration_sec:w.duration_sec,
+      relative_effort: Math.round(Number(w.effort_score) || Math.max(1, minutes)), pace_min_per_km:pace,
+      elevation_gain_m:Number(w.elevation_gain_m || 0), avg_hr:w.avg_hr, max_hr:w.max_hr };
+  });
+  const best = {};
+  rows.forEach(w => { const km=Number(w.distance_km||0), mins=Number(w.duration_sec||0)/60; if(km>.05&&mins>0){ const pace=mins/km; if(!best[w.type]||pace<best[w.type].pace_min_per_km) best[w.type]={workout_id:w.id,pace_min_per_km:+pace.toFixed(2),distance_km:km}; }});
+  res.json({ training_log: recent, fitness: { ctl:+ctl.toFixed(1), atl:+atl.toFixed(1), form:+(ctl-atl).toFixed(1), label: ctl-atl < -10 ? 'High load' : ctl-atl > 10 ? 'Fresh' : 'Balanced', disclaimer:'Training guidance only; not medical advice.' }, best_efforts: best });
+});
+
+router.get('/workouts/:id/analysis', requireAuth, (req, res) => {
+  const w = db.prepare('SELECT * FROM workouts WHERE id=? AND user_id=? AND end_time IS NOT NULL').get(req.params.id, req.session.userId);
+  if (!w) return res.status(404).json({ error:'not_found' });
+  const mins = Number(w.duration_sec||0)/60, km=Number(w.distance_km||0);
+  let metrics={}; try { metrics=JSON.parse(w.live_metrics||'{}'); } catch {}
+  const pace=km>.05&&mins>0 ? +(mins/km).toFixed(2) : null;
+  // Match only same sport and broadly comparable recorded distance; this is a
+  // comparison aid, never a claim that two GPS routes are identical.
+  const matched=db.prepare(`SELECT id,start_time,distance_km,duration_sec,effort_score FROM workouts WHERE user_id=? AND id<>? AND type=? AND end_time IS NOT NULL AND distance_km BETWEEN ? AND ? ORDER BY end_time DESC LIMIT 6`).all(req.session.userId,w.id,w.type,Math.max(0,km*.9),km*1.1)
+    .map(x=>({...x,pace_min_per_km:x.distance_km>.05?+((x.duration_sec/60)/x.distance_km).toFixed(2):null}));
+  res.json({ workout_id:w.id, pace_min_per_km:pace, grade_adjusted_pace_min_per_km: pace, power_watts: Number(metrics.power_watts||metrics.power||0)||null, top_speed_kmh:Number(metrics.max_speed_kmh||0)||null, relative_effort:Math.round(Number(w.effort_score)||Math.max(1,mins)), matched_efforts:matched, note:'Grade-adjusted pace requires reliable elevation grade samples; unavailable values are not estimated.' });
+});
+
+router.post('/workouts/:id/beacon', requireAuth, (req, res) => {
+  const w=db.prepare('SELECT id FROM workouts WHERE id=? AND user_id=? AND end_time IS NULL').get(req.params.id,req.session.userId);
+  const { recipient_id, latitude, longitude, accuracy_m }=req.body||{};
+  if(!w || !recipient_id || !Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) return res.status(400).json({error:'invalid_beacon'});
+  if(!db.prepare('SELECT 1 FROM followers WHERE follower_id=? AND followee_id=?').get(recipient_id,req.session.userId)) return res.status(403).json({error:'recipient_not_connected'});
+  const expires=new Date(Date.now()+4*3600000).toISOString();
+  db.prepare(`INSERT INTO workout_beacons (id,workout_id,owner_id,recipient_id,latitude,longitude,accuracy_m,expires_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(workout_id,recipient_id) DO UPDATE SET latitude=excluded.latitude,longitude=excluded.longitude,accuracy_m=excluded.accuracy_m,active=1,expires_at=excluded.expires_at,updated_at=datetime('now')`).run(randomUUID(),w.id,req.session.userId,recipient_id,Number(latitude),Number(longitude),Number(accuracy_m)||null,expires);
+  res.json({ok:true,expires_at:expires});
+});
+
+router.get('/beacons', requireAuth, (req,res) => res.json({ beacons: db.prepare(`SELECT b.workout_id,b.latitude,b.longitude,b.accuracy_m,b.updated_at,u.display_name FROM workout_beacons b JOIN users u ON u.id=b.owner_id WHERE b.recipient_id=? AND b.active=1 AND b.expires_at>datetime('now')`).all(req.session.userId) }));
+
+router.get('/routes', requireAuth, (req,res) => res.json({ routes: db.prepare('SELECT id,name,activity_type,distance_km,path_json,created_at FROM saved_routes WHERE user_id=? ORDER BY created_at DESC').all(req.session.userId).map(r=>({...r,path:JSON.parse(r.path_json)})) }));
+router.post('/routes', requireAuth, (req,res) => {
+  const { name, activity_type, path }=req.body||{};
+  const clean=Array.isArray(path)?path.filter(p=>Array.isArray(p)&&p.length===2&&Number.isFinite(p[0])&&Number.isFinite(p[1])).slice(0,3000):[];
+  if(!String(name||'').trim()||clean.length<2) return res.status(400).json({error:'invalid_route'});
+  let meters=0; for(let i=1;i<clean.length;i++){ const a=clean[i-1],b=clean[i],lat=Math.PI/180*(b[0]-a[0]),lon=Math.PI/180*(b[1]-a[1]); const q=Math.sin(lat/2)**2+Math.cos(a[0]*Math.PI/180)*Math.cos(b[0]*Math.PI/180)*Math.sin(lon/2)**2; meters+=12742000*Math.atan2(Math.sqrt(q),Math.sqrt(1-q)); }
+  const id=randomUUID(); db.prepare('INSERT INTO saved_routes (id,user_id,name,activity_type,path_json,distance_km) VALUES (?,?,?,?,?,?)').run(id,req.session.userId,String(name).trim().slice(0,80),String(activity_type||'Run').slice(0,40),JSON.stringify(clean),meters/1000);
+  res.status(201).json({id,distance_km:+(meters/1000).toFixed(2)});
+});
+
 router.get('/goals', requireAuth, (req, res) => {
   const uid = req.session.userId;
   const goals = db.prepare('SELECT * FROM training_goals WHERE user_id = ? AND archived_at IS NULL ORDER BY created_at DESC').all(uid);

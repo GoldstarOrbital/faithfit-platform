@@ -893,4 +893,33 @@ if (!userColsE2e.includes('e2e_public_key')) db.exec('ALTER TABLE users ADD COLU
 // so navigating away mid-setup doesn't ask again.
 if (!userColsE2e.includes('recruiting_role')) db.exec('ALTER TABLE users ADD COLUMN recruiting_role TEXT');
 
+// --- live athlete safety and saved route intelligence (opt-in, additive) ---
+// A beacon is deliberately short-lived and recipient-scoped. It is never a
+// public location feed and expires even if a client crashes mid-workout.
+db.exec(`
+CREATE TABLE IF NOT EXISTS workout_beacons (
+  id TEXT PRIMARY KEY,
+  workout_id TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  recipient_id TEXT NOT NULL,
+  latitude REAL NOT NULL,
+  longitude REAL NOT NULL,
+  accuracy_m REAL,
+  active INTEGER NOT NULL DEFAULT 1,
+  expires_at TEXT NOT NULL,
+  updated_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(workout_id, recipient_id)
+);
+CREATE INDEX IF NOT EXISTS idx_workout_beacons_recipient ON workout_beacons(recipient_id, active, expires_at);
+CREATE TABLE IF NOT EXISTS saved_routes (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  activity_type TEXT,
+  path_json TEXT NOT NULL,
+  distance_km REAL,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+`);
+
 module.exports = db;
