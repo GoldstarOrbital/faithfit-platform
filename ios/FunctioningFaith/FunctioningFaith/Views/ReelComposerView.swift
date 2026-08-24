@@ -186,22 +186,18 @@ struct ReelComposerView: View {
                 return
             }
 
-            let data = try Data(contentsOf: url)
+            statusMessage = "Compressing your Reel…"
+            let uploadURL = try await compressedVideoURL(from: url)
+            let data = try Data(contentsOf: uploadURL)
             if data.count > Self.maxBytes {
-                statusMessage = "Keep the Reel under 10MB — trim it or record a shorter clip."
+                statusMessage = "That Reel is still over 10MB after compression. Trim it or record a shorter clip."
                 clearTempFiles()
                 return
             }
 
-            let ext = url.pathExtension.lowercased()
-            let mime: String
-            if ext == "webm" {
-                mime = "video/webm"
-            } else if ext == "mov" || ext == "qt" {
-                mime = "video/quicktime"
-            } else {
-                mime = "video/mp4"
-            }
+            // AVFoundation exports H.264/AAC MP4, the common iOS/web playback
+            // format. This deliberately avoids uploading a camera original.
+            let mime = "video/mp4"
 
             let base64 = data.base64EncodedString()
             let dataURL = "data:\(mime);base64,\(base64)"
@@ -213,19 +209,44 @@ struct ReelComposerView: View {
 
             await MainActor.run {
                 clearTempFiles()
-                previewURL = url
+                previewURL = uploadURL
                 videoDataURL = dataURL
                 durationSec = seconds
                 byteCount = data.count
-                fileLabel = url.lastPathComponent
-                statusMessage = mime == "video/webm"
-                    ? "Ready. Note: WebM may not play inside the iOS app; others can still watch on web."
-                    : "Ready to publish."
+                fileLabel = uploadURL.lastPathComponent
+                statusMessage = "Ready to publish. Video compressed for fast playback."
             }
         } catch {
             statusMessage = "Could not prepare that video. Use an MP4 or MOV under 10MB and 60 seconds."
             clearTempFiles()
         }
+    }
+
+    /// Produces a modest H.264 MP4 before any member Reel leaves the device.
+    /// The export is asynchronous so Photos selection never blocks SwiftUI.
+    private func compressedVideoURL(from sourceURL: URL) async throws -> URL {
+        let asset = AVURLAsset(url: sourceURL)
+        let presets = AVAssetExportSession.exportPresets(compatibleWith: asset)
+        let preset = presets.contains(AVAssetExportPresetMediumQuality)
+            ? AVAssetExportPresetMediumQuality
+            : AVAssetExportPresetLowQuality
+        guard let exporter = AVAssetExportSession(asset: asset, presetName: preset) else {
+            throw ReelCompressionError.unavailable
+        }
+        let destination = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ff-reel-upload-\(UUID().uuidString)")
+            .appendingPathExtension("mp4")
+        exporter.outputURL = destination
+        exporter.outputFileType = .mp4
+        exporter.shouldOptimizeForNetworkUse = true
+        await withCheckedContinuation { continuation in
+            exporter.exportAsynchronously { continuation.resume() }
+        }
+        guard exporter.status == .completed else {
+            try? FileManager.default.removeItem(at: destination)
+            throw exporter.error ?? ReelCompressionError.failed
+        }
+        return destination
     }
 
     private func publish() async {
@@ -246,6 +267,16 @@ struct ReelComposerView: View {
         } catch {
             errorMessage = error.localizedDescription
             statusMessage = nil
+        }
+    }
+}
+
+private enum ReelCompressionError: LocalizedError {
+    case unavailable, failed
+    var errorDescription: String? {
+        switch self {
+        case .unavailable: return "This video cannot be compressed on this device."
+        case .failed: return "This video could not be compressed."
         }
     }
 }

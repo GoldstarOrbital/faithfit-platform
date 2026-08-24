@@ -6,10 +6,13 @@ import SwiftUI
 struct ExploreView: View {
     @State private var suggestions: [SuggestedUser] = []
     @State private var isLoadingSuggestions = true
+    @State private var suggestionsError: String?
     @State private var groups: [ExploreGroup] = []
     @State private var quests: [ExploreQuest] = []
     @State private var challenges: [ExploreChallenge] = []
     @State private var isLoadingContent = true
+    @State private var contentError: String?
+    @State private var actionError: String?
 
     var body: some View {
         List {
@@ -68,6 +71,8 @@ struct ExploreView: View {
             Section {
                 if isLoadingSuggestions {
                     ProgressView("Finding your community…")
+                } else if let suggestionsError {
+                    FFErrorStateView(message: suggestionsError, onRetry: { Task { await loadExplore() } })
                 } else if suggestions.isEmpty {
                     Text("You’re all caught up. Check back as more people join your communities.")
                         .foregroundStyle(.secondary)
@@ -106,6 +111,8 @@ struct ExploreView: View {
             Section("Challenges") {
                 if isLoadingContent {
                     ProgressView()
+                } else if let contentError {
+                    FFErrorStateView(message: contentError, onRetry: { Task { await loadExplore() } })
                 } else if challenges.isEmpty {
                     Text("New challenges are being prepared.").foregroundStyle(.secondary)
                 } else {
@@ -146,6 +153,8 @@ struct ExploreView: View {
             Section("Groups") {
                 if isLoadingContent {
                     ProgressView()
+                } else if let contentError {
+                    FFErrorStateView(message: contentError, onRetry: { Task { await loadExplore() } })
                 } else if groups.isEmpty {
                     Text("No groups yet.").foregroundStyle(.secondary)
                 } else {
@@ -178,6 +187,8 @@ struct ExploreView: View {
             Section("Quests") {
                 if isLoadingContent {
                     ProgressView()
+                } else if let contentError {
+                    FFErrorStateView(message: contentError, onRetry: { Task { await loadExplore() } })
                 } else {
                     ForEach(quests) { quest in
                         HStack(spacing: FFTheme.Space.sm) {
@@ -243,37 +254,66 @@ struct ExploreView: View {
         .navigationTitle("Explore")
         .task { await loadExplore() }
         .refreshable { await loadExplore() }
+        .alert("Couldn’t complete that action", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
+            Button("OK", role: .cancel) { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
+        }
     }
 
     private func loadExplore() async {
         isLoadingSuggestions = true
         isLoadingContent = true
-        let suggestionsTask = Task { try? await APIClient.shared.fetchSuggestedUsers() }
-        let contentTask = Task { try? await APIClient.shared.fetchExploreContent() }
-        suggestions = (await suggestionsTask.value) ?? []
-        if let content = await contentTask.value {
+        suggestionsError = nil
+        contentError = nil
+        async let suggestionsResult: Result<[SuggestedUser], Error> = loadSuggestions()
+        async let contentResult: Result<ExploreContent, Error> = loadContent()
+        let (loadedSuggestions, loadedContent) = await (suggestionsResult, contentResult)
+        guard !Task.isCancelled else { return }
+
+        switch loadedSuggestions {
+        case .success(let value): suggestions = value
+        case .failure(let error): suggestionsError = error.localizedDescription
+        }
+        switch loadedContent {
+        case .success(let content):
             groups = content.groups
             quests = content.quests
             challenges = content.challenges
+        case .failure(let error): contentError = error.localizedDescription
         }
         isLoadingSuggestions = false
         isLoadingContent = false
     }
 
+    private func loadSuggestions() async -> Result<[SuggestedUser], Error> {
+        do { return .success(try await APIClient.shared.fetchSuggestedUsers()) }
+        catch { return .failure(error) }
+    }
+
+    private func loadContent() async -> Result<ExploreContent, Error> {
+        do { return .success(try await APIClient.shared.fetchExploreContent()) }
+        catch { return .failure(error) }
+    }
+
     private func follow(_ user: SuggestedUser) {
         Task {
-            guard let response = try? await APIClient.shared.followUser(id: user.id),
-                  let index = suggestions.firstIndex(where: { $0.id == user.id }) else { return }
-            suggestions[index].isFollowing = response.following
+            do {
+                let response = try await APIClient.shared.followUser(id: user.id)
+                guard let index = suggestions.firstIndex(where: { $0.id == user.id }) else { return }
+                suggestions[index].isFollowing = response.following
+            } catch { actionError = error.localizedDescription }
         }
     }
 
     private func join(_ challenge: ExploreChallenge) {
         Task {
-            guard (try? await APIClient.shared.joinChallenge(id: challenge.id)) != nil,
-                  let index = challenges.firstIndex(where: { $0.id == challenge.id }) else { return }
-            challenges[index].joined = true
-            challenges[index].participants += 1
+            do {
+                _ = try await APIClient.shared.joinChallenge(id: challenge.id)
+                guard let index = challenges.firstIndex(where: { $0.id == challenge.id }) else { return }
+                challenges[index].joined = true
+                challenges[index].participants += 1
+            } catch { actionError = error.localizedDescription }
         }
     }
 }

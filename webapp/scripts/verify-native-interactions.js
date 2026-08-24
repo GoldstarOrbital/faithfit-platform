@@ -79,9 +79,14 @@ assert.match(widgetProject, /FunctioningFaithWidgets:/, 'the generated project m
 assert.match(client, /func fetchAvatarData\(userID: UUID\)/, 'profile needs a privacy-scoped avatar fetch');
 assert.match(profile, /fetchAvatarData\(userID: userID\)/, 'Profile must render the member’s stored avatar');
 assert.match(postComposer, /!content\.trimmingCharacters\(in: \.whitespacesAndNewlines\)\.isEmpty \|\| uploadData != nil/, 'photo-only posts must be publishable');
-assert.match(reelComposer, /video\/quicktime/, 'iPhone MOV files must be encoded as QuickTime uploads');
+assert.match(reelComposer, /Choose an MP4 or MOV/, 'iPhone MOV files must be accepted by the Reel picker');
+assert.match(reelComposer, /let mime = "video\/mp4"/, 'accepted camera videos must be exported to an iOS/web-playable MP4');
 assert.match(media, /const MAX_VIDEO_BYTES = 10 \* 1024 \* 1024/, 'the server must accommodate a short iPhone MOV');
 assert.match(reelComposer, /private static let maxBytes = 10 \* 1024 \* 1024/, 'the native reel picker must match the server upload cap');
+assert.match(reelComposer, /private func compressedVideoURL\(from sourceURL: URL\) async throws -> URL/, 'native Reel uploads must run through a client-side compression export');
+assert.match(reelComposer, /AVAssetExportPresetMediumQuality/, 'native Reel compression must use a practical mobile export preset');
+assert.match(reelComposer, /exportAsynchronously/, 'video compression must not block the SwiftUI interaction thread');
+assert.match(reelComposer, /uploadURL = try await compressedVideoURL\(from: url\)/, 'the uploaded Reel payload must come from the compressed output, not the camera original');
 assert.match(workout, /struct PostWorkoutSummaryView/, 'stopping a workout must show a complete session recap');
 assert.match(workout, /Apple Health insight/, 'the recap must explain the actual available Apple Health data');
 assert.match(profile, /Heart-rate calm cue/, 'members need an explicit calm-cue preference');

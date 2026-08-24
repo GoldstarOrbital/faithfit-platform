@@ -10,6 +10,8 @@ struct HomeFeedView: View {
     @State private var isLoading = true
     @State private var isLoadingMore = false
     @State private var nextCursor: String?
+    @State private var feedError: String?
+    @State private var actionError: String?
     @State private var selectedPost: FeedPost?
     @State private var showComposer = false
     @State private var blockCandidate: (id: UUID, name: String)?
@@ -70,7 +72,7 @@ struct HomeFeedView: View {
                     .onAppear { loadNextPageIfNeeded(post) }
                     .swipeActions(edge: .trailing) {
                         Button { toggleLike(post) } label: { Label(post.likedByMe ? "Unlike" : "Like", systemImage: post.likedByMe ? "heart.slash" : "heart.fill") }
-                            .tint(.pink)
+                            .tint(FFTheme.hearth)
                         Button { toggleSave(post) } label: { Label(post.savedByMe ? "Unsave" : "Save", systemImage: post.savedByMe ? "bookmark.slash" : "bookmark.fill") }
                             .tint(FFTheme.meadow)
                     }
@@ -147,16 +149,32 @@ struct HomeFeedView: View {
             Text("Their posts and messages will no longer appear to you. You can manage blocks from their profile later.")
         }
         .overlay {
-            if isLoading && posts.isEmpty { ProgressView() }
+            if isLoading && posts.isEmpty {
+                FFLoadingView(message: "Loading your community…")
+            } else if let feedError, posts.isEmpty {
+                FFErrorStateView(message: feedError, onRetry: { Task { await loadFeed() } })
+            } else if !isLoading && posts.isEmpty {
+                FFEmptyStateView(title: "Your feed is ready", systemImage: "person.2", message: "Follow people, join a group, or share your first activity to see community updates here.")
+            }
         }
+        .alert("Couldn’t complete that action", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
+            Button("OK", role: .cancel) { actionError = nil }
+        } message: { Text(actionError ?? "") }
     }
 
     private func loadFeed() async {
         isLoading = true
         defer { isLoading = false }
-        guard let page = try? await APIClient.shared.fetchFeedPage() else { return }
-        posts = page.posts
-        nextCursor = page.nextCursor
+        feedError = nil
+        do {
+            let page = try await APIClient.shared.fetchFeedPage()
+            guard !Task.isCancelled else { return }
+            posts = page.posts
+            nextCursor = page.nextCursor
+        } catch {
+            guard !Task.isCancelled else { return }
+            feedError = error.localizedDescription
+        }
     }
 
     private func loadNextPageIfNeeded(_ post: FeedPost) {
@@ -168,40 +186,56 @@ struct HomeFeedView: View {
         guard let cursor = nextCursor, !isLoadingMore else { return }
         isLoadingMore = true
         defer { isLoadingMore = false }
-        guard let page = try? await APIClient.shared.fetchFeedPage(before: cursor) else { return }
-        let existing = Set(posts.map(\.id))
-        posts.append(contentsOf: page.posts.filter { !existing.contains($0.id) })
-        nextCursor = page.nextCursor
+        do {
+            let page = try await APIClient.shared.fetchFeedPage(before: cursor)
+            guard !Task.isCancelled else { return }
+            let existing = Set(posts.map(\.id))
+            posts.append(contentsOf: page.posts.filter { !existing.contains($0.id) })
+            nextCursor = page.nextCursor
+        } catch {
+            guard !Task.isCancelled else { return }
+            actionError = "Couldn’t load more posts. Pull down to try again."
+        }
     }
 
     private func toggleLike(_ post: FeedPost) {
         Task {
-            guard let response = try? await APIClient.shared.likePost(id: post.id),
-                  let index = posts.firstIndex(where: { $0.id == post.id }) else { return }
-            posts[index].likedByMe = response.liked
-            posts[index].likeCount = response.likeCount
+            do {
+                let response = try await APIClient.shared.likePost(id: post.id)
+                guard let index = posts.firstIndex(where: { $0.id == post.id }) else { return }
+                posts[index].likedByMe = response.liked
+                posts[index].likeCount = response.likeCount
+                #if canImport(UIKit)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                #endif
+            } catch { actionError = error.localizedDescription }
         }
     }
 
     private func toggleSave(_ post: FeedPost) {
         Task {
-            guard let response = try? await APIClient.shared.savePost(id: post.id),
-                  let index = posts.firstIndex(where: { $0.id == post.id }) else { return }
-            posts[index].savedByMe = response.saved
+            do {
+                let response = try await APIClient.shared.savePost(id: post.id)
+                guard let index = posts.firstIndex(where: { $0.id == post.id }) else { return }
+                posts[index].savedByMe = response.saved
+            } catch { actionError = error.localizedDescription }
         }
     }
 
     private func report(_ post: FeedPost) {
         Task {
-            try? await APIClient.shared.reportPost(id: post.id, reason: "Reported from the native feed")
+            do { try await APIClient.shared.reportPost(id: post.id, reason: "Reported from the native feed") }
+            catch { actionError = error.localizedDescription }
         }
     }
 
     private func block(_ id: UUID) {
         Task {
-            guard (try? await APIClient.shared.blockUser(id: id)) != nil else { return }
-            posts.removeAll { $0.authorID == id }
-            blockCandidate = nil
+            do {
+                _ = try await APIClient.shared.blockUser(id: id)
+                posts.removeAll { $0.authorID == id }
+                blockCandidate = nil
+            } catch { actionError = error.localizedDescription }
         }
     }
 
@@ -269,12 +303,12 @@ struct FeedPostRow: View {
                 Button(action: onLike) {
                     Label("\(post.likeCount)", systemImage: post.likedByMe ? "heart.fill" : "heart")
                 }
-                .tint(post.likedByMe ? .pink : .secondary)
+                .tint(post.likedByMe ? FFTheme.hearth : .secondary)
 
                 Button(action: onSave) {
                     Label(post.savedByMe ? "Saved" : "Save", systemImage: post.savedByMe ? "bookmark.fill" : "bookmark")
                 }
-                .tint(post.savedByMe ? .indigo : .secondary)
+                .tint(post.savedByMe ? FFTheme.scripture : .secondary)
 
                 Button(action: onComments) {
                     Label("\(post.commentCount)", systemImage: "bubble.left")

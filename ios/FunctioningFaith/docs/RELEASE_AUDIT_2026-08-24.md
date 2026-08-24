@@ -59,3 +59,17 @@ is considered verified.
 - `npm --prefix webapp run verify:story-replies` passed.
 - `npm --prefix webapp run verify:native-interactions`, `node --check webapp/routes/api.js`, and `git diff --check` passed.
 - A fresh canonical SF Symbols comparison found 0 invalid literal symbols.
+
+## Batch 5 — Explore, Feed, and Reel resilience
+
+| Finding | Location | Resolution |
+| --- | --- | --- |
+| Explore discarded individual failures from its two parallel requests and could leave stale values after cancellation. | `Views/ExploreView.swift` | Loads both surfaces concurrently into explicit results, applies them atomically after cancellation checks, and renders a retryable failure state for each data family. |
+| Feed cursor requests and member actions silently failed; an empty feed had only an unlabelled spinner. | `Views/HomeFeedView.swift` | Added loading, empty, retryable error, and action-feedback states; retained cursor de-duplication; added a light like haptic; replaced system pink/indigo tints with theme tokens. |
+| The Reel composer uploaded a camera original or simply rejected it for size. | `Views/ReelComposerView.swift` | Exports every source through asynchronous AVFoundation compression to an optimized MP4 before encoding or upload, then enforces the existing 60-second and 10MB limits. |
+
+### Verification
+
+- `npm --prefix webapp run verify:native-interactions` passed and now asserts MOV acceptance, compressed MP4 output, an asynchronous export, and that the upload uses the export rather than the original.
+- `git diff --check` passed.
+- Swift compilation remains confirmed by the required macOS CI run after this batch is pushed.
