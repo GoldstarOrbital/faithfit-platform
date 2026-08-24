@@ -4326,6 +4326,9 @@ router.get('/reels', requireAuth, async (req, res) => {
   // Member-made Reels are deliberately first-class, but only public clips that
   // passed the byte/container/category gate at POST /posts enter this surface.
   // A post never becomes a Reel merely because someone attached arbitrary data.
+  // Every one of them belongs here, not a recent sample -- this was capped at
+  // 12 (member videos aging out of their own platform's Reels feed as soon as
+  // 13 existed, permanently), which is why "every video" wasn't showing up.
   const owned = db.prepare(`
     SELECT p.id AS video_id, p.content AS title, p.content AS description,
            NULL AS thumbnail_url, u.display_name AS channel_title,
@@ -4337,7 +4340,7 @@ router.get('/reels', requireAuth, async (req, res) => {
       LEFT JOIN scripture_verses v ON v.id = p.verse_id
      WHERE p.visibility = 'public' AND p.video_data IS NOT NULL
        AND p.video_category IN ('workout','nature','animal','group')
-     ORDER BY p.created_at DESC LIMIT 12
+     ORDER BY p.created_at DESC
   `).all();
 
   const seen = new Set();

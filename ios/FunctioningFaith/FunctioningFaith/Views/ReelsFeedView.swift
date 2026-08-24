@@ -22,37 +22,30 @@ struct ReelsFeedView: View {
             } else if reels.isEmpty {
                 FFEmptyStateView(title: "No Reels right now", systemImage: "play.rectangle", message: "Check back soon — or publish a short encouragement of your own.", actionTitle: "Create a Reel", action: { showComposer = true })
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: FFTheme.Space.md) {
-                        VStack(alignment: .leading, spacing: FFTheme.Space.xs) {
-                        Button {
-                            showComposer = true
-                        } label: {
-                            Label("Create a Reel", systemImage: "plus.circle.fill")
-                                .font(.headline)
+                // A one-video-per-screen, edge-to-edge paged feed -- not a
+                // scrollable list of preview cards. Each page fills the
+                // screen and the scroll view snaps exactly one at a time,
+                // matching the continuous feed members expect instead of
+                // visibly separated cards.
+                ScrollView(.vertical) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(reels.enumerated()), id: \.element.id) { index, reel in
+                            ReelPage(reel: reel, churchName: churchName,
+                                     onPlay: { playingReel = reel },
+                                     onLike: { react(reel, kind: "like") },
+                                     onSave: { react(reel, kind: "save") },
+                                     onComments: reel.provider == "functioning_faith" ? { openComments(for: reel) } : nil,
+                                     onNotInterested: { hide(reel) })
+                                .containerRelativeFrame([.horizontal, .vertical])
+                                .onAppear { prefetch(after: index) }
                         }
-                        Text("Up to 60s · workout, nature, animals, or groups — paired with verified Scripture.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        }
-                        .padding()
-                        .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
-                    ForEach(Array(reels.enumerated()), id: \.element.id) { index, reel in
-                        ReelCard(reel: reel, churchName: churchName,
-                                 onPlay: { playingReel = reel },
-                                 onLike: { react(reel, kind: "like") },
-                                 onSave: { react(reel, kind: "save") },
-                                 onComments: reel.provider == "functioning_faith" ? { openComments(for: reel) } : nil,
-                                 onNotInterested: { hide(reel) })
-                        .padding()
-                        .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
-                        .onAppear { prefetch(after: index) }
                     }
-                    }
-                    .padding(.horizontal, FFTheme.Space.md)
-                    .padding(.vertical, FFTheme.Space.sm)
+                    .scrollTargetLayout()
                 }
-                .background(FFTheme.parchment0)
+                .scrollTargetBehavior(.paging)
+                .scrollIndicators(.hidden)
+                .ignoresSafeArea(edges: .bottom)
+                .background(Color.black)
                 .refreshable { await load() }
             }
         }
@@ -154,7 +147,7 @@ private extension Reel {
         Reel(videoID: videoID, title: title, description: description, thumbnailURL: thumbnailURL,
              channelTitle: channelTitle, category: category, provider: provider, sourceURL: sourceURL,
              sourceKind: sourceKind, videoData: videoData, verseReference: verseReference, verseText: verseText,
-             churchName: churchName, likeCount: count, saveCount: saveCount, likedByMe: active, savedByMe: savedByMe)
+             churchName: churchName, likeCount: likeCount, saveCount: saveCount, likedByMe: active, savedByMe: savedByMe)
     }
     func withSave(active: Bool, count: Int) -> Reel {
         Reel(videoID: videoID, title: title, description: description, thumbnailURL: thumbnailURL,
@@ -164,7 +157,13 @@ private extension Reel {
     }
 }
 
-private struct ReelCard: View {
+/// One full-screen page of the feed -- edge-to-edge thumbnail, a bottom
+/// gradient for legibility, and a TikTok-style bottom-left caption /
+/// right-side action rail. Tapping the play button opens the real player;
+/// this view itself never plays video, keeping playback lifecycle (and its
+/// failure modes -- audio session conflicts, undisposed AVPlayers) confined
+/// to the one place that already handles it correctly.
+private struct ReelPage: View {
     let reel: Reel
     let churchName: String?
     let onPlay: () -> Void
@@ -174,48 +173,82 @@ private struct ReelCard: View {
     let onNotInterested: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button(action: onPlay) {
-                ZStack {
-                    if let thumb = reel.thumbnailURL, let url = URL(string: thumb) {
-                        AsyncImage(url: url) { image in image.resizable().scaledToFill() }
-                        placeholder: { Color.secondary.opacity(0.15) }
-                    } else {
-                        Color.secondary.opacity(0.15)
-                    }
-                    Image(systemName: "play.circle.fill").font(.system(size: 44)).foregroundStyle(.white).shadow(radius: 4)
+        ZStack {
+            Color.black
+            if let thumb = reel.thumbnailURL, let url = URL(string: thumb) {
+                AsyncImage(url: url) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    Color.white.opacity(0.08)
                 }
-                .frame(height: 200)
-                .frame(maxWidth: .infinity)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+            } else {
+                LinearGradient(colors: [FFTheme.walnut0, FFTheme.walnut], startPoint: .top, endPoint: .bottom)
             }
-            .buttonStyle(.plain)
 
-            Text(reel.title ?? "Untitled").font(.subheadline.weight(.semibold)).lineLimit(2)
-            HStack(spacing: 6) {
-                if let channel = reel.channelTitle { Text(channel) }
-                if reel.sourceKind == "church", let name = reel.churchName ?? churchName { Text("· \(name)") }
+            LinearGradient(colors: [.clear, .clear, .black.opacity(0.85)], startPoint: .top, endPoint: .bottom)
+
+            Button(action: onPlay) {
+                Image(systemName: "play.circle.fill")
+                    .font(.system(size: 64))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .shadow(color: .black.opacity(0.4), radius: 8)
             }
-            .font(.caption).foregroundStyle(.secondary)
-            if let ref = reel.verseReference {
-                Text(ref).font(.caption.weight(.semibold)).foregroundStyle(FFTheme.scripture)
-            }
-            HStack(spacing: 18) {
-                Button { onLike() } label: {
-                    Label("\(reel.likeCount)", systemImage: reel.likedByMe ? "heart.fill" : "heart")
-                }.foregroundStyle(reel.likedByMe ? FFTheme.seal : .primary)
-                Button { onSave() } label: {
-                    Label("\(reel.saveCount)", systemImage: reel.savedByMe ? "bookmark.fill" : "bookmark")
-                }.foregroundStyle(reel.savedByMe ? FFTheme.meadow : .primary)
-                if let onComments { Button { onComments() } label: { Label("Comments", systemImage: "bubble.left") } }
+            .accessibilityLabel("Play")
+
+            VStack {
                 Spacer()
-                Button(role: .destructive) { onNotInterested() } label: {
-                    Label("Not interested", systemImage: "hand.thumbsdown")
-                }.labelStyle(.iconOnly)
+                HStack(alignment: .bottom, spacing: FFTheme.Space.md) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(reel.title ?? "Untitled")
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(2)
+                            .foregroundStyle(.white)
+                        HStack(spacing: 6) {
+                            if let channel = reel.channelTitle { Text(channel) }
+                            if reel.sourceKind == "church", let name = reel.churchName ?? churchName { Text("· \(name)") }
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.8))
+                        if let ref = reel.verseReference {
+                            Text(ref).font(.caption.weight(.semibold)).foregroundStyle(FFTheme.goldBright)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    VStack(spacing: 20) {
+                        actionButton(systemImage: reel.likedByMe ? "heart.fill" : "heart", count: reel.likeCount, tint: reel.likedByMe ? FFTheme.seal : .white, action: onLike)
+                        actionButton(systemImage: reel.savedByMe ? "bookmark.fill" : "bookmark", count: reel.saveCount, tint: reel.savedByMe ? FFTheme.goldBright : .white, action: onSave)
+                        if let onComments {
+                            Button(action: onComments) {
+                                VStack(spacing: 3) {
+                                    Image(systemName: "bubble.left.fill").font(.title2)
+                                    Text("Reply").font(.caption2)
+                                }
+                            }
+                            .foregroundStyle(.white)
+                        }
+                        Button(role: .destructive, action: onNotInterested) {
+                            Image(systemName: "hand.thumbsdown").font(.title3)
+                        }
+                        .foregroundStyle(.white.opacity(0.85))
+                        .accessibilityLabel("Not interested")
+                    }
+                }
+                .padding(.horizontal, FFTheme.Space.md)
+                .padding(.bottom, FFTheme.Space.xxl)
             }
-            .font(.caption).buttonStyle(.plain)
         }
-        .padding(.vertical, 6)
+        .clipped()
+    }
+
+    private func actionButton(systemImage: String, count: Int, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 3) {
+                Image(systemName: systemImage).font(.title2)
+                Text("\(count)").font(.caption2)
+            }
+        }
+        .foregroundStyle(tint)
     }
 }
 

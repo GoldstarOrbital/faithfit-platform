@@ -34,31 +34,29 @@ struct StoriesRail: View {
                 }
                 .onTapGesture { showComposer = true }
 
-                ForEach(byAuthor, id: \.authorID) { group in
-                    VStack(spacing: 4) {
-                        let allViewed = group.stories.allSatisfy(\.isViewed)
-                        Circle()
-                            .strokeBorder(allViewed ? Color.secondary.opacity(0.4) : FFTheme.hearth, lineWidth: 2)
-                            .frame(width: 60, height: 60)
-                            .overlay(Text(initials(group.authorName)).font(.headline))
-                        Text(group.authorName).font(.caption2).lineLimit(1).frame(maxWidth: 66)
+                // A failed load replaces the rail inline, matching its own
+                // ring size and rhythm, instead of overlaying a text+button
+                // row on top of it -- the previous version could visually
+                // collide with whatever rings were still showing underneath.
+                if let loadError {
+                    retryRing(loadError)
+                } else {
+                    ForEach(byAuthor, id: \.authorID) { group in
+                        VStack(spacing: 4) {
+                            let allViewed = group.stories.allSatisfy(\.isViewed)
+                            Circle()
+                                .strokeBorder(allViewed ? Color.secondary.opacity(0.4) : FFTheme.hearth, lineWidth: 2)
+                                .frame(width: 60, height: 60)
+                                .overlay(Text(initials(group.authorName)).font(.headline))
+                            Text(group.authorName).font(.caption2).lineLimit(1).frame(maxWidth: 66)
+                        }
+                        .onTapGesture { viewingAuthor = group.authorID }
                     }
-                    .onTapGesture { viewingAuthor = group.authorID }
                 }
             }
             .padding(.horizontal)
         }
         .task { await load() }
-        .overlay(alignment: .bottom) {
-            if let loadError {
-                HStack(spacing: 8) {
-                    Text(loadError).font(.caption).foregroundStyle(.secondary)
-                    Button("Try again") { Task { await load() } }
-                        .buttonStyle(.ffGhost)
-                }
-                .padding(.horizontal)
-            }
-        }
         .sheet(isPresented: $showComposer) {
             NavigationStack { StoryComposerView { Task { await load() } } }
         }
@@ -67,6 +65,21 @@ struct StoriesRail: View {
                 StoryViewerView(stories: group.stories) { viewingAuthor = nil; Task { await load() } }
             }
         }
+    }
+
+    private func retryRing(_ message: String) -> some View {
+        Button { Task { await load() } } label: {
+            VStack(spacing: 4) {
+                ZStack {
+                    Circle().strokeBorder(FFTheme.hearth, lineWidth: 1.5).frame(width: 60, height: 60)
+                    Image(systemName: "arrow.clockwise").font(.title3).foregroundStyle(FFTheme.hearth)
+                }
+                Text("Retry").font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(message)
+        .accessibilityHint("Double tap to try loading moments again")
     }
 
     private func load() async {

@@ -96,12 +96,16 @@ private extension View {
             ToolbarItem(placement: .topBarLeading) {
                 Image("BrandMark")
                     .resizable()
+                    // Measured: the source PNG's opaque content already
+                    // fills ~99% of its canvas (a parchment roundel behind
+                    // the cross monogram, not padding around it) -- an
+                    // earlier fix here assumed padding that isn't there and
+                    // zoomed past real artwork instead. Native 1:1 fill,
+                    // clipped to a circle, is the correct crop. 30pt keeps
+                    // real margin inside a 44pt nav bar instead of nearly
+                    // filling it.
                     .aspectRatio(contentMode: .fill)
-                    // The source asset has parchment padding baked around the
-                    // mark itself -- scale past it before clipping so the
-                    // circle shows the mark, not a square of that padding.
-                    .frame(width: 58, height: 58)
-                    .frame(width: 42, height: 42)
+                    .frame(width: 30, height: 30)
                     .clipShape(Circle())
                     .accessibilityLabel("Functioning Faith")
             }
