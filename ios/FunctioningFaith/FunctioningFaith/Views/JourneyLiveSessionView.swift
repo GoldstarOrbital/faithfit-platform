@@ -19,6 +19,9 @@ struct JourneyLiveSessionView: View {
     @State private var recordedWaypointIDs: Set<String> = []
     @State private var lastBoundaryAt: Date?
     @State private var lastSegmentResult: SegmentCompletionResult?
+    @State private var ghosts: [JourneyGhost] = []
+    @State private var liveHeartRate: Double?
+    @State private var lastHeartRateCheck: Date?
 
     init(journeyKey: String, journeyName: String, onEnd: @escaping () -> Void) {
         self.journeyKey = journeyKey
@@ -37,6 +40,8 @@ struct JourneyLiveSessionView: View {
             Text("this session").font(.caption).foregroundStyle(.secondary)
 
             Text(elapsedLabel).font(.title2.monospacedDigit()).foregroundStyle(.secondary)
+
+            liveEffortCard
 
             statusView
 
@@ -106,14 +111,87 @@ struct JourneyLiveSessionView: View {
         return String(format: "%02d:%02d", minutes, seconds)
     }
 
+    @ViewBuilder
+    private var liveEffortCard: some View {
+        VStack(alignment: .leading, spacing: FFTheme.Space.xs) {
+            Text("Live effort").font(FFTheme.section())
+            HStack(spacing: FFTheme.Space.lg) {
+                Label(speedLabel, systemImage: "speedometer")
+                if let liveHeartRate {
+                    Label("\(Int(liveHeartRate.rounded())) bpm", systemImage: "heart.fill")
+                        .foregroundStyle(FFTheme.seal)
+                } else {
+                    Label("Heart rate unavailable", systemImage: "heart.slash")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.subheadline.weight(.semibold))
+            if let comparisonLabel {
+                Label(comparisonLabel.text, systemImage: comparisonLabel.systemImage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(comparisonLabel.isAhead ? FFTheme.emerald : FFTheme.hearth)
+            } else {
+                Text("Complete this route once to compare live effort against your own recorded best.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(FFTheme.Space.md)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Live effort. \(speedLabel). \(liveHeartRate.map { "\(Int($0.rounded())) beats per minute" } ?? "Heart rate unavailable"). \(comparisonLabel?.text ?? "No previous route comparison")")
+    }
+
+    private var speedLabel: String {
+        guard let speed = tracker.currentSpeedKmh else { return "Pace locating…" }
+        return String(format: "%.1f km/h", speed)
+    }
+
+    private var comparisonLabel: (text: String, systemImage: String, isAhead: Bool)? {
+        guard let ghost = ghosts.first(where: { $0.isSelf == true }),
+              let progress = tracker.latestProgress,
+              progress.percent > 0 else { return nil }
+        let targetSeconds = ghost.totalSec * Double(progress.percent) / 100
+        let delta = elapsed - targetSeconds
+        let seconds = Int(abs(delta).rounded())
+        let time = String(format: "%d:%02d", seconds / 60, seconds % 60)
+        return delta <= 0
+            ? ("\(time) ahead of your recorded route", "arrow.up.right", true)
+            : ("\(time) behind your recorded route", "arrow.down.right", false)
+    }
+
     private func startSession() {
         startedAt = .now
         lastBoundaryAt = .now
         tracker.start()
-        Task { segments = (try? await APIClient.shared.fetchJourneySegments(key: journeyKey)) ?? [] }
+        Task {
+            async let segmentLoad = APIClient.shared.fetchJourneySegments(key: journeyKey)
+            async let ghostLoad = APIClient.shared.fetchJourneyGhosts(key: journeyKey)
+            do {
+                let (loadedSegments, loadedGhosts) = try await (segmentLoad, ghostLoad)
+                guard !Task.isCancelled else { return }
+                segments = loadedSegments
+                ghosts = loadedGhosts.ghosts
+            } catch {
+                guard !Task.isCancelled else { return }
+                tracker.setPresentationError("Live route comparison is temporarily unavailable. GPS progress will keep recording.")
+            }
+        }
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
             elapsed = Date.now.timeIntervalSince(startedAt ?? .now)
             checkForCompletedSegments()
+            refreshHeartRateIfNeeded()
+        }
+    }
+
+    private func refreshHeartRateIfNeeded() {
+        guard lastHeartRateCheck == nil || Date.now.timeIntervalSince(lastHeartRateCheck!) >= 30 else { return }
+        lastHeartRateCheck = .now
+        Task {
+            guard let samples = try? await HealthKitManager.shared.recentHeartRateSamples(limit: 1),
+                  let latest = samples.last,
+                  !Task.isCancelled else { return }
+            liveHeartRate = latest
         }
     }
 

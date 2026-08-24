@@ -31,6 +31,9 @@ final class JourneyLiveTracker: NSObject, ObservableObject, CLLocationManagerDel
     // its own results and the view reads them directly off it instead.
     @Published private(set) var latestProgress: JourneyProgressResult?
     @Published private(set) var justCrossed: [CrossedWaypoint] = []
+    /// Instantaneous speed from Core Location, only when the system marks it
+    /// valid. This is intentionally not derived from noisy distance deltas.
+    @Published private(set) var currentSpeedKmh: Double?
 
     private let manager = CLLocationManager()
     private var lastLocation: CLLocation?
@@ -64,12 +67,19 @@ final class JourneyLiveTracker: NSObject, ObservableObject, CLLocationManagerDel
         flushTimer?.invalidate()
         flushTimer = nil
         lastLocation = nil
+        currentSpeedKmh = nil
     }
 
     /// Sends any accumulated-but-unsent distance immediately -- call this
     /// when the session ends, not just on the timer, so the last few meters
     /// before stopping aren't silently dropped.
     func flushNow() async { await flush() }
+
+    /// UI-only errors (for example optional comparison data) should be shown
+    /// without interrupting GPS distance capture or changing pending progress.
+    func setPresentationError(_ message: String) {
+        lastError = message
+    }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorization = manager.authorizationStatus
@@ -78,6 +88,9 @@ final class JourneyLiveTracker: NSObject, ObservableObject, CLLocationManagerDel
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         for location in locations where location.horizontalAccuracy >= 0 && location.horizontalAccuracy <= 50 {
+            if location.speed >= 0 {
+                currentSpeedKmh = location.speed * 3.6
+            }
             if let last = lastLocation {
                 let deltaMeters = location.distance(from: last)
                 // A GPS jump under poor signal can register as tens of
