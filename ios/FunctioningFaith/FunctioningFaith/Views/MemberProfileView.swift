@@ -168,7 +168,7 @@ struct MemberProfileView: View {
     }
 }
 
-private struct MemberConversationDestination: Identifiable {
+private struct MemberConversationDestination: Identifiable, Hashable {
     let threadID: String
     let userID: UUID
     let name: String
