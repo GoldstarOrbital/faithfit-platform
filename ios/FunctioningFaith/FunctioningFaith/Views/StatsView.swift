@@ -24,6 +24,9 @@ struct StatsView: View {
                         NavigationLink { AthleteIntelligenceView() } label: {
                             Label("Athlete Intelligence", systemImage: "chart.line.uptrend.xyaxis")
                         }
+                        NavigationLink { HeatmapView() } label: {
+                            Label("Route heatmap", systemImage: "map.fill")
+                        }
                     }
                     .listRowBackground(FFTheme.parchment1)
                     streakSection(summary)

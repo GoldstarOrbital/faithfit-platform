@@ -321,6 +321,11 @@ final class APIClient {
         return try await request("/api/workouts/\(id.uuidString.lowercased())/beacon", method: "POST", body: WorkoutBeaconBody(recipientID: recipientID.uuidString.lowercased(), latitude: latitude, longitude: longitude, accuracyM: accuracyM))
     }
 
+    func fetchHeatmap(community: Bool = false) async throws -> WorkoutHeatmap {
+        if useMock { return WorkoutHeatmap(scope: community ? "community" : "personal", cells: [], privacy: "Preview") }
+        return try await request("/api/heatmap?scope=\(community ? "community" : "personal")")
+    }
+
     func fetchWeeklyRecap() async throws -> WeeklyRecap {
         if useMock {
             return WeeklyRecap(workouts: 3, distanceKm: 12.4, minutes: 94, activeDays: 3, posts: 1, kudos: 4, replies: 2, focus: "Run", shareText: "This week I showed up for 3 workouts, 12.4 km.")

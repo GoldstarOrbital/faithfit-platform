@@ -1438,6 +1438,8 @@ struct AthleteTrainingEntry: Decodable, Identifiable {
 struct AthleteFitness: Decodable { let ctl: Double; let atl: Double; let form: Double; let label: String; let disclaimer: String }
 struct AthleteBestEffort: Decodable { let workoutID: String; let paceMinPerKm: Double; let distanceKm: Double; enum CodingKeys: String, CodingKey { case workoutID="workout_id"; case paceMinPerKm="pace_min_per_km"; case distanceKm="distance_km" } }
 struct BeaconResult: Decodable { let ok: Bool; let expiresAt: String; enum CodingKeys: String, CodingKey { case ok; case expiresAt="expires_at" } }
+struct WorkoutHeatmap: Decodable { let scope: String; let cells: [HeatmapCell]; let privacy: String }
+struct HeatmapCell: Decodable, Identifiable { let latitude: Double; let longitude: Double; let count: Int; var id: String { "\(latitude),\(longitude)" } }
 
 // ---- Christian news: real headlines from each outlet's public RSS feed,
 // summary only, never the full copyrighted article -- see lib/news.js. ----
