@@ -1,5 +1,8 @@
 import SwiftUI
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// A short-form feed that warms the next visuals before the member reaches
 /// them. Native uploads are already returned with their compact data payload;
@@ -97,6 +100,9 @@ struct ReelsFeedView: View {
                 guard !Task.isCancelled else { return }
                 if kind == "like" { reels[idx] = reels[idx].withLike(active: result.active, count: result.count) }
                 else { reels[idx] = reels[idx].withSave(active: result.active, count: result.count) }
+                #if canImport(UIKit)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                #endif
             } catch { errorMessage = error.localizedDescription }
         }
     }

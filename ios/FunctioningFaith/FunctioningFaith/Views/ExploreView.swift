@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Explore hub — mirrors web `renderExplore` / `renderExploreIndex` surface area:
 /// reels, journeys, recruiting, people, challenges, groups, quests, and Discover links
@@ -302,6 +305,9 @@ struct ExploreView: View {
                 let response = try await APIClient.shared.followUser(id: user.id)
                 guard let index = suggestions.firstIndex(where: { $0.id == user.id }) else { return }
                 suggestions[index].isFollowing = response.following
+                #if canImport(UIKit)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                #endif
             } catch { actionError = error.localizedDescription }
         }
     }
