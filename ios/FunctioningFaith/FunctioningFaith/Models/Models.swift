@@ -1443,6 +1443,7 @@ struct RacePredictionEntry: Decodable, Identifiable { let distanceKm: Double; le
 struct BeaconResult: Decodable { let ok: Bool; let expiresAt: String; enum CodingKeys: String, CodingKey { case ok; case expiresAt="expires_at" } }
 struct WorkoutHeatmap: Decodable { let scope: String; let cells: [HeatmapCell]; let privacy: String }
 struct HeatmapCell: Decodable, Identifiable { let latitude: Double; let longitude: Double; let count: Int; var id: String { "\(latitude),\(longitude)" } }
+struct SavedRouteResult: Decodable { let id: String; let distanceKm: Double; enum CodingKeys: String, CodingKey { case id; case distanceKm = "distance_km" } }
 
 // ---- Christian news: real headlines from each outlet's public RSS feed,
 // summary only, never the full copyrighted article -- see lib/news.js. ----

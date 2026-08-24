@@ -326,6 +326,11 @@ final class APIClient {
         return try await request("/api/heatmap?scope=\(community ? "community" : "personal")")
     }
 
+    func saveRoute(name: String, activityType: String, path: [[Double]]) async throws -> SavedRouteResult {
+        if useMock { return SavedRouteResult(id: UUID().uuidString, distanceKm: 0) }
+        return try await request("/api/routes", method: "POST", body: SaveRouteBody(name: name, activityType: activityType, path: path))
+    }
+
     func fetchWeeklyRecap() async throws -> WeeklyRecap {
         if useMock {
             return WeeklyRecap(workouts: 3, distanceKm: 12.4, minutes: 94, activeDays: 3, posts: 1, kudos: 4, replies: 2, focus: "Run", shareText: "This week I showed up for 3 workouts, 12.4 km.")
@@ -1380,6 +1385,12 @@ private struct WorkoutStart: Encodable { let type: String }
 private struct WorkoutBeaconBody: Encodable {
     let recipientID: String; let latitude: Double; let longitude: Double; let accuracyM: Double?
     enum CodingKeys: String, CodingKey { case recipientID = "recipient_id"; case latitude, longitude; case accuracyM = "accuracy_m" }
+}
+private struct SaveRouteBody: Encodable {
+    let name: String
+    let activityType: String
+    let path: [[Double]]
+    enum CodingKeys: String, CodingKey { case name, path; case activityType = "activity_type" }
 }
 private struct ManualWorkoutBody: Encodable {
     let type: String
