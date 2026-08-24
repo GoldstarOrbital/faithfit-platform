@@ -16,7 +16,15 @@ struct BeaconSafetyView: View {
                 Section { Text("Share your live workout location with people you choose. It expires automatically after four hours and is never public.").font(.subheadline) }
                 Section("Trusted people") {
                     if candidates.isEmpty { ContentUnavailableView("No trusted people yet", systemImage:"person.2", description:Text("Add a follower to your trusted circle in Safety settings first.")) }
-                    ForEach(candidates) { person in Toggle(person.displayName, isOn: Binding(get:{selected.contains(person.userID)},set:{ $0 ? selected.insert(person.userID) : selected.remove(person.userID) })) }
+                    ForEach(candidates) { person in
+                        Toggle(person.displayName, isOn: Binding(
+                            get: { selected.contains(person.userID) },
+                            set: { isOn in
+                                if isOn { selected.insert(person.userID) }
+                                else { selected.remove(person.userID) }
+                            }
+                        ))
+                    }
                 }
                 if !status.isEmpty { Section { Text(status).font(.caption).foregroundStyle(.secondary) } }
             }.navigationTitle("Safety Beacon").toolbar { ToolbarItem(placement:.confirmationAction) { Button("Share") { Task { await share() } }.disabled(selected.isEmpty || location == nil) }; ToolbarItem(placement:.cancellationAction) { Button("Done") { dismiss() } } }.task { candidates = (try? await APIClient.shared.fetchCircleCandidates()) ?? [] }

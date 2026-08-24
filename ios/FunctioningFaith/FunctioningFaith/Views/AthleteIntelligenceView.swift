@@ -19,9 +19,7 @@ struct AthleteIntelligenceView: View {
                         if data.trainingLog.isEmpty { ContentUnavailableView("No completed workouts", systemImage:"figure.run") }
                         else {
                             Chart(data.trainingLog.reversed()) { BarMark(x:.value("Workout", $0.endTime.prefix(10)), y:.value("Effort",$0.relativeEffort)).foregroundStyle(FFTheme.emerald) }.frame(height:170)
-                            ForEach(data.trainingLog) { entry in
-                                HStack { VStack(alignment:.leading){ Text(entry.type).font(.headline); Text(entry.endTime.prefix(10)).font(.caption).foregroundStyle(.secondary) }; Spacer(); VStack(alignment:.trailing){ Text("\(entry.relativeEffort) RE").font(.headline); if let pace=entry.paceMinPerKm { Text(String(format:"%.2f min/km",pace)).font(.caption).foregroundStyle(.secondary) } } }
-                            }
+                            ForEach(data.trainingLog) { entry in trainingRow(entry) }
                         }
                     }
                     Section("Best efforts") {
@@ -40,6 +38,19 @@ struct AthleteIntelligenceView: View {
         }.navigationTitle("Athlete Intelligence").task { await load() }
     }
     private func tile(_ title:String,_ value:String)->some View { VStack { Text(value).font(.title3.bold()); Text(title).font(.caption2).foregroundStyle(.secondary) }.frame(maxWidth:.infinity) }
+    private func trainingRow(_ entry: AthleteTrainingEntry) -> some View {
+        HStack {
+            VStack(alignment: .leading) {
+                Text(entry.type).font(.headline)
+                Text(entry.endTime.prefix(10)).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            VStack(alignment: .trailing) {
+                Text("\(entry.relativeEffort) RE").font(.headline)
+                if let pace = entry.paceMinPerKm { Text(String(format: "%.2f min/km", pace)).font(.caption).foregroundStyle(.secondary) }
+            }
+        }
+    }
     private func time(_ seconds: Int) -> String { "\(seconds / 60):\(String(format: "%02d", seconds % 60))" }
     private func load() async { do { data=try await APIClient.shared.fetchAthleteIntelligence() } catch { self.error=error.localizedDescription } }
 }
