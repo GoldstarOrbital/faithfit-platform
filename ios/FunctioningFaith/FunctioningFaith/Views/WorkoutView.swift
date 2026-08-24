@@ -35,6 +35,7 @@ struct WorkoutView: View {
     @State private var errorMessage: String?
     @State private var completedWorkout: WorkoutCompletion?
     @State private var completedSportMetrics: [String: Double] = [:]
+    @State private var completedRoute: [[Double]] = []
     @State private var showWearables = false
     @State private var showBeacon = false
     @State private var manualMinutes = "30"
@@ -108,6 +109,7 @@ struct WorkoutView: View {
                 activityType: selectedType,
                 verse: workoutVerse ?? WorkoutView.completionVerse,
                 sportMetrics: completedSportMetrics,
+                route: completedRoute,
                 healthConnected: HealthKitManager.shared.authorizationRequested
             )
         }
@@ -367,6 +369,7 @@ struct WorkoutView: View {
                     let completion = try await APIClient.shared.stopWorkout(id: id, gpsPoints: route, gpsDistanceKm: distance, sportMetrics: sportMetrics)
                     await MainActor.run {
                         completedSportMetrics = sportMetrics
+                        completedRoute = route
                         completedWorkout = completion
                     }
                     recent = (try? await APIClient.shared.fetchWorkouts()) ?? recent
@@ -489,7 +492,10 @@ struct PostWorkoutSummaryView: View {
     let activityType: String
     let verse: VerseSnippet
     let sportMetrics: [String: Double]
+    let route: [[Double]]
     let healthConnected: Bool
+    @State private var routeName = ""
+    @State private var routeSaveStatus: String?
 
     private var distanceText: String? {
         guard let distance = completion.distanceKm, distance > 0 else { return nil }
@@ -547,6 +553,18 @@ struct PostWorkoutSummaryView: View {
                         }
                     }
 
+                    if route.count > 1 {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Save this route", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                                .font(.headline).foregroundStyle(FFTheme.seal)
+                            Text("Keep this real GPS route for a future session.").font(.caption).foregroundStyle(FFTheme.inkSoft)
+                            TextField("Route name", text: $routeName).textFieldStyle(.roundedBorder)
+                            Button("Save route") { Task { await saveCompletedRoute() } }.buttonStyle(.ffPrimary)
+                            if let routeSaveStatus { Text(routeSaveStatus).font(.caption).foregroundStyle(.secondary) }
+                        }
+                        .padding(14).background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    }
+
                     VStack(alignment: .leading, spacing: 7) {
                         Label(healthConnected ? "Apple Health insight" : "Apple Health", systemImage: "heart.text.square.fill")
                             .font(.headline).foregroundStyle(FFTheme.seal)
@@ -582,6 +600,15 @@ struct PostWorkoutSummaryView: View {
         }
         .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading).padding(12)
         .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func saveCompletedRoute() async {
+        let name = routeName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { routeSaveStatus = "Give this route a name first."; return }
+        do {
+            let saved = try await APIClient.shared.saveRoute(name: name, activityType: activityType, path: route)
+            routeSaveStatus = String(format: "Saved %.2f km route.", saved.distanceKm)
+        } catch { routeSaveStatus = error.localizedDescription }
     }
 }
 
