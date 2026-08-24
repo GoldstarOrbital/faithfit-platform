@@ -63,8 +63,8 @@
   // Picks the most natural-sounding voice actually available, rather than
   // whatever the browser defaults to (frequently the flattest, most robotic
   // option in the list). Ranked by real naming signals from the platforms
-  // that ship these: "Natural"/"Neural"/"Enhanced"/"Premium" mark the newer
-  // neural voices on Edge, Chrome, and Windows; Apple's "Enhanced"/"Premium"
+  // that ship these: "Natural"/"Neural"/"Enhanced" mark newer neural voices
+  // on Edge, Chrome, Windows, and Apple platforms; their labels vary by OS.
   // voices on macOS/iOS carry the same distinction. Falls back to any local
   // (non-network) voice over a remote one -- local voices are consistently
   // better-sounding defaults across browsers -- and only then to whatever is
@@ -77,7 +77,7 @@
     function score(v) {
       var name = v.name || '';
       if (/natural|neural/i.test(name)) return 3;
-      if (/enhanced|premium/i.test(name)) return 2;
+      if (/enhanced/i.test(name)) return 2;
       if (v.localService) return 1;
       return 0;
     }

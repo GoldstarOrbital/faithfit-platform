@@ -504,7 +504,7 @@ CREATE TABLE IF NOT EXISTS user_challenges (
 );
 `);
 
-// --- premium progress layer: custom goals + training log ------------------
+// --- training progress layer: custom goals + training log -----------------
 db.exec(`
 CREATE TABLE IF NOT EXISTS training_goals (
   id TEXT PRIMARY KEY,

@@ -1412,7 +1412,7 @@ function recoveryCardHtml(data) {
   const tl = data.training_load, wr = data.wearable;
   const bandCopy = { sustainable: '✅ Sustainable', undertrained: '📉 Lighter load', 'spike-risk': '⚠️ Sharp increase' };
   return `<div class="card glass">
-    <div class="premium-card-head"><div><div class="stats-period-head">Recovery</div><div class="muted">Training load from your own history, plus your wearable if it's connected.</div></div><span class="premium-badge">RECOVERY</span></div>
+    <div class="progress-card-head"><div><div class="stats-period-head">Recovery</div><div class="muted">Training load from your own history, plus your wearable if it's connected.</div></div><span class="status-badge">RECOVERY</span></div>
     ${tl.available ? `
       <div class="stat-tiles">
         <div class="stat-tile"><div class="stat-tile-v">${tl.ratio}</div><div class="stat-tile-l">7d : 28d load</div></div>
@@ -1454,7 +1454,7 @@ async function renderStats(main) {
   main.innerHTML = `
     <h2>Your Stats</h2>
     <div class="card glass weekly-recap-card">
-      <div class="premium-card-head"><div><div class="stats-period-head">Your week in motion</div><div class="muted">A private recap of the last seven days.</div></div><span class="premium-badge">RECAP</span></div>
+      <div class="progress-card-head"><div><div class="stats-period-head">Your week in motion</div><div class="muted">A private recap of the last seven days.</div></div><span class="status-badge">RECAP</span></div>
       <div class="recap-grid"><div><b>${weeklyRecap.workouts}</b><span>workouts</span></div><div><b>${weeklyRecap.distance_km}</b><span>km</span></div><div><b>${weeklyRecap.minutes}</b><span>minutes</span></div><div><b>${weeklyRecap.active_days}</b><span>active days</span></div></div>
       <p class="recap-copy">${weeklyRecap.kudos || weeklyRecap.replies ? `Your community sent ${weeklyRecap.kudos} kudos and ${weeklyRecap.replies} repl${weeklyRecap.replies === 1 ? 'y' : 'ies'} this week.` : 'Your next small step is welcome here.'}</p>
       <div class="recap-actions"><button class="ghost" id="share-weekly-recap" type="button">Share recap</button><span id="weekly-recap-status" class="muted" aria-live="polite"></span></div>
@@ -1480,8 +1480,8 @@ async function renderStats(main) {
       ${barChart(trends, 'distance_km')}
     </div>
 
-    <div class="card glass premium-progress-card">
-      <div class="premium-card-head"><div><div class="stats-period-head">Progress lab</div><div class="muted">Your last 28 days, translated into momentum.</div></div><span class="premium-badge">PROGRESS</span></div>
+    <div class="card glass progress-card">
+      <div class="progress-card-head"><div><div class="stats-period-head">Progress lab</div><div class="muted">Your last 28 days, translated into momentum.</div></div><span class="status-badge">PROGRESS</span></div>
       <div class="load-grid">
         <div><b>${performance.load7}</b><span>7-day load</span></div>
         <div><b>${performance.freshness}</b><span>freshness</span></div>
@@ -1493,7 +1493,7 @@ async function renderStats(main) {
     </div>
 
     <div class="card glass goals-card">
-      <div class="premium-card-head"><div><div class="stats-period-head">Custom goals</div><div class="muted">Weekly, monthly, or annual targets.</div></div><button class="ghost" id="goal-new">＋ Goal</button></div>
+      <div class="progress-card-head"><div><div class="stats-period-head">Custom goals</div><div class="muted">Weekly, monthly, or annual targets.</div></div><button class="ghost" id="goal-new">＋ Goal</button></div>
       ${goals.length ? goals.map(g => `<div class="goal-row"><div class="goal-row-head"><strong>${escapeHtml(g.title)}</strong><button class="icon-btn" data-goal-delete="${g.id}" aria-label="Delete goal">×</button></div><div class="goal-row-meta"><span>${g.progress} / ${g.target} ${goalUnit(g.metric)}</span><span>${g.period}${g.activity_type ? ' · ' + escapeHtml(g.activity_type) : ''}</span></div><div class="challenge-track"><span style="width:${g.percent}%"></span></div></div>`).join('') : '<p class="muted">Set a target that gives your next month a little shape.</p>'}
       <form id="goal-form" class="goal-form" hidden>
         <input class="input" id="goal-title" maxlength="80" placeholder="e.g. Run with patience" required>
@@ -2939,7 +2939,7 @@ async function renderProfile(main) {
       <div class="badge-row">
         ${me.badges.length ? me.badges.map(b => `<span class="badge-pill">${b.icon} ${b.name}</span>`).join('') : '<span class="muted">No badges yet — complete a workout!</span>'}
       </div>
-      <div class="accomplishments-head"><div><h3>Accomplishments</h3><div class="muted">Every milestone, earned or still ahead.</div></div><span id="badge-count" class="premium-badge">Loading</span></div>
+    <div class="accomplishments-head"><div><h3>Accomplishments</h3><div class="muted">Every milestone, earned or still ahead.</div></div><span id="badge-count" class="status-badge">Loading</span></div>
       <div id="badge-shelf" class="badge-shelf"><span class="muted">Loading accomplishments…</span></div>
       <button class="ghost" id="saved-posts-open" style="width:100%;margin-top:12px">🔖 View saved posts</button>
       <button class="ghost" id="saved-verses-open" style="width:100%;margin-top:8px">📖 View saved Scripture</button>
@@ -5805,7 +5805,7 @@ async function renderJourneyDetail(key) {
   ).join('');
 
   const segmentPanel = segmentData.segments && segmentData.segments.length
-    ? '<div class="card glass segment-panel"><div class="premium-card-head"><div><div class="stats-period-head">Live segments</div><div class="muted">Race your best effort and the road leaderboard.</div></div><span class="premium-badge">RACE DAY</span></div>'
+    ? '<div class="card glass segment-panel"><div class="progress-card-head"><div><div class="stats-period-head">Live segments</div><div class="muted">Race your best effort and the road leaderboard.</div></div><span class="status-badge">RACE DAY</span></div>'
       + segmentData.segments.map(s => '<div class="segment-row"><div class="segment-row-head"><strong>' + escapeHtml(s.from) + ' → ' + escapeHtml(s.to) + '</strong><span>' + fmtKm(s.to_km - s.from_km) + ' km</span></div>'
         + '<div class="segment-row-meta">' + (s.your_best_sec ? 'Your best ' + Math.floor(s.your_best_sec / 60) + ':' + String(Math.round(s.your_best_sec % 60)).padStart(2, '0') : 'No personal time yet') + '</div>'
         + (s.leaderboard && s.leaderboard.length ? '<div class="segment-mini-board">' + s.leaderboard.slice(0, 3).map(r => '<span><b>#' + r.position + '</b> ' + escapeHtml(r.display_name) + ' · ' + Math.floor(r.best_sec / 60) + ':' + String(r.best_sec % 60).padStart(2, '0') + '</span>').join('') + '</div>' : '<div class="muted" style="font-size:.7rem">Be the first rider on this segment.</div>')

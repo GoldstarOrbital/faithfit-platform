@@ -20,7 +20,7 @@
  *      wearables integration shipped and was never read back out anywhere
  *      until now.
  *
- * Where Strava's recovery features sit behind a Premium paywall and (for
+ * Recovery features are available to every Functioning Faith member and (for
  * "Training Load") require a connected wearable to mean anything at all,
  * ACWR here works from workout history alone, for free, for everyone -- the
  * wearable panel is additive when connected, not a precondition to seeing

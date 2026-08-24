@@ -864,9 +864,9 @@ h2 { font-family: inherit; font-size: 1.22rem; font-weight: 750; letter-spacing:
 .journey-flavor, .journey-wp-narrative { font-family: inherit; font-size: .88rem; }
 .suggest-item, .foryou-item, .stat-tile { border-radius: 15px; border-color: rgba(74,58,40,.13); }
 .suggest-item:hover { box-shadow: 0 10px 20px rgba(70,192,127,.14); }
-.premium-progress-card { background: linear-gradient(145deg, rgba(248,242,225,.96), rgba(235,225,199,.74)); }
-.premium-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
-.premium-badge { flex:none; border:1px solid rgba(169,129,47,.42); border-radius:999px; padding:5px 8px; color:var(--walnut); font-size:.58rem; font-weight:850; letter-spacing:.1em; }
+.progress-card { background: linear-gradient(145deg, rgba(248,242,225,.96), rgba(235,225,199,.74)); }
+.progress-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.status-badge { flex:none; border:1px solid rgba(169,129,47,.42); border-radius:999px; padding:5px 8px; color:var(--walnut); font-size:.58rem; font-weight:850; letter-spacing:.1em; }
 .load-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin:15px 0 14px; }
 .load-grid > div { padding:10px 8px; border:1px solid rgba(74,58,40,.1); border-radius:14px; background:rgba(255,250,235,.58); text-align:center; }
 .load-grid b { display:block; color:var(--forest); font-size:1.18rem; letter-spacing:-.04em; }
@@ -1200,7 +1200,7 @@ nav.tabbar button { border-radius: var(--radius-round); }
 nav.tabbar button.active { background: rgba(123,168,79,.18); }
 
 /* Section chips and pills, rounded off. */
-.section-tabs button, .chip, .badge, .premium-badge, .journey-world { border-radius: var(--radius-round); }
+.section-tabs button, .chip, .badge, .status-badge, .journey-world { border-radius: var(--radius-round); }
 
 /* Verse cards: a page from something kept on a shelf, not a UI panel. */
 .verse-card {
@@ -2232,7 +2232,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 /* Small, earned-feeling feedback for real states: completed, saved, and
    active—not random prompts or infinite reward loops. */
-.badge, .premium-badge, .reel-original-badge { box-shadow:0 2px 8px rgba(51,37,26,.10); }
+.badge, .status-badge, .reel-original-badge { box-shadow:0 2px 8px rgba(51,37,26,.10); }
 .action-btn.liked { color:var(--berry); }
 .action-btn.saved { color:#397a57; background:var(--mint-soft); border-radius:999px; padding-inline:9px; }
 .stat-tile { position:relative; overflow:hidden; background:linear-gradient(155deg,rgba(255,255,255,.78),var(--parch-2)); }
