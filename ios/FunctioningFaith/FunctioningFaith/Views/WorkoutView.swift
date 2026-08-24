@@ -178,7 +178,7 @@ struct WorkoutView: View {
                 HStack(spacing: 10) {
                     if let cadence = bluetooth.cadenceRPM { Label("\(cadence) rpm", systemImage: "gauge.with.dots.needle.50percent") }
                     if let power = bluetooth.cyclingPowerWatts { Label("\(power) W", systemImage: "bolt.fill") }
-                    if let speed = bluetooth.speedKmh { Label(String(format: "%.1f km/h", speed), systemImage: "speedometer") }
+                    if let speed = bluetooth.speedKmh { Label(String(format: "%.1f km/h", speed), systemImage: "gauge.with.dots.needle.50percent") }
                 }
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(FFTheme.inkSoft)
