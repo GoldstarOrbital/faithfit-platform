@@ -20,3 +20,9 @@ is considered verified.
 - `node --check webapp/routes/api.js` passed.
 - Swift compilation is intentionally deferred to macOS CI / Codemagic, because
   this Windows workspace has no local iOS compiler.
+
+## Batch 2 — release pipeline trigger
+
+| Finding | Location | Resolution |
+| --- | --- | --- |
+| The signed TestFlight workflow could be started manually but had no `main` push trigger, so a native change could miss release verification. | `codemagic.yaml:ios-testflight` | Added an explicit `push` trigger limited to `main`; Codemagic remains the signing and TestFlight delivery path. |

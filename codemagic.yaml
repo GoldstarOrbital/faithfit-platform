@@ -3,6 +3,15 @@ workflows:
     name: iOS TestFlight release
     max_build_duration: 45
     instance_type: mac_mini_m2
+    # Every main-branch iOS change goes through the signed TestFlight pipeline;
+    # no manual archive is used as a substitute for release verification.
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
     inputs:
       submit_to_testflight:
         description: Upload this signed IPA to TestFlight after a successful build
