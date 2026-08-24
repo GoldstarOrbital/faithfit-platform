@@ -19,6 +19,9 @@ struct StoryViewerView: View {
     @State private var isSendingReply = false
     @State private var errorMessage: String?
     @State private var deletedIDs = Set<String>()
+    @State private var viewerStory: Story?
+    @State private var isExtending = false
+    @State private var extensionMessage: String?
 
     private var visibleStories: [Story] { stories.filter { !deletedIDs.contains($0.id) } }
     private var current: Story? { visibleStories.indices.contains(index) ? visibleStories[index] : nil }
@@ -56,6 +59,12 @@ struct StoryViewerView: View {
         .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
+        .alert("Moment extended", isPresented: Binding(get: { extensionMessage != nil }, set: { if !$0 { extensionMessage = nil } })) {
+            Button("OK", role: .cancel) { extensionMessage = nil }
+        } message: { Text(extensionMessage ?? "") }
+        .sheet(item: $viewerStory) { story in
+            NavigationStack { StoryViewersView(storyID: story.id, initialCount: story.viewCount ?? 0) }
+        }
     }
 
     private var progressBar: some View {
@@ -72,6 +81,16 @@ struct StoryViewerView: View {
             Text(story.author).font(.subheadline.weight(.semibold))
             Spacer()
             if story.userID == session.profile?.id.uuidString {
+                Button { viewerStory = story } label: {
+                    Label("\(story.viewCount ?? 0) views", systemImage: "person.2")
+                        .font(.caption.weight(.semibold)).foregroundStyle(.white)
+                }
+                Button { Task { await extend(story) } } label: {
+                    Image(systemName: isExtending ? "arrow.clockwise" : "calendar.badge.plus")
+                        .foregroundStyle(.white)
+                }
+                .disabled(isExtending)
+                .accessibilityLabel("Keep this moment for another 24 hours")
                 Button(role: .destructive) { Task { await delete(story) } } label: {
                     Image(systemName: "trash").foregroundStyle(.white)
                 }
@@ -162,5 +181,68 @@ struct StoryViewerView: View {
             deletedIDs.insert(story.id)
             if index >= visibleStories.count { onDismiss() }
         } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func extend(_ story: Story) async {
+        isExtending = true
+        do {
+            let result = try await APIClient.shared.extendStory(id: story.id)
+            extensionMessage = "Your moment will stay up for another \(result.extendedByHours) hours."
+        } catch { errorMessage = error.localizedDescription }
+        isExtending = false
+    }
+}
+
+private struct StoryViewersView: View {
+    let storyID: String
+    let initialCount: Int
+    @State private var query = ""
+    @State private var response: StoryViewersResponse?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Group {
+            if let response {
+                List {
+                    Section("\(response.viewCount) views") {
+                        if response.viewers.isEmpty {
+                            FFEmptyStateView(title: "No matching viewers", systemImage: "person.2", message: query.isEmpty ? "Nobody else has watched this moment yet." : "Try a different name.")
+                        } else {
+                            ForEach(response.viewers) { viewer in
+                                HStack {
+                                    Image(systemName: viewer.hasAvatar ? "person.crop.circle.fill" : "person.crop.circle")
+                                        .foregroundStyle(FFTheme.meadow)
+                                    VStack(alignment: .leading) {
+                                        Text(viewer.displayName)
+                                        Text(viewer.viewedAt.prefix(16)).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .listRowBackground(FFTheme.parchment1)
+                }
+                .ffListChrome()
+                .searchable(text: $query, prompt: "Search viewers")
+            } else if let errorMessage {
+                FFErrorStateView(message: errorMessage, onRetry: { Task { await load() } })
+            } else {
+                FFLoadingView(message: "Loading viewers…")
+            }
+        }
+        .navigationTitle("Viewed by")
+        .task(id: query) { await load() }
+    }
+
+    private func load() async {
+        do {
+            let loaded = try await APIClient.shared.fetchStoryViewers(id: storyID, query: query)
+            guard !Task.isCancelled else { return }
+            response = loaded
+            errorMessage = nil
+        } catch {
+            guard !Task.isCancelled else { return }
+            errorMessage = error.localizedDescription
+        }
     }
 }

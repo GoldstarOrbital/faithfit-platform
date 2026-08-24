@@ -43,3 +43,19 @@ is considered verified.
   button styles or literal brand `foregroundStyle` colors.
 - `npm --prefix webapp run verify:native-interactions` passed.
 - `node --check webapp/routes/api.js` and `git diff --check` passed.
+
+## Batch 4 — Moment ownership, viewers, and retention
+
+| Finding | Location | Resolution |
+| --- | --- | --- |
+| Moment creators could not see who watched their active Moment. | `webapp/routes/api.js`, `Views/StoryViewerView.swift` | Added a creator-only, searchable viewer list. It excludes the creator from the count and caps returned rows at 100. |
+| A creator could not deliberately retain a still-active Moment. | `webapp/routes/api.js`, `APIClient.swift`, `StoryViewerView.swift` | Added an authenticated owner-only extension that adds exactly 24 hours and cannot resurrect an expired Moment. |
+| The Moment viewer search could display an older request after a newer one. | `Views/StoryViewerView.swift` | Added cancellation guards before state updates. |
+| Moment cache verification was pinned to historic release version strings. | `webapp/scripts/verify-story-replies.js` | Validates versioned bundle and shell-cache behavior without accepting an unversioned asset. |
+
+### Verification
+
+- `npm --prefix webapp run verify:story-ownership` passed.
+- `npm --prefix webapp run verify:story-replies` passed.
+- `npm --prefix webapp run verify:native-interactions`, `node --check webapp/routes/api.js`, and `git diff --check` passed.
+- A fresh canonical SF Symbols comparison found 0 invalid literal symbols.

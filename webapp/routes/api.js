@@ -1975,6 +1975,10 @@ router.get('/stories', requireAuth, (req, res) => {
            s.visibility, s.created_at, s.expires_at, u.display_name author,
            CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS author_has_avatar,
            CASE WHEN sv.story_id IS NULL THEN 0 ELSE 1 END AS viewed,
+           CASE WHEN s.user_id = @me THEN (
+             SELECT COUNT(*) FROM story_views owner_views
+             WHERE owner_views.story_id = s.id AND owner_views.viewer_id != s.user_id
+           ) ELSE NULL END AS view_count,
            (SELECT COUNT(*) FROM story_reactions sr WHERE sr.story_id = s.id) AS reaction_count,
            (SELECT emoji FROM story_reactions mine WHERE mine.story_id = s.id AND mine.user_id = @me) AS my_reaction
       FROM stories s JOIN users u ON u.id = s.user_id
@@ -2015,6 +2019,37 @@ router.post('/stories/:id/view', requireAuth, (req, res) => {
   db.prepare('INSERT INTO story_views (story_id, viewer_id) VALUES (?, ?) ON CONFLICT(story_id, viewer_id) DO UPDATE SET viewed_at = datetime(\'now\')')
     .run(story.id, req.session.userId);
   res.json({ ok: true });
+});
+
+// Story analytics remain private to the poster. Viewer rows are intentionally
+// searchable by display name but never exposed to other members or public APIs.
+router.get('/stories/:id/viewers', requireAuth, (req, res) => {
+  const story = db.prepare('SELECT id, user_id FROM stories WHERE id = ? AND user_id = ?').get(req.params.id, req.session.userId);
+  if (!story) return res.status(404).json({ error: 'story_not_found' });
+  const query = String(req.query.q || '').trim().slice(0, 80).toLowerCase();
+  const term = `%${query.replace(/[\\%_]/g, '\\$&')}%`;
+  const viewers = db.prepare(`SELECT u.id AS user_id, u.display_name,
+      CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar,
+      sv.viewed_at
+    FROM story_views sv JOIN users u ON u.id = sv.viewer_id
+    WHERE sv.story_id = ? AND sv.viewer_id != ?
+      AND lower(u.display_name) LIKE ? ESCAPE '\\'
+    ORDER BY sv.viewed_at DESC LIMIT 100`).all(story.id, story.user_id, term);
+  const viewCount = db.prepare('SELECT COUNT(*) AS count FROM story_views WHERE story_id = ? AND viewer_id != ?')
+    .get(story.id, story.user_id).count;
+  res.json({ view_count: Number(viewCount), viewers });
+});
+
+// The owner can deliberately keep a still-active moment for another day.
+// Expired stories cannot be silently resurrected, and no payment/status gate
+// participates in this choice.
+router.post('/stories/:id/extend', requireAuth, (req, res) => {
+  const story = db.prepare("SELECT id, expires_at FROM stories WHERE id = ? AND user_id = ? AND expires_at > datetime('now')")
+    .get(req.params.id, req.session.userId);
+  if (!story) return res.status(404).json({ error: 'story_not_found' });
+  db.prepare("UPDATE stories SET expires_at = datetime(expires_at, '+24 hours') WHERE id = ?").run(story.id);
+  const extended = db.prepare('SELECT expires_at FROM stories WHERE id = ?').get(story.id);
+  res.json({ expires_at: extended.expires_at, extended_by_hours: 24 });
 });
 
 function hasActiveConsent(userId, scope) {

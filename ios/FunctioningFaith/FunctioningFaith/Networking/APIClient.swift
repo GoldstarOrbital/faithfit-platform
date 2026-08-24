@@ -536,6 +536,17 @@ final class APIClient {
         let _: ActionResponse = try await request("/api/stories/\(id)/view", method: "POST", body: EmptyBody())
     }
 
+    func fetchStoryViewers(id: String, query: String = "") async throws -> StoryViewersResponse {
+        if useMock { return StoryViewersResponse(viewCount: 0, viewers: []) }
+        let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        return try await request("/api/stories/\(id)/viewers?q=\(encoded)")
+    }
+
+    func extendStory(id: String) async throws -> StoryExtensionResult {
+        if useMock { return StoryExtensionResult(expiresAt: ISO8601DateFormatter().string(from: .now.addingTimeInterval(86_400)), extendedByHours: 24) }
+        return try await request("/api/stories/\(id)/extend", method: "POST", body: EmptyBody())
+    }
+
     /// Tapping the same emoji again is how the server models "remove my
     /// reaction" -- there's no separate unreact endpoint, matching the
     /// toggle behavior exactly (see the DELETE branch in the server route).

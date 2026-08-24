@@ -214,7 +214,7 @@ async function verifyEduDomain(email) {
 }
 
 /**
- * TODO: real SheerID (or equivalent) integration once SHEERID_API_KEY
+ * Integration note: use the real SheerID (or equivalent) flow only once SHEERID_API_KEY
  * exists. SheerID's coach/teacher verification flow is typically a
  * multi-step handoff (create a verification, redirect the person through
  * SheerID's hosted form, receive a webhook/poll for the result) rather

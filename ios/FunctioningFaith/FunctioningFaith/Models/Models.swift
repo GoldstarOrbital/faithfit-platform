@@ -657,6 +657,7 @@ struct Story: Decodable, Identifiable {
     let author: String
     let authorHasAvatar: Bool
     let viewed: Int
+    let viewCount: Int?
     let reactionCount: Int
     let myReaction: String?
 
@@ -667,7 +668,7 @@ struct Story: Decodable, Identifiable {
         case photoData = "photo_data"; case photoCategory = "photo_category"
         case visibility; case createdAt = "created_at"; case expiresAt = "expires_at"
         case author; case authorHasAvatar = "author_has_avatar"
-        case viewed; case reactionCount = "reaction_count"; case myReaction = "my_reaction"
+        case viewed; case viewCount = "view_count"; case reactionCount = "reaction_count"; case myReaction = "my_reaction"
     }
 }
 
@@ -863,6 +864,35 @@ struct ExploreGroup: Codable, Identifiable {
         case churchName = "church_name"
         case locationName = "location_name"
         case memberCount = "member_count"
+    }
+}
+
+struct StoryViewer: Decodable, Identifiable {
+    let userID: String
+    let displayName: String
+    let hasAvatar: Bool
+    let viewedAt: String
+    var id: String { userID }
+    enum CodingKeys: String, CodingKey {
+        case userID = "user_id"
+        case displayName = "display_name"
+        case hasAvatar = "has_avatar"
+        case viewedAt = "viewed_at"
+    }
+}
+
+struct StoryViewersResponse: Decodable {
+    let viewCount: Int
+    let viewers: [StoryViewer]
+    enum CodingKeys: String, CodingKey { case viewCount = "view_count", viewers }
+}
+
+struct StoryExtensionResult: Decodable {
+    let expiresAt: String
+    let extendedByHours: Int
+    enum CodingKeys: String, CodingKey {
+        case expiresAt = "expires_at"
+        case extendedByHours = "extended_by_hours"
     }
 }
 

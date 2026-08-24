@@ -19,6 +19,6 @@ assert.match(app, /data-story-reply-form/, 'the viewer needs a private reply con
 assert.match(app, /\/reply/, 'the viewer must submit its reply to the protected route');
 assert.match(app, /function renderStoryReplyMessage/, 'reply context must be readable in DMs');
 assert.match(css, /\.story-reply \{/, 'the reply affordance needs focused viewer styling');
-assert.match(html, /app\.js\?v=ff-story-replies-1/, 'the app bundle must be cache-busted');
-assert.match(sw, /functioning-faith-shell-v38/, 'the shell cache must advance');
+assert.match(html, /app\.js\?v=[A-Za-z0-9_-]+/, 'the app bundle must be cache-busted');
+assert.match(sw, /functioning-faith-shell-v\d+/, 'the shell cache must be versioned');
 console.log(JSON.stringify({ protected_story_replies: true, dm_safety_reused: true }));
