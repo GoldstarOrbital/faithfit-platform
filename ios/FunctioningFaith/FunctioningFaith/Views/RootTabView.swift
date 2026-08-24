@@ -6,7 +6,7 @@ struct RootTabView: View {
     @EnvironmentObject private var deepLinks: DeepLinkRouter
     @AppStorage("onboarding.pendingUserID") private var pendingOnboardingUserID = ""
     @StateObject private var dmStore = DMStore()
-    @State private var exploreRootID = UUID()
+    @State private var explorePath = NavigationPath()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,8 +21,7 @@ struct RootTabView: View {
                     .tabItem { Label("Train", systemImage: "figure.run") }
                     .tag(AppTab.workouts)
 
-                NavigationStack { ExploreView().ffRootBrand() }
-                    .id(exploreRootID)
+                NavigationStack(path: $explorePath) { ExploreView().ffRootBrand() }
                     .tabItem { Label("Explore", systemImage: "safari.fill") }
                     .tag(AppTab.explore)
 
@@ -78,7 +77,15 @@ struct RootTabView: View {
         )
     }
 
-    private func resetExplore() { exploreRootID = UUID() }
+    // Pops to the dashboard root without tearing down the NavigationStack's
+    // identity. The previous approach forced a fresh .id() on the whole
+    // stack on every Explore selection -- that's a full subtree teardown
+    // and rebuild, and it's the reason every catalog tile started resolving
+    // to the same wrong destination (Athlete Recruiting): a
+    // .navigationDestination(for:) registration surviving a forced identity
+    // change is exactly the fragile case that produces stale routing.
+    // Clearing the bound path pops to root without touching identity at all.
+    private func resetExplore() { explorePath = NavigationPath() }
 }
 
 private extension View {
