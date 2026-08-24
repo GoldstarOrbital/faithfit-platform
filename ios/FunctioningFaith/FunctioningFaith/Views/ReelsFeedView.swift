@@ -1,10 +1,9 @@
 import SwiftUI
+import Foundation
 
-/// Card feed rather than an auto-playing swipeable video wall (the web
-/// app's own style). Delivers the same real functionality -- browse, react,
-/// mark not-interested, actually watch each clip -- without the much
-/// higher-risk gesture/preload/autoplay machinery a TikTok-style feed needs,
-/// which isn't the kind of thing to write with no way to actually run it.
+/// A short-form feed that warms the next visuals before the member reaches
+/// them. Native uploads are already returned with their compact data payload;
+/// catalogue items need only their thumbnail fetched ahead of the player.
 struct ReelsFeedView: View {
     @State private var reels: [Reel] = []
     @State private var churchName: String?
@@ -38,7 +37,7 @@ struct ReelsFeedView: View {
                         }
                         .padding()
                         .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
-                    ForEach(reels) { reel in
+                    ForEach(Array(reels.enumerated()), id: \.element.id) { index, reel in
                         ReelCard(reel: reel, churchName: churchName,
                                  onPlay: { playingReel = reel },
                                  onLike: { react(reel, kind: "like") },
@@ -47,6 +46,7 @@ struct ReelsFeedView: View {
                                  onNotInterested: { hide(reel) })
                         .padding()
                         .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
+                        .onAppear { prefetch(after: index) }
                     }
                     }
                     .padding(.horizontal, FFTheme.Space.md)
@@ -88,6 +88,7 @@ struct ReelsFeedView: View {
             guard !Task.isCancelled else { return }
             reels = response.videos
             churchName = response.churchName
+            prefetch(after: -1)
         } catch {
             guard !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
@@ -115,6 +116,36 @@ struct ReelsFeedView: View {
     private func openComments(for reel: Reel) {
         guard let id = UUID(uuidString: reel.videoID) else { return }
         Task { do { commentPost = try await APIClient.shared.fetchPost(id: id) } catch { errorMessage = error.localizedDescription } }
+    }
+
+    /// Keep this intentionally bounded: it guarantees the next two cards are
+    /// visually ready without consuming a whole feed's bandwidth or keeping a
+    /// long-lived video buffer in memory.
+    private func prefetch(after index: Int) {
+        let urls = reels.dropFirst(index + 1).prefix(2).compactMap { reel in
+            reel.thumbnailURL.flatMap(URL.init(string:))
+        }
+        guard !urls.isEmpty else { return }
+        Task { await ReelPrefetcher.shared.prefetch(urls) }
+    }
+}
+
+private actor ReelPrefetcher {
+    static let shared = ReelPrefetcher()
+    private var warmed: Set<URL> = []
+
+    func prefetch(_ urls: [URL]) async {
+        for url in urls where !warmed.contains(url) {
+            warmed.insert(url)
+            let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 15)
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                URLCache.shared.storeCachedResponse(CachedURLResponse(response: response, data: data), for: request)
+            } catch {
+                // A thumbnail miss must never interrupt the feed. AsyncImage
+                // still makes its normal request when the card becomes visible.
+            }
+        }
     }
 }
 
