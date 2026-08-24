@@ -18,7 +18,7 @@ struct AthleteIntelligenceView: View {
                     Section("Relative Effort") {
                         if data.trainingLog.isEmpty { ContentUnavailableView("No completed workouts", systemImage:"figure.run") }
                         else {
-                            Chart(data.trainingLog.reversed()) { BarMark(x:.value("Workout", $0.endTime.prefix(10)), y:.value("Effort",$0.relativeEffort)).foregroundStyle(FFTheme.emerald) }.frame(height:170)
+                            relativeEffortChart(data.trainingLog)
                             ForEach(data.trainingLog) { entry in trainingRow(entry) }
                         }
                     }
@@ -50,6 +50,17 @@ struct AthleteIntelligenceView: View {
                 if let pace = entry.paceMinPerKm { Text(String(format: "%.2f min/km", pace)).font(.caption).foregroundStyle(.secondary) }
             }
         }
+    }
+    private func relativeEffortChart(_ entries: [AthleteTrainingEntry]) -> some View {
+        Chart {
+            ForEach(entries.reversed()) { entry in
+                let day = String(entry.endTime.prefix(10))
+                let effort = Double(entry.relativeEffort)
+                BarMark(x: .value("Workout", day), y: .value("Effort", effort))
+                    .foregroundStyle(FFTheme.emerald)
+            }
+        }
+        .frame(height: 170)
     }
     private func time(_ seconds: Int) -> String { "\(seconds / 60):\(String(format: "%02d", seconds % 60))" }
     private func load() async { do { data=try await APIClient.shared.fetchAthleteIntelligence() } catch { self.error=error.localizedDescription } }
