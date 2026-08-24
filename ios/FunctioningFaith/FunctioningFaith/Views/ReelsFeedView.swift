@@ -11,6 +11,7 @@ struct ReelsFeedView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var playingReel: Reel?
+    @State private var commentPost: FeedPost?
     @State private var showComposer = false
 
     var body: some View {
@@ -47,6 +48,7 @@ struct ReelsFeedView: View {
                                  onPlay: { playingReel = reel },
                                  onLike: { react(reel, kind: "like") },
                                  onSave: { react(reel, kind: "save") },
+                                 onComments: reel.provider == "functioning_faith" ? { openComments(for: reel) } : nil,
                                  onNotInterested: { hide(reel) })
                         .padding()
                         .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
@@ -72,6 +74,7 @@ struct ReelsFeedView: View {
         }
         .task { await load() }
         .sheet(item: $playingReel) { reel in ReelPlayerView(reel: reel) }
+        .sheet(item: $commentPost) { post in NavigationStack { CommentThreadView(post: post) { } } }
         .sheet(isPresented: $showComposer) {
             ReelComposerView {
                 Task { await load() }
@@ -105,6 +108,11 @@ struct ReelsFeedView: View {
         reels.removeAll { $0.id == reel.id }
         Task { try? await APIClient.shared.markReelNotInterested(videoID: reel.videoID) }
     }
+
+    private func openComments(for reel: Reel) {
+        guard let id = UUID(uuidString: reel.videoID) else { return }
+        Task { do { commentPost = try await APIClient.shared.fetchPost(id: id) } catch { errorMessage = error.localizedDescription } }
+    }
 }
 
 private extension Reel {
@@ -128,6 +136,7 @@ private struct ReelCard: View {
     let onPlay: () -> Void
     let onLike: () -> Void
     let onSave: () -> Void
+    let onComments: (() -> Void)?
     let onNotInterested: () -> Void
 
     var body: some View {
@@ -164,6 +173,7 @@ private struct ReelCard: View {
                 Button { onSave() } label: {
                     Label("\(reel.saveCount)", systemImage: reel.savedByMe ? "bookmark.fill" : "bookmark")
                 }.foregroundStyle(reel.savedByMe ? FFTheme.meadow : .primary)
+                if let onComments { Button { onComments() } label: { Label("Comments", systemImage: "bubble.left") } }
                 Spacer()
                 Button(role: .destructive) { onNotInterested() } label: {
                     Label("Not interested", systemImage: "hand.thumbsdown")

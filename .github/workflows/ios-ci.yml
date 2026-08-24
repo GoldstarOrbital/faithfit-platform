@@ -23,7 +23,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install XcodeGen
-        run: brew install xcodegen
+        run: |
+          if command -v xcodegen >/dev/null 2>&1; then
+            xcodegen --version
+          else
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install xcodegen
+          fi
 
       - name: Generate Xcode project
         working-directory: ios/FunctioningFaith

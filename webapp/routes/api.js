@@ -1289,6 +1289,14 @@ function postVisibleTo(post, viewerId) {
   return audience && !dms.isBlockedEitherWay(viewerId, post.user_id);
 }
 
+router.get('/posts/:id', requireAuth, (req, res) => {
+  const me = req.session.userId;
+  const post = db.prepare(`SELECT p.id, p.user_id, p.visibility, p.content, p.created_at, p.photo_data, p.photo_category, u.display_name AS author FROM posts p JOIN users u ON u.id=p.user_id WHERE p.id=?`).get(req.params.id);
+  if (!post || !postVisibleTo(post, me)) return res.status(404).json({ error: 'post_not_found' });
+  const count = table => Number(db.prepare(`SELECT COUNT(*) AS count FROM ${table} WHERE post_id=?`).get(post.id).count);
+  res.json({ ...post, author_id: post.user_id, like_count: count('post_likes'), comment_count: count('post_comments'), liked_by_me: !!db.prepare('SELECT 1 FROM post_likes WHERE post_id=? AND user_id=?').get(post.id, me), saved_by_me: !!db.prepare('SELECT 1 FROM post_saves WHERE post_id=? AND user_id=?').get(post.id, me) });
+});
+
 router.get('/posts/:id/comments', requireAuth, (req, res) => {
   const me = req.session.userId;
   const post = db.prepare('SELECT id, user_id, visibility FROM posts WHERE id = ?').get(req.params.id);

@@ -57,6 +57,11 @@ assert.match(memberProfile, /fetchAvatarData\(userID: userID\)/, 'member profile
 assert.match(memberProfile, /Label\("Message", systemImage: "paperplane\.fill"\)/, 'member profiles must open a direct-message action');
 assert.match(memberProfile, /momentsSection\(profile\.posts\)/, 'member profiles must show the API-approved public post grid');
 assert.match(reels, /ScrollView\s*\{\s*LazyVStack/s, 'Reels must have a dedicated vertical scrolling feed');
+assert.match(api, /router\.get\('\/posts\/:id', requireAuth/, 'post-backed Reels need a protected single-post lookup');
+assert.match(api, /postVisibleTo\(post, me\)/, 'single-post lookup must apply the feed and comment privacy rule');
+assert.match(client, /func fetchPost\(id: UUID\) async throws -> FeedPost/, 'native Reels need a typed post lookup for comments');
+assert.match(reels, /reel\.provider == "functioning_faith"/, 'only real member-post Reels may open a comment thread');
+assert.match(reels, /CommentThreadView\(post: post\)/, 'original Reels must reuse the full feed comment experience');
 assert.match(project, /CODE_SIGN_ENTITLEMENTS: FunctioningFaith\/Resources\/FunctioningFaith\.entitlements/, 'HealthKit entitlement must be attached to generated release projects');
 assert.match(api, /router\.get\('\/consent', requireAuth/, 'native app must be able to restore opt-in consent choices');
 assert.match(client, /func fetchPrivacySettings\(\)/, 'native app must load persisted privacy controls');

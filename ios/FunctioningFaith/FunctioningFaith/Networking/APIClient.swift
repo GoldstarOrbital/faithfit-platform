@@ -66,6 +66,12 @@ final class APIClient {
         (try await fetchSessionState()).profile
     }
 
+    func fetchPost(id: UUID) async throws -> FeedPost {
+        if useMock { return MockData.feed[0] }
+        let response: FeedDTO = try await request("/api/posts/\(id.uuidString.lowercased())")
+        return response.model
+    }
+
     func fetchMemberProfile(userID: UUID) async throws -> MemberProfileResponse {
         if useMock {
             return MemberProfileResponse(
