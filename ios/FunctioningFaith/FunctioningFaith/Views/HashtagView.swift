@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Reuses FeedPostRow (from HomeFeedView) so a post looks and behaves
 /// identically whether reached from the home feed or a hashtag -- same
@@ -13,9 +16,11 @@ struct HashtagView: View {
     var body: some View {
         Group {
             if isLoading && posts.isEmpty {
-                ProgressView()
+                FFLoadingView(message: "Loading #\(tag)…")
+            } else if let errorMessage, posts.isEmpty {
+                FFErrorStateView(message: errorMessage, onRetry: { Task { await load() } })
             } else if posts.isEmpty {
-                ContentUnavailableView("No posts yet", systemImage: "number", description: Text("Nobody's tagged #\(tag) that you can see."))
+                FFEmptyStateView(title: "No posts yet", systemImage: "number", message: "Nobody's tagged #\(tag) that you can see.")
             } else {
                 List {
                     ForEach(posts) { post in
@@ -54,25 +59,41 @@ struct HashtagView: View {
 
     private func load() async {
         isLoading = true
-        do { posts = try await APIClient.shared.fetchPosts(forTag: tag) }
-        catch { errorMessage = error.localizedDescription }
+        errorMessage = nil
+        do {
+            let loaded = try await APIClient.shared.fetchPosts(forTag: tag)
+            guard !Task.isCancelled else { return }
+            posts = loaded
+        } catch {
+            guard !Task.isCancelled else { return }
+            errorMessage = error.localizedDescription
+        }
         isLoading = false
     }
 
     private func toggleLike(_ post: FeedPost) {
         guard let idx = posts.firstIndex(where: { $0.id == post.id }) else { return }
         Task {
-            guard let response = try? await APIClient.shared.likePost(id: post.id) else { return }
-            posts[idx].likedByMe = response.liked
-            posts[idx].likeCount = response.likeCount
+            do {
+                let response = try await APIClient.shared.likePost(id: post.id)
+                guard !Task.isCancelled, posts.indices.contains(idx), posts[idx].id == post.id else { return }
+                posts[idx].likedByMe = response.liked
+                posts[idx].likeCount = response.likeCount
+                #if canImport(UIKit)
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                #endif
+            } catch { errorMessage = error.localizedDescription }
         }
     }
 
     private func toggleSave(_ post: FeedPost) {
         guard let idx = posts.firstIndex(where: { $0.id == post.id }) else { return }
         Task {
-            guard let response = try? await APIClient.shared.savePost(id: post.id) else { return }
-            posts[idx].savedByMe = response.saved
+            do {
+                let response = try await APIClient.shared.savePost(id: post.id)
+                guard !Task.isCancelled, posts.indices.contains(idx), posts[idx].id == post.id else { return }
+                posts[idx].savedByMe = response.saved
+            } catch { errorMessage = error.localizedDescription }
         }
     }
 }
