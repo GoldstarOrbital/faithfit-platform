@@ -268,13 +268,15 @@ final class APIClient {
         return WorkoutSummary(id: response.id, type: type, startTime: .now, endTime: nil, calories: nil, avgHR: nil)
     }
 
-    func stopWorkout(id: UUID, gpsPoints: [[Double]], gpsDistanceKm: Double, sportMetrics: [String: Double] = [:]) async throws {
-        if useMock { return }
+    func stopWorkout(id: UUID, gpsPoints: [[Double]], gpsDistanceKm: Double, sportMetrics: [String: Double] = [:]) async throws -> WorkoutCompletion {
+        if useMock {
+            return WorkoutCompletion(id: id, calories: TrainingMath.estimatedKcal(elapsed: 0, km: gpsDistanceKm), avgHR: nil, maxHR: nil, distanceKm: gpsDistanceKm, durationSec: 0, encouragement: nil, effort: nil)
+        }
         // UUID.uuidString is uppercase on Apple platforms. Workout IDs are
         // generated and stored by Node as lowercase strings, and SQLite's `=`
         // comparison is case-sensitive. Keep the wire ID canonical so stopping
         // the exact workout we started cannot become a false 404.
-        let _: WorkoutStopResponse = try await request("/api/workouts/\(id.uuidString.lowercased())/stop", method: "POST", body: WorkoutStop(gpsPoints: gpsPoints, gpsDistanceKm: gpsDistanceKm, sportMetrics: sportMetrics))
+        return try await request("/api/workouts/\(id.uuidString.lowercased())/stop", method: "POST", body: WorkoutStop(gpsPoints: gpsPoints, gpsDistanceKm: gpsDistanceKm, sportMetrics: sportMetrics))
     }
 
     func fetchActivityTypes() async throws -> [ActivityTypeItem] {
@@ -1408,7 +1410,6 @@ private struct NativeAppleAuthResponse: Decodable {
     }
 }
 private struct WorkoutStartResponse: Decodable { let id: UUID }
-private struct WorkoutStopResponse: Decodable { let id: UUID }
 
 // MARK: - DM wire types (field names match lib/dms.js's real response shapes exactly)
 

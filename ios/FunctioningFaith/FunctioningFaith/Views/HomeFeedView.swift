@@ -415,13 +415,21 @@ struct FromExploreRail: View {
                         NavigationLink {
                             item.destination
                         } label: {
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: 9) {
+                                Image(systemName: item.systemImage)
+                                    .font(.title3.weight(.bold))
+                                    .foregroundStyle(FFTheme.cream)
+                                    .frame(width: 42, height: 42)
+                                    .background(
+                                        LinearGradient(colors: item.colors, startPoint: .topLeading, endPoint: .bottomTrailing),
+                                        in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+                                    )
                                 Text(item.name).font(.subheadline.weight(.semibold)).foregroundStyle(FFTheme.ink)
                                 Text(subtitle).font(.caption).foregroundStyle(.secondary)
                             }
-                            .padding(12)
-                            .frame(width: 148, alignment: .leading)
-                            .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .padding(13)
+                            .frame(width: 158, height: 146, alignment: .leading)
+                            .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
                         }
                         .buttonStyle(.plain)
                     }

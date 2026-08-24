@@ -33,7 +33,8 @@ struct WorkoutView: View {
     @State private var workoutID: UUID?
     @State private var workoutVerse: VerseSnippet?
     @State private var errorMessage: String?
-    @State private var showReflection = false
+    @State private var completedWorkout: WorkoutCompletion?
+    @State private var completedSportMetrics: [String: Double] = [:]
     @State private var showWearables = false
     @State private var manualMinutes = "30"
     @State private var manualKm = "5"
@@ -100,7 +101,15 @@ struct WorkoutView: View {
                 span: MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)
             ))
         }
-        .sheet(isPresented: $showReflection) { PostWorkoutReflectionView() }
+        .sheet(item: $completedWorkout) { completion in
+            PostWorkoutSummaryView(
+                completion: completion,
+                activityType: selectedType,
+                verse: workoutVerse ?? WorkoutView.completionVerse,
+                sportMetrics: completedSportMetrics,
+                healthConnected: HealthKitManager.shared.authorizationRequested
+            )
+        }
         .sheet(isPresented: $showWearables) { WearableConnectView() }
         .alert("Workout unavailable", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
@@ -342,8 +351,11 @@ struct WorkoutView: View {
                     if let cadence = bluetooth.cadenceRPM { sportMetrics["cadence_rpm"] = Double(cadence) }
                     if let power = bluetooth.cyclingPowerWatts { sportMetrics["power_w"] = Double(power) }
                     if bluetooth.peakPowerWatts > 0 { sportMetrics["peak_power_w"] = Double(bluetooth.peakPowerWatts) }
-                    try await APIClient.shared.stopWorkout(id: id, gpsPoints: route, gpsDistanceKm: distance, sportMetrics: sportMetrics)
-                    await MainActor.run { showReflection = true }
+                    let completion = try await APIClient.shared.stopWorkout(id: id, gpsPoints: route, gpsDistanceKm: distance, sportMetrics: sportMetrics)
+                    await MainActor.run {
+                        completedSportMetrics = sportMetrics
+                        completedWorkout = completion
+                    }
                     recent = (try? await APIClient.shared.fetchWorkouts()) ?? recent
                 } catch {
                     await MainActor.run { errorMessage = error.localizedDescription }
@@ -425,13 +437,23 @@ struct WorkoutView: View {
         let minutes = Double(manualMinutes) ?? 0
         let km = Double(manualKm)
         do {
-            _ = try await APIClient.shared.logManualWorkout(
+            let saved = try await APIClient.shared.logManualWorkout(
                 type: selectedType,
                 durationMin: minutes,
                 distanceKm: (km ?? 0) > 0 ? km : nil,
                 note: manualNote.isEmpty ? nil : manualNote
             )
-            showReflection = true
+            completedSportMetrics = [:]
+            completedWorkout = WorkoutCompletion(
+                id: UUID(uuidString: saved.id) ?? UUID(),
+                calories: saved.calories,
+                avgHR: nil,
+                maxHR: nil,
+                distanceKm: saved.distanceKm,
+                durationSec: saved.durationSec,
+                encouragement: "Every faithful step counts. Keep building the rhythm God has given you.",
+                effort: nil
+            )
             recent = (try? await APIClient.shared.fetchWorkouts()) ?? recent
         } catch {
             errorMessage = error.localizedDescription
@@ -439,18 +461,114 @@ struct WorkoutView: View {
     }
 }
 
-struct PostWorkoutReflectionView: View {
+private extension WorkoutView {
+    static let completionVerse = VerseSnippet(
+        id: "phl.4.13",
+        reference: "Philippians 4:13",
+        snippet: "I can do all this through him who gives me strength.",
+        deepLink: "youversion://bible/verse/phl.4.13"
+    )
+}
+
+struct PostWorkoutSummaryView: View {
     @Environment(\.dismiss) var dismiss
-    var body: some View {
-        VStack(spacing: 16) {
-            Text("Nice work!").font(.title2.bold())
-            VerseSnippetCard(verse: VerseSnippet(id: "phl.4.13", reference: "Philippians 4:13",
-                snippet: "I can do all this through him who gives me strength.", deepLink: "youversion://bible/verse/phl.4.13"))
-            Button("Done") { dismiss() }
-                .frame(minWidth: 44, minHeight: 44)
+    let completion: WorkoutCompletion
+    let activityType: String
+    let verse: VerseSnippet
+    let sportMetrics: [String: Double]
+    let healthConnected: Bool
+
+    private var distanceText: String? {
+        guard let distance = completion.distanceKm, distance > 0 else { return nil }
+        return String(format: "%.2f km", distance)
+    }
+
+    private var paceText: String? {
+        guard let km = completion.distanceKm, km > 0, completion.durationSec > 0,
+              !["Skiing", "Strength", "HIIT", "Yoga", "Pilates"].contains(activityType) else { return nil }
+        let seconds = Double(completion.durationSec) / km
+        return String(format: "%d:%02d /km", Int(seconds) / 60, Int(seconds) % 60)
+    }
+
+    private var extraMetrics: [(String, String)] {
+        var items: [(String, String)] = []
+        if let topSpeed = sportMetrics["top_speed_kmh"], topSpeed > 0 {
+            items.append((String(format: "%.1f km/h", topSpeed), "Top speed"))
         }
-        .padding()
-        .presentationDetents([.medium])
+        if let elevation = sportMetrics["elevation_gain_m"], elevation > 0 {
+            items.append(("\(Int(elevation.rounded())) m", "Elevation gain"))
+        }
+        if let cadence = sportMetrics["cadence_rpm"], cadence > 0 {
+            items.append(("\(Int(cadence.rounded())) rpm", "Cadence"))
+        }
+        if let power = sportMetrics["power_w"], power > 0 {
+            items.append(("\(Int(power.rounded())) W", "Power"))
+        }
+        return items
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("ACTIVITY COMPLETE")
+                            .font(.caption.weight(.bold)).tracking(1.1).foregroundStyle(FFTheme.meadowDeep)
+                        Text("Great work, \(activityType).")
+                            .font(FFTheme.display(28, weight: .bold, relativeTo: .title))
+                        Text("Your session is saved. Here is what you recorded.")
+                            .font(.subheadline).foregroundStyle(FFTheme.inkSoft)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                        summaryMetric(TrainingMath.elapsedString(TimeInterval(completion.durationSec)), "Duration")
+                        if let distanceText { summaryMetric(distanceText, "Distance") }
+                        summaryMetric("\(completion.calories)", "Calories")
+                        if let paceText { summaryMetric(paceText, "Average pace") }
+                        if let avgHR = completion.avgHR { summaryMetric("\(avgHR) bpm", "Average heart rate") }
+                        if let maxHR = completion.maxHR { summaryMetric("\(maxHR) bpm", "Peak heart rate") }
+                        if let effort = completion.effort?.effortScore { summaryMetric("\(Int(effort.rounded()))", "Effort score") }
+                        ForEach(Array(extraMetrics.enumerated()), id: \.offset) { _, metric in
+                            summaryMetric(metric.0, metric.1)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        Label(healthConnected ? "Apple Health insight" : "Apple Health", systemImage: "heart.text.square.fill")
+                            .font(.headline).foregroundStyle(FFTheme.seal)
+                        if completion.avgHR != nil || completion.maxHR != nil {
+                            Text("Your recorded heart-rate data is included above. Functioning Faith only shows measurements captured during this session.")
+                        } else if healthConnected {
+                            Text("Apple Health is connected, but this session did not include heart-rate samples. Your activity can still sync with its recorded duration, distance, and energy.")
+                        } else {
+                            Text("Connect Apple Health in Profile to bring compatible Apple Watch and Health-connected workout data into your insights.")
+                        }
+                    }
+                    .font(.caption).foregroundStyle(FFTheme.inkSoft)
+                    .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                    if let encouragement = completion.encouragement, !encouragement.isEmpty {
+                        Text(encouragement).font(.subheadline.weight(.medium)).foregroundStyle(FFTheme.ink)
+                    }
+                    VerseSnippetCard(verse: verse)
+                }
+                .padding()
+            }
+            .background(FFTheme.parchment0.ignoresSafeArea())
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+        .presentationDetents([.large])
+    }
+
+    private func summaryMetric(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value).font(.title3.weight(.bold).monospacedDigit()).foregroundStyle(FFTheme.ink)
+            Text(label).font(.caption2.weight(.semibold)).foregroundStyle(FFTheme.inkSoft)
+        }
+        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading).padding(12)
+        .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 

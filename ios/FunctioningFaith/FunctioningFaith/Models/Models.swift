@@ -97,6 +97,33 @@ struct UserProfile: Codable, Identifiable {
     var bibleVersionID: Int? = nil
 }
 
+/// The server-calculated result of ending a live workout. Values are either
+/// recorded from the session or omitted — never filled with invented health
+/// measurements.
+struct WorkoutCompletion: Decodable, Identifiable {
+    let id: UUID
+    let calories: Int
+    let avgHR: Int?
+    let maxHR: Int?
+    let distanceKm: Double?
+    let durationSec: Int
+    let encouragement: String?
+    let effort: WorkoutCompletionEffort?
+
+    enum CodingKeys: String, CodingKey {
+        case id, calories, encouragement, effort
+        case avgHR = "avg_hr", maxHR = "max_hr", distanceKm = "distance_km", durationSec = "duration_sec"
+    }
+}
+
+struct WorkoutCompletionEffort: Decodable {
+    let effortScore: Double?
+    let peakZone: String?
+    enum CodingKeys: String, CodingKey {
+        case effortScore = "effort_score", peakZone = "peak_zone"
+    }
+}
+
 struct PrivacySettings: Codable {
     var profileVisibility: String
     var followerListVisibility: String

@@ -4,7 +4,7 @@ import UIKit
 #endif
 
 /// Shared by every screen that uploads a photo as a data: URL (posts,
-/// moments/stories) -- one compression policy, one 250KB ceiling matching
+/// moments/stories) -- one compression policy, one 1MB ceiling matching
 /// the server's own MAX_IMAGE_BYTES (see validateDataUrlImage in
 /// routes/api.js), so a photo that passes here is guaranteed to pass there.
 enum ImageUpload {
@@ -14,7 +14,7 @@ enum ImageUpload {
             switch self {
             case .invalidImage: return "That image could not be opened."
             case .sourceTooLarge: return "Choose an image smaller than 30 MB."
-            case .imageTooLarge: return "That image could not be compressed below the 250 KB upload limit."
+            case .imageTooLarge: return "That image could not be compressed below the 1 MB upload limit."
             }
         }
     }
@@ -30,7 +30,7 @@ enum ImageUpload {
                 original.draw(in: CGRect(origin: .zero, size: target))
             }
             for quality in stride(from: CGFloat(0.82), through: 0.24, by: -0.08) {
-                if let output = image.jpegData(compressionQuality: quality), output.count <= 240 * 1024 {
+                if let output = image.jpegData(compressionQuality: quality), output.count <= 960 * 1024 {
                     return output
                 }
             }

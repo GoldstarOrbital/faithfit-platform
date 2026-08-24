@@ -59,7 +59,7 @@ assert.match(workout, /guard biometricIngestEnabled, heartRate > 0, let workoutI
 assert.match(workout, /Date\(\)\.timeIntervalSince\(lastBiometricUpload\) >= 60/, 'biometric uploads must be rate limited');
 assert.match(rootTabs, /@State private var exploreRootID = UUID\(\)/, 'Explore needs a resettable root identity');
 assert.match(rootTabs, /\.id\(exploreRootID\)/, 'Explore must rebuild when returning from a detail');
-assert.match(rootTabs, /if tab == \.explore, deepLinks\.selectedTab != \.explore \{ resetExplore\(\) \}/, 'entering Explore must clear retained detail navigation');
+assert.match(rootTabs, /if tab == \.explore \{ resetExplore\(\) \}/, 'entering Explore must clear retained detail navigation');
 assert.match(journeys, /JourneyRouteCard\(journey: journey\)/, 'Journeys need direct, rich route cards instead of inert rows');
 assert.match(journeyVisual, /figure\.run\.circle\.fill/, 'Journey map needs a member position marker');
 assert.match(liveActivity, /Activity<WorkoutLiveActivityAttributes>/, 'active workouts need a real ActivityKit Live Activity');
@@ -71,10 +71,12 @@ assert.match(appInfo, /UIBackgroundModes/, 'the app must declare its background 
 assert.match(widgetProject, /FunctioningFaithWidgets:/, 'the generated project must include the Widget extension');
 assert.match(client, /func fetchAvatarData\(userID: UUID\)/, 'profile needs a privacy-scoped avatar fetch');
 assert.match(profile, /fetchAvatarData\(userID: userID\)/, 'Profile must render the member’s stored avatar');
-assert.match(postComposer, /!content\.trimmingCharacters\(in: \.whitespacesAndNewlines\)\.isEmpty/, 'photo posts need a caption for Scripture matching');
+assert.match(postComposer, /!content\.trimmingCharacters\(in: \.whitespacesAndNewlines\)\.isEmpty \|\| uploadData != nil/, 'photo-only posts must be publishable');
 assert.match(reelComposer, /video\/quicktime/, 'iPhone MOV files must be encoded as QuickTime uploads');
-assert.match(media, /const MAX_VIDEO_BYTES = 8 \* 1024 \* 1024/, 'the server must accommodate a short iPhone MOV');
-assert.match(reelComposer, /private static let maxBytes = 8 \* 1024 \* 1024/, 'the native reel picker must match the server upload cap');
+assert.match(media, /const MAX_VIDEO_BYTES = 10 \* 1024 \* 1024/, 'the server must accommodate a short iPhone MOV');
+assert.match(reelComposer, /private static let maxBytes = 10 \* 1024 \* 1024/, 'the native reel picker must match the server upload cap');
+assert.match(workout, /struct PostWorkoutSummaryView/, 'stopping a workout must show a complete session recap');
+assert.match(workout, /Apple Health insight/, 'the recap must explain the actual available Apple Health data');
 assert.match(profile, /Heart-rate calm cue/, 'members need an explicit calm-cue preference');
 assert.match(workout, /Date\(\)\.timeIntervalSince\(lastHeartRateCalmCue\) >= 5 \* 60/, 'heart-rate calm cues must be rate limited');
 assert.match(notifications, /deliverHeartRateCalmCue/, 'the calm cue must reach the local-notification coordinator');

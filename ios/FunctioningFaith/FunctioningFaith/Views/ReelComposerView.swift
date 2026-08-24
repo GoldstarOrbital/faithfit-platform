@@ -28,7 +28,7 @@ struct ReelComposerView: View {
     @State private var statusMessage: String?
     @State private var errorMessage: String?
 
-    private static let maxBytes = 8 * 1024 * 1024
+    private static let maxBytes = 10 * 1024 * 1024
     private static let maxSeconds: Double = 60
 
     var body: some View {
@@ -168,7 +168,7 @@ struct ReelComposerView: View {
 
         do {
             guard let movie = try await item.loadTransferable(type: ReelMovieFile.self) else {
-                statusMessage = "Could not read that video. Choose an MP4 or MOV under 8MB."
+                statusMessage = "Could not read that video. Choose an MP4 or MOV under 10MB."
                 return
             }
             let url = movie.url
@@ -188,7 +188,7 @@ struct ReelComposerView: View {
 
             let data = try Data(contentsOf: url)
             if data.count > Self.maxBytes {
-                statusMessage = "Keep the Reel under 8MB — trim it or record a shorter clip."
+                statusMessage = "Keep the Reel under 10MB — trim it or record a shorter clip."
                 clearTempFiles()
                 return
             }
@@ -206,7 +206,7 @@ struct ReelComposerView: View {
             let base64 = data.base64EncodedString()
             let dataURL = "data:\(mime);base64,\(base64)"
             if dataURL.count > (Self.maxBytes / 3) * 4 + 64 {
-                statusMessage = "Keep the Reel under 8MB."
+                statusMessage = "Keep the Reel under 10MB."
                 clearTempFiles()
                 return
             }
@@ -223,7 +223,7 @@ struct ReelComposerView: View {
                     : "Ready to publish."
             }
         } catch {
-            statusMessage = "Could not prepare that video. Use an MP4 or MOV under 8MB and 60 seconds."
+            statusMessage = "Could not prepare that video. Use an MP4 or MOV under 10MB and 60 seconds."
             clearTempFiles()
         }
     }

@@ -35,7 +35,7 @@ const VIDEO_CATEGORIES = MEDIA_CATEGORIES;
 const CATEGORY_HINT = 'Uploads can only be workout/gear, nature, animals, or groups of people — never a single-person clip (use your profile picture for that).';
 
 // ---- caps ------------------------------------------------------------------
-const MAX_IMAGE_BYTES = 250 * 1024; // 250KB — matches the existing photo cap exactly.
+const MAX_IMAGE_BYTES = 1024 * 1024; // 1MB — matches the photo route cap exactly.
 
 // 8MB. This is still intentionally bounded because a video lives as a base64
 // data URL in SQLite, but it accommodates a short iPhone MOV without asking a
@@ -46,7 +46,7 @@ const MAX_IMAGE_BYTES = 250 * 1024; // 250KB — matches the existing photo cap 
 // and object storage (upload to a bucket, store a URL) is the real answer later.
 // Until then the cap is set where a clip is still worth watching — roughly
 // 10-20 seconds of 720p H.264 — and where a feed page cannot blow up memory.
-const MAX_VIDEO_BYTES = 8 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 10 * 1024 * 1024;
 
 // The size cap alone does not make a video *short*: a 10-minute talk at a low
 // bitrate fits inside 4MB comfortably. This is a separate ceiling on running

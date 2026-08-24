@@ -117,12 +117,12 @@ app.use((req, res, next) => {
   next();
 });
 // Photos are resized in the browser before being sent as a data URL. Keep the
-// parser above the 250KB image cap so valid photo posts reach the route.
+// parser above the 1MB image cap so valid photo posts reach the route.
 // Photos stay tiny, but a verified short MP4/WebM can be up to 4MB. The media
 // validator is still the authority on type, duration, and exact byte cap.
 // Member Reel uploads are validated again in lib/media.js. Keep this modestly
-// above the 8MB decoded-video limit because base64 expands a file by ~33%.
-app.use(express.json({ limit: '12mb' }));
+// above the 10MB decoded-video limit because base64 expands a file by ~33%.
+app.use(express.json({ limit: '16mb' }));
 app.use(express.urlencoded({ extended: false })); // Apple posts its OAuth callback as form_post
 app.use(cookieSession({
   name: 'faithfit_session',

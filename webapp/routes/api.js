@@ -123,7 +123,7 @@ function publicUser(row) {
 }
 
 // ---- shared image-upload cap (avatars + post photos) ----
-const MAX_IMAGE_BYTES = 250 * 1024; // 250KB
+const MAX_IMAGE_BYTES = 1024 * 1024; // 1MB
 function validateDataUrlImage(dataUrl) {
   if (typeof dataUrl !== 'string') return { ok: false, error: 'invalid_image', hint: 'Choose a JPEG, PNG, or WebP image.' };
   const match = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(dataUrl);
@@ -133,7 +133,7 @@ function validateDataUrlImage(dataUrl) {
   let decoded;
   try { decoded = Buffer.from(match[2], 'base64'); } catch { return { ok: false, error: 'invalid_image' }; }
   if (!decoded.length || decoded.length > MAX_IMAGE_BYTES) {
-    return { ok: false, error: 'image_too_large', hint: `Image must be under ${Math.round(MAX_IMAGE_BYTES / 1024)}KB after resizing.` };
+    return { ok: false, error: 'image_too_large', hint: 'Image must be under 1MB after resizing.' };
   }
   const jpeg = decoded.length >= 3 && decoded[0] === 0xff && decoded[1] === 0xd8 && decoded[2] === 0xff;
   const png = decoded.length >= 8 && decoded.subarray(0, 8).equals(Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]));

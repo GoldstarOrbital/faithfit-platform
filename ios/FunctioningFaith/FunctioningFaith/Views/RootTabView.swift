@@ -69,7 +69,10 @@ struct RootTabView: View {
         Binding(
             get: { deepLinks.selectedTab },
             set: { tab in
-                if tab == .explore, deepLinks.selectedTab != .explore { resetExplore() }
+                // An Explore tap is always a request for the dashboard. This
+                // prevents a retained NavigationStack from reopening a deep
+                // catalog destination such as Athlete Recruiting.
+                if tab == .explore { resetExplore() }
                 deepLinks.selectedTab = tab
             }
         )
