@@ -17,7 +17,10 @@ concurrency:
 
 jobs:
   build-and-test:
-    runs-on: macos-14
+    # Xcode 15.4 on macos-14 cannot open the generated Xcode 16 project
+    # format.  Keep CI on the current macOS image used by the signed release
+    # pipeline so both validate the same project format.
+    runs-on: macos-15
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
