@@ -705,9 +705,10 @@ final class APIClient {
     /// "workouts" -- anything else the server silently falls back to
     /// distance, so callers pass a value from LeaderboardView's own fixed
     /// picker rather than free text.
-    func fetchLeaderboard(metric: String = "distance_km") async throws -> [LeaderboardEntry] {
+    func fetchLeaderboard(metric: String = "distance_km", days: Int = 7) async throws -> [LeaderboardEntry] {
         if useMock { return [] }
-        return try await request("/api/leaderboard?metric=\(metric)")
+        let response: LeaderboardResponse = try await request("/api/leaderboard?metric=\(metric)&days=\(days)")
+        return response.entries
     }
 
     // MARK: - Hashtags

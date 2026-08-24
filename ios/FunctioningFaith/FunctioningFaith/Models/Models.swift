@@ -1734,6 +1734,11 @@ struct LeaderboardEntry: Decodable, Identifiable {
     }
 }
 
+struct LeaderboardResponse: Decodable {
+    let entries: [LeaderboardEntry]
+    let days: Int
+}
+
 /// Discovery surface -- which verses people are actually talking about.
 struct DiscussedVerse: Decodable, Identifiable {
     let id: String

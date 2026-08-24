@@ -32,9 +32,17 @@ enum LeaderboardMetric: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
+private enum LeaderboardWindow: Int, CaseIterable, Identifiable {
+    case week = 7, month = 30, season = 90
+    var id: Int { rawValue }
+    var label: String { self == .week ? "7 days" : self == .month ? "30 days" : "90 days" }
+    var description: String { self == .week ? "this week" : self == .month ? "the last 30 days" : "the last 90 days" }
+}
+
 /// Weekly standings for you and people you follow — mirrors web Explore → Leaderboard.
 struct LeaderboardView: View {
     @State private var metric: LeaderboardMetric = .distanceKm
+    @State private var window: LeaderboardWindow = .week
     @State private var rows: [LeaderboardEntry] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -62,8 +70,15 @@ struct LeaderboardView: View {
                         .onChange(of: metric) { _, _ in
                             Task { await load() }
                         }
+                        Picker("History", selection: $window) {
+                            ForEach(LeaderboardWindow.allCases) { window in
+                                Text(window.label).tag(window)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .onChange(of: window) { _, _ in Task { await load() } }
                     } footer: {
-                        Text("You and everyone you follow, ranked by this week’s activity.")
+                        Text("You and everyone you follow, ranked by activity from \(window.description). Every ranking and personal best is free for everyone.")
                     }
 
                     if rows.isEmpty {
@@ -98,7 +113,7 @@ struct LeaderboardView: View {
         isLoading = true
         errorMessage = nil
         do {
-            rows = try await APIClient.shared.fetchLeaderboard(metric: metric.rawValue)
+            rows = try await APIClient.shared.fetchLeaderboard(metric: metric.rawValue, days: window.rawValue)
         } catch {
             errorMessage = error.localizedDescription
         }

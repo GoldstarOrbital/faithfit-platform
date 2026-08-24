@@ -3592,14 +3592,17 @@ router.get('/notifications/unread-count', requireAuth, (req, res) => {
   res.json({ count });
 });
 
-// ---- weekly leaderboard: current user + everyone they follow, ranked by a
-// chosen metric over the current week. Mirrors /stats/summary's this_week
-// window (rolling 7 days ending now, keyed off end_time) for consistency.
+// ---- community leaderboard: current user + everyone they follow, ranked by
+// a chosen metric over a deliberately limited recent-history window. Keeping
+// the allowed windows fixed makes the comparison honest and prevents a client
+// from accidentally asking SQLite for an unbounded account history.
 const LEADERBOARD_METRICS = new Set(['distance_km', 'duration_min', 'workouts']);
+const LEADERBOARD_WINDOWS = new Set([7, 30, 90]);
 router.get('/leaderboard', requireAuth, (req, res) => {
   const uid = req.session.userId;
   const metric = LEADERBOARD_METRICS.has(req.query.metric) ? req.query.metric : 'distance_km';
-  const days = 7;
+  const requestedDays = Number(req.query.days);
+  const days = LEADERBOARD_WINDOWS.has(requestedDays) ? requestedDays : 7;
   const cutoff = new Date(Date.now() - days * 86400000).toISOString();
 
   const memberIds = [uid, ...db.prepare('SELECT followee_id FROM followers WHERE follower_id = ?').all(uid).map(r => r.followee_id)];
@@ -3622,7 +3625,7 @@ router.get('/leaderboard', requireAuth, (req, res) => {
     .sort((a, b) => b.value - a.value)
     .map((row, i) => ({ ...row, rank: i + 1 }));
 
-  res.json(ranked);
+  res.json({ entries: ranked, days });
 });
 
 // A quiet, in-app weekly recap: useful enough to invite a return, but never

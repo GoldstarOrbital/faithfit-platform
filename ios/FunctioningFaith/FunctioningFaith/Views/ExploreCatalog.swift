@@ -143,6 +143,7 @@ struct ExploreCatalogGrid: View {
 struct ChallengesHubView: View {
     @State private var challenges: [ExploreChallenge] = []
     @State private var isLoading = true
+    @State private var errorMessage: String?
 
     var body: some View {
         List {
@@ -154,7 +155,9 @@ struct ChallengesHubView: View {
             }
             Section {
                 if isLoading {
-                    ProgressView()
+                    FFLoadingView(message: "Loading challenges…")
+                } else if let errorMessage {
+                    FFErrorStateView(message: errorMessage, onRetry: { Task { await load() } })
                 } else if challenges.isEmpty {
                     Text("New challenges are being prepared.").foregroundStyle(.secondary)
                 } else {
@@ -202,7 +205,13 @@ struct ChallengesHubView: View {
 
     private func load() async {
         isLoading = true
-        challenges = (try? await APIClient.shared.fetchExploreContent())?.challenges ?? []
+        errorMessage = nil
+        do {
+            challenges = try await APIClient.shared.fetchExploreContent().challenges
+        } catch {
+            guard !Task.isCancelled else { return }
+            errorMessage = error.localizedDescription
+        }
         isLoading = false
     }
 
@@ -244,7 +253,9 @@ struct GroupsHubView: View {
                 Text("Only public groups that choose an approximate location appear here.")
             }
             if isLoading {
-                ProgressView()
+                FFLoadingView(message: "Loading groups…")
+            } else if let errorMessage, groups.isEmpty {
+                FFErrorStateView(message: errorMessage, onRetry: { Task { await load() } })
             } else if groups.isEmpty {
                 Text("No groups yet.").foregroundStyle(.secondary)
             } else {
@@ -279,9 +290,15 @@ struct GroupsHubView: View {
     }
 
     private func load() async {
-            isLoading = true
-            groups = (try? await APIClient.shared.fetchExploreContent())?.groups ?? []
-            isLoading = false
+        isLoading = true
+        errorMessage = nil
+        do {
+            groups = try await APIClient.shared.fetchExploreContent().groups
+        } catch {
+            guard !Task.isCancelled else { return }
+            errorMessage = error.localizedDescription
+        }
+        isLoading = false
     }
 
     private func findNearby() async {
@@ -369,10 +386,17 @@ private struct CreateGroupView: View {
 
 struct MotivationExploreView: View {
     @State private var quote: MotivationQuote?
-    @State private var isLoading = false
+    @State private var isLoading = true
+    @State private var errorMessage: String?
 
     var body: some View {
-        VStack(spacing: 20) {
+        Group {
+        if isLoading && quote == nil {
+            FFLoadingView(message: "Finding encouragement…")
+        } else if let errorMessage, quote == nil {
+            FFErrorStateView(message: errorMessage, onRetry: { Task { await load() } })
+        } else {
+        VStack(spacing: FFTheme.Space.lg) {
             if let quote {
                 Text("“\(quote.text)”")
                     .font(.title3.italic())
@@ -382,8 +406,6 @@ struct MotivationExploreView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
-            } else if isLoading {
-                ProgressView()
             } else {
                 Text("No quote right now.").foregroundStyle(.secondary)
             }
@@ -394,14 +416,22 @@ struct MotivationExploreView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
-        .padding()
+        .padding(FFTheme.Space.lg)
         .navigationTitle("Motivation")
         .task { await load() }
+        }
+        }
     }
 
     private func load() async {
         isLoading = true
-        quote = try? await APIClient.shared.fetchMotivationQuote()
+        errorMessage = nil
+        do {
+            quote = try await APIClient.shared.fetchMotivationQuote()
+        } catch {
+            guard !Task.isCancelled else { return }
+            errorMessage = error.localizedDescription
+        }
         isLoading = false
     }
 }
