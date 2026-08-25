@@ -85,7 +85,7 @@ workflows:
           xcode-project build-ipa \
             --project "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME"
-      - name: Preserve HealthKit entitlement in exported IPA
+      - name: Preserve HealthKit and Sign In with Apple entitlements in exported IPA
         script: |
           set -euo pipefail
           ipa=$(find "$CM_BUILD_DIR/$IOS_PROJECT_DIR/build/ios/ipa" -name '*.ipa' -print -quit)
@@ -95,12 +95,20 @@ workflows:
           mkdir -p "$work"
           unzip -qq "$ipa" -d "$work"
           app="$work/Payload/FunctioningFaith.app"
-          # Xcode's export step is currently omitting HealthKit even though
-          # the active App Store profile authorizes it. Preserve all existing
-          # distribution entitlements, add the authorized key, and re-sign.
+          # Xcode's export step has been observed to silently omit capability
+          # entitlements even though the active App Store profile authorizes
+          # them -- first caught with HealthKit, and Sign In with Apple is
+          # exactly the same class of entitlement, so it gets the same
+          # preserve-and-resign treatment rather than waiting for a second
+          # bug report. Preserve all existing distribution entitlements,
+          # force every authorized capability back in, and re-sign.
           codesign -d --entitlements :- "$app" 2>&1 | sed -n '/<plist /,$p' > "$work/entitlements.plist"
-          /usr/libexec/PlistBuddy -c 'Add :com.apple.developer.healthkit bool true' "$work/entitlements.plist" || \
-            /usr/libexec/PlistBuddy -c 'Set :com.apple.developer.healthkit true' "$work/entitlements.plist"
+          plistbuddy=/usr/libexec/PlistBuddy
+          "$plistbuddy" -c 'Delete :com.apple.developer.healthkit' "$work/entitlements.plist" 2>/dev/null || true
+          "$plistbuddy" -c 'Add :com.apple.developer.healthkit bool true' "$work/entitlements.plist"
+          "$plistbuddy" -c 'Delete :com.apple.developer.applesignin' "$work/entitlements.plist" 2>/dev/null || true
+          "$plistbuddy" -c 'Add :com.apple.developer.applesignin array' "$work/entitlements.plist"
+          "$plistbuddy" -c 'Add :com.apple.developer.applesignin:0 string Default' "$work/entitlements.plist"
           identity=$(security find-identity -v -p codesigning | sed -n 's/.* \([A-F0-9]\{40\}\) \"Apple Distribution:.*/\1/p' | head -n 1)
           test -n "$identity"
           codesign --force --sign "$identity" --entitlements "$work/entitlements.plist" --generate-entitlement-der "$app"
@@ -119,12 +127,15 @@ workflows:
           unzip -qq "$ipa" -d /tmp/functioning-faith-ipa-check
           app=/tmp/functioning-faith-ipa-check/Payload/FunctioningFaith.app
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$app/Info.plist"
-          # HealthKit must be present in the signed app, not merely in the
-          # source entitlements file.
+          # HealthKit and Sign In with Apple must be present in the signed
+          # app, not merely in the source entitlements file -- this is the
+          # exact check that would have caught the export step silently
+          # dropping either one before it ever reached TestFlight.
           # codesign writes an `Executable=…` diagnostic before the plist on
           # some Xcode releases. Retain only the XML payload before parsing.
           codesign -d --entitlements :- "$app" 2>&1 | sed -n '/<plist /,$p' > /tmp/functioning-faith-entitlements.plist
           /usr/libexec/PlistBuddy -c 'Print :com.apple.developer.healthkit' /tmp/functioning-faith-entitlements.plist | grep -qx true
+          /usr/libexec/PlistBuddy -c 'Print :com.apple.developer.applesignin:0' /tmp/functioning-faith-entitlements.plist | grep -qx Default
           test -f "$app/Assets.car"
           find "$app" \( -name 'Assets.car' -o -iname '*appicon*' \) -print | sort
           test -f "$app/AppIcon76x76@2x.png"

@@ -89,7 +89,11 @@ struct StoriesRail: View {
         } catch is CancellationError {
             return
         } catch {
-            loadError = "Couldn’t load moments."
+            // A single fixed string here made every failure -- session
+            // expiry, a timeout, a server error -- indistinguishable, which
+            // is exactly why this was hard to diagnose from a bug report.
+            // Surface the real reason the way StoryComposerView already does.
+            loadError = error.localizedDescription
         }
     }
 
