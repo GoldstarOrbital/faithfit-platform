@@ -1999,6 +1999,13 @@ router.get('/stories', requireAuth, (req, res) => {
                           OR (b.blocker_id = s.user_id AND b.blocked_id = @me))
      ORDER BY s.created_at DESC LIMIT 80
   `).all({ me });
+  // Same fix as GET /users/:id -- these CASE WHEN / EXISTS columns come
+  // back from SQLite as integers, and the native client's Bool fields only
+  // decode a literal true/false. Left as numbers, this is a decode error
+  // that surfaces as "couldn't load moments" for every single fetch.
+  for (const row of rows) {
+    row.author_has_avatar = !!row.author_has_avatar;
+  }
   res.json({ stories: rows });
 });
 
@@ -2532,6 +2539,13 @@ router.get('/users/:id', (req, res) => {
     FROM users WHERE id = ?
   `).get(req.params.id);
   if (!u) return res.status(404).json({ error: 'user_not_found' });
+  // SQLite has no boolean type -- these CASE WHEN columns come back as the
+  // integers 0/1, which JSON.stringify renders as numbers. The native
+  // client's Bool fields only decode a literal true/false, so left as
+  // numbers this 404s the whole profile fetch with a decode error instead
+  // of a clean 404 or a working response.
+  u.verified_developer = !!u.verified_developer;
+  u.has_avatar = !!u.has_avatar;
 
   const is_me = me === u.id;
   const is_following = me ? !!db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(me, u.id) : false;
