@@ -114,12 +114,6 @@ struct HomeFeedView: View {
         }
         .navigationDestination(isPresented: $showNotifications) { NotificationsView() }
         .navigationDestination(isPresented: $showSearch) { SearchView() }
-        // Registered here, on the List itself, rather than down inside
-        // FromExploreRail -- a List row can be torn down and recreated as
-        // its content scrolls in and out of view, and a navigationDestination
-        // registered that deep isn't guaranteed to survive that the way one
-        // anchored at the stack's root content is.
-        .navigationDestination(for: ExploreCatalogItem.self) { item in item.destination }
         .task {
             await loadFeed()
             unreadNotifications = (try? await APIClient.shared.fetchNotifications().unreadCount) ?? 0
@@ -452,11 +446,13 @@ struct FromExploreRail: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(items, id: \.0.rawValue) { item, subtitle in
-                        // Value-based routing, matching ExploreCatalogGrid's own
-                        // fix for the identical card shape -- a destination
-                        // closure per card is the pattern that produced the
-                        // "every tile opens the wrong thing" bug there.
-                        NavigationLink(value: item) {
+                        // .id(item.id) forces SwiftUI to treat every card as
+                        // a genuinely distinct view -- see the matching
+                        // comment on ExploreCatalogGrid, which shares this
+                        // card shape and had the identical bug.
+                        NavigationLink {
+                            item.destination
+                        } label: {
                             VStack(alignment: .leading, spacing: 9) {
                                 Image(systemName: item.systemImage)
                                     .font(.title3.weight(.bold))
@@ -473,6 +469,7 @@ struct FromExploreRail: View {
                             .frame(width: 158, height: 146, alignment: .leading)
                             .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
                         }
+                        .id(item.id)
                         .buttonStyle(.plain)
                     }
                 }

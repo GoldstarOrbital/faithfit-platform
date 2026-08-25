@@ -106,7 +106,9 @@ struct ExploreCatalogGrid: View {
                 .foregroundStyle(.secondary)
             LazyVGrid(columns: columns, spacing: FFTheme.Space.sm) {
                 ForEach(ExploreCatalogItem.allCases) { item in
-                    NavigationLink(value: item) {
+                    NavigationLink {
+                        item.destination
+                    } label: {
                         VStack(alignment: .leading, spacing: FFTheme.Space.xs) {
                             Image(systemName: item.systemImage)
                                 .font(.system(size: 18, weight: .semibold))
@@ -130,12 +132,17 @@ struct ExploreCatalogGrid: View {
                         .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
                         .contentShape(RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
                     }
-                    // Without this, a NavigationLink nested inside a List row
-                    // (this whole grid is one row, via the enclosing Section)
-                    // can inherit the row's own tap handling instead of its
-                    // own -- with twelve links crammed into a single row,
-                    // that ambiguity is exactly what produced taps doing
-                    // nothing at all rather than opening anything.
+                    // .id(item.id) forces SwiftUI to treat every cell as a
+                    // genuinely distinct view rather than a reusable one --
+                    // without it, a LazyVGrid can under some conditions
+                    // resolve a tap against a neighboring cell's identity,
+                    // which is exactly how every tile ended up opening
+                    // Athlete Recruiting (the last case) regardless of which
+                    // one was tapped. buttonStyle(.plain) is separately
+                    // required or a NavigationLink nested this deep inside a
+                    // single List row can inherit the row's own tap handling
+                    // and not react to taps at all.
+                    .id(item.id)
                     .buttonStyle(.plain)
                     .accessibilityHint("Open \(item.name)")
                 }
