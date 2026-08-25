@@ -14,11 +14,15 @@ struct SavedVersesView: View {
             } else {
                 List {
                     ForEach(verses) { verse in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(verse.text).font(FFTheme.serif())
-                            Text(verse.reference).font(.caption).foregroundStyle(.secondary)
+                        NavigationLink {
+                            VerseThreadView(reference: verse.reference)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(verse.text).font(FFTheme.serif())
+                                Text(verse.reference).font(.caption).foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 2)
                         }
-                        .padding(.vertical, 2)
                     }
                     .onDelete(perform: remove)
                 }

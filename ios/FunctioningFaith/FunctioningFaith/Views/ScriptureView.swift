@@ -8,7 +8,16 @@ struct ScriptureHomeCard: View {
     @State private var verse: BibleVerse?
 
     var body: some View {
-        NavigationLink { ScriptureView() } label: {
+        // Goes straight to this exact verse's own view+discussion when it has
+        // loaded, rather than the general Scripture hub, which would show a
+        // different, freshly-refetched random verse than the one on the card.
+        NavigationLink {
+            if let verse {
+                VerseThreadView(reference: verse.reference)
+            } else {
+                ScriptureView()
+            }
+        } label: {
             VStack(alignment: .leading, spacing: 6) {
                 Label("Scripture", systemImage: "book.fill")
                     .font(.caption.weight(.semibold))
@@ -74,6 +83,11 @@ struct ScriptureView: View {
             } else if let verse {
                 Text(verse.text).font(FFTheme.serif())
                 Text(verse.reference).font(.subheadline).foregroundStyle(.secondary)
+                NavigationLink {
+                    VerseThreadView(reference: verse.reference)
+                } label: {
+                    Label("Read and discuss", systemImage: "bubble.left.and.bubble.right")
+                }
                 HStack {
                     Button {
                         Task { await loadVerse() }

@@ -361,15 +361,31 @@ struct WorkoutCard: View {
 
 struct VerseSnippetCard: View {
     let verse: VerseSnippet
+    // A plain Button + navigationDestination(isPresented:), not a
+    // NavigationLink -- this card renders inside a List row that may
+    // already contain another NavigationLink (the post author's name, in
+    // FeedPostRow), and two NavigationLinks sharing one row is exactly the
+    // pattern that produced Explore's chevron-misrouting bug.
+    @State private var showThread = false
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(verse.reference).font(.caption.weight(.bold)).foregroundStyle(FFTheme.scripture)
-            Text(verse.snippet).font(.caption).italic()
+        Button {
+            showThread = true
+        } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(verse.reference).font(.caption.weight(.bold)).foregroundStyle(FFTheme.scripture)
+                Text(verse.snippet).font(.caption).italic()
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(FFTheme.scripture.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
         }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(FFTheme.scripture.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+        .buttonStyle(.plain)
         .accessibilityLabel("Scripture: \(verse.reference). \(verse.snippet)")
+        .accessibilityHint("Double tap to read and discuss this verse")
+        .navigationDestination(isPresented: $showThread) {
+            VerseThreadView(reference: verse.reference)
+        }
     }
 }
 

@@ -101,13 +101,18 @@ struct MemberProfileView: View {
     }
 
     private func verseCard(reference: String, text: String?) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Label("Faith anchor", systemImage: "book.closed.fill").font(.caption.weight(.bold)).foregroundStyle(FFTheme.scripture)
-            Text(reference).font(.headline).foregroundStyle(FFTheme.ink)
-            if let text { Text(text).font(.subheadline).italic().foregroundStyle(FFTheme.inkSoft) }
+        NavigationLink {
+            VerseThreadView(reference: reference)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Faith anchor", systemImage: "book.closed.fill").font(.caption.weight(.bold)).foregroundStyle(FFTheme.scripture)
+                Text(reference).font(.headline).foregroundStyle(FFTheme.ink)
+                if let text { Text(text).font(.subheadline).italic().foregroundStyle(FFTheme.inkSoft) }
+            }
+            .padding(15).frame(maxWidth: .infinity, alignment: .leading)
+            .background(FFTheme.scripture.opacity(0.1), in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
         }
-        .padding(15).frame(maxWidth: .infinity, alignment: .leading)
-        .background(FFTheme.scripture.opacity(0.1), in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -131,7 +136,16 @@ struct MemberProfileView: View {
                                     .background(LinearGradient(colors: [FFTheme.meadow2, FFTheme.meadowDeep], startPoint: .topLeading, endPoint: .bottomTrailing))
                             }
                             if !post.content.isEmpty { Text(post.content).font(.caption.weight(.medium)).foregroundStyle(FFTheme.ink).lineLimit(3).padding(.horizontal, 10) }
-                            if let reference = post.verseReference { Text(reference).font(.caption2.weight(.bold)).foregroundStyle(FFTheme.scripture).padding(.horizontal, 10).padding(.bottom, 10) }
+                            if let reference = post.verseReference {
+                                NavigationLink {
+                                    VerseThreadView(reference: reference)
+                                } label: {
+                                    Text(reference).font(.caption2.weight(.bold)).foregroundStyle(FFTheme.scripture)
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.horizontal, 10)
+                                .padding(.bottom, 10)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))

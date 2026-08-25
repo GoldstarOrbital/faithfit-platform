@@ -49,6 +49,11 @@ struct VerseLookupView: View {
                     Text(translation).font(.caption2).foregroundStyle(.tint)
                 }
             }
+            NavigationLink {
+                VerseThreadView(reference: result.reference)
+            } label: {
+                Label("Read and discuss", systemImage: "bubble.left.and.bubble.right")
+            }
             Button {
                 Task { await toggleSave(result) }
             } label: {

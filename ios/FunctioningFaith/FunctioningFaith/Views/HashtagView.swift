@@ -102,6 +102,12 @@ struct HashtagView: View {
 /// trending-tags rail. Embedded at the top of HomeFeedView.
 struct TrendingTagsRail: View {
     @State private var tags: [TrendingTag] = []
+    // A plain Button + navigationDestination(item:), not
+    // NavigationLink(value:) -- this rail is one row inside HomeFeedView's
+    // List, and multiple NavigationLinks sharing a single List row is
+    // exactly the pattern that produced Explore's chevron-misrouting bug
+    // (List adds one automatic disclosure chevron per row, not per link).
+    @State private var selectedTag: TrendingTag?
 
     var body: some View {
         Group {
@@ -109,12 +115,15 @@ struct TrendingTagsRail: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(tags) { tag in
-                            NavigationLink(value: tag) {
+                            Button {
+                                selectedTag = tag
+                            } label: {
                                 Text("#\(tag.tag) · \(tag.c)")
                                     .font(.caption.weight(.medium))
                                     .padding(.horizontal, 10).padding(.vertical, 6)
                                     .background(Capsule().fill(.tint.opacity(0.12)))
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal)
@@ -124,7 +133,7 @@ struct TrendingTagsRail: View {
         .task {
             tags = (try? await APIClient.shared.fetchTrendingTags()) ?? []
         }
-        .navigationDestination(for: TrendingTag.self) { tag in
+        .navigationDestination(item: $selectedTag) { tag in
             HashtagView(tag: tag.tag)
         }
     }
