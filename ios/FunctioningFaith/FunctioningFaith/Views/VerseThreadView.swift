@@ -19,6 +19,7 @@ struct VerseThreadView: View {
     @State private var askAnswer: VerseAskAnswer?
     @State private var isAsking = false
     @State private var errorMessage: String?
+    private let defaultQuestion = "Explain what this verse means and its context."
 
     var body: some View {
         Group {
@@ -70,7 +71,15 @@ struct VerseThreadView: View {
     /// a normal error rather than hiding the section entirely.
     private var askSection: some View {
         Section("Ask about this verse") {
-            TextField("What does this mean for me today?", text: $question, axis: .vertical)
+            // A one-tap default, ahead of the free-text field -- most people
+            // who want to know more about a verse don't have a specific
+            // question yet, and shouldn't have to compose one just to get
+            // an explanation.
+            Button("Explain this verse") {
+                Task { await ask(defaultQuestion) }
+            }
+            .disabled(isAsking)
+            TextField("Or ask your own question", text: $question, axis: .vertical)
                 .lineLimit(1...3)
             Button("Ask") { Task { await ask() } }
                 .disabled(question.trimmingCharacters(in: .whitespaces).isEmpty || isAsking)
@@ -227,11 +236,11 @@ struct VerseThreadView: View {
         isSubmitting = false
     }
 
-    private func ask() async {
+    private func ask(_ override: String? = nil) async {
         isAsking = true
         do {
-            askAnswer = try await APIClient.shared.askAboutVerse(reference: reference, question: question)
-            question = ""
+            askAnswer = try await APIClient.shared.askAboutVerse(reference: reference, question: override ?? question)
+            if override == nil { question = "" }
         } catch {
             errorMessage = error.localizedDescription
         }
