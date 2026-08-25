@@ -130,6 +130,13 @@ struct ExploreCatalogGrid: View {
                         .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
                         .contentShape(RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
                     }
+                    // Without this, a NavigationLink nested inside a List row
+                    // (this whole grid is one row, via the enclosing Section)
+                    // can inherit the row's own tap handling instead of its
+                    // own -- with twelve links crammed into a single row,
+                    // that ambiguity is exactly what produced taps doing
+                    // nothing at all rather than opening anything.
+                    .buttonStyle(.plain)
                     .accessibilityHint("Open \(item.name)")
                 }
             }
