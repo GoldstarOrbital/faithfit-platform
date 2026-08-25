@@ -98,6 +98,15 @@ enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
 
 struct ExploreCatalogGrid: View {
     private let columns = [GridItem(.flexible(), spacing: FFTheme.Space.sm), GridItem(.flexible(), spacing: FFTheme.Space.sm)]
+    // Each row of two tiles was showing exactly one trailing disclosure
+    // chevron for the whole row (List's automatic behavior for any row
+    // containing a NavigationLink), not one per tile -- and that single,
+    // row-level chevron is what every first tap after the grid appeared
+    // was actually resolving against, regardless of which tile the user
+    // meant. Plain Buttons driving a separate, explicit navigationDestination
+    // never register as "this row is a nav link" to List in the first
+    // place, so it never adds a chevron to steal a tap.
+    @State private var selectedItem: ExploreCatalogItem?
 
     var body: some View {
         VStack(alignment: .leading, spacing: FFTheme.Space.sm) {
@@ -106,8 +115,8 @@ struct ExploreCatalogGrid: View {
                 .foregroundStyle(.secondary)
             LazyVGrid(columns: columns, spacing: FFTheme.Space.sm) {
                 ForEach(ExploreCatalogItem.allCases) { item in
-                    NavigationLink {
-                        item.destination
+                    Button {
+                        selectedItem = item
                     } label: {
                         VStack(alignment: .leading, spacing: FFTheme.Space.xs) {
                             Image(systemName: item.systemImage)
@@ -132,23 +141,15 @@ struct ExploreCatalogGrid: View {
                         .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
                         .contentShape(RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
                     }
-                    // .id(item.id) forces SwiftUI to treat every cell as a
-                    // genuinely distinct view rather than a reusable one --
-                    // without it, a LazyVGrid can under some conditions
-                    // resolve a tap against a neighboring cell's identity,
-                    // which is exactly how every tile ended up opening
-                    // Athlete Recruiting (the last case) regardless of which
-                    // one was tapped. buttonStyle(.plain) is separately
-                    // required or a NavigationLink nested this deep inside a
-                    // single List row can inherit the row's own tap handling
-                    // and not react to taps at all.
-                    .id(item.id)
                     .buttonStyle(.plain)
                     .accessibilityHint("Open \(item.name)")
                 }
             }
         }
         .padding(.vertical, FFTheme.Space.xxs)
+        .navigationDestination(item: $selectedItem) { item in
+            item.destination
+        }
     }
 }
 

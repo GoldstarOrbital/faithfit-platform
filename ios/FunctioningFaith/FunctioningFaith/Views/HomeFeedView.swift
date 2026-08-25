@@ -436,6 +436,12 @@ struct FromExploreRail: View {
         (.groups, "Find or start one"),
         (.scripture, "Search & discuss"),
     ]
+    // A plain Button here, not a NavigationLink -- see ExploreCatalogGrid's
+    // matching comment, which shares this card shape and had the identical
+    // bug: List adds an automatic disclosure chevron to any row containing
+    // a NavigationLink, and that single chevron was what a tap was actually
+    // resolving against rather than the specific card tapped.
+    @State private var selectedItem: ExploreCatalogItem?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -446,12 +452,8 @@ struct FromExploreRail: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(items, id: \.0.rawValue) { item, subtitle in
-                        // .id(item.id) forces SwiftUI to treat every card as
-                        // a genuinely distinct view -- see the matching
-                        // comment on ExploreCatalogGrid, which shares this
-                        // card shape and had the identical bug.
-                        NavigationLink {
-                            item.destination
+                        Button {
+                            selectedItem = item
                         } label: {
                             VStack(alignment: .leading, spacing: 9) {
                                 Image(systemName: item.systemImage)
@@ -469,11 +471,13 @@ struct FromExploreRail: View {
                             .frame(width: 158, height: 146, alignment: .leading)
                             .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
                         }
-                        .id(item.id)
                         .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal)
+            }
+            .navigationDestination(item: $selectedItem) { item in
+                item.destination
             }
         }
     }
