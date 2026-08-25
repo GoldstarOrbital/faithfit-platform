@@ -16,11 +16,27 @@ struct ExploreView: View {
     @State private var isLoadingContent = true
     @State private var contentError: String?
     @State private var actionError: String?
+    // The grid's very first tap after it first becomes visible (a fresh
+    // launch, or the first switch to this tab) opens Athlete Recruiting
+    // regardless of which tile was tapped -- every tap after that, in the
+    // same session, opens the correct thing. That points at the grid's tap
+    // handling not being fully settled on its first layout pass. Flipping
+    // this one runloop tick after appearing forces exactly one clean
+    // rebuild of the grid's identity, after layout has genuinely finished,
+    // before the user's first tap can land. Lives here, one level up from
+    // the grid, so the state survives the child's identity change instead
+    // of resetting with it.
+    @State private var exploreGridSettled = false
 
     var body: some View {
         List {
             Section {
                 ExploreCatalogGrid()
+                    .id(exploreGridSettled)
+                    .onAppear {
+                        guard !exploreGridSettled else { return }
+                        DispatchQueue.main.async { exploreGridSettled = true }
+                    }
             } footer: {
                 Text("Choose any section directly. Returning to Explore always brings you back to this dashboard.")
             }

@@ -149,12 +149,6 @@ struct ExploreCatalogGrid: View {
             }
         }
         .padding(.vertical, FFTheme.Space.xxs)
-        // Value-based routing, not a destination closure per tile: with a
-        // NavigationLink(destination:) inside a LazyVGrid, the grid's own
-        // view-recycling can resolve a tap against a neighboring cell's
-        // destination instead of the tapped one -- exactly the "every tile
-        // opens Athlete Recruiting" report. The matching navigationDestination
-        // itself lives on ExploreView's List, not here -- see its comment.
     }
 }
 
