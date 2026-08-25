@@ -1128,6 +1128,12 @@ router.get('/me/relationships', requireAuth, (req, res) => {
     FROM dm_blocks b JOIN users u ON u.id = b.blocked_id
     WHERE b.blocker_id = ? ORDER BY b.created_at DESC
   `).all(me);
+  // Same fix as GET /users/:id -- these CASE WHEN columns come back from
+  // SQLite as 0/1 integers, and the native client's Bool fields only decode
+  // a literal true/false.
+  for (const row of [...controls, ...blocked]) {
+    row.has_avatar = !!row.has_avatar;
+  }
   res.json({
     muted: controls.filter(c => c.control === 'mute'),
     restricted: controls.filter(c => c.control === 'restrict'),
@@ -1316,6 +1322,13 @@ router.get('/posts/:id/comments', requireAuth, (req, res) => {
                          OR (b.blocker_id = c.user_id AND b.blocked_id = @me))
     ORDER BY c.created_at ASC
   `).all({ post: post.id, me, postAuthor: post.user_id });
+  // Same fix as GET /users/:id -- this CASE WHEN / EXISTS column comes back
+  // from SQLite as a 0/1 integer, and the native client's Bool fields only
+  // decode a literal true/false. can_delete is left as-is: nothing in the
+  // native client decodes it as a Bool.
+  for (const row of comments) {
+    row.liked_by_me = !!row.liked_by_me;
+  }
   res.json({ comments });
 });
 
@@ -2425,6 +2438,13 @@ router.get('/circle/candidates', requireAuth, (req, res) => {
                          OR (b.blocker_id = u.id AND b.blocked_id = @me))
     ORDER BY in_circle DESC, u.display_name
   `).all({ me });
+  // Same fix as GET /users/:id -- these CASE WHEN columns come back from
+  // SQLite as 0/1 integers, and the native client's Bool fields only decode
+  // a literal true/false.
+  for (const row of rows) {
+    row.has_avatar = !!row.has_avatar;
+    row.in_circle = !!row.in_circle;
+  }
   res.json({ candidates: rows });
 });
 
@@ -2450,6 +2470,12 @@ router.get('/follow-requests', requireAuth, (req, res) => {
                          OR (b.blocker_id = fr.requester_id AND b.blocked_id = fr.target_id))
     ORDER BY fr.created_at DESC
   `).all(req.session.userId);
+  // Same fix as GET /users/:id -- this CASE WHEN column comes back from
+  // SQLite as a 0/1 integer, and the native client's Bool fields only decode
+  // a literal true/false.
+  for (const row of rows) {
+    row.has_avatar = !!row.has_avatar;
+  }
   res.json({ requests: rows });
 });
 
@@ -2868,6 +2894,13 @@ router.get('/groups/:id/members', requireAuth, (req, res) => {
     WHERE m.group_id = ?
     ORDER BY (m.role = 'admin') DESC, u.display_name
   `).all(group.id);
+  // Same fix as GET /users/:id -- these CASE WHEN columns come back from
+  // SQLite as 0/1 integers, and the native client's Bool fields only decode
+  // a literal true/false.
+  for (const row of members) {
+    row.has_avatar = !!row.has_avatar;
+    row.verified_leader = !!row.verified_leader;
+  }
   res.json({ members, is_admin: isGroupAdmin(group.id, req.session.userId) });
 });
 
@@ -4973,6 +5006,12 @@ function reflectionRows(threadId, meId) {
     WHERE r.thread_id = ?
     ORDER BY r.created_at ASC
   `).all(threadId);
+  // Same fix as GET /users/:id -- this CASE WHEN column comes back from
+  // SQLite as a 0/1 integer, and the native client's Bool fields only decode
+  // a literal true/false.
+  for (const row of rows) {
+    row.has_avatar = !!row.has_avatar;
+  }
 
   const liked = new Set();
   if (meId && rows.length) {
