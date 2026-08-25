@@ -146,12 +146,8 @@ struct ExploreCatalogGrid: View {
         // NavigationLink(destination:) inside a LazyVGrid, the grid's own
         // view-recycling can resolve a tap against a neighboring cell's
         // destination instead of the tapped one -- exactly the "every tile
-        // opens Athlete Recruiting" report. Routing through one shared
-        // navigationDestination(for:) keyed on the tapped value sidesteps
-        // that entirely.
-        .navigationDestination(for: ExploreCatalogItem.self) { item in
-            item.destination
-        }
+        // opens Athlete Recruiting" report. The matching navigationDestination
+        // itself lives on ExploreView's List, not here -- see its comment.
     }
 }
 

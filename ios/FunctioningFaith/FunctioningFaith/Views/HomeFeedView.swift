@@ -114,6 +114,12 @@ struct HomeFeedView: View {
         }
         .navigationDestination(isPresented: $showNotifications) { NotificationsView() }
         .navigationDestination(isPresented: $showSearch) { SearchView() }
+        // Registered here, on the List itself, rather than down inside
+        // FromExploreRail -- a List row can be torn down and recreated as
+        // its content scrolls in and out of view, and a navigationDestination
+        // registered that deep isn't guaranteed to survive that the way one
+        // anchored at the stack's root content is.
+        .navigationDestination(for: ExploreCatalogItem.self) { item in item.destination }
         .task {
             await loadFeed()
             unreadNotifications = (try? await APIClient.shared.fetchNotifications().unreadCount) ?? 0
@@ -473,7 +479,6 @@ struct FromExploreRail: View {
                 .padding(.horizontal)
             }
         }
-        .navigationDestination(for: ExploreCatalogItem.self) { item in item.destination }
     }
 }
 

@@ -74,7 +74,16 @@ struct StoriesRail: View {
                     Circle().strokeBorder(FFTheme.hearth, lineWidth: 1.5).frame(width: 60, height: 60)
                     Image(systemName: "arrow.clockwise").font(.title3).foregroundStyle(FFTheme.hearth)
                 }
-                Text("Retry").font(.caption2).foregroundStyle(.secondary)
+                // The real reason, not just "Retry" -- an accessibility-only
+                // label was invisible to anyone not using VoiceOver, which
+                // made every report of this ring impossible to diagnose from
+                // a screenshot or a description alone.
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 74)
             }
         }
         .buttonStyle(.plain)

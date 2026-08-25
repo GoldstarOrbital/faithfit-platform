@@ -255,6 +255,12 @@ struct ExploreView: View {
         }
         .ffListChrome()
         .navigationTitle("Explore")
+        // Registered here, on the List itself, rather than down inside
+        // ExploreCatalogGrid -- a List row can be torn down and recreated
+        // as its content scrolls in and out of view, and a
+        // navigationDestination registered that deep isn't guaranteed to
+        // survive that the way one anchored at the stack's root content is.
+        .navigationDestination(for: ExploreCatalogItem.self) { item in item.destination }
         .task { await loadExplore() }
         .refreshable { await loadExplore() }
         .alert("Couldn’t complete that action", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
