@@ -446,9 +446,11 @@ struct FromExploreRail: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(items, id: \.0.rawValue) { item, subtitle in
-                        NavigationLink {
-                            item.destination
-                        } label: {
+                        // Value-based routing, matching ExploreCatalogGrid's own
+                        // fix for the identical card shape -- a destination
+                        // closure per card is the pattern that produced the
+                        // "every tile opens the wrong thing" bug there.
+                        NavigationLink(value: item) {
                             VStack(alignment: .leading, spacing: 9) {
                                 Image(systemName: item.systemImage)
                                     .font(.title3.weight(.bold))
@@ -471,6 +473,7 @@ struct FromExploreRail: View {
                 .padding(.horizontal)
             }
         }
+        .navigationDestination(for: ExploreCatalogItem.self) { item in item.destination }
     }
 }
 
