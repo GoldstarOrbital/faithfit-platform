@@ -19,8 +19,8 @@ struct SocialOnboardingView: View {
     @State private var isLoading = true
     @State private var joinedGroupIDs = Set<String>()
     @State private var followedUserIDs = Set<UUID>()
-    @AppStorage("notifications.scripture") private var scriptureNotifications = false
-    @AppStorage("notifications.community") private var communityNotifications = false
+    @AppStorage("notifications.scripture") private var scriptureNotifications = true
+    @AppStorage("notifications.community") private var communityNotifications = true
     @State private var statusMessage: String?
 
     var body: some View {

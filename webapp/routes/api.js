@@ -218,6 +218,14 @@ function displayName(userId) {
   return db.prepare('SELECT display_name FROM users WHERE id = ?').get(userId)?.display_name || 'Someone';
 }
 
+// A personalized verse at the moment someone actually signs in -- reusing the
+// same weekly-shape + Gloo personalization the morning verse already applies,
+// so a login greeting isn't a lesser, generic one. Respects the same
+// daily_verse opt-in and 21-day no-repeat rule sendFor already enforces.
+function sendLoginVerse(userId) {
+  daily.sendFor(userId).catch(() => {});
+}
+
 // Create a real account. Password is scrypt-hashed; email is stored lowercased
 // and must be unique. Signs the new user in on success.
 router.post('/auth/register', async (req, res) => {
@@ -284,6 +292,7 @@ router.post('/auth/login', async (req, res) => {
   }
   const started = accountSecurity.startSession(req, row.id, 'password');
   if (started.newDevice) notify(row.id, 'security', `New sign-in on ${started.deviceName}.`, { url: '/?open=profile&settings=security' });
+  sendLoginVerse(row.id);
   res.json({ ok: true, user: publicUser(row) });
 });
 
@@ -303,6 +312,7 @@ router.post('/auth/mfa/complete', (req, res) => {
   }
   const started = accountSecurity.startSession(req, pending.userId, `${pending.method}+mfa`);
   if (started.newDevice) notify(user.id, 'security', `New sign-in on ${started.deviceName}.`, { url: '/?open=profile&settings=security' });
+  sendLoginVerse(user.id);
   res.json({ ok: true, user: publicUser(user) });
 });
 
@@ -489,6 +499,7 @@ router.post('/auth/native/exchange', (req, res) => {
   if (!user || user.suspended_at) return res.status(401).json({ error: 'account_unavailable' });
   const started = accountSecurity.startSession(req, user.id, grant.authMethod);
   if (started.newDevice) notify(user.id, 'security', `New sign-in on ${started.deviceName}.`, { url: '/?open=profile&settings=security' });
+  sendLoginVerse(user.id);
   const age = accountSecurity.ageFromDob(user.date_of_birth);
   const accountSetupRequired = age == null || age < 13 || !user.terms_accepted_at || user.terms_version !== accountSecurity.TERMS_VERSION;
   res.json({ ok: true, account_setup_required: accountSetupRequired });
@@ -518,6 +529,7 @@ router.post('/auth/native/apple', async (req, res) => {
     const user = db.prepare('SELECT * FROM users WHERE id=?').get(userId);
     const started = accountSecurity.startSession(req, userId, 'apple');
     if (started.newDevice) notify(userId, 'security', `New sign-in on ${started.deviceName}.`, { url: '/?open=profile&settings=security' });
+    sendLoginVerse(userId);
     const age = accountSecurity.ageFromDob(user.date_of_birth);
     const accountSetupRequired = age == null || age < 13 || !user.terms_accepted_at || user.terms_version !== accountSecurity.TERMS_VERSION;
     res.json({ ok: true, account_setup_required: accountSetupRequired });
@@ -1543,6 +1555,19 @@ router.post('/workouts/start', requireAuth, (req, res) => {
     .run(randomUUID(), uid, startResult.verse.id, 'workout_start', JSON.stringify(startSignals), id, 'starting_out');
   publish('verse.triggered', { user_id: uid, verse_id: startResult.verse.id, youversion_id: startResult.verse.youversion_id, trigger_type: 'workout_start', payload: startResult.payload });
   publish('workout.started', { user_id: req.session.userId, workout_id: id, type });
+  // A closed-device push under the same "Scripture encouragement" opt-in the
+  // member actually sees in Settings -- the generic verse.triggered handler
+  // above already logs this to the in-app notification bell, but categorizes
+  // its push as verse_reply/"Community", which most members never toggled on
+  // for what is, in substance, a Scripture notification.
+  if (startResult.payload) {
+    push.send(uid, 'daily_verse', {
+      title: 'Starting strong',
+      body: `${startResult.payload.reference} — ${startResult.payload.snippet || startResult.payload.text || ''}`,
+      url: notificationDestination('verse', { reference: startResult.payload.reference }),
+      tag: `workout-${id}-start`,
+    }).catch(() => {});
+  }
   res.json({ id, type, start_time: workout.start_time, start_verse: startResult.payload, start_moment: 'starting_out', start_moment_label: 'Starting out' });
 });
 

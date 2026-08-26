@@ -23,8 +23,27 @@ final class NotificationCoordinator: NSObject, UIApplicationDelegate, UNUserNoti
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
-        Task { await registerForRemoteNotificationsIfAllowed() }
+        Task {
+            await requestPermissionIfAnyCategoryAtDefault()
+            await registerForRemoteNotificationsIfAllowed()
+        }
         return true
+    }
+
+    /// Every notification toggle now defaults to on (Settings still lets a
+    /// member turn any of them off individually) -- but for an existing
+    /// install that never touched one of those toggles, nothing else in the
+    /// app ever triggers the actual system permission prompt, since that
+    /// normally only fires from a Settings toggle's own onChange going from
+    /// off to on. This runs that same request once, at launch, whenever a
+    /// category is still sitting at its untouched default.
+    private func requestPermissionIfAnyCategoryAtDefault() async {
+        let defaults = UserDefaults.standard
+        let categoryKeys = NotificationCategory.allCases.map { "notifications.\($0.rawValue)" } + ["notifications.heartRateCalm"]
+        guard categoryKeys.contains(where: { defaults.object(forKey: $0) == nil }) else { return }
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        guard settings.authorizationStatus == .notDetermined else { return }
+        _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
     }
 
     func enable(category: NotificationCategory) async -> Bool {
@@ -60,9 +79,21 @@ final class NotificationCoordinator: NSObject, UIApplicationDelegate, UNUserNoti
     func syncDeviceToken() async {
         guard let token = UserDefaults.standard.string(forKey: tokenKey), !token.isEmpty else { return }
         let categories = NotificationCategory.allCases
-            .filter { UserDefaults.standard.bool(forKey: "notifications.\($0.rawValue)") }
+            .filter { isNotificationCategoryEnabled($0.rawValue) }
             .flatMap(\.serverCategories)
         try? await APIClient.shared.registerNativePushToken(token, categories: categories)
+    }
+
+    /// UserDefaults.bool(forKey:) returns false for a key that was never
+    /// written, regardless of the @AppStorage default declared at the call
+    /// site -- since every notification toggle now defaults to on, reading
+    /// raw UserDefaults here would silently register zero categories for
+    /// anyone who never opened Settings and touched a toggle.
+    private func isNotificationCategoryEnabled(_ rawValue: String) -> Bool {
+        let defaults = UserDefaults.standard
+        let key = "notifications.\(rawValue)"
+        guard defaults.object(forKey: key) != nil else { return true }
+        return defaults.bool(forKey: key)
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
@@ -90,10 +121,16 @@ final class NotificationCoordinator: NSObject, UIApplicationDelegate, UNUserNoti
 
     /// A local, opt-in wellness cue. It is deliberately not a medical alert;
     /// WorkoutView only invokes it while a workout is active and rate-limits it.
-    func deliverHeartRateCalmCue(heartRate: Int) async {
+    /// Carries whatever verse this workout session already has, so an elevated
+    /// heart rate brings scripture along with the pace reminder instead of a
+    /// bare physiological alert.
+    func deliverHeartRateCalmCue(heartRate: Int, verse: VerseSnippet?) async {
         let content = UNMutableNotificationContent()
         content.title = "Take a calm moment"
         content.body = "Your heart rate is \(heartRate) BPM. Ease your pace if you need to, and take a few slow breaths."
+        if let verse {
+            content.body += " \(verse.reference) — \(verse.snippet)"
+        }
         content.sound = .default
         content.userInfo = ["ff_url": "functioningfaith://train"]
         let request = UNNotificationRequest(identifier: "ff-heart-rate-calm-\(UUID().uuidString)", content: content, trigger: nil)

@@ -9,9 +9,9 @@ struct ProfileView: View {
     @StateObject private var healthKit = HealthKitManager.shared
     @StateObject private var stravaConnector = StravaConnector()
     @AppStorage("security.biometricLock") private var biometricLockEnabled = false
-    @AppStorage("notifications.scripture") private var scriptureNotifications = false
-    @AppStorage("notifications.community") private var communityNotifications = false
-    @AppStorage("notifications.reminders") private var reminderNotifications = false
+    @AppStorage("notifications.scripture") private var scriptureNotifications = true
+    @AppStorage("notifications.community") private var communityNotifications = true
+    @AppStorage("notifications.reminders") private var reminderNotifications = true
     @State private var profile: UserProfile?
     @AppStorage("privacy.biometricIngest") private var biometricConsent = false
     @AppStorage("privacy.scripturePersonalization") private var scripturePersonalization = false

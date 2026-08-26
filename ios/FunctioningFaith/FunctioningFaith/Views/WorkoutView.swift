@@ -28,7 +28,7 @@ struct WorkoutView: View {
     @State private var heartRateCalmMessage: String?
     @AppStorage("privacy.biometricIngest") private var biometricIngestEnabled = false
     @AppStorage("privacy.scripturePersonalization") private var scripturePersonalizationEnabled = false
-    @AppStorage("notifications.heartRateCalm") private var heartRateCalmNotifications = false
+    @AppStorage("notifications.heartRateCalm") private var heartRateCalmNotifications = true
     @AppStorage("notifications.heartRateCalm.threshold") private var heartRateCalmThreshold = 160
     @State private var workoutID: UUID?
     @State private var workoutVerse: VerseSnippet?
@@ -427,8 +427,14 @@ struct WorkoutView: View {
               heartRate >= heartRateCalmThreshold,
               Date().timeIntervalSince(lastHeartRateCalmCue) >= 5 * 60 else { return }
         lastHeartRateCalmCue = .now
-        heartRateCalmMessage = "Your heart rate is elevated. Ease your pace if you need to and take a few slow breaths."
-        await NotificationCoordinator.shared.deliverHeartRateCalmCue(heartRate: heartRate)
+        // Carry whatever verse this session already has (from the biometric
+        // pipeline, or the plain fallback fetch) into the cue itself, so the
+        // moment isn't just a pace warning with none of the app's scripture.
+        if workoutVerse == nil { await fillInVerseIfNeeded() }
+        let verse = workoutVerse
+        heartRateCalmMessage = verse.map { "Your heart rate is elevated. Ease your pace if you need to. \($0.reference) — \($0.snippet)" }
+            ?? "Your heart rate is elevated. Ease your pace if you need to and take a few slow breaths."
+        await NotificationCoordinator.shared.deliverHeartRateCalmCue(heartRate: heartRate, verse: verse)
     }
 
     private func updateLiveActivity() {
