@@ -66,6 +66,10 @@ struct FunctioningFaithApp: App {
             .task {
                 await session.restore()
                 await NotificationCoordinator.shared.syncDeviceToken()
+                // A workout Live Activity from a session that was force-quit
+                // or crashed mid-workout otherwise has nothing left in the
+                // app that still knows to end it -- see endAllOrphaned().
+                await WorkoutLiveActivityManager.shared.endAllOrphaned()
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .background { biometricLock.lockWhenNeeded() }
