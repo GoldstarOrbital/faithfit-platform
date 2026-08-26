@@ -325,6 +325,18 @@ final class APIClient {
         return page.workouts
     }
 
+    /// Cursor-paginated history -- `before` is the previous page's
+    /// `nextBefore` (an ISO start_time), so a new workout logged mid-scroll
+    /// can't shift the window and duplicate or skip a row.
+    func fetchWorkoutsPage(before: String? = nil, limit: Int = 30) async throws -> WorkoutLogPage {
+        if useMock { return WorkoutLogPage(workouts: [], nextBefore: nil) }
+        var path = "/api/workouts?limit=\(limit)"
+        if let before, let encoded = before.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
+            path += "&before=\(encoded)"
+        }
+        return try await request(path)
+    }
+
     func fetchAthleteIntelligence() async throws -> AthleteTrainingIntelligence {
         if useMock { return AthleteTrainingIntelligence(trainingLog: [], fitness: AthleteFitness(ctl: 0, atl: 0, form: 0, label: "Balanced", disclaimer: "Training guidance only."), bestEfforts: [:], racePrediction: nil) }
         return try await request("/api/training/intelligence")

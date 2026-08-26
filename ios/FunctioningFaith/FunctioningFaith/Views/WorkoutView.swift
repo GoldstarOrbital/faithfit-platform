@@ -76,6 +76,10 @@ struct WorkoutView: View {
         .navigationTitle("Train")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { StatsView() } label: { Image(systemName: "chart.bar.fill") }
+                    .accessibilityLabel("Stats & goals")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink { BreathworkView() } label: { Image(systemName: "wind") }
                     .accessibilityLabel("Breathing exercises")
             }
@@ -306,8 +310,13 @@ struct WorkoutView: View {
 
     private var recentPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Recent")
-                .font(.headline)
+            HStack {
+                Text("Recent")
+                    .font(.headline)
+                Spacer()
+                NavigationLink("See all") { WorkoutHistoryView() }
+                    .font(.subheadline)
+            }
             ForEach(recent.prefix(8)) { workout in
                 NavigationLink {
                     WorkoutAnalysisView(workoutID: workout.id)

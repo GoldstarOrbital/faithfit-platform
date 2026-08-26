@@ -208,12 +208,6 @@ struct ExploreView: View {
             .listRowBackground(FFTheme.parchment1)
 
             Section("Discover") {
-                NavigationLink { StatsView() } label: {
-                    HStack(spacing: FFTheme.Space.sm) {
-                        FFIconBadge(systemImage: "chart.bar.fill", tint: FFTheme.gold)
-                        Text("Stats & goals")
-                    }
-                }
                 NavigationLink { MotivationExploreView() } label: {
                     HStack(spacing: FFTheme.Space.sm) {
                         FFIconBadge(systemImage: "bolt.fill", tint: FFTheme.hearth)
