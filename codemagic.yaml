@@ -85,7 +85,7 @@ workflows:
           xcode-project build-ipa \
             --project "$XCODE_PROJECT" \
             --scheme "$XCODE_SCHEME"
-      - name: Preserve HealthKit and Sign In with Apple entitlements in exported IPA
+      - name: Preserve HealthKit, Sign In with Apple, and Push entitlements in exported IPA
         script: |
           set -euo pipefail
           ipa=$(find "$CM_BUILD_DIR/$IOS_PROJECT_DIR/build/ios/ipa" -name '*.ipa' -print -quit)
@@ -97,11 +97,14 @@ workflows:
           app="$work/Payload/FunctioningFaith.app"
           # Xcode's export step has been observed to silently omit capability
           # entitlements even though the active App Store profile authorizes
-          # them -- first caught with HealthKit, and Sign In with Apple is
-          # exactly the same class of entitlement, so it gets the same
-          # preserve-and-resign treatment rather than waiting for a second
-          # bug report. Preserve all existing distribution entitlements,
-          # force every authorized capability back in, and re-sign.
+          # them -- first caught with HealthKit, then Sign In with Apple, and
+          # aps-environment (push notifications) turned out to be the same
+          # class of bug: it was missing from this list entirely, so every
+          # exported IPA silently shipped with no push entitlement at all --
+          # registerForRemoteNotifications() would fail with no visible error
+          # and no device token would ever reach the server. Preserve all
+          # existing distribution entitlements, force every authorized
+          # capability back in, and re-sign.
           codesign -d --entitlements :- "$app" 2>&1 | sed -n '/<plist /,$p' > "$work/entitlements.plist"
           plistbuddy=/usr/libexec/PlistBuddy
           "$plistbuddy" -c 'Delete :com.apple.developer.healthkit' "$work/entitlements.plist" 2>/dev/null || true
@@ -109,6 +112,8 @@ workflows:
           "$plistbuddy" -c 'Delete :com.apple.developer.applesignin' "$work/entitlements.plist" 2>/dev/null || true
           "$plistbuddy" -c 'Add :com.apple.developer.applesignin array' "$work/entitlements.plist"
           "$plistbuddy" -c 'Add :com.apple.developer.applesignin:0 string Default' "$work/entitlements.plist"
+          "$plistbuddy" -c 'Delete :aps-environment' "$work/entitlements.plist" 2>/dev/null || true
+          "$plistbuddy" -c 'Add :aps-environment string production' "$work/entitlements.plist"
           identity=$(security find-identity -v -p codesigning | sed -n 's/.* \([A-F0-9]\{40\}\) \"Apple Distribution:.*/\1/p' | head -n 1)
           test -n "$identity"
           codesign --force --sign "$identity" --entitlements "$work/entitlements.plist" --generate-entitlement-der "$app"
@@ -127,15 +132,17 @@ workflows:
           unzip -qq "$ipa" -d /tmp/functioning-faith-ipa-check
           app=/tmp/functioning-faith-ipa-check/Payload/FunctioningFaith.app
           /usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$app/Info.plist"
-          # HealthKit and Sign In with Apple must be present in the signed
-          # app, not merely in the source entitlements file -- this is the
-          # exact check that would have caught the export step silently
-          # dropping either one before it ever reached TestFlight.
+          # HealthKit, Sign In with Apple, and the push entitlement must be
+          # present in the signed app, not merely in the source entitlements
+          # file -- this is the exact check that would have caught the export
+          # step silently dropping aps-environment before it ever reached
+          # TestFlight, the way it apparently already had been.
           # codesign writes an `Executable=…` diagnostic before the plist on
           # some Xcode releases. Retain only the XML payload before parsing.
           codesign -d --entitlements :- "$app" 2>&1 | sed -n '/<plist /,$p' > /tmp/functioning-faith-entitlements.plist
           /usr/libexec/PlistBuddy -c 'Print :com.apple.developer.healthkit' /tmp/functioning-faith-entitlements.plist | grep -qx true
           /usr/libexec/PlistBuddy -c 'Print :com.apple.developer.applesignin:0' /tmp/functioning-faith-entitlements.plist | grep -qx Default
+          /usr/libexec/PlistBuddy -c 'Print :aps-environment' /tmp/functioning-faith-entitlements.plist | grep -qx production
           test -f "$app/Assets.car"
           find "$app" \( -name 'Assets.car' -o -iname '*appicon*' \) -print | sort
           test -f "$app/AppIcon76x76@2x.png"
