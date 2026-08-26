@@ -509,6 +509,12 @@ struct FromExploreRail: View {
 /// A brighter, useful home surface: it gives the member an immediate next
 /// community action rather than adding decoration with no destination.
 struct HomeCommunityPulse: View {
+    // Same chevron bug as the Explore grid and Home's From Explore rail --
+    // two NavigationLinks sharing this one List row. Plain Buttons + a
+    // single navigationDestination(item:) again.
+    private enum Destination: Hashable { case groups, church }
+    @State private var destination: Destination?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
@@ -521,12 +527,20 @@ struct HomeCommunityPulse: View {
             Text("Find your people for the next mile.")
                 .font(FFTheme.display(22, weight: .bold, relativeTo: .title3)).foregroundStyle(FFTheme.ink)
             HStack(spacing: 10) {
-                NavigationLink { GroupsHubView() } label: { pulseAction("Find groups", "person.3.fill") }
-                NavigationLink { ChurchFinderView() } label: { pulseAction("Your church", "building.2.fill") }
+                Button { destination = .groups } label: { pulseAction("Find groups", "person.3.fill") }
+                    .buttonStyle(.plain)
+                Button { destination = .church } label: { pulseAction("Your church", "building.2.fill") }
+                    .buttonStyle(.plain)
             }
         }
         .padding(16)
         .background(LinearGradient(colors: [FFTheme.goldBright.opacity(0.34), FFTheme.hearthSoft.opacity(0.35), FFTheme.parchment1], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: FFTheme.Radius.lg, style: .continuous))
+        .navigationDestination(item: $destination) { destination in
+            switch destination {
+            case .groups: GroupsHubView()
+            case .church: ChurchFinderView()
+            }
+        }
     }
 
     private func pulseAction(_ title: String, _ icon: String) -> some View {

@@ -8,6 +8,26 @@ final class NativeSession: ObservableObject {
     @Published var requiresAccountSetup = false
 
     var isAuthenticated: Bool { profile != nil }
+    private var sessionExpiredObserver: NSObjectProtocol?
+
+    init() {
+        // A 401 anywhere means the session itself is gone server-side --
+        // clearing profile here is what actually takes the whole app back
+        // to the sign-in screen, instead of each screen that happened to
+        // make a request at that moment showing its own dead-end error
+        // while every other tab still looks logged in.
+        sessionExpiredObserver = NotificationCenter.default.addObserver(forName: .apiSessionExpired, object: nil, queue: nil) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, self.profile != nil else { return }
+                self.profile = nil
+                self.requiresAccountSetup = false
+            }
+        }
+    }
+
+    deinit {
+        if let sessionExpiredObserver { NotificationCenter.default.removeObserver(sessionExpiredObserver) }
+    }
 
     func restore() async {
         guard profile == nil else { isRestoring = false; return }

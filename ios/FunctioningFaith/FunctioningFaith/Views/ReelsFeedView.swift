@@ -4,6 +4,18 @@ import Foundation
 #if canImport(UIKit)
 import UIKit
 #endif
+#if canImport(WebKit)
+import WebKit
+#endif
+
+/// Shared once-per-process audio session setup for both inline player kinds
+/// below -- without it, playback audio silently defers to whatever ambient
+/// session happens to already be in effect, which respects the ringer/silent
+/// switch and can leave an autoplaying reel visibly playing with no sound.
+private func configureReelAudioSession() {
+    try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+    try? AVAudioSession.sharedInstance().setActive(true)
+}
 
 /// A short-form feed that warms the next visuals before the member reaches
 /// them. Native uploads are already returned with their compact data payload;
@@ -228,13 +240,21 @@ private struct ReelPage: View {
     let onComments: (() -> Void)?
     let onNotInterested: () -> Void
 
-    private var isInlinePlayable: Bool { reel.provider == "functioning_faith" && reel.videoData != nil }
+    private var isNativeInline: Bool { reel.provider == "functioning_faith" && reel.videoData != nil }
+    // A YouTube reel autoplays inline too, exactly like a native upload,
+    // instead of tapping into a modal that stops the feed's own scrolling --
+    // the modal only remains for reels with neither a native payload nor a
+    // YouTube ID (an external/church link with no embeddable player).
+    private var isYouTubeInline: Bool { reel.provider == "youtube" }
+    private var isInlinePlayable: Bool { isNativeInline || isYouTubeInline }
 
     var body: some View {
         ZStack {
             Color.black
-            if isInlinePlayable, let dataURL = reel.videoData {
+            if isNativeInline, let dataURL = reel.videoData {
                 InlineReelPlayer(dataURL: dataURL, isActive: isCurrent)
+            } else if isYouTubeInline && isCurrent {
+                InlineYouTubeReelPlayer(videoID: reel.videoID)
             } else if let thumb = reel.thumbnailURL, let url = URL(string: thumb) {
                 AsyncImage(url: url) { image in
                     image.resizable().scaledToFill()
@@ -371,6 +391,7 @@ private struct InlineReelPlayer: View {
         let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension(fileExtension)
         do {
             try data.write(to: tempURL)
+            configureReelAudioSession()
             let item = AVPlayerItem(url: tempURL)
             let queuePlayer = AVQueuePlayer()
             looper = AVPlayerLooper(player: queuePlayer, templateItem: item)
@@ -382,5 +403,60 @@ private struct InlineReelPlayer: View {
         }
     }
 }
+
+/// Inline, chrome-free playback for a YouTube reel -- mounted only while its
+/// page `isCurrent` (see ReelPage), so exactly one WKWebView loads at a time
+/// instead of every YouTube tile in the feed running its own player, and
+/// scrolling to the next page simply unmounts it rather than needing a
+/// postMessage handshake with the YouTube IFrame API to pause it. Reuses
+/// YouTube's own nocookie embed, the same approach ReelPlayerView's modal
+/// player already uses for a one-off tap-to-watch.
+#if canImport(WebKit)
+private struct InlineYouTubeReelPlayer: UIViewRepresentable {
+    let videoID: String
+
+    func makeUIView(context: Context) -> WKWebView {
+        configureReelAudioSession()
+        let config = WKWebViewConfiguration()
+        config.allowsInlineMediaPlayback = true
+        config.mediaTypesRequiringUserActionForPlayback = []
+        config.defaultWebpagePreferences.allowsContentJavaScript = true
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.scrollView.isScrollEnabled = false
+        webView.isOpaque = false
+        webView.backgroundColor = .black
+        load(videoID: videoID, into: webView)
+        context.coordinator.loadedVideoID = videoID
+        return webView
+    }
+
+    // SwiftUI can call updateUIView on any unrelated state change in this
+    // view's ancestors, not just when `videoID` actually changes -- without
+    // this guard, every such call would reload the HTML and restart the
+    // video from the top mid-playback.
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        guard context.coordinator.loadedVideoID != videoID else { return }
+        load(videoID: videoID, into: webView)
+        context.coordinator.loadedVideoID = videoID
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var loadedVideoID: String?
+    }
+
+    private func load(videoID: String, into webView: WKWebView) {
+        guard let encoded = videoID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return }
+        let origin = "https://faithfit-demo-production.up.railway.app"
+        let html = """
+        <!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">
+        <style>html,body,iframe{margin:0;width:100%;height:100%;border:0;background:#000}</style></head>
+        <body><iframe src=\"https://www.youtube-nocookie.com/embed/\(encoded)?playsinline=1&rel=0&autoplay=1&origin=\(origin)\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture\" allowfullscreen></iframe></body></html>
+        """
+        webView.loadHTMLString(html, baseURL: URL(string: origin))
+    }
+}
+#endif
 
 #Preview { NavigationStack { ReelsFeedView() } }

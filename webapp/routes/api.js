@@ -1705,6 +1705,21 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   if (notable) notify(req.session.userId, 'effort', notable.message, { workout_id: workout.id, effort_type: notable.type });
 
   publish('workout.completed', { user_id: req.session.userId, workout_id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr });
+  // A closed-device verse for every completed run, not just a live-tracked one
+  // that happened to reach the 'finishing' biometric moment above -- a manual
+  // entry or a short run that never sampled that far still deserves one.
+  try {
+    const verseRow = db.prepare('SELECT book, chapter, verse, text FROM bible_verses ORDER BY RANDOM() LIMIT 1').get();
+    if (verseRow) {
+      const reference = `${verseRow.book} ${verseRow.chapter}:${verseRow.verse}`;
+      push.send(req.session.userId, 'daily_verse', {
+        title: 'After your run',
+        body: `${reference} — ${verseRow.text}`,
+        url: notificationDestination('verse', { reference }),
+        tag: `workout-${workout.id}-finished`,
+      }).catch(() => {});
+    }
+  } catch { /* a missing verse table must never block the stop response */ }
   const completedChallenges = applyWorkoutToChallenges(req.session.userId, { distance_km: gps_distance_km || 0, duration_sec: durationSec, type: workout.type });
   notifyChallengeCompletions(req.session.userId, completedChallenges);
   notifyJourneyProgress(req.session.userId, applyWorkoutToJourneys(req.session.userId, { distance_km: gps_distance_km || 0, duration_sec: durationSec, type: workout.type }));
@@ -1849,6 +1864,18 @@ router.post('/workouts/manual', requireAuth, (req, res) => {
   }
 
   publish('workout.completed', { user_id: uid, workout_id: id, calories: cal, avg_hr: avg_hr || null });
+  try {
+    const verseRow = db.prepare('SELECT book, chapter, verse, text FROM bible_verses ORDER BY RANDOM() LIMIT 1').get();
+    if (verseRow) {
+      const reference = `${verseRow.book} ${verseRow.chapter}:${verseRow.verse}`;
+      push.send(uid, 'daily_verse', {
+        title: 'After your run',
+        body: `${reference} — ${verseRow.text}`,
+        url: notificationDestination('verse', { reference }),
+        tag: `workout-${id}-finished`,
+      }).catch(() => {});
+    }
+  } catch { /* a missing verse table must never block the manual-log response */ }
   const completed = applyWorkoutToChallenges(uid, { distance_km: dist || 0, duration_sec: durSec, type });
   notifyChallengeCompletions(uid, completed);
   // A live journey session already advanced its route kilometre-by-kilometre as

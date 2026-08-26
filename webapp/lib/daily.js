@@ -86,8 +86,11 @@ function recentRefs(userId, days) {
  * Returns null when there is nothing to send or nothing verified to send.
  */
 async function sendFor(userId) {
-  const subs = push.get(userId).filter(s => s.categories.includes('daily_verse'));
-  if (!subs.length) return null;                 // never chosen, never sent
+  const webSubs = push.get(userId).filter(s => s.categories.includes('daily_verse'));
+  const nativeOptedIn = db.prepare(`SELECT 1 FROM native_push_tokens
+                                     WHERE user_id = ? AND platform = 'ios' AND categories LIKE '%daily_verse%'`)
+    .get(userId);
+  if (!webSubs.length && !nativeOptedIn) return null;  // never chosen, never sent
 
   const me = db.prepare('SELECT display_name, tradition, bible_version_id FROM users WHERE id = ?')
     .get(userId);
@@ -145,8 +148,11 @@ async function sendFor(userId) {
  * timezone we use the server's, and the member can turn the category off.
  */
 async function runOnce() {
-  const ids = db.prepare(`SELECT DISTINCT user_id FROM push_subscriptions
-                           WHERE categories LIKE '%daily_verse%'`).all().map(r => r.user_id);
+  const ids = db.prepare(`
+    SELECT user_id FROM push_subscriptions WHERE categories LIKE '%daily_verse%'
+    UNION
+    SELECT user_id FROM native_push_tokens WHERE platform = 'ios' AND categories LIKE '%daily_verse%'
+  `).all().map(r => r.user_id);
   let sent = 0;
   for (const id of ids) {
     // Once per member per day, whatever else happens.
@@ -163,7 +169,10 @@ async function runOnce() {
 
 let timer = null;
 function start() {
-  if (!push.isConfigured()) return;              // no keys, no timer at all
+  // Web push (VAPID) and native iOS (APNs) are configured independently --
+  // an APNs-only deployment (the normal case once this shipped as a native
+  // app) must not sit dark just because no VAPID keypair was ever generated.
+  if (!push.isConfigured() && !push.isNativeConfigured()) return;
   const tick = () => {
     const h = new Date().getHours();
     if (h >= 6 && h < 10) runOnce().catch(() => {});

@@ -61,7 +61,7 @@ final class NotificationCoordinator: NSObject, UIApplicationDelegate, UNUserNoti
         guard let token = UserDefaults.standard.string(forKey: tokenKey), !token.isEmpty else { return }
         let categories = NotificationCategory.allCases
             .filter { UserDefaults.standard.bool(forKey: "notifications.\($0.rawValue)") }
-            .map(\.rawValue)
+            .flatMap(\.serverCategories)
         try? await APIClient.shared.registerNativePushToken(token, categories: categories)
     }
 
@@ -121,6 +121,20 @@ enum NotificationCategory: String, CaseIterable, Identifiable {
         case .scripture: return "Receive a timely verse around the workouts you choose to record."
         case .community: return "Know when someone replies, cheers, or invites you."
         case .reminders: return "Get reminders you create for your own rhythm."
+        }
+    }
+
+    /// The server's own push categories (webapp/lib/push.js CATEGORIES) this
+    /// toggle actually controls. These names don't match the enum's raw
+    /// values 1:1 -- registering the raw case name here previously sent a
+    /// category the server didn't recognize, which its own filtering silently
+    /// dropped, so "scripture" and "community" never reached anyone despite
+    /// looking enabled in Settings.
+    var serverCategories: [String] {
+        switch self {
+        case .scripture: return ["daily_verse"]
+        case .community: return ["verse_reply", "social"]
+        case .reminders: return ["reminders"]
         }
     }
 }

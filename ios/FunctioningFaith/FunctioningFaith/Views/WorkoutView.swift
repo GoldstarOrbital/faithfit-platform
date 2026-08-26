@@ -370,6 +370,7 @@ struct WorkoutView: View {
                     if let power = bluetooth.cyclingPowerWatts { sportMetrics["power_w"] = Double(power) }
                     if bluetooth.peakPowerWatts > 0 { sportMetrics["peak_power_w"] = Double(bluetooth.peakPowerWatts) }
                     let completion = try await APIClient.shared.stopWorkout(id: id, gpsPoints: route, gpsDistanceKm: distance, sportMetrics: sportMetrics)
+                    await fillInVerseIfNeeded()
                     await MainActor.run {
                         completedSportMetrics = sportMetrics
                         completedRoute = route
@@ -439,6 +440,21 @@ struct WorkoutView: View {
         )
     }
 
+    // The only way workoutVerse ever got set was a live-tracked workout with
+    // heart-rate personalization explicitly opted in (off by default) --
+    // meaning most workouts, and every manually logged one, always fell
+    // back to the same hardcoded WorkoutView.completionVerse. Every
+    // completion deserves a real, varying verse regardless of tracking mode
+    // or that opt-in, so fetch one here whenever the personalized path
+    // never supplied one.
+    private func fillInVerseIfNeeded() async {
+        guard workoutVerse == nil else { return }
+        guard let verse = try? await APIClient.shared.fetchRandomVerse() else { return }
+        await MainActor.run {
+            workoutVerse = VerseSnippet(id: verse.reference, reference: verse.reference, snippet: verse.text, deepLink: "")
+        }
+    }
+
     private func submitBiometricSampleIfNeeded() async {
         guard biometricIngestEnabled, heartRate > 0, let workoutID,
               Date().timeIntervalSince(lastBiometricUpload) >= 60 else { return }
@@ -464,6 +480,7 @@ struct WorkoutView: View {
                 note: manualNote.isEmpty ? nil : manualNote
             )
             completedSportMetrics = [:]
+            await fillInVerseIfNeeded()
             completedWorkout = WorkoutCompletion(
                 id: UUID(uuidString: saved.id) ?? UUID(),
                 calories: saved.calories,

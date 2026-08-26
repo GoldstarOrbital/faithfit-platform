@@ -1,5 +1,13 @@
 import Foundation
 
+extension Notification.Name {
+    /// Posted once, from the one place that actually knows every request's
+    /// outcome, whenever any API call comes back 401. See NativeSession,
+    /// which observes this to sign the app out cleanly instead of leaving
+    /// scattered widgets each showing their own "please sign in" error.
+    static let apiSessionExpired = Notification.Name("apiSessionExpired")
+}
+
 enum APIError: LocalizedError {
     case invalidResponse
     case requestFailed(Int, String?)
@@ -1284,7 +1292,16 @@ final class APIClient {
         }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
-        if http.statusCode == 401 { throw APIError.notSignedIn }
+        if http.statusCode == 401 {
+            // Every caller used to just get this thrown at it individually --
+            // no single one of them is in a position to know the session
+            // itself is gone, so a real expiry showed up as several
+            // unrelated widgets each independently saying "please sign in"
+            // while the rest of the app still looked logged in. Broadcasting
+            // it once here lets NativeSession actually act on it.
+            NotificationCenter.default.post(name: .apiSessionExpired, object: nil)
+            throw APIError.notSignedIn
+        }
         guard (200..<300).contains(http.statusCode) else {
             let details = try? decoder.decode(APIErrorResponse.self, from: data)
             let message = details?.hint ?? details?.error?.replacingOccurrences(of: "_", with: " ").capitalized
