@@ -30,11 +30,26 @@ final class NativeSession: ObservableObject {
         if let sessionExpiredObserver { NotificationCenter.default.removeObserver(sessionExpiredObserver) }
     }
 
+    /// The session cookie itself is valid for 30 days -- a member should
+    /// never see the sign-in screen just because the very first request of a
+    /// cold launch hit a slow or momentarily-unreachable network before
+    /// connectivity settled. Only an explicit "the server says I'm not
+    /// signed in" (APIError.notSignedIn, from a real 401) should ever clear
+    /// profile; anything else gets one retry before giving up, and a retry
+    /// failure leaves profile untouched rather than forcing a sign-out.
     func restore() async {
         guard profile == nil else { isRestoring = false; return }
-        if let state = try? await APIClient.shared.fetchSessionState() {
+        do {
+            let state = try await APIClient.shared.fetchSessionState()
             profile = state.profile
             requiresAccountSetup = state.accountSetupRequired
+        } catch APIError.notSignedIn {
+            profile = nil
+        } catch {
+            if let state = try? await APIClient.shared.fetchSessionState() {
+                profile = state.profile
+                requiresAccountSetup = state.accountSetupRequired
+            }
         }
         isRestoring = false
     }
@@ -75,20 +90,49 @@ struct NativeAuthView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                LinearGradient(colors: [FFTheme.parchment0, FFTheme.parchment2], startPoint: .top, endPoint: .bottom)
-                    .ignoresSafeArea()
+                // A warm, dawn-lit backdrop instead of a flat two-stop
+                // gradient -- deep walnut settling into parchment, with a
+                // soft hearth-gold glow rising behind the brand mark, so the
+                // very first screen someone sees reads as considered rather
+                // than a placeholder gradient.
+                LinearGradient(
+                    colors: [FFTheme.walnut0, FFTheme.parchment0, FFTheme.parchment2],
+                    startPoint: .top, endPoint: .bottom
+                )
+                .ignoresSafeArea()
+                RadialGradient(
+                    colors: [FFTheme.hearthSoft.opacity(0.35), .clear],
+                    center: .init(x: 0.5, y: 0.02), startRadius: 10, endRadius: 340
+                )
+                .ignoresSafeArea()
+                .blendMode(.plusLighter)
+
                 ScrollView {
-                    VStack(spacing: 20) {
-                        VStack(spacing: 10) {
+                    VStack(spacing: 22) {
+                        VStack(spacing: 12) {
                             Image("BrandMark")
-                                .resizable().scaledToFit().frame(width: 88, height: 88)
-                                .padding(5)
-                                .background(.white, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                            Text("Functioning Faith").font(.system(size: 32, weight: .bold, design: .rounded)).foregroundStyle(FFTheme.ink)
+                                .resizable().scaledToFit().frame(width: 80, height: 80)
+                                .padding(10)
+                                .background(
+                                    Circle().fill(
+                                        LinearGradient(colors: [FFTheme.parchment2, FFTheme.hearthSoft.opacity(0.5)],
+                                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+                                    )
+                                )
+                                .overlay(Circle().stroke(FFTheme.goldBright.opacity(0.55), lineWidth: 1.5))
+                                .shadow(color: FFTheme.walnut0.opacity(0.25), radius: 14, x: 0, y: 8)
+                            VStack(spacing: 4) {
+                                Text("Functioning Faith")
+                                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                                    .foregroundStyle(FFTheme.ink)
+                                Rectangle()
+                                    .fill(FFTheme.goldBright.opacity(0.6))
+                                    .frame(width: 36, height: 2)
+                            }
                             Text(isRegistering ? "Create a rhythm for your body, mind, and spirit." : "Move with purpose. Stay connected in faith.")
                                 .font(.subheadline).multilineTextAlignment(.center).foregroundStyle(FFTheme.inkSoft)
                         }
-                        .padding(.top, 26)
+                        .padding(.top, 36)
 
                         VStack(spacing: 16) {
                             HStack {
@@ -100,8 +144,12 @@ struct NativeAuthView: View {
                                 }
                                 Spacer()
                                 Image(systemName: isRegistering ? "sparkles" : "figure.run")
-                                    .foregroundStyle(FFTheme.hearth)
-                                    .padding(10).background(FFTheme.parchment2, in: Circle())
+                                    .foregroundStyle(FFTheme.cream)
+                                    .padding(10)
+                                    .background(
+                                        Circle().fill(LinearGradient(colors: [FFTheme.hearth, FFTheme.goldBright],
+                                                                      startPoint: .topLeading, endPoint: .bottomTrailing))
+                                    )
                             }
                     if mfaRequired {
                         mfaChallenge
@@ -131,6 +179,7 @@ struct NativeAuthView: View {
                         .padding(20)
                         .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).stroke(FFTheme.gold.opacity(0.22), lineWidth: 1))
+                        .shadow(color: FFTheme.walnut0.opacity(0.14), radius: 24, x: 0, y: 14)
 
                         Label("Private by default · Scripture grounded · Built for your real life", systemImage: "lock.shield")
                             .font(.caption2.weight(.medium)).foregroundStyle(FFTheme.inkSoft)
