@@ -16,6 +16,16 @@ struct VerseSnippet: Codable, Identifiable {
     let deepLink: String
 }
 
+/// Home's "Scripture in Motion" card -- one stable pick for the day (see
+/// webapp's scriptureMission.js), distinct from the live per-moment verse a
+/// tracked workout uses.
+struct ScriptureMission: Codable {
+    let headline: String
+    let reference: String
+    let text: String
+    let coaching: String
+}
+
 struct FeedPost: Codable, Identifiable {
     let id: UUID
     let authorID: UUID?

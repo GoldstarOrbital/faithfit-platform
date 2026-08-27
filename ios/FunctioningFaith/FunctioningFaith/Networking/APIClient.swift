@@ -786,6 +786,15 @@ final class APIClient {
         return try await request("/api/bible/random")
     }
 
+    func fetchScriptureMission() async throws -> ScriptureMission {
+        if useMock {
+            return ScriptureMission(headline: "Move with perseverance", reference: "Hebrews 12:1",
+                                     text: "Let us run with perseverance the race marked out for us.",
+                                     coaching: "Take a short movement break, notice your breath, and let this verse shape what comes next.")
+        }
+        return try await request("/api/scripture/mission")
+    }
+
     func fetchSavedVerses() async throws -> [SavedVerse] {
         if useMock { return [] }
         let r: SavedVersesResponse = try await request("/api/verses/saved")

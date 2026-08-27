@@ -24,6 +24,7 @@ const overlay = require('../lib/overlay');
 const usernames = require('../lib/usernames');
 const youversion = require('../lib/youversion');
 const motivation = require('../lib/motivation');
+const scriptureMission = require('../lib/scriptureMission');
 const gloo = require('../lib/gloo');
 const companion = require('../lib/companion');
 const breathwork = require('../lib/breathwork');
@@ -3839,6 +3840,19 @@ router.get('/motivation', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('[motivation] next quote failed', error);
     res.status(503).json({ error: 'motivation_unavailable' });
+  }
+});
+
+// Home's "Scripture in Motion" card -- one stable pick for the day (see
+// scriptureMission.js), not the live per-moment verse a tracked workout uses.
+router.get('/scripture/mission', requireAuth, async (req, res) => {
+  try {
+    const mission = await scriptureMission.today(req.session.userId);
+    if (!mission) return res.status(503).json({ error: 'mission_unavailable' });
+    res.json({ headline: mission.headline, reference: mission.reference, text: mission.text, coaching: mission.coaching });
+  } catch (error) {
+    console.error('[scripture-mission] today failed', error);
+    res.status(503).json({ error: 'mission_unavailable' });
   }
 });
 

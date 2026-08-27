@@ -30,7 +30,7 @@ struct HomeFeedView: View {
                 .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
-            HomeCommunityPulse()
+            ScriptureInMotionCard()
                 .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
@@ -506,45 +506,93 @@ struct FromExploreRail: View {
         .environmentObject(DMStore())
 }
 
-/// A brighter, useful home surface: it gives the member an immediate next
-/// community action rather than adding decoration with no destination.
-struct HomeCommunityPulse: View {
-    // Same chevron bug as the Explore grid and Home's From Explore rail --
-    // two NavigationLinks sharing this one List row. Plain Buttons + a
-    // single navigationDestination(item:) again.
-    private enum Destination: Hashable { case groups, church }
+/// Home's daily invitation to a short movement break, framed by one verse --
+/// replaces the earlier "Your Community" pulse card in this same slot. One
+/// stable pick per day (see webapp's scriptureMission.js), not the live
+/// per-moment verse a tracked workout itself uses.
+struct ScriptureInMotionCard: View {
+    @State private var mission: ScriptureMission?
+    // Same chevron risk as the Explore grid and Home's From Explore rail --
+    // two destinations reachable from one List row. Plain Buttons + a single
+    // navigationDestination(item:), never two NavigationLinks in one row.
+    private enum Destination: Hashable { case mission, verse }
     @State private var destination: Destination?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("YOUR COMMUNITY", systemImage: "sparkles")
-                    .font(.caption.weight(.bold)).tracking(1)
-                Spacer()
-                Text("MOVE TOGETHER").font(.caption2.weight(.bold)).foregroundStyle(FFTheme.cream)
-                    .padding(.horizontal, 8).padding(.vertical, 4).background(FFTheme.hearth, in: Capsule())
-            }
-            Text("Find your people for the next mile.")
-                .font(FFTheme.display(22, weight: .bold, relativeTo: .title3)).foregroundStyle(FFTheme.ink)
-            HStack(spacing: 10) {
-                Button { destination = .groups } label: { pulseAction("Find groups", "person.3.fill") }
-                    .buttonStyle(.plain)
-                Button { destination = .church } label: { pulseAction("Your church", "building.2.fill") }
-                    .buttonStyle(.plain)
+        Group {
+            if let mission {
+                content(for: mission)
+            } else {
+                // A silent skeleton, not an error state -- this replaces a
+                // section that was always present, and a failed fetch here
+                // shouldn't put an alarming error on the Home feed.
+                RoundedRectangle(cornerRadius: FFTheme.Radius.lg, style: .continuous)
+                    .fill(FFTheme.parchment1)
+                    .frame(height: 190)
+                    .overlay(ProgressView())
             }
         }
-        .padding(16)
-        .background(LinearGradient(colors: [FFTheme.goldBright.opacity(0.34), FFTheme.hearthSoft.opacity(0.35), FFTheme.parchment1], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: FFTheme.Radius.lg, style: .continuous))
+        .task {
+            mission = try? await APIClient.shared.fetchScriptureMission()
+        }
         .navigationDestination(item: $destination) { destination in
             switch destination {
-            case .groups: GroupsHubView()
-            case .church: ChurchFinderView()
+            case .mission:
+                WorkoutView(initialVerse: mission.map {
+                    VerseSnippet(id: $0.reference, reference: $0.reference, snippet: $0.text, deepLink: "")
+                })
+            case .verse:
+                VerseThreadView(reference: mission?.reference ?? "")
             }
         }
     }
 
-    private func pulseAction(_ title: String, _ icon: String) -> some View {
-        Label(title, systemImage: icon).font(.caption.weight(.bold)).foregroundStyle(FFTheme.cream)
-            .frame(maxWidth: .infinity, minHeight: 42).background(FFTheme.walnut0, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    private func content(for mission: ScriptureMission) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label("SCRIPTURE IN MOTION", systemImage: "sparkles")
+                    .font(.caption.weight(.bold)).tracking(1)
+                Spacer()
+                Text("TODAY").font(.caption2.weight(.bold)).foregroundStyle(FFTheme.cream)
+                    .padding(.horizontal, 8).padding(.vertical, 4).background(FFTheme.meadow, in: Capsule())
+            }
+            Text(mission.headline)
+                .font(FFTheme.display(22, weight: .bold, relativeTo: .title3)).foregroundStyle(FFTheme.ink)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(mission.reference).font(.caption.weight(.bold)).foregroundStyle(FFTheme.scripture)
+                Text(mission.text).font(.subheadline).italic().foregroundStyle(FFTheme.ink)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(alignment: .leading) {
+                Rectangle().fill(FFTheme.goldBright).frame(width: 3)
+                    .clipShape(RoundedRectangle(cornerRadius: 1.5))
+            }
+
+            Text(mission.coaching)
+                .font(.caption).foregroundStyle(FFTheme.inkSoft)
+
+            HStack(spacing: 14) {
+                Button { destination = .mission } label: {
+                    Label("Begin the mission", systemImage: "figure.run")
+                        .font(.caption.weight(.bold)).foregroundStyle(FFTheme.cream)
+                        .frame(maxWidth: .infinity, minHeight: 42)
+                        .background(FFTheme.meadow, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                Button { destination = .verse } label: {
+                    Label("Read in Bible", systemImage: "arrow.up.right")
+                        .font(.caption.weight(.semibold)).foregroundStyle(FFTheme.meadowDeep)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text("Functioning Faith coaching is generated from your activity context; Scripture text is always shown from the verified library.")
+                .font(.caption2).foregroundStyle(FFTheme.inkSoft.opacity(0.8))
+        }
+        .padding(16)
+        .background(LinearGradient(colors: [FFTheme.goldBright.opacity(0.28), FFTheme.meadow2.opacity(0.22), FFTheme.parchment1], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: FFTheme.Radius.lg, style: .continuous))
     }
 }

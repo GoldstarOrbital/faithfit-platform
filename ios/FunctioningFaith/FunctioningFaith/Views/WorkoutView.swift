@@ -13,6 +13,12 @@ struct WorkoutView: View {
         case journey = "Journey"
     }
 
+    /// Set when this screen was reached from Home's "Scripture in Motion"
+    /// card ("Begin the mission") -- carries that verse through as the
+    /// session's own workout verse instead of the usual fillInVerseIfNeeded()
+    /// fallback. nil for the ordinary Train tab entry point.
+    var initialVerse: VerseSnippet? = nil
+
     @StateObject private var tracker = NativeWorkoutTracker()
     @ObservedObject private var bluetooth = BluetoothHeartRateManager.shared
     @State private var mode: Mode = .live
@@ -127,6 +133,7 @@ struct WorkoutView: View {
         .task {
             activityTypes = (try? await APIClient.shared.fetchActivityTypes()) ?? ActivityCatalog.fallback
             recent = (try? await APIClient.shared.fetchWorkouts()) ?? []
+            if workoutVerse == nil { workoutVerse = initialVerse }
         }
     }
 
@@ -404,7 +411,7 @@ struct WorkoutView: View {
                     lastBiometricUpload = .distantPast
                     lastHeartRateCalmCue = .distantPast
                     heartRateCalmMessage = nil
-                    workoutVerse = nil
+                    workoutVerse = initialVerse
                     isActive = true
                     tracker.start()
                     WorkoutLiveActivityManager.shared.start(sport: selectedType)
