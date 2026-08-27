@@ -38,9 +38,6 @@ struct HomeFeedView: View {
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
-            ScriptureHomeCard()
-                .listRowSeparator(.hidden)
-                .listRowBackground(Color.clear)
             FromExploreRail()
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
@@ -506,9 +503,11 @@ struct FromExploreRail: View {
         .environmentObject(DMStore())
 }
 
-/// Home's daily invitation to a short movement break, framed by one verse --
-/// replaces the earlier "Your Community" pulse card in this same slot. One
-/// stable pick per day (see webapp's scriptureMission.js), not the live
+/// Home's invitation to move toward Scripture or Training first, framed by
+/// one verse -- replaces the earlier "Your Community" pulse card in this
+/// same slot. Meant to feel fresh every time a member returns to Home, not a
+/// stable pick for the day, so it re-rolls on every appearance rather than
+/// once per day (see webapp's scriptureMission.js). Distinct from the live
 /// per-moment verse a tracked workout itself uses.
 struct ScriptureInMotionCard: View {
     @State private var mission: ScriptureMission?
@@ -532,9 +531,13 @@ struct ScriptureInMotionCard: View {
                     .overlay(ProgressView())
             }
         }
-        .task {
-            mission = try? await APIClient.shared.fetchScriptureMission()
-        }
+        // .onAppear, not .task -- .task only ever runs once per view
+        // identity, but this card should re-roll every time a member
+        // returns to Home (a tab switch back, or scrolling it back into
+        // view), not just on the very first load. The existing verse stays
+        // on screen while the new one loads, rather than flashing back to
+        // the skeleton on every return.
+        .onAppear { Task { mission = (try? await APIClient.shared.fetchScriptureMission()) ?? mission } }
         .navigationDestination(item: $destination) { destination in
             switch destination {
             case .mission:

@@ -16,7 +16,7 @@ struct VerseSnippet: Codable, Identifiable {
     let deepLink: String
 }
 
-/// Home's "Scripture in Motion" card -- one stable pick for the day (see
+/// Home's "Scripture in Motion" card -- a fresh pick on every fetch (see
 /// webapp's scriptureMission.js), distinct from the live per-moment verse a
 /// tracked workout uses.
 struct ScriptureMission: Codable {

@@ -1,52 +1,5 @@
 import SwiftUI
 
-/// Compact teaser embedded at the top of the home feed, in the same slot as
-/// StoriesRail/TrendingTagsRail -- surfaces scripture on the primary landing
-/// screen rather than behind a 6th tab bar item (iOS collapses a tab bar into
-/// "More" past 5 items, which would bury the app's namesake feature).
-struct ScriptureHomeCard: View {
-    @State private var verse: BibleVerse?
-
-    var body: some View {
-        // Goes straight to this exact verse's own view+discussion when it has
-        // loaded, rather than the general Scripture hub, which would show a
-        // different, freshly-refetched random verse than the one on the card.
-        NavigationLink {
-            if let verse {
-                VerseThreadView(reference: verse.reference)
-            } else {
-                ScriptureView()
-            }
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Scripture", systemImage: "book.fill")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                if let verse {
-                    Text(verse.text)
-                        .font(.subheadline)
-                        .foregroundStyle(.primary)
-                        .lineLimit(3)
-                    Text(verse.reference)
-                        .font(.caption)
-                        .foregroundStyle(.tint)
-                } else {
-                    Text("Read, search, and save verses")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 12).fill(.tint.opacity(0.08)))
-        }
-        .buttonStyle(.plain)
-        .task {
-            verse = try? await APIClient.shared.fetchRandomVerse()
-        }
-    }
-}
-
 struct ScriptureView: View {
     @State private var verse: BibleVerse?
     @State private var isLoadingVerse = true

@@ -3843,15 +3843,16 @@ router.get('/motivation', requireAuth, async (req, res) => {
   }
 });
 
-// Home's "Scripture in Motion" card -- one stable pick for the day (see
-// scriptureMission.js), not the live per-moment verse a tracked workout uses.
+// Home's "Scripture in Motion" card -- a fresh pick every call, meant to feel
+// new each time a member returns to Home (see scriptureMission.js), not the
+// live per-moment verse a tracked workout uses.
 router.get('/scripture/mission', requireAuth, async (req, res) => {
   try {
-    const mission = await scriptureMission.today(req.session.userId);
+    const mission = await scriptureMission.next(req.session.userId);
     if (!mission) return res.status(503).json({ error: 'mission_unavailable' });
     res.json({ headline: mission.headline, reference: mission.reference, text: mission.text, coaching: mission.coaching });
   } catch (error) {
-    console.error('[scripture-mission] today failed', error);
+    console.error('[scripture-mission] next failed', error);
     res.status(503).json({ error: 'mission_unavailable' });
   }
 });
