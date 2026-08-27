@@ -70,6 +70,13 @@ struct FunctioningFaithApp: App {
                 // or crashed mid-workout otherwise has nothing left in the
                 // app that still knows to end it -- see endAllOrphaned().
                 await WorkoutLiveActivityManager.shared.endAllOrphaned()
+                // Previously the only way a Health/Watch workout ever reached
+                // Functioning Faith was tapping "Sync Apple Health now" on
+                // Profile by hand. This silently catches up on launch, and
+                // registers for HealthKit's own background wake so a new
+                // watch workout syncs without opening the app at all.
+                await HealthKitManager.shared.syncIfAuthorized()
+                HealthKitManager.shared.startObservingIfAuthorized()
             }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .background { biometricLock.lockWhenNeeded() }

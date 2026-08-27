@@ -226,6 +226,7 @@ struct ProfileView: View {
                     Task {
                         do {
                             try await healthKit.requestAuthorization()
+                            healthKit.startObservingIfAuthorized()
                             healthKitSyncing = true
                             await healthKit.syncRecentWorkouts { payload in
                                 try await APIClient.shared.syncAppleHealth(payload)

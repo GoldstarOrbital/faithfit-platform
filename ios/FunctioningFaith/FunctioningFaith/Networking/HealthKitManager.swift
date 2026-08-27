@@ -33,6 +33,7 @@ final class HealthKitManager: ObservableObject {
     private let lastSyncKey = "healthkit.lastWorkoutSyncStart"
     private let authorizationRequestedKey = "healthkit.authorizationRequested"
     private let userDefaults = UserDefaults.standard
+    private var observerQuery: HKObserverQuery?
 
     // The `HKQuantityType(.stepCount)` typed-literal initializer is a newer
     // HealthKit API surface than this project's iOS 17 deployment target can
@@ -117,6 +118,45 @@ final class HealthKitManager: ObservableObject {
         } catch {
             lastSyncError = error.localizedDescription
         }
+    }
+
+    private func performUpload(_ payload: SyncPayload) async throws -> SyncResult {
+        try await APIClient.shared.syncAppleHealth(payload)
+    }
+
+    /// A silent sync for whenever the app opens and a member already
+    /// connected Health -- previously the ONLY way a workout ever reached
+    /// Functioning Faith was tapping "Sync Apple Health now" on the Profile
+    /// tab by hand, so a watch workout from earlier in the day sat unsynced
+    /// until someone remembered to do that.
+    func syncIfAuthorized() async {
+        guard authorizationRequested else { return }
+        await syncRecentWorkouts(upload: performUpload)
+    }
+
+    /// Registers for HealthKit's own background wake so a new watch workout
+    /// can sync without the member ever opening the app -- the launch-time
+    /// sync above only ever catches what already existed by the time the app
+    /// was opened. Safe to call repeatedly; HKObserverQuery and
+    /// enableBackgroundDelivery are both no-ops once already registered for
+    /// the same type. No-op until authorization has actually been granted --
+    /// registering earlier would just mean the callback never fires.
+    func startObservingIfAuthorized() {
+        guard isAvailable, authorizationRequested, observerQuery == nil else { return }
+        // HKObserverQuery requires HKSampleType specifically -- workoutType()
+        // called directly here (rather than through the HKObjectType-typed
+        // `workoutType` property above) keeps its concrete HKWorkoutType.
+        let sampleType = HKObjectType.workoutType()
+        let query = HKObserverQuery(sampleType: sampleType, predicate: nil) { [weak self] _, completionHandler, error in
+            guard error == nil else { completionHandler(); return }
+            Task { @MainActor in
+                await self?.syncIfAuthorized()
+                completionHandler()
+            }
+        }
+        observerQuery = query
+        store.execute(query)
+        store.enableBackgroundDelivery(for: sampleType, frequency: .immediate) { _, _ in }
     }
 
     // MARK: - Queries
