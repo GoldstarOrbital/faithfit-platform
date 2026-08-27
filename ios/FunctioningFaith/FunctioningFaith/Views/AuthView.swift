@@ -110,15 +110,17 @@ struct NativeAuthView: View {
                 ScrollView {
                     VStack(spacing: 22) {
                         VStack(spacing: 12) {
+                            // BrandMark's own artwork is a rounded-square
+                            // parchment card with the circular emblem inset
+                            // in it, not a bare mark on a transparent circle
+                            // -- drawing a separate circle behind it (as
+                            // before) just left a mismatched square floating
+                            // inside a bigger circle. Filling and clipping
+                            // the artwork itself to a Circle makes it read as
+                            // one properly filled circular badge instead.
                             Image("BrandMark")
-                                .resizable().scaledToFit().frame(width: 80, height: 80)
-                                .padding(10)
-                                .background(
-                                    Circle().fill(
-                                        LinearGradient(colors: [FFTheme.parchment2, FFTheme.hearthSoft.opacity(0.5)],
-                                                       startPoint: .topLeading, endPoint: .bottomTrailing)
-                                    )
-                                )
+                                .resizable().scaledToFill().frame(width: 80, height: 80)
+                                .clipShape(Circle())
                                 .overlay(Circle().stroke(FFTheme.goldBright.opacity(0.55), lineWidth: 1.5))
                                 .shadow(color: FFTheme.walnut0.opacity(0.25), radius: 14, x: 0, y: 8)
                             VStack(spacing: 4) {
