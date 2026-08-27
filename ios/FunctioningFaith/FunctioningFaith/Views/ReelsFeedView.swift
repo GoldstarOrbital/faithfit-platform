@@ -269,6 +269,26 @@ private struct ReelPage: View {
     let onComments: (() -> Void)?
     let onNotInterested: () -> Void
 
+    @State private var showVerseThread = false
+
+    // Matches the webapp's own labels/sourceLabel exactly (renderReelsTab in
+    // public/app.js) -- the two feeds should read as the same product.
+    private static let categoryLabels: [String: String] = [
+        "food": "Food + fitness", "kids": "Kids + family", "fitness": "Faith + movement",
+        "christian": "Scripture + formation", "motivational": "Purpose + perseverance",
+        "veggietales": "Kids + family", "nickbare": "Training + discipline", "church": "Your church",
+        "instagram": "Instagram · external", "tiktok": "TikTok · external", "youtube": "YouTube · external",
+    ]
+    private var audienceLabel: String { Self.categoryLabels[reel.category ?? ""] ?? "Faith + movement" }
+    private var sourceLabel: String {
+        switch reel.sourceKind {
+        case "functioning_faith": return "Functioning Faith original"
+        case "church": return "From your church"
+        case "channel": return "Official channel"
+        default: return "Curated for this community"
+        }
+    }
+
     private var isNativeInline: Bool { reel.provider == "functioning_faith" && reel.videoData != nil }
     // A YouTube reel autoplays inline too, exactly like a native upload,
     // instead of tapping into a modal that stops the feed's own scrolling --
@@ -311,39 +331,59 @@ private struct ReelPage: View {
                 Spacer()
                 HStack(alignment: .bottom, spacing: FFTheme.Space.md) {
                     VStack(alignment: .leading, spacing: 6) {
+                        // Category/source badges, matching the webapp's own
+                        // .reel-meta row exactly -- same audience/source
+                        // labels, same green-pill-plus-bordered-pill shape.
+                        HStack(spacing: 6) {
+                            Text(audienceLabel.uppercased())
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 8).padding(.vertical, 3)
+                                .background(FFTheme.meadow.opacity(0.85), in: Capsule())
+                            Text(sourceLabel)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.white.opacity(0.9))
+                                .padding(.horizontal, 7).padding(.vertical, 3)
+                                .background(.black.opacity(0.38), in: Capsule())
+                                .overlay(Capsule().stroke(.white.opacity(0.2), lineWidth: 1))
+                        }
                         Text(reel.title ?? "Untitled")
-                            .font(.subheadline.weight(.semibold))
+                            .font(.subheadline.weight(.bold))
                             .lineLimit(2)
                             .foregroundStyle(.white)
-                        HStack(spacing: 6) {
-                            if let channel = reel.channelTitle { Text(channel) }
-                            if reel.sourceKind == "church", let name = reel.churchName ?? churchName { Text("· \(name)") }
+                        if let channel = reel.channelTitle {
+                            HStack(spacing: 6) {
+                                Text(channel)
+                                if reel.sourceKind == "church", let name = reel.churchName ?? churchName { Text("· \(name)") }
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.8))
                         }
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.8))
                         if let ref = reel.verseReference {
-                            Text(ref).font(.caption.weight(.semibold)).foregroundStyle(FFTheme.goldBright)
+                            Button { showVerseThread = true } label: {
+                                HStack(spacing: 6) {
+                                    Text("Open \(ref)")
+                                    Image(systemName: "arrow.up.right")
+                                }
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(FFTheme.goldBright)
+                                .padding(.horizontal, 9).padding(.vertical, 6)
+                                .background(FFTheme.walnut0.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(FFTheme.goldBright.opacity(0.5), lineWidth: 1))
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    VStack(spacing: 20) {
-                        actionButton(systemImage: reel.likedByMe ? "heart.fill" : "heart", count: reel.likeCount, tint: reel.likedByMe ? FFTheme.seal : .white, action: onLike)
-                        actionButton(systemImage: reel.savedByMe ? "bookmark.fill" : "bookmark", count: reel.saveCount, tint: reel.savedByMe ? FFTheme.goldBright : .white, action: onSave)
+                    VStack(spacing: 9) {
+                        actionButton(systemImage: reel.likedByMe ? "heart.fill" : "heart", label: "\(reel.likeCount)", tint: reel.likedByMe ? FFTheme.seal : .white, action: onLike)
+                        actionButton(systemImage: reel.savedByMe ? "bookmark.fill" : "bookmark", label: "\(reel.saveCount)", tint: reel.savedByMe ? FFTheme.goldBright : .white, action: onSave)
                         if let onComments {
-                            Button(action: onComments) {
-                                VStack(spacing: 3) {
-                                    Image(systemName: "bubble.left.fill").font(.title2)
-                                    Text("Reply").font(.caption2)
-                                }
-                            }
-                            .foregroundStyle(.white)
+                            actionButton(systemImage: "bubble.left.fill", label: "Reply", tint: .white, action: onComments)
                         }
-                        Button(role: .destructive, action: onNotInterested) {
-                            Image(systemName: "hand.thumbsdown").font(.title3)
-                        }
-                        .foregroundStyle(.white.opacity(0.85))
-                        .accessibilityLabel("Not interested")
+                        actionButton(systemImage: "hand.thumbsdown", label: "Not for me", tint: .white.opacity(0.85), action: onNotInterested)
+                            .accessibilityLabel("Not interested")
                     }
                 }
                 .padding(.horizontal, FFTheme.Space.md)
@@ -351,16 +391,26 @@ private struct ReelPage: View {
             }
         }
         .clipped()
+        .navigationDestination(isPresented: $showVerseThread) {
+            if let ref = reel.verseReference { VerseThreadView(reference: ref) }
+        }
     }
 
-    private func actionButton(systemImage: String, count: Int, tint: Color, action: @escaping () -> Void) -> some View {
+    // Matches the webapp's .reel-action pill exactly: a bordered, translucent
+    // rounded chip around icon + tiny bold label, not a bare icon floating
+    // over the video.
+    private func actionButton(systemImage: String, label: String, tint: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(spacing: 3) {
+            VStack(spacing: 2) {
                 Image(systemName: systemImage).font(.title2)
-                Text("\(count)").font(.caption2)
+                Text(label).font(.caption2.weight(.bold))
             }
+            .foregroundStyle(tint)
+            .frame(minWidth: 44, minHeight: 44)
+            .padding(.horizontal, 6).padding(.vertical, 4)
+            .background(.black.opacity(0.42), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(.white.opacity(0.2), lineWidth: 1))
         }
-        .foregroundStyle(tint)
     }
 }
 
@@ -375,6 +425,13 @@ private struct InlineReelPlayer: View {
     let dataURL: String
     let isActive: Bool
 
+    // A persisted preference, not per-video state -- matches the webapp's
+    // own ff-reels-sound localStorage flag, so a member's choice carries
+    // from one reel to the next instead of resetting on every scroll.
+    // Defaults on (unlike the web default) because native previously had a
+    // real bug where audio silently never played at all; muted-by-default
+    // here would look like that bug again rather than a deliberate choice.
+    @AppStorage("reels.soundOn") private var soundOn: Bool = true
     @State private var player: AVQueuePlayer?
     @State private var looper: AVPlayerLooper?
     @State private var errorMessage: String?
@@ -384,6 +441,7 @@ private struct InlineReelPlayer: View {
             if let player {
                 FillingVideoPlayer(player: player)
                     .allowsHitTesting(false)
+                    .overlay(alignment: .topTrailing) { soundButton }
             } else if let errorMessage {
                 ContentUnavailableView(errorMessage, systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.white)
@@ -401,7 +459,23 @@ private struct InlineReelPlayer: View {
                 player.pause()
             }
         }
+        .onChange(of: soundOn) { _, on in player?.isMuted = !on }
         .onDisappear { player?.pause() }
+    }
+
+    // Same top-right, 38pt, translucent-black circle as the webapp's own
+    // .reel-sound button.
+    private var soundButton: some View {
+        Button { soundOn.toggle() } label: {
+            Image(systemName: soundOn ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 38, height: 38)
+                .background(.black.opacity(0.45), in: Circle())
+        }
+        .padding(14)
+        .allowsHitTesting(true)
+        .accessibilityLabel(soundOn ? "Mute" : "Unmute")
     }
 
     private func prepare() {
@@ -424,7 +498,7 @@ private struct InlineReelPlayer: View {
             let item = AVPlayerItem(url: tempURL)
             let queuePlayer = AVQueuePlayer()
             looper = AVPlayerLooper(player: queuePlayer, templateItem: item)
-            queuePlayer.isMuted = false
+            queuePlayer.isMuted = !soundOn
             player = queuePlayer
             if isActive { queuePlayer.play() }
         } catch {
