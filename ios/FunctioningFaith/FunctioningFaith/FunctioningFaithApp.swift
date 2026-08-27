@@ -9,6 +9,7 @@ struct FunctioningFaithApp: App {
     @StateObject private var deepLinks = DeepLinkRouter()
     @AppStorage("onboarding.pendingUserID") private var pendingOnboardingUserID = ""
     @AppStorage("appearance.accentTheme") private var accentThemeRaw = FFTheme.AccentTheme.meadow.rawValue
+    @AppStorage("onboarding.introDemoSeenUserIDs") private var introDemoSeenUserIDsRaw = ""
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -43,6 +44,11 @@ struct FunctioningFaithApp: App {
                         },
                         onSignOut: { Task { await session.signOut() } }
                     )
+                } else if session.isAuthenticated, let userID = session.profile?.id.uuidString, !hasSeenIntroDemo(userID) {
+                    // Shown exactly once per account, only after a real sign-up
+                    // or login has succeeded -- never on the auth screen, and
+                    // never again once dismissed on this device.
+                    IntroDemoView(onFinish: { markIntroDemoSeen(userID) })
                 } else if session.isAuthenticated {
                     RootTabView()
                 } else {
@@ -91,5 +97,15 @@ struct FunctioningFaithApp: App {
                 deepLinks.handle(url)
             }
         }
+    }
+
+    private func hasSeenIntroDemo(_ userID: String) -> Bool {
+        introDemoSeenUserIDsRaw.split(separator: ",").contains(Substring(userID))
+    }
+
+    private func markIntroDemoSeen(_ userID: String) {
+        var ids = Set(introDemoSeenUserIDsRaw.split(separator: ",").map(String.init))
+        ids.insert(userID)
+        introDemoSeenUserIDsRaw = ids.joined(separator: ",")
     }
 }
