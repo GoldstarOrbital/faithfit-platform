@@ -25,7 +25,7 @@ struct PodcastsView: View {
         .navigationTitle("Podcasts")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
-        .refreshable { await load() }
+        .refreshable { await load(forceRefresh: true) }
         .alert("Could not load podcasts", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
@@ -44,9 +44,9 @@ struct PodcastsView: View {
         .padding(.vertical, 3)
     }
 
-    private func load() async {
+    private func load(forceRefresh: Bool = false) async {
         isLoading = true
-        do { podcasts = try await APIClient.shared.fetchPodcasts() }
+        do { podcasts = try await APIClient.shared.fetchPodcasts(forceRefresh: forceRefresh) }
         catch { errorMessage = error.localizedDescription }
         isLoading = false
     }

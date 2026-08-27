@@ -218,6 +218,18 @@ function displayName(userId) {
   return db.prepare('SELECT display_name FROM users WHERE id = ?').get(userId)?.display_name || 'Someone';
 }
 
+// Short client-side caching for read-only, browse-and-glance content whose
+// staleness for a few seconds is harmless -- the app's URLSession already
+// has a disk cache wired to respect these headers (APIClient.swift), it has
+// simply never had anything to actually cache. Deliberately NOT applied to
+// any endpoint a mutation in this app immediately re-fetches (reels after
+// posting, goals after adding one, workouts after logging one) -- caching
+// those would silently serve stale data right back after the user's own
+// change, which is worse than the slowness this fixes.
+function cachePrivate(seconds) {
+  return (req, res, next) => { res.set('Cache-Control', `private, max-age=${seconds}`); next(); };
+}
+
 // A personalized verse at the moment someone actually signs in -- reusing the
 // same weekly-shape + Gloo personalization the morning verse already applies,
 // so a login greeting isn't a lesser, generic one. Respects the same
@@ -2549,7 +2561,7 @@ router.post('/follow-requests/:requesterId/:decision(accept|decline)', requireAu
 
 // People to follow: users the viewer doesn't already follow (and isn't), ranked by
 // follower count so there's always something to discover.
-router.get('/users/suggested', requireAuth, (req, res) => {
+router.get('/users/suggested', requireAuth, cachePrivate(60), (req, res) => {
   const me = req.session.userId;
   const rows = db.prepare(`
     WITH following AS (SELECT followee_id FROM followers WHERE follower_id = @me)
@@ -2694,7 +2706,7 @@ router.post('/users/:id/report', requireAuth, (req, res) => {
 });
 
 // ---- explore ----
-router.get('/explore', (req, res) => {
+router.get('/explore', cachePrivate(45), (req, res) => {
   // Private groups are excluded here for everyone but their own members --
   // this is the general discovery listing, and "private" only means
   // anything if it isn't just handed to every visitor regardless.
@@ -3182,7 +3194,7 @@ router.post('/events/:id/rsvp', requireAuth, (req, res) => {
 });
 
 // ---- themed challenges ----
-router.get('/challenges', (req, res) => {
+router.get('/challenges', cachePrivate(45), (req, res) => {
   const me = req.session.userId || null;
   const rows = db.prepare(`
     SELECT c.*, uc.progress, uc.joined_at, uc.completed_at,
@@ -3269,7 +3281,7 @@ router.get('/stats/summary', requireAuth, (req, res) => {
   });
 });
 
-router.get('/stats/trends', requireAuth, (req, res) => {
+router.get('/stats/trends', requireAuth, cachePrivate(60), (req, res) => {
   const uid = req.session.userId;
   const weeks = Math.min(52, Math.max(4, Number(req.query.weeks) || 12));
   const ws = completedWorkouts(uid);
@@ -3831,7 +3843,7 @@ router.get('/motivation', requireAuth, async (req, res) => {
 });
 
 // Podcasts with their most-recent real episodes (ingested from public RSS feeds).
-router.get('/podcasts', (req, res) => {
+router.get('/podcasts', cachePrivate(600), (req, res) => {
   const limit = Math.min(20, Math.max(1, Number(req.query.episodes) || 5));
   const podcasts = db.prepare('SELECT id, title, host, description, theme, feed_url, artwork_url, last_fetched FROM podcasts ORDER BY title').all();
   const epStmt = db.prepare(`
@@ -3842,7 +3854,7 @@ router.get('/podcasts', (req, res) => {
   res.json(podcasts.map(p => ({ ...p, episodes: epStmt.all(p.id, limit) })));
 });
 
-router.get('/news', (req, res) => {
+router.get('/news', cachePrivate(300), (req, res) => {
   if (!admin.featureEnabled('news')) return res.json({ items: [], sources: [], disabled: true });
   res.json({ items: news.list({ limit: req.query.limit }), sources: news.FEEDS.map(f => f.source) });
 });

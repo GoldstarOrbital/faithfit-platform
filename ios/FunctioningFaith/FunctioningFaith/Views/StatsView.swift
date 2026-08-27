@@ -41,7 +41,7 @@ struct StatsView: View {
                     if !records.isEmpty { personalRecordsSection }
                 }
                 .ffListChrome()
-                .refreshable { await load() }
+                .refreshable { await load(forceRefresh: true) }
             } else {
                 ContentUnavailableView("No stats yet", systemImage: "chart.bar", description: Text("Complete a workout to start tracking your progress."))
             }
@@ -58,11 +58,11 @@ struct StatsView: View {
         } message: { Text(errorMessage ?? "") }
     }
 
-    private func load() async {
+    private func load(forceRefresh: Bool = false) async {
         isLoading = true
         do {
             async let s = APIClient.shared.fetchStatsSummary()
-            async let t = APIClient.shared.fetchTrends()
+            async let t = APIClient.shared.fetchTrends(forceRefresh: forceRefresh)
             async let b = APIClient.shared.fetchActivityBreakdown()
             async let r = APIClient.shared.fetchPersonalRecords()
             async let g = APIClient.shared.fetchGoals()

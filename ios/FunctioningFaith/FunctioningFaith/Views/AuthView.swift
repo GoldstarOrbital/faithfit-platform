@@ -21,6 +21,7 @@ final class NativeSession: ObservableObject {
                 guard let self, self.profile != nil else { return }
                 self.profile = nil
                 self.requiresAccountSetup = false
+                APIClient.shared.clearResponseCache()
             }
         }
     }
@@ -42,12 +43,14 @@ final class NativeSession: ObservableObject {
         try? await APIClient.shared.logout()
         profile = nil
         requiresAccountSetup = false
+        APIClient.shared.clearResponseCache()
     }
 
     func deleteAccount() async throws {
         try await APIClient.shared.deleteAccount()
         profile = nil
         requiresAccountSetup = false
+        APIClient.shared.clearResponseCache()
     }
 }
 

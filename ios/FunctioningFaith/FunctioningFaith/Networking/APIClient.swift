@@ -53,6 +53,15 @@ final class APIClient {
         decoder = JSONDecoder()
     }
 
+    /// Some GET responses are now served from HTTP cache (server Cache-Control
+    /// headers on browse-only endpoints -- see webapp's cachePrivate()), so a
+    /// signed-out session's cached data must not still be servable to
+    /// whoever signs in next on the same device. Called on every sign-out
+    /// path, explicit or session-expiry-triggered.
+    func clearResponseCache() {
+        session.configuration.urlCache?.removeAllCachedResponses()
+    }
+
     func fetchFeed() async throws -> [FeedPost] {
         let page = try await fetchFeedPage()
         return page.posts
@@ -103,9 +112,9 @@ final class APIClient {
         return response.providers
     }
 
-    func fetchSuggestedUsers() async throws -> [SuggestedUser] {
+    func fetchSuggestedUsers(forceRefresh: Bool = false) async throws -> [SuggestedUser] {
         if useMock { return [] }
-        let response: [SuggestedUserDTO] = try await request("/api/users/suggested")
+        let response: [SuggestedUserDTO] = try await request("/api/users/suggested", forceRefresh: forceRefresh)
         return response.map(\.model)
     }
 
@@ -114,10 +123,10 @@ final class APIClient {
         return try await request("/api/users/\(id.uuidString)/follow", method: "POST", body: EmptyBody())
     }
 
-    func fetchExploreContent() async throws -> ExploreContent {
+    func fetchExploreContent(forceRefresh: Bool = false) async throws -> ExploreContent {
         if useMock { return MockData.exploreContent }
-        async let catalog: ExploreResponse = request("/api/explore")
-        async let challenges: [ExploreChallenge] = request("/api/challenges")
+        async let catalog: ExploreResponse = request("/api/explore", forceRefresh: forceRefresh)
+        async let challenges: [ExploreChallenge] = request("/api/challenges", forceRefresh: forceRefresh)
         let (base, liveChallenges) = try await (catalog, challenges)
         return ExploreContent(groups: base.groups, quests: base.quests, challenges: liveChallenges)
     }
@@ -523,9 +532,9 @@ final class APIClient {
         return try await request("/api/stats/summary")
     }
 
-    func fetchTrends(weeks: Int = 12) async throws -> [TrendPoint] {
+    func fetchTrends(weeks: Int = 12, forceRefresh: Bool = false) async throws -> [TrendPoint] {
         if useMock { return [] }
-        return try await request("/api/stats/trends?weeks=\(weeks)")
+        return try await request("/api/stats/trends?weeks=\(weeks)", forceRefresh: forceRefresh)
     }
 
     func fetchActivityBreakdown() async throws -> [ActivityBreakdownEntry] {
@@ -889,16 +898,16 @@ final class APIClient {
 
     // MARK: - Podcasts
 
-    func fetchPodcasts(episodesPerShow: Int = 8) async throws -> [Podcast] {
+    func fetchPodcasts(episodesPerShow: Int = 8, forceRefresh: Bool = false) async throws -> [Podcast] {
         if useMock { return [] }
-        return try await request("/api/podcasts?episodes=\(episodesPerShow)")
+        return try await request("/api/podcasts?episodes=\(episodesPerShow)", forceRefresh: forceRefresh)
     }
 
     // MARK: - News & video library
 
-    func fetchNews(limit: Int = 40) async throws -> NewsResponse {
+    func fetchNews(limit: Int = 40, forceRefresh: Bool = false) async throws -> NewsResponse {
         if useMock { return NewsResponse(items: [], sources: [], disabled: true) }
-        return try await request("/api/news?limit=\(limit)")
+        return try await request("/api/news?limit=\(limit)", forceRefresh: forceRefresh)
     }
 
     /// `category` must be one of the server's fixed allowed set (kids,
@@ -1285,14 +1294,19 @@ final class APIClient {
         return try await request("/api/search?q=\(encoded)")
     }
 
-    func request<T: Decodable>(_ path: String, method: String = "GET") async throws -> T {
-        try await request(path, method: method, body: Optional<EmptyBody>.none)
+    func request<T: Decodable>(_ path: String, method: String = "GET", forceRefresh: Bool = false) async throws -> T {
+        try await request(path, method: method, body: Optional<EmptyBody>.none, forceRefresh: forceRefresh)
     }
 
-    func request<T: Decodable, Body: Encodable>(_ path: String, method: String = "GET", body: Body? = nil, timeoutInterval: TimeInterval = 20) async throws -> T {
+    func request<T: Decodable, Body: Encodable>(_ path: String, method: String = "GET", body: Body? = nil, timeoutInterval: TimeInterval = 20, forceRefresh: Bool = false) async throws -> T {
         guard let url = URL(string: path, relativeTo: baseURL) else { throw APIError.invalidResponse }
         var request = URLRequest(url: url)
         request.httpMethod = method
+        // Some GET endpoints now return Cache-Control (see webapp's
+        // cachePrivate()) so the app stops re-fetching browse-only content on
+        // every tab visit. A pull-to-refresh gesture means the opposite --
+        // this exact request must not be answered from that cache.
+        if forceRefresh { request.cachePolicy = .reloadIgnoringLocalCacheData }
         // A tap must fail visibly rather than spin indefinitely on a captive
         // portal or weak connection.
         request.timeoutInterval = timeoutInterval

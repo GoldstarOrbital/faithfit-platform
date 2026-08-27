@@ -250,7 +250,7 @@ struct ExploreView: View {
         .ffListChrome()
         .navigationTitle("Explore")
         .task { await loadExplore() }
-        .refreshable { await loadExplore() }
+        .refreshable { await loadExplore(forceRefresh: true) }
         .alert("Couldn’t complete that action", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
             Button("OK", role: .cancel) { actionError = nil }
         } message: {
@@ -258,13 +258,13 @@ struct ExploreView: View {
         }
     }
 
-    private func loadExplore() async {
+    private func loadExplore(forceRefresh: Bool = false) async {
         isLoadingSuggestions = true
         isLoadingContent = true
         suggestionsError = nil
         contentError = nil
-        async let suggestionsResult: Result<[SuggestedUser], Error> = loadSuggestions()
-        async let contentResult: Result<ExploreContent, Error> = loadContent()
+        async let suggestionsResult: Result<[SuggestedUser], Error> = loadSuggestions(forceRefresh: forceRefresh)
+        async let contentResult: Result<ExploreContent, Error> = loadContent(forceRefresh: forceRefresh)
         let (loadedSuggestions, loadedContent) = await (suggestionsResult, contentResult)
         guard !Task.isCancelled else { return }
 
@@ -283,13 +283,13 @@ struct ExploreView: View {
         isLoadingContent = false
     }
 
-    private func loadSuggestions() async -> Result<[SuggestedUser], Error> {
-        do { return .success(try await APIClient.shared.fetchSuggestedUsers()) }
+    private func loadSuggestions(forceRefresh: Bool = false) async -> Result<[SuggestedUser], Error> {
+        do { return .success(try await APIClient.shared.fetchSuggestedUsers(forceRefresh: forceRefresh)) }
         catch { return .failure(error) }
     }
 
-    private func loadContent() async -> Result<ExploreContent, Error> {
-        do { return .success(try await APIClient.shared.fetchExploreContent()) }
+    private func loadContent(forceRefresh: Bool = false) async -> Result<ExploreContent, Error> {
+        do { return .success(try await APIClient.shared.fetchExploreContent(forceRefresh: forceRefresh)) }
         catch { return .failure(error) }
     }
 

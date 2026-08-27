@@ -32,7 +32,7 @@ struct NewsView: View {
         .navigationTitle("News")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
-        .refreshable { await load() }
+        .refreshable { await load(forceRefresh: true) }
         .alert("Could not load news", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
@@ -49,10 +49,10 @@ struct NewsView: View {
         .padding(.vertical, 3)
     }
 
-    private func load() async {
+    private func load(forceRefresh: Bool = false) async {
         isLoading = true
         do {
-            let response = try await APIClient.shared.fetchNews()
+            let response = try await APIClient.shared.fetchNews(forceRefresh: forceRefresh)
             items = response.items
             isDisabled = response.disabled ?? false
         } catch {
