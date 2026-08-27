@@ -21,6 +21,7 @@ struct WorkoutView: View {
 
     @StateObject private var tracker = NativeWorkoutTracker()
     @ObservedObject private var bluetooth = BluetoothHeartRateManager.shared
+    @ObservedObject private var healthKit = HealthKitManager.shared
     @State private var mode: Mode = .live
     @State private var activityTypes: [ActivityTypeItem] = ActivityCatalog.fallback
     @State private var selectedType = "Run"
@@ -37,6 +38,7 @@ struct WorkoutView: View {
     @AppStorage("notifications.heartRateCalm") private var heartRateCalmNotifications = true
     @AppStorage("notifications.heartRateCalm.threshold") private var heartRateCalmThreshold = 160
     @State private var workoutID: UUID?
+    @State private var workoutStartedAt: Date?
     @State private var workoutVerse: VerseSnippet?
     @State private var errorMessage: String?
     @State private var completedWorkout: WorkoutCompletion?
@@ -120,7 +122,7 @@ struct WorkoutView: View {
                 verse: workoutVerse ?? WorkoutView.completionVerse,
                 sportMetrics: completedSportMetrics,
                 route: completedRoute,
-                healthConnected: HealthKitManager.shared.authorizationRequested
+                healthConnected: healthKit.authorizationRequested
             )
         }
         .sheet(isPresented: $showWearables) { WearableConnectView() }
@@ -183,6 +185,29 @@ struct WorkoutView: View {
                     .frame(maxWidth: .infinity, minHeight: 42)
             }
             .buttonStyle(.ffGhost)
+
+            // "Connect sensor" above pairs a BLE strap directly to this app --
+            // a watch whose OWN app already writes to Apple Health (the
+            // common case) needs a completely separate grant, since HealthKit
+            // permission is per-app and Functioning Faith never gets it just
+            // because some other app has it. Without this, a member can have
+            // live heart rate genuinely arriving in Health every couple of
+            // minutes and never see a single reading in this app, with
+            // nothing on screen explaining why.
+            if isActive && bluetooth.heartRate == nil && !healthKit.authorizationRequested {
+                Button {
+                    Task {
+                        try? await healthKit.requestAuthorization()
+                        healthKit.startObservingIfAuthorized()
+                        await healthKit.syncIfAuthorized()
+                    }
+                } label: {
+                    Label("Connect Apple Health for live heart rate", systemImage: "heart.text.square")
+                        .font(.caption.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 42)
+                }
+                .buttonStyle(.ffGhost)
+            }
 
             if bluetooth.hasLiveSensorData {
                 HStack(spacing: 10) {
@@ -392,6 +417,12 @@ struct WorkoutView: View {
                         completedRoute = route
                         completedWorkout = completion
                         UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        if let startedAt = workoutStartedAt {
+                            healthKit.saveWorkoutToHealth(
+                                activityType: selectedType, start: startedAt, end: Date(),
+                                calories: Double(completion.calories),
+                                distanceMeters: completion.distanceKm.map { $0 * 1000 })
+                        }
                     }
                     recent = (try? await APIClient.shared.fetchWorkouts()) ?? recent
                 } catch {
@@ -405,6 +436,7 @@ struct WorkoutView: View {
                 let started = try await APIClient.shared.startWorkout(type: selectedType)
                 await MainActor.run {
                     workoutID = started.id
+                    workoutStartedAt = started.startTime
                     elapsed = 0
                     heartRate = 0
                     lastHeartRateRefresh = .distantPast
@@ -514,6 +546,10 @@ struct WorkoutView: View {
                 effort: nil
             )
             UINotificationFeedbackGenerator().notificationOccurred(.success)
+            let now = Date()
+            healthKit.saveWorkoutToHealth(
+                activityType: selectedType, start: now.addingTimeInterval(-Double(saved.durationSec)), end: now,
+                calories: Double(saved.calories), distanceMeters: saved.distanceKm.map { $0 * 1000 })
             recent = (try? await APIClient.shared.fetchWorkouts()) ?? recent
         } catch {
             errorMessage = error.localizedDescription

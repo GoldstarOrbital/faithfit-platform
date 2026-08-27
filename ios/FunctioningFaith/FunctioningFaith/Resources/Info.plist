@@ -31,8 +31,8 @@
   <key>NSBluetoothPeripheralUsageDescription</key><string>Functioning Faith uses Bluetooth only when you choose to connect a heart-rate monitor or fitness sensor.</string>
   <key>NSUserNotificationsUsageDescription</key><string>Choose notifications for Scripture, replies, and reminders that help you follow your rhythm.</string>
   <key>NSFaceIDUsageDescription</key><string>Functioning Faith uses Face ID only when you enable biometric protection for your signed-in account.</string>
-  <key>NSHealthShareUsageDescription</key><string>Functioning Faith reads your workouts, step counts, and workout heart rate from Health so activity recorded on your Apple Watch or another connected app appears in your training log. Functioning Faith never writes to your Health data.</string>
-  <key>NSHealthUpdateUsageDescription</key><string>Functioning Faith may write workout data that you explicitly choose to save from the app to Apple Health, so your activity records stay up to date across your connected devices.</string>
+  <key>NSHealthShareUsageDescription</key><string>Functioning Faith reads your workouts, step counts, and workout heart rate from Health so activity recorded on your Apple Watch or another connected app appears in your training log.</string>
+  <key>NSHealthUpdateUsageDescription</key><string>Functioning Faith writes the workouts you complete in the app back to Apple Health, so your activity records stay up to date across your other connected apps and devices.</string>
   <key>NSPhotoLibraryUsageDescription</key><string>Functioning Faith accesses your photo library only when you choose a photo for a post, story, or profile picture.</string>
   <key>UIAppFonts</key>
   <array>

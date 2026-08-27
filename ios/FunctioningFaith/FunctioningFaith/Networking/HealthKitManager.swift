@@ -6,13 +6,16 @@ import Combine
 /// Whoop, and anything else that writes into Health — HealthKit is the one
 /// integration point that reaches all of them at once on iOS).
 ///
-/// Deliberately READ-ONLY. This app never writes to a member's Health data —
-/// only reads workouts, step counts, and the heart rate recorded during a
-/// synced workout — and the authorization request below asks for exactly
-/// those three types and nothing else. Apple's own review guidance singles out
-/// requesting Health access broader than what the app actually uses as a
-/// common rejection cause (Guideline 5.1.1), and it is exactly the kind of
-/// thing a fast, unreviewed integration gets wrong.
+/// Reads workouts, step counts, and the heart rate recorded during a synced
+/// workout, and writes back exactly one thing: the workouts a member
+/// completes in Functioning Faith itself, so they count toward Activity
+/// rings and show up in any other Health-connected app -- the standard,
+/// expected behavior once an app is a real participant in a member's fitness
+/// data rather than a one-way reader of it. The authorization request below
+/// asks for exactly these types and nothing else; Apple's own review
+/// guidance singles out requesting Health access broader than what the app
+/// actually uses as a common rejection cause (Guideline 5.1.1), and it is
+/// exactly the kind of thing a fast, unreviewed integration gets wrong.
 ///
 /// No synthetic data, ever — the same hard rule the web app already enforces
 /// for physiological data (see webapp's account of "never fabricate
@@ -51,6 +54,11 @@ final class HealthKitManager: ObservableObject {
     // a type nothing actually queries is exactly the over-broad ask this
     // file's own header warns about, so it's deliberately left out here.
     private var readTypes: Set<HKObjectType> { [workoutType, stepType, heartRateType] }
+    // Only the workout type itself -- total energy/distance are embedded
+    // properties of the HKWorkout object this writes, not separate
+    // correlated quantity samples, so no further share authorization is
+    // needed for those.
+    private var shareTypes: Set<HKSampleType> { [HKObjectType.workoutType()] }
 
     private init() {
         lastSyncedAt = userDefaults.object(forKey: "healthkit.lastSyncedAt") as? Date
@@ -70,7 +78,7 @@ final class HealthKitManager: ObservableObject {
     func requestAuthorization() async throws {
         guard isAvailable else { throw HealthKitError.unavailable }
         do {
-            try await store.requestAuthorization(toShare: [], read: readTypes)
+            try await store.requestAuthorization(toShare: shareTypes, read: readTypes)
             authorizationRequested = true
             userDefaults.set(true, forKey: authorizationRequestedKey)
             lastSyncError = nil
@@ -246,7 +254,11 @@ final class HealthKitManager: ObservableObject {
     /// HealthKit actually has, not just the latest point. Empty means no
     /// recent-enough reading exists (no paired Watch, or it isn't being
     /// worn) -- never a fabricated value.
-    func recentHeartRateSamples(within seconds: TimeInterval = 300, limit: Int = 10) async throws -> [Double] {
+    // A third-party watch app writing into Health on its own schedule can lag
+    // by more than a couple of minutes before a sample actually lands --
+    // widened from an earlier 300s so an occasional slow sync doesn't read as
+    // "no heart rate at all" during a live workout.
+    func recentHeartRateSamples(within seconds: TimeInterval = 600, limit: Int = 10) async throws -> [Double] {
         guard isAvailable else { return [] }
         let since = Date().addingTimeInterval(-seconds)
         let predicate = HKQuery.predicateForSamples(withStart: since, end: nil, options: .strictStartDate)
@@ -291,6 +303,46 @@ final class HealthKitManager: ObservableObject {
         case .pickleball: return "Pickleball" // added to HKWorkoutActivityType well before this app's iOS 17 minimum, no availability guard needed
         default: return "Workout"
         }
+    }
+
+    /// Functioning Faith's own activity vocabulary -> HKWorkoutActivityType,
+    /// the inverse of activityName(for:) above.
+    private func workoutActivityType(for name: String) -> HKWorkoutActivityType {
+        switch name {
+        case "Run": return .running
+        case "Walk": return .walking
+        case "Hike": return .hiking
+        case "Cycle": return .cycling
+        case "Swim": return .swimming
+        case "Row": return .rowing
+        case "Elliptical": return .elliptical
+        case "Strength": return .traditionalStrengthTraining
+        case "HIIT": return .highIntensityIntervalTraining
+        case "Yoga": return .yoga
+        case "Pilates": return .pilates
+        case "Climbing": return .climbing
+        case "Tennis": return .tennis
+        case "Basketball": return .basketball
+        case "Skiing": return .downhillSkiing
+        case "Pickleball": return .pickleball
+        default: return .other
+        }
+    }
+
+    /// Writes a workout completed in Functioning Faith back to Apple Health,
+    /// live-tracked or manually logged. Best-effort and silent: HealthKit
+    /// itself no-ops on missing write authorization, and a failed write here
+    /// must never surface as an error to the member -- the workout was
+    /// already saved to Functioning Faith's own server successfully by the
+    /// time this runs, and that save is what actually matters to them.
+    func saveWorkoutToHealth(activityType: String, start: Date, end: Date, calories: Double?, distanceMeters: Double?) {
+        guard isAvailable, authorizationRequested, end > start else { return }
+        let energy = calories.map { HKQuantity(unit: .kilocalorie(), doubleValue: $0) }
+        let distance = distanceMeters.map { HKQuantity(unit: .meter(), doubleValue: $0) }
+        let workout = HKWorkout(activityType: workoutActivityType(for: activityType), start: start, end: end,
+                                 duration: end.timeIntervalSince(start), totalEnergyBurned: energy,
+                                 totalDistance: distance, metadata: nil)
+        store.save(workout) { _, _ in }
     }
 }
 

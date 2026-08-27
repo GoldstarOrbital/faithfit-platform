@@ -387,7 +387,16 @@ private struct ReelPage: View {
                     }
                 }
                 .padding(.horizontal, FFTheme.Space.md)
-                .padding(.bottom, FFTheme.Space.xxl)
+                // The feed's video itself intentionally ignores the bottom
+                // safe area for a full-bleed TikTok-style look, but that
+                // also puts this overlay's own coordinate space behind the
+                // tab bar unless it clears that height itself -- the verse
+                // pill and action buttons were landing partly underneath the
+                // (opaque) system tab bar, unreadable and untappable.
+                // 48 (xxl) + 56 clears the tab bar's own ~49pt plus the
+                // ~34pt home-indicator safe-area strip beneath it on any
+                // current device.
+                .padding(.bottom, FFTheme.Space.xxl + 56)
             }
         }
         .clipped()
