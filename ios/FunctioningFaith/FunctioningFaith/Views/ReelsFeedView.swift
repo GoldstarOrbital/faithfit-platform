@@ -8,6 +8,35 @@ import UIKit
 import WebKit
 #endif
 
+/// SwiftUI's own `VideoPlayer` sizes itself to the video's native aspect
+/// ratio inside whatever frame it's given (AVPlayerViewController's default
+/// .resizeAspect gravity, with no SwiftUI API to change it) -- inside this
+/// feed's full-screen tile that meant letterboxing for any upload that
+/// wasn't exactly the device's own aspect ratio, while every other element
+/// of the same tile (the thumbnail image) already fills edge-to-edge via
+/// .scaledToFill(). Wrapping AVPlayerLayer directly gets the same
+/// .resizeAspectFill behavior for video.
+internal struct FillingVideoPlayer: UIViewRepresentable {
+    let player: AVPlayer
+
+    final class PlayerView: UIView {
+        override static var layerClass: AnyClass { AVPlayerLayer.self }
+        var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+    }
+
+    func makeUIView(context: Context) -> PlayerView {
+        let view = PlayerView()
+        view.playerLayer.player = player
+        view.playerLayer.videoGravity = .resizeAspectFill
+        view.backgroundColor = .black
+        return view
+    }
+
+    func updateUIView(_ uiView: PlayerView, context: Context) {
+        if uiView.playerLayer.player !== player { uiView.playerLayer.player = player }
+    }
+}
+
 /// Shared once-per-process audio session setup for both inline player kinds
 /// below -- without it, playback audio silently defers to whatever ambient
 /// session happens to already be in effect, which respects the ringer/silent
@@ -353,7 +382,7 @@ private struct InlineReelPlayer: View {
     var body: some View {
         Group {
             if let player {
-                VideoPlayer(player: player)
+                FillingVideoPlayer(player: player)
                     .allowsHitTesting(false)
             } else if let errorMessage {
                 ContentUnavailableView(errorMessage, systemImage: "exclamationmark.triangle")

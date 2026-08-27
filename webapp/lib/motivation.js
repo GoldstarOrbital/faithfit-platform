@@ -50,7 +50,16 @@ function init() {
   for (const quote of CURATED) insert.run(quote.id, quote.text, quote.attribution, quote.theme);
 }
 
+// syncCanon() was being called from next() on every single /api/motivation
+// request -- re-inserting one row per verse in the entire Bible (~31,000
+// INSERT OR IGNORE calls) synchronously, every time. INSERT OR IGNORE makes
+// that idempotent but not cheap: it was blocking the event loop long enough
+// to make the endpoint time out. The canon itself never changes once loaded,
+// so this only ever needs to run once per process.
+let canonSynced = false;
+
 function syncCanon() {
+  if (canonSynced) return 0;
   if (!youversion.isConfigured() || !youversion.canonLoaded()) return 0;
   const insert = db.prepare(`INSERT OR IGNORE INTO motivation_bible_refs
     (quote_id, version_id, reference, book, chapter, verse) VALUES (?, ?, ?, ?, ?, ?)`);
@@ -64,6 +73,7 @@ function syncCanon() {
       }
     }
   }
+  canonSynced = true;
   return added;
 }
 
