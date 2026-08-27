@@ -479,6 +479,11 @@ if (!wCols2.includes('source')) db.exec("ALTER TABLE workouts ADD COLUMN source 
 if (!wCols2.includes('elevation_gain_m')) db.exec("ALTER TABLE workouts ADD COLUMN elevation_gain_m REAL");
 if (!wCols2.includes('live_metrics')) db.exec("ALTER TABLE workouts ADD COLUMN live_metrics TEXT");
 if (!wCols2.includes('duration_sec')) db.exec("ALTER TABLE workouts ADD COLUMN duration_sec INTEGER");
+if (!wCols2.includes('elevation_loss_m')) db.exec("ALTER TABLE workouts ADD COLUMN elevation_loss_m REAL");
+// Set once "Sync & correct with GPS" has been applied, so the app can show a
+// "Corrected" badge and the action isn't offered a second time on the same
+// recording.
+if (!wCols2.includes('gps_corrected_at')) db.exec("ALTER TABLE workouts ADD COLUMN gps_corrected_at TEXT");
 
 // --- themed challenges (Strava-style, scripture/LotR flavored) ---
 db.exec(`

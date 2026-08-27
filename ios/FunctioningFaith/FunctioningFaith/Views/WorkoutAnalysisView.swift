@@ -8,6 +8,9 @@ struct WorkoutAnalysisView: View {
     @State private var analysis: WorkoutAnalysis?
     @State private var intelligence: WorkoutIntelligenceSummary?
     @State private var errorMessage: String?
+    @State private var isCorrectingGPS = false
+    @State private var correctionResult: GPSCorrectionResult?
+    @State private var correctionError: String?
 
     var body: some View {
         Group {
@@ -39,6 +42,41 @@ struct WorkoutAnalysisView: View {
                             metricRow("Top speed", String(format: "%.1f km/h", speed))
                         }
                         Text(analysis.note).font(.caption2).foregroundStyle(.secondary)
+                    }
+                    if analysis.hasRoute {
+                        Section("Route") {
+                            if let km = analysis.distanceKm {
+                                metricRow("Distance", String(format: "%.2f km", km))
+                            }
+                            if let gain = analysis.elevationGainM {
+                                metricRow("Elevation gain", "\(Int(gain.rounded())) m")
+                            }
+                            if let loss = analysis.elevationLossM {
+                                metricRow("Elevation loss", "\(Int(loss.rounded())) m")
+                            }
+                            Button {
+                                Task { await correctGPS() }
+                            } label: {
+                                HStack {
+                                    if isCorrectingGPS { ProgressView() }
+                                    Text(analysis.gpsCorrectedAt == nil ? "Sync & correct with GPS" : "Re-sync & correct with GPS")
+                                }
+                            }
+                            .disabled(isCorrectingGPS)
+                            if let correctionResult {
+                                Text("Corrected using \(correctionResult.pointsUsed) GPS points (\(correctionResult.pointsDropped) dropped as signal noise).")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            } else if analysis.gpsCorrectedAt != nil {
+                                Text("Already corrected once. Real terrain elevation replaces device altitude; distance is re-derived after removing implausible GPS jumps.")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            } else {
+                                Text("Replaces noisy device altitude with real terrain elevation, and drops any GPS points that imply an impossible jump before re-measuring distance. Optional -- your recorded numbers are kept unless you choose this.")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            if let correctionError {
+                                Text(correctionError).font(.caption2).foregroundStyle(FFTheme.seal)
+                            }
+                        }
                     }
                     Section("Matched activities") {
                         if analysis.matchedEfforts.isEmpty {
@@ -93,6 +131,25 @@ struct WorkoutAnalysisView: View {
     private func time(_ seconds: Double) -> String {
         let total = Int(seconds.rounded())
         return String(format: "%d:%02d", total / 60, total % 60)
+    }
+
+    private func correctGPS() async {
+        isCorrectingGPS = true
+        correctionError = nil
+        do {
+            let result = try await APIClient.shared.correctWorkoutGPS(id: workoutID)
+            correctionResult = result
+            if var analysis {
+                analysis.distanceKm = result.distanceKm
+                if let gain = result.elevationGainM { analysis.elevationGainM = gain }
+                if let loss = result.elevationLossM { analysis.elevationLossM = loss }
+                analysis.gpsCorrectedAt = "now"
+                self.analysis = analysis
+            }
+        } catch {
+            correctionError = error.localizedDescription
+        }
+        isCorrectingGPS = false
     }
 
     private func load() async {

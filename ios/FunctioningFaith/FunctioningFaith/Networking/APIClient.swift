@@ -346,6 +346,20 @@ final class APIClient {
         return try await request(path)
     }
 
+    func deleteWorkout(id: String) async throws {
+        if useMock { return }
+        let _: ActionResponse = try await request("/api/workouts/\(id)", method: "DELETE")
+    }
+
+    /// "Sync & correct with GPS" -- opt-in, after the fact. See webapp's
+    /// gpsCorrection.js: drops implausible GPS jumps before re-summing
+    /// distance, and replaces noisy device altitude with real terrain
+    /// elevation from a public DEM lookup.
+    func correctWorkoutGPS(id: String) async throws -> GPSCorrectionResult {
+        if useMock { return GPSCorrectionResult(distanceKm: 5, elevationGainM: 42, elevationLossM: 40, pointsUsed: 200, pointsDropped: 3) }
+        return try await request("/api/workouts/\(id)/gps-correction", method: "POST")
+    }
+
     func fetchAthleteIntelligence() async throws -> AthleteTrainingIntelligence {
         if useMock { return AthleteTrainingIntelligence(trainingLog: [], fitness: AthleteFitness(ctl: 0, atl: 0, form: 0, label: "Balanced", disclaimer: "Training guidance only."), bestEfforts: [:], racePrediction: nil) }
         return try await request("/api/training/intelligence")
@@ -459,6 +473,11 @@ final class APIClient {
             method: "POST",
             body: CreatePostBody(content: content, visibility: visibility, photoData: photoData, photoCategory: photoCategory)
         )
+    }
+
+    func deletePost(id: UUID) async throws {
+        if useMock { return }
+        let _: ActionResponse = try await request("/api/posts/\(id.uuidString.lowercased())", method: "DELETE")
     }
 
     func reportPost(id: UUID, reason: String) async throws {
@@ -1959,13 +1978,13 @@ private struct FeedDTO: Decodable {
     let workoutID: UUID?; let workoutType: String?; let startTime: String?; let endTime: String?
     let calories: Int?; let avgHR: Int?; let verseReference: String?; let verseText: String?; let youVersionID: String?
     let likeCount: Int?; let likedByMe: Bool?; let savedByMe: Bool?; let commentCount: Int?
-    let photoData: String?; let photoCategory: String?; let visibility: String?
+    let photoData: String?; let photoCategory: String?; let videoData: String?; let videoCategory: String?; let visibility: String?
 
-    enum CodingKeys: String, CodingKey { case id; case authorID = "author_id"; case content, author, visibility; case createdAt = "created_at"; case workoutID = "workout_id"; case workoutType = "workout_type"; case startTime = "start_time"; case endTime = "end_time"; case calories; case avgHR = "avg_hr"; case verseReference = "verse_reference"; case verseText = "verse_text"; case youVersionID = "youversion_id"; case likeCount = "like_count"; case likedByMe = "liked_by_me"; case savedByMe = "saved_by_me"; case commentCount = "comment_count"; case photoData = "photo_data"; case photoCategory = "photo_category" }
+    enum CodingKeys: String, CodingKey { case id; case authorID = "author_id"; case content, author, visibility; case createdAt = "created_at"; case workoutID = "workout_id"; case workoutType = "workout_type"; case startTime = "start_time"; case endTime = "end_time"; case calories; case avgHR = "avg_hr"; case verseReference = "verse_reference"; case verseText = "verse_text"; case youVersionID = "youversion_id"; case likeCount = "like_count"; case likedByMe = "liked_by_me"; case savedByMe = "saved_by_me"; case commentCount = "comment_count"; case photoData = "photo_data"; case photoCategory = "photo_category"; case videoData = "video_data"; case videoCategory = "video_category" }
     var model: FeedPost {
         let workout = workoutType.map { WorkoutSummary(id: workoutID ?? UUID(), type: $0, startTime: DateParser.parse(startTime) ?? .now, endTime: DateParser.parse(endTime), calories: calories, avgHR: avgHR) }
         let verse = verseReference.map { VerseSnippet(id: youVersionID ?? $0, reference: $0, snippet: verseText ?? "", deepLink: "https://www.bible.com/bible?query=\($0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0)") }
-        return FeedPost(id: id, authorID: authorID, authorName: author, content: content ?? "", workout: workout, verse: verse, createdAt: DateParser.parse(createdAt) ?? .now, photoData: photoData, photoCategory: photoCategory, visibility: visibility ?? "private", likeCount: likeCount ?? 0, likedByMe: likedByMe ?? false, savedByMe: savedByMe ?? false, commentCount: commentCount ?? 0)
+        return FeedPost(id: id, authorID: authorID, authorName: author, content: content ?? "", workout: workout, verse: verse, createdAt: DateParser.parse(createdAt) ?? .now, photoData: photoData, photoCategory: photoCategory, videoData: videoData, videoCategory: videoCategory, visibility: visibility ?? "private", likeCount: likeCount ?? 0, likedByMe: likedByMe ?? false, savedByMe: savedByMe ?? false, commentCount: commentCount ?? 0)
     }
 }
 

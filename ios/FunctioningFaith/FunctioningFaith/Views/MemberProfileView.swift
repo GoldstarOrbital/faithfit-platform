@@ -14,6 +14,7 @@ struct MemberProfileView: View {
     @State private var isFollowingAction = false
     @State private var isOpeningMessage = false
     @State private var errorMessage: String?
+    @State private var expandedPost: MemberProfilePost?
 
     var body: some View {
         Group {
@@ -43,6 +44,9 @@ struct MemberProfileView: View {
         .navigationDestination(item: $conversation) { target in
             DMConversationView(threadID: target.threadID, otherUserID: target.userID, otherName: target.name)
                 .environmentObject(dmStore)
+        }
+        .sheet(item: $expandedPost) { post in
+            PostMediaDetailView(post: post)
         }
         .alert("Profile action unavailable", isPresented: Binding(get: { errorMessage != nil && profile != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
@@ -127,13 +131,32 @@ struct MemberProfileView: View {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     ForEach(posts) { post in
                         VStack(alignment: .leading, spacing: 7) {
-                            if let dataURL = post.photoData, let image = ImageUpload.decode(dataURL) {
-                                Image(uiImage: image).resizable().scaledToFill().frame(height: 132).clipped()
-                            } else {
-                                Image(systemName: post.videoData == nil ? "quote.bubble.fill" : "play.rectangle.fill")
-                                    .font(.title2).foregroundStyle(FFTheme.cream)
-                                    .frame(maxWidth: .infinity, minHeight: 96)
-                                    .background(LinearGradient(colors: [FFTheme.meadow2, FFTheme.meadowDeep], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            // Photos and videos both open the full post --
+                            // a photo enlarged, a video actually playing,
+                            // instead of a tile that does nothing when tapped
+                            // (video previously had no way to play at all
+                            // from this grid, just a static icon).
+                            Group {
+                                if let dataURL = post.photoData, let image = ImageUpload.decode(dataURL) {
+                                    Button { expandedPost = post } label: {
+                                        Image(uiImage: image).resizable().scaledToFill().frame(height: 132).clipped()
+                                    }
+                                    .buttonStyle(.plain)
+                                } else if post.videoData != nil {
+                                    Button { expandedPost = post } label: {
+                                        ZStack {
+                                            LinearGradient(colors: [FFTheme.meadow2, FFTheme.meadowDeep], startPoint: .topLeading, endPoint: .bottomTrailing)
+                                            Image(systemName: "play.rectangle.fill").font(.title2).foregroundStyle(FFTheme.cream)
+                                        }
+                                        .frame(maxWidth: .infinity, minHeight: 96)
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
+                                    Image(systemName: "quote.bubble.fill")
+                                        .font(.title2).foregroundStyle(FFTheme.cream)
+                                        .frame(maxWidth: .infinity, minHeight: 96)
+                                        .background(LinearGradient(colors: [FFTheme.meadow2, FFTheme.meadowDeep], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                }
                             }
                             if !post.content.isEmpty { Text(post.content).font(.caption.weight(.medium)).foregroundStyle(FFTheme.ink).lineLimit(3).padding(.horizontal, 10) }
                             if let reference = post.verseReference {
@@ -187,6 +210,43 @@ private struct MemberConversationDestination: Identifiable, Hashable {
     let userID: UUID
     let name: String
     var id: String { threadID }
+}
+
+/// A grid tile's full view -- the enlarged photo, or the video actually
+/// playing (FeedVideoView, shared with the home feed's own post media).
+private struct PostMediaDetailView: View {
+    let post: MemberProfilePost
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    #if canImport(UIKit)
+                    if let dataURL = post.photoData, let image = ImageUpload.decode(dataURL) {
+                        Image(uiImage: image).resizable().scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
+                    }
+                    #endif
+                    if let dataURL = post.videoData {
+                        FeedVideoView(dataURL: dataURL)
+                    }
+                    if !post.content.isEmpty {
+                        Text(post.content).font(.body).foregroundStyle(FFTheme.ink)
+                    }
+                    if let reference = post.verseReference {
+                        NavigationLink { VerseThreadView(reference: reference) } label: {
+                            Label(reference, systemImage: "book.closed.fill")
+                                .font(.caption.weight(.bold)).foregroundStyle(FFTheme.scripture)
+                        }
+                    }
+                }
+                .padding()
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+        }
+    }
 }
 
 #Preview {

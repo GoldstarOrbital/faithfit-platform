@@ -36,6 +36,7 @@ struct ProfileView: View {
             if let profile {
                 statsSection(profile)
                 badgesSection(profile)
+                myPostsSection(profile)
             }
             healthKitSection
             connectorsSection
@@ -478,6 +479,20 @@ struct ProfileView: View {
         Section {
             NavigationLink { RemindersView() } label: {
                 Label("Reminders", systemImage: "bell.badge")
+            }
+        }
+        .listRowBackground(FFTheme.parchment1)
+    }
+
+    // The signed-in member had no way to see a grid of their own posts
+    // anywhere in the app -- MemberProfileView already renders exactly that
+    // (moments/posts, likes, follower state) and already has an `isMe` case
+    // that hides follow/message actions; it just never had a caller reach it
+    // with the member's own id before.
+    private func myPostsSection(_ profile: UserProfile) -> some View {
+        Section {
+            NavigationLink { MemberProfileView(userID: profile.id) } label: {
+                Label("My posts", systemImage: "square.grid.2x2")
             }
         }
         .listRowBackground(FFTheme.parchment1)

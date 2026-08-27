@@ -33,6 +33,7 @@ struct WorkoutHistoryView: View {
                             Task { await loadMore() }
                         }
                     }
+                    .onDelete(perform: delete)
                     if isLoadingMore {
                         HStack {
                             Spacer()
@@ -94,6 +95,16 @@ struct WorkoutHistoryView: View {
             // A failed "load more" shouldn't blank out what's already showing.
         }
         isLoadingMore = false
+    }
+
+    private func delete(at offsets: IndexSet) {
+        let toRemove = offsets.map { workouts[$0] }
+        workouts.remove(atOffsets: offsets)
+        Task {
+            for workout in toRemove {
+                try? await APIClient.shared.deleteWorkout(id: workout.id)
+            }
+        }
     }
 }
 

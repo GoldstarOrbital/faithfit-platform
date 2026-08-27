@@ -5,6 +5,7 @@ const { publish, subscribe } = require('../lib/events');
 const { runPipeline } = require('../lib/pipeline');
 const { xpForEvent, levelForXp, levelProgress } = require('../lib/xp');
 const effortLib = require('../lib/effort');
+const gpsCorrection = require('../lib/gpsCorrection');
 const { advanceQuestProgress } = require('../lib/quests');
 const { badgeEligibility } = require('../lib/badges');
 const { composeForEvent } = require('../lib/composer');
@@ -3424,7 +3425,9 @@ router.get('/workouts/:id/analysis', requireAuth, (req, res) => {
   // comparison aid, never a claim that two GPS routes are identical.
   const matched=db.prepare(`SELECT id,start_time,distance_km,duration_sec,effort_score FROM workouts WHERE user_id=? AND id<>? AND type=? AND end_time IS NOT NULL AND distance_km BETWEEN ? AND ? ORDER BY end_time DESC LIMIT 6`).all(req.session.userId,w.id,w.type,Math.max(0,km*.9),km*1.1)
     .map(x=>({...x,pace_min_per_km:x.distance_km>.05?+((x.duration_sec/60)/x.distance_km).toFixed(2):null}));
-  res.json({ workout_id:w.id, pace_min_per_km:pace, grade_adjusted_pace_min_per_km: null, power_watts: Number(metrics.power_watts||metrics.power||0)||null, top_speed_kmh:Number(metrics.max_speed_kmh||0)||null, relative_effort:Math.round(Number(w.effort_score)||Math.max(1,mins)), matched_efforts:matched, note:'Grade-adjusted pace requires reliable elevation grade samples; it is unavailable for this activity rather than estimated.' });
+  res.json({ workout_id:w.id, pace_min_per_km:pace, grade_adjusted_pace_min_per_km: null, power_watts: Number(metrics.power_watts||metrics.power||0)||null, top_speed_kmh:Number(metrics.max_speed_kmh||0)||null, relative_effort:Math.round(Number(w.effort_score)||Math.max(1,mins)), matched_efforts:matched, note:'Grade-adjusted pace requires reliable elevation grade samples; it is unavailable for this activity rather than estimated.',
+    has_route: !!w.gps_path, gps_corrected_at: w.gps_corrected_at || null,
+    distance_km: km || null, elevation_gain_m: w.elevation_gain_m != null ? Number(w.elevation_gain_m) : null, elevation_loss_m: w.elevation_loss_m != null ? Number(w.elevation_loss_m) : null });
 });
 
 // A post-workout reflection is grounded in this activity's stored metrics. If
@@ -6594,6 +6597,34 @@ router.delete('/workouts/:id', requireAuth, (req, res) => {
   db.prepare('UPDATE posts SET workout_id = NULL WHERE workout_id = ?').run(w.id);
   db.prepare('DELETE FROM workouts WHERE id = ?').run(w.id);
   res.json({ ok: true });
+});
+
+// Opt-in, after-the-fact route cleanup (see gpsCorrection.js) -- the member
+// chooses this, it never runs automatically. Distance correction is pure
+// geometry and always applies; elevation correction depends on a public
+// DEM lookup succeeding and is left alone (not zeroed out) if that fails.
+router.post('/workouts/:id/gps-correction', requireAuth, async (req, res) => {
+  const uid = req.session.userId;
+  const w = db.prepare('SELECT id, type, gps_path FROM workouts WHERE id = ? AND user_id = ?').get(req.params.id, uid);
+  if (!w) return res.status(404).json({ error: 'not_found' });
+  if (!w.gps_path) return res.status(400).json({ error: 'no_route_recorded' });
+  let points;
+  try { points = JSON.parse(w.gps_path); } catch { return res.status(400).json({ error: 'no_route_recorded' }); }
+
+  const corrected = await gpsCorrection.correctRoute(points, w.type);
+  if (!corrected) return res.status(400).json({ error: 'route_too_short' });
+
+  db.prepare(`UPDATE workouts SET distance_km = ?, elevation_gain_m = COALESCE(?, elevation_gain_m),
+              elevation_loss_m = COALESCE(?, elevation_loss_m), gps_corrected_at = datetime('now') WHERE id = ?`)
+    .run(corrected.distanceKm, corrected.elevationGainM, corrected.elevationLossM, w.id);
+
+  res.json({
+    distance_km: corrected.distanceKm,
+    elevation_gain_m: corrected.elevationGainM,
+    elevation_loss_m: corrected.elevationLossM,
+    points_used: corrected.pointsUsed,
+    points_dropped: corrected.pointsDropped,
+  });
 });
 
 // --- Scripture beyond the local library -------------------------------------

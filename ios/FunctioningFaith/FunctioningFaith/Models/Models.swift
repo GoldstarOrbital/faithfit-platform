@@ -16,6 +16,21 @@ struct VerseSnippet: Codable, Identifiable {
     let deepLink: String
 }
 
+/// Result of "Sync & correct with GPS" (see webapp's gpsCorrection.js) --
+/// elevation fields are nil when the terrain lookup failed, since a failed
+/// DEM call leaves elevation untouched server-side rather than zeroing it.
+struct GPSCorrectionResult: Decodable {
+    let distanceKm: Double
+    let elevationGainM: Double?
+    let elevationLossM: Double?
+    let pointsUsed: Int
+    let pointsDropped: Int
+    enum CodingKeys: String, CodingKey {
+        case distanceKm = "distance_km", elevationGainM = "elevation_gain_m", elevationLossM = "elevation_loss_m"
+        case pointsUsed = "points_used", pointsDropped = "points_dropped"
+    }
+}
+
 /// Home's "Scripture in Motion" card -- a fresh pick on every fetch (see
 /// webapp's scriptureMission.js), distinct from the live per-moment verse a
 /// tracked workout uses.
@@ -36,6 +51,8 @@ struct FeedPost: Codable, Identifiable {
     let createdAt: Date
     let photoData: String?
     let photoCategory: String?
+    let videoData: String?
+    let videoCategory: String?
     let visibility: String
     var likeCount: Int = 0
     var likedByMe: Bool = false
@@ -52,6 +69,8 @@ struct FeedPost: Codable, Identifiable {
         createdAt: Date,
         photoData: String? = nil,
         photoCategory: String? = nil,
+        videoData: String? = nil,
+        videoCategory: String? = nil,
         visibility: String = "public",
         likeCount: Int = 0,
         likedByMe: Bool = false,
@@ -67,6 +86,8 @@ struct FeedPost: Codable, Identifiable {
         self.createdAt = createdAt
         self.photoData = photoData
         self.photoCategory = photoCategory
+        self.videoData = videoData
+        self.videoCategory = videoCategory
         self.visibility = visibility
         self.likeCount = likeCount
         self.likedByMe = likedByMe
@@ -1524,6 +1545,11 @@ struct WorkoutAnalysis: Decodable {
     let relativeEffort: Int
     let matchedEfforts: [MatchedWorkoutEffort]
     let note: String
+    var hasRoute: Bool = false
+    var gpsCorrectedAt: String? = nil
+    var distanceKm: Double? = nil
+    var elevationGainM: Double? = nil
+    var elevationLossM: Double? = nil
     enum CodingKeys: String, CodingKey {
         case note
         case workoutID = "workout_id"
@@ -1533,6 +1559,11 @@ struct WorkoutAnalysis: Decodable {
         case topSpeedKmh = "top_speed_kmh"
         case relativeEffort = "relative_effort"
         case matchedEfforts = "matched_efforts"
+        case hasRoute = "has_route"
+        case gpsCorrectedAt = "gps_corrected_at"
+        case distanceKm = "distance_km"
+        case elevationGainM = "elevation_gain_m"
+        case elevationLossM = "elevation_loss_m"
     }
 }
 struct MatchedWorkoutEffort: Decodable, Identifiable {

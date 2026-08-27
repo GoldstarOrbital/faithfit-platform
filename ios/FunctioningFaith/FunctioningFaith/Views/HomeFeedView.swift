@@ -1,9 +1,11 @@
 import SwiftUI
+import AVKit
 #if canImport(UIKit)
 import UIKit
 #endif
 
 struct HomeFeedView: View {
+    @EnvironmentObject private var session: NativeSession
     @EnvironmentObject private var deepLinks: DeepLinkRouter
     @EnvironmentObject private var dmStore: DMStore
     @State private var posts: [FeedPost] = []
@@ -64,7 +66,8 @@ struct HomeFeedView: View {
                         guard let authorID = post.authorID else { return }
                         blockCandidate = (authorID, post.authorName)
                         showBlockConfirmation = true
-                    }
+                    },
+                    onDelete: post.authorID == session.profile?.id ? { delete(post) } : nil
                 )
                     .onAppear { loadNextPageIfNeeded(post) }
                     .swipeActions(edge: .trailing) {
@@ -226,6 +229,15 @@ struct HomeFeedView: View {
         }
     }
 
+    private func delete(_ post: FeedPost) {
+        Task {
+            do {
+                try await APIClient.shared.deletePost(id: post.id)
+                posts.removeAll { $0.id == post.id }
+            } catch { actionError = error.localizedDescription }
+        }
+    }
+
     private func block(_ id: UUID) {
         Task {
             do {
@@ -254,6 +266,10 @@ struct FeedPostRow: View {
     let onComments: () -> Void
     let onReport: () -> Void
     let onBlock: () -> Void
+    // Non-nil only for the signed-in member's own post -- report/block make
+    // no sense against yourself, and delete makes no sense against anyone
+    // else's post.
+    var onDelete: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -295,6 +311,10 @@ struct FeedPostRow: View {
                     .accessibilityLabel(post.photoCategory.map { "Post photo: \($0)" } ?? "Post photo")
             }
             #endif
+            if let dataURL = post.videoData {
+                FeedVideoView(dataURL: dataURL)
+                    .accessibilityLabel(post.videoCategory.map { "Post video: \($0)" } ?? "Post video")
+            }
 
             HStack(spacing: 18) {
                 Button(action: onLike) {
@@ -330,10 +350,60 @@ struct FeedPostRow: View {
         .padding(.vertical, 6)
         .accessibilityElement(children: .contain)
         .contextMenu {
-            Button("Report post", role: .destructive, action: onReport)
-            if post.authorID != nil {
-                Button("Block \(post.authorName)", role: .destructive, action: onBlock)
+            if let onDelete {
+                Button("Delete post", role: .destructive, action: onDelete)
+            } else {
+                Button("Report post", role: .destructive, action: onReport)
+                if post.authorID != nil {
+                    Button("Block \(post.authorName)", role: .destructive, action: onBlock)
+                }
             }
+        }
+    }
+}
+
+/// A feed post's video attachment -- tap-to-play with standard AVKit chrome,
+/// not autoplay: unlike the dedicated Reels tab's full-bleed paging feed,
+/// this sits inside an ordinary scrolling list mixed with text/photo posts,
+/// where several videos autoplaying at once would be both jarring and
+/// wasteful. Same decode shape as ReelPlayerView's modal player -- MP4/MOV
+/// only, WebM has no AVFoundation decoder on iOS.
+internal struct FeedVideoView: View {
+    let dataURL: String
+    @State private var player: AVPlayer?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        Group {
+            if let player {
+                VideoPlayer(player: player)
+            } else if let errorMessage {
+                ContentUnavailableView(errorMessage, systemImage: "exclamationmark.triangle")
+            } else {
+                ProgressView()
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 360)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .task { prepare() }
+    }
+
+    private func prepare() {
+        guard player == nil else { return }
+        if dataURL.hasPrefix("data:video/webm") {
+            errorMessage = "This video format isn't supported for playback."
+            return
+        }
+        guard let comma = dataURL.firstIndex(of: ","),
+              let data = Data(base64Encoded: String(dataURL[dataURL.index(after: comma)...]))
+        else { errorMessage = "This video could not be decoded."; return }
+        let fileExtension = dataURL.hasPrefix("data:video/quicktime") ? "mov" : "mp4"
+        let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension(fileExtension)
+        do {
+            try data.write(to: tempURL)
+            player = AVPlayer(url: tempURL)
+        } catch {
+            errorMessage = "This video could not be saved for playback."
         }
     }
 }

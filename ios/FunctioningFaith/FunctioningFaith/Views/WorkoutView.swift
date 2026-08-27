@@ -370,6 +370,9 @@ struct WorkoutView: View {
                     }
                 }
                 .padding(.vertical, 4)
+                .contextMenu {
+                    Button("Delete workout", role: .destructive) { deleteRecent(workout) }
+                }
             }
         }
     }
@@ -519,6 +522,11 @@ struct WorkoutView: View {
         } catch {
             // Live workout recording remains usable if a moment cannot be sent.
         }
+    }
+
+    private func deleteRecent(_ workout: LoggedWorkout) {
+        recent.removeAll { $0.id == workout.id }
+        Task { try? await APIClient.shared.deleteWorkout(id: workout.id) }
     }
 
     private func saveManual() async {
