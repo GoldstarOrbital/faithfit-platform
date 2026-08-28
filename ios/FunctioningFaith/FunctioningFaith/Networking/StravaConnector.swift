@@ -77,6 +77,23 @@ final class StravaConnector: NSObject, ObservableObject, ASWebAuthenticationPres
             throw StravaConnectError.notSignedIn
         }
         let store = WKWebsiteDataStore.default().httpCookieStore
+        // WKWebsiteDataStore.default() is a persistent, process-wide jar shared
+        // by every WKWebView/ASWebAuthenticationSession in the app -- a stale
+        // cookie left behind by an earlier connector attempt (or a session
+        // that has since been revoked server-side) can coexist with the fresh
+        // one instead of being cleanly replaced, and the server may end up
+        // validating the wrong one. Clear this host's cookies here first so
+        // only the current, actually-valid session cookie is ever present.
+        if let host = APIClient.shared.baseURL.host {
+            let existing = await withCheckedContinuation { (continuation: CheckedContinuation<[HTTPCookie], Never>) in
+                store.getAllCookies { continuation.resume(returning: $0) }
+            }
+            for cookie in existing where cookie.domain.hasSuffix(host) {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    store.delete(cookie) { continuation.resume() }
+                }
+            }
+        }
         for cookie in cookies {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 store.setCookie(cookie) { continuation.resume() }
