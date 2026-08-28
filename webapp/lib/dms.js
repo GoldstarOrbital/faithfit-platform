@@ -59,6 +59,7 @@ function init() {
   try { db.exec("ALTER TABLE dm_messages ADD COLUMN kind TEXT NOT NULL DEFAULT 'text'"); } catch {}
   try { db.exec("ALTER TABLE dm_messages ADD COLUMN metadata TEXT"); } catch {}
   try { db.exec("ALTER TABLE dm_messages ADD COLUMN edited_at TEXT"); } catch {}
+  try { db.exec("ALTER TABLE dm_messages ADD COLUMN reply_to_id TEXT"); } catch {}
   db.exec(`
     CREATE TABLE IF NOT EXISTS dm_message_likes (
       message_id TEXT NOT NULL,
@@ -184,10 +185,13 @@ function messages(me, threadId, limit = 200) {
   const t = threadFor(me, threadId);
   if (!t) return null;
   const rows = db.prepare(
-    `SELECT m.id, m.sender_id, m.body, m.kind, m.metadata, m.created_at, m.read_at, m.edited_at,
+    `SELECT m.id, m.sender_id, m.body, m.kind, m.metadata, m.created_at, m.read_at, m.edited_at, m.reply_to_id,
             (SELECT COUNT(*) FROM dm_message_likes l WHERE l.message_id = m.id) AS like_count,
-            EXISTS(SELECT 1 FROM dm_message_likes l WHERE l.message_id = m.id AND l.user_id = ?) AS liked_by_me
-     FROM dm_messages m WHERE m.thread_id = ? ORDER BY m.created_at DESC LIMIT ?`
+            EXISTS(SELECT 1 FROM dm_message_likes l WHERE l.message_id = m.id AND l.user_id = ?) AS liked_by_me,
+            r.body AS reply_body, r.kind AS reply_kind, r.sender_id AS reply_sender_id
+     FROM dm_messages m
+     LEFT JOIN dm_messages r ON r.id = m.reply_to_id
+     WHERE m.thread_id = ? ORDER BY m.created_at DESC LIMIT ?`
   ).all(me, threadId, Math.min(Number(limit) || 200, 500)).reverse();
 
   db.prepare("UPDATE dm_messages SET read_at = datetime('now') WHERE thread_id = ? AND sender_id != ? AND read_at IS NULL")
@@ -203,6 +207,16 @@ function messages(me, threadId, limit = 200) {
       id: m.id, body: m.body, kind: m.kind || 'text', metadata: m.metadata ? (() => { try { return JSON.parse(m.metadata); } catch { return null; } })() : null, from_me: m.sender_id === me,
       created_at: m.created_at, read: !!m.read_at, edited_at: m.edited_at || null,
       like_count: Number(m.like_count) || 0, liked_by_me: !!m.liked_by_me,
+      // An e2e reply's stored body is ciphertext the recipient's client would
+      // need to re-derive a key to read just for a quote preview -- not worth
+      // it, so the quote itself is withheld and the client shows a generic
+      // "Encrypted message" placeholder instead.
+      reply_to: m.reply_to_id ? {
+        id: m.reply_to_id,
+        body: m.reply_kind === 'e2e' ? null : m.reply_body,
+        kind: m.reply_kind,
+        from_me: m.reply_sender_id === me,
+      } : null,
     })),
   };
 }
@@ -240,10 +254,15 @@ function editMessage(me, threadId, messageId, body) {
   if (!text) return { error: 'empty_message' };
 
   db.prepare("UPDATE dm_messages SET body = ?, edited_at = datetime('now') WHERE id = ?").run(text, messageId);
-  const row = db.prepare('SELECT id, body, kind, metadata, created_at, edited_at FROM dm_messages WHERE id = ?').get(messageId);
+  const row = db.prepare('SELECT id, body, kind, metadata, created_at, edited_at, reply_to_id FROM dm_messages WHERE id = ?').get(messageId);
   const likeCount = db.prepare('SELECT COUNT(*) AS c FROM dm_message_likes WHERE message_id = ?').get(messageId).c;
   const likedByMe = !!db.prepare('SELECT 1 FROM dm_message_likes WHERE message_id = ? AND user_id = ?').get(messageId, me);
-  return { message: { ...row, from_me: true, read: true, like_count: likeCount, liked_by_me: likedByMe } };
+  let replyTo = null;
+  if (row.reply_to_id) {
+    const r = db.prepare('SELECT id, body, kind, sender_id FROM dm_messages WHERE id = ?').get(row.reply_to_id);
+    if (r) replyTo = { id: r.id, body: r.kind === 'e2e' ? null : r.body, kind: r.kind, from_me: r.sender_id === me };
+  }
+  return { message: { ...row, from_me: true, read: true, like_count: likeCount, liked_by_me: likedByMe, reply_to: replyTo } };
 }
 
 function send(me, threadId, body, options = {}) {
@@ -256,13 +275,28 @@ function send(me, threadId, body, options = {}) {
   const text = String(body == null ? '' : body).trim().slice(0, MAX_LEN);
   if (!text) return { error: 'empty_message' };
 
+  // A reply target must be a real message in THIS thread -- silently
+  // dropped rather than erroring the whole send if it isn't (a stale
+  // client reference to a since-deleted or cross-thread id shouldn't block
+  // the message itself from going through).
+  let replyToId = null;
+  if (options.replyToId) {
+    const target = db.prepare('SELECT id FROM dm_messages WHERE id = ? AND thread_id = ?').get(options.replyToId, threadId);
+    if (target) replyToId = target.id;
+  }
+
   const id = randomUUID();
-  db.prepare('INSERT INTO dm_messages (id, thread_id, sender_id, body, kind, metadata) VALUES (?,?,?,?,?,?)')
-    .run(id, threadId, me, text, options.kind || 'text', options.metadata ? JSON.stringify(options.metadata) : null);
+  db.prepare('INSERT INTO dm_messages (id, thread_id, sender_id, body, kind, metadata, reply_to_id) VALUES (?,?,?,?,?,?,?)')
+    .run(id, threadId, me, text, options.kind || 'text', options.metadata ? JSON.stringify(options.metadata) : null, replyToId);
   db.prepare("UPDATE dm_threads SET last_message_at = datetime('now') WHERE id = ?").run(threadId);
   const row = db.prepare('SELECT id, body, kind, metadata, created_at, edited_at FROM dm_messages WHERE id = ?').get(id);
   if (row.metadata) { try { row.metadata = JSON.parse(row.metadata); } catch { row.metadata = null; } }
-  return { message: { ...row, from_me: true, read: false, like_count: 0, liked_by_me: false }, recipient_id: otherId };
+  let replyTo = null;
+  if (replyToId) {
+    const r = db.prepare('SELECT id, body, kind, sender_id FROM dm_messages WHERE id = ?').get(replyToId);
+    if (r) replyTo = { id: r.id, body: r.kind === 'e2e' ? null : r.body, kind: r.kind, from_me: r.sender_id === me };
+  }
+  return { message: { ...row, from_me: true, read: false, like_count: 0, liked_by_me: false, reply_to: replyTo }, recipient_id: otherId };
 }
 
 function block(me, otherId) {

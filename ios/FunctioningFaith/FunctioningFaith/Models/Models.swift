@@ -347,6 +347,17 @@ struct DMMessage: Identifiable {
     var likeCount: Int = 0
     var likedByMe: Bool = false
     var editedAt: Date? = nil
+    var replyTo: DMReplyPreview? = nil
+}
+
+/// A quoted snippet of the message being replied to -- never the raw
+/// ciphertext for an e2e original (see DMStore/dms.js: the server withholds
+/// it rather than sending something this device can't decrypt anyway).
+struct DMReplyPreview {
+    let id: String
+    let body: String?
+    let kind: String
+    let fromMe: Bool
 }
 
 // ---- Stats & personal records ----

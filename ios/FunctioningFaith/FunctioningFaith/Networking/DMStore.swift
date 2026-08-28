@@ -82,7 +82,7 @@ final class DMStore: ObservableObject {
             return DMMessage(id: m.id, body: body, kind: m.kind, fromMe: m.fromMe,
                               createdAt: Self.parseDate(m.createdAt) ?? .now, read: m.read, verseReference: verseRef,
                               likeCount: m.likeCount ?? 0, likedByMe: m.likedByMe ?? false,
-                              editedAt: m.editedAt.flatMap(Self.parseDate))
+                              editedAt: m.editedAt.flatMap(Self.parseDate), replyTo: Self.replyPreview(m.replyTo))
         }
         return DMConversation(threadID: dto.threadID, otherUserID: dto.user.id, otherName: dto.user.displayName,
                                otherHasAvatar: dto.user.hasAvatar, blocked: dto.blocked ?? false, messages: messages)
@@ -105,7 +105,7 @@ final class DMStore: ObservableObject {
     /// Sends `text`, encrypting automatically when a shared key can be
     /// derived and falling back to plaintext otherwise -- exactly the web
     /// client's own logic, not a user-facing toggle.
-    func send(threadID: String, to otherUserID: UUID, text: String) async throws -> DMMessage {
+    func send(threadID: String, to otherUserID: UUID, text: String, replyToID: String? = nil) async throws -> DMMessage {
         guard let myUserID else { throw APIError.notSignedIn }
         var body = text
         var isE2E = false
@@ -114,12 +114,13 @@ final class DMStore: ObservableObject {
             body = (try? E2ECrypto.encrypt(text, with: key)) ?? text
             isE2E = body != text
         }
-        let dto = try await APIClient.shared.sendDM(threadID: threadID, body: body, isE2E: isE2E)
+        let dto = try await APIClient.shared.sendDM(threadID: threadID, body: body, isE2E: isE2E, replyToID: replyToID)
         // The just-sent message never needs decrypting -- it's our own
         // plaintext, already in hand, regardless of what ciphertext the
         // server echoes back.
         return DMMessage(id: dto.id, body: text, kind: dto.kind, fromMe: true,
-                          createdAt: Self.parseDate(dto.createdAt) ?? .now, read: false, verseReference: nil)
+                          createdAt: Self.parseDate(dto.createdAt) ?? .now, read: false, verseReference: nil,
+                          replyTo: Self.replyPreview(dto.replyTo))
     }
 
     func toggleLike(threadID: String, messageID: String) async throws -> (liked: Bool, count: Int) {
@@ -134,14 +135,20 @@ final class DMStore: ObservableObject {
         return DMMessage(id: dto.id, body: dto.body, kind: dto.kind, fromMe: true,
                           createdAt: Self.parseDate(dto.createdAt) ?? .now, read: true, verseReference: nil,
                           likeCount: dto.likeCount ?? 0, likedByMe: dto.likedByMe ?? false,
-                          editedAt: dto.editedAt.flatMap(Self.parseDate))
+                          editedAt: dto.editedAt.flatMap(Self.parseDate), replyTo: Self.replyPreview(dto.replyTo))
     }
 
-    func sendVerse(threadID: String, reference: String) async throws -> DMMessage {
-        let dto = try await APIClient.shared.sendDMVerse(threadID: threadID, reference: reference)
+    func sendVerse(threadID: String, reference: String, replyToID: String? = nil) async throws -> DMMessage {
+        let dto = try await APIClient.shared.sendDMVerse(threadID: threadID, reference: reference, replyToID: replyToID)
         let (body, verseRef) = Self.displayBody(for: dto, sharedKey: nil)
         return DMMessage(id: dto.id, body: body, kind: dto.kind, fromMe: true,
-                          createdAt: Self.parseDate(dto.createdAt) ?? .now, read: false, verseReference: verseRef)
+                          createdAt: Self.parseDate(dto.createdAt) ?? .now, read: false, verseReference: verseRef,
+                          replyTo: Self.replyPreview(dto.replyTo))
+    }
+
+    private static func replyPreview(_ dto: DMMessageDTO.ReplyPreviewDTO?) -> DMReplyPreview? {
+        guard let dto else { return nil }
+        return DMReplyPreview(id: dto.id, body: dto.body, kind: dto.kind, fromMe: dto.fromMe)
     }
 
     private static func parseDate(_ s: String) -> Date? {

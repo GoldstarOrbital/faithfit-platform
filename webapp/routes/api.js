@@ -6376,7 +6376,8 @@ router.post('/dms/:threadId', requireAuth, requireCommunityAccess, (req, res) =>
   const isE2e = !!(req.body && req.body.e2e);
   const warning = isE2e ? null : linkWarning(req.body&&req.body.body);
   const r = dms.send(req.session.userId, req.params.threadId, req.body && req.body.body,
-    { kind: isE2e ? 'e2e' : 'text', metadata: warning?{link_warning:warning}:null });
+    { kind: isE2e ? 'e2e' : 'text', metadata: warning?{link_warning:warning}:null,
+      replyToId: req.body && req.body.reply_to_id });
   if (r.error) {
     const code = r.error === 'not_found' ? 404 : r.error === 'blocked' ? 403 : 400;
     return res.status(code).json(r);
@@ -6396,6 +6397,7 @@ router.post('/dms/:threadId/verse', requireAuth, async (req, res) => {
   const shareUrl = `/?open=verse&ref=${encodeURIComponent(reference)}`;
   const sent = dms.send(req.session.userId, req.params.threadId, `Shared ${reference}`, {
     kind: 'verse', metadata: { reference, text: row.text, share_url: shareUrl },
+    replyToId: req.body && req.body.reply_to_id,
   });
   if (sent.error) return res.status(sent.error === 'blocked' ? 403 : 400).json(sent);
   notify(sent.recipient_id, 'dm', `${displayName(req.session.userId)} shared ${reference} with you.`, { thread_id: req.params.threadId });

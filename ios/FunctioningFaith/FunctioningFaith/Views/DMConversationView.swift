@@ -1,6 +1,11 @@
 import SwiftUI
 import UIKit
 
+private struct OpenVerseReference: Identifiable {
+    let reference: String
+    var id: String { reference }
+}
+
 struct DMConversationView: View {
     let threadID: String
     let otherUserID: UUID
@@ -15,6 +20,8 @@ struct DMConversationView: View {
     @State private var showBlockConfirm = false
     @State private var editingMessage: DMMessage?
     @State private var showVersePicker = false
+    @State private var replyingTo: DMMessage?
+    @State private var openVerseReference: OpenVerseReference?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,7 +36,9 @@ struct DMConversationView: View {
                     LazyVStack(spacing: 10) {
                         ForEach(conversation?.messages ?? []) { message in
                             DMBubble(message: message, onLike: { Task { await like(message) } },
-                                     onEdit: message.fromMe && message.kind == "text" ? { beginEdit(message) } : nil)
+                                     onEdit: message.fromMe && message.kind == "text" ? { beginEdit(message) } : nil,
+                                     onReply: { beginReply(message) },
+                                     onOpenVerse: message.kind == "verse" ? { ref in openVerseReference = OpenVerseReference(reference: ref) } : nil)
                                 .id(message.id)
                         }
                     }
@@ -45,12 +54,22 @@ struct DMConversationView: View {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             Divider()
-            if let editingMessage {
+            if editingMessage != nil {
                 HStack {
                     Label("Editing message", systemImage: "pencil")
                         .font(.caption).foregroundStyle(.secondary)
                     Spacer()
                     Button("Cancel") { cancelEdit() }
+                        .font(.caption)
+                }
+                .padding(.horizontal, 10).padding(.top, 6)
+            } else if let replyingTo {
+                HStack {
+                    Label("Replying to \(replyingTo.fromMe ? "yourself" : otherName)", systemImage: "arrowshape.turn.up.left")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text(replyPreviewSnippet(replyingTo)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer()
+                    Button("Cancel") { self.replyingTo = nil }
                         .font(.caption)
                 }
                 .padding(.horizontal, 10).padding(.top, 6)
@@ -101,11 +120,22 @@ struct DMConversationView: View {
                 Task { await sendVerse(reference) }
             }
         }
+        .navigationDestination(item: $openVerseReference) { ref in
+            VerseThreadView(reference: ref.reference)
+        }
         .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
         .task { await load() }
         .task { await pollWhileVisible() }
+    }
+
+    private func replyPreviewSnippet(_ message: DMMessage) -> String {
+        switch message.kind {
+        case "e2e": return "🔒 Encrypted message"
+        case "verse": return message.verseReference ?? "Shared verse"
+        default: return message.body
+        }
     }
 
     private func load() async {
@@ -133,10 +163,12 @@ struct DMConversationView: View {
     private func send() async {
         let text = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        let replyToID = replyingTo?.id
         messageText = ""
+        replyingTo = nil
         isSending = true
         do {
-            let sent = try await store.send(threadID: threadID, to: otherUserID, text: text)
+            let sent = try await store.send(threadID: threadID, to: otherUserID, text: text, replyToID: replyToID)
             if let c = conversation {
                 conversation = DMConversation(threadID: c.threadID, otherUserID: c.otherUserID, otherName: c.otherName,
                                                otherHasAvatar: c.otherHasAvatar, blocked: c.blocked, messages: c.messages + [sent])
@@ -149,6 +181,7 @@ struct DMConversationView: View {
     }
 
     private func beginEdit(_ message: DMMessage) {
+        replyingTo = nil
         editingMessage = message
         messageText = message.body
     }
@@ -156,6 +189,11 @@ struct DMConversationView: View {
     private func cancelEdit() {
         editingMessage = nil
         messageText = ""
+    }
+
+    private func beginReply(_ message: DMMessage) {
+        editingMessage = nil
+        replyingTo = message
     }
 
     private func saveEdit() async {
@@ -199,8 +237,10 @@ struct DMConversationView: View {
     }
 
     private func sendVerse(_ reference: String) async {
+        let replyToID = replyingTo?.id
+        replyingTo = nil
         do {
-            let sent = try await store.sendVerse(threadID: threadID, reference: reference)
+            let sent = try await store.sendVerse(threadID: threadID, reference: reference, replyToID: replyToID)
             if let c = conversation {
                 conversation = DMConversation(threadID: c.threadID, otherUserID: c.otherUserID, otherName: c.otherName,
                                                otherHasAvatar: c.otherHasAvatar, blocked: c.blocked, messages: c.messages + [sent])
@@ -223,22 +263,39 @@ private struct DMBubble: View {
     let message: DMMessage
     let onLike: () -> Void
     let onEdit: (() -> Void)?
+    let onReply: () -> Void
+    /// Non-nil only for a "verse" kind message -- tapping it opens the full
+    /// passage in VerseThreadView instead of leaving the reference and one
+    /// line of text as the only thing either side can ever see of it.
+    let onOpenVerse: ((String) -> Void)?
 
     var body: some View {
         HStack {
             if message.fromMe { Spacer(minLength: 40) }
             VStack(alignment: message.fromMe ? .trailing : .leading, spacing: 4) {
+                if let reply = message.replyTo {
+                    replyQuote(reply)
+                }
                 if message.kind == "e2e" {
                     Label("End-to-end encrypted", systemImage: "lock.fill")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 if message.kind == "verse", let ref = message.verseReference {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(ref).font(.caption.weight(.semibold))
-                        Text(message.body).font(.callout)
+                    Button { onOpenVerse?(ref) } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 4) {
+                                Text(ref).font(.caption.weight(.semibold))
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.caption2)
+                            }
+                            Text(message.body).font(.callout).lineLimit(4)
+                            Text("Tap to read the full passage").font(.caption2).foregroundStyle(.secondary)
+                        }
+                        .padding(10)
+                        .background(RoundedRectangle(cornerRadius: 12).fill(.tint.opacity(0.15)))
                     }
-                    .padding(10)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(.tint.opacity(0.15)))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.primary)
                 } else {
                     Text(message.body)
                         .padding(.horizontal, 12).padding(.vertical, 8)
@@ -263,11 +320,31 @@ private struct DMBubble: View {
                 .font(.caption2).foregroundStyle(.secondary)
             }
             .contextMenu {
+                Button { onReply() } label: { Label("Reply", systemImage: "arrowshape.turn.up.left") }
                 if let onEdit {
                     Button { onEdit() } label: { Label("Edit", systemImage: "pencil") }
                 }
             }
             if !message.fromMe { Spacer(minLength: 40) }
+        }
+    }
+
+    private func replyQuote(_ reply: DMReplyPreview) -> some View {
+        HStack(spacing: 6) {
+            Rectangle().fill(.secondary.opacity(0.4)).frame(width: 2)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(reply.fromMe ? "You" : "Them").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                Text(replySnippetText(reply)).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func replySnippetText(_ reply: DMReplyPreview) -> String {
+        switch reply.kind {
+        case "e2e": return "🔒 Encrypted message"
+        case "verse": return reply.body ?? "Shared a verse"
+        default: return reply.body ?? "…"
         }
     }
 }
@@ -283,17 +360,27 @@ private struct DMVersePickerSheet: View {
     @State private var result: ResolvedPassage?
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var showBrowse = false
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Button { showBrowse = true } label: {
+                        Label("Browse the Bible", systemImage: "book.pages")
+                    }
+                } footer: {
+                    Text("No reference memorized? Browse by book and chapter instead.")
+                }
+                .listRowBackground(FFTheme.parchment1)
+
                 Section {
                     TextField("e.g. \"Philippians 4:13\"", text: $reference)
                         .autocorrectionDisabled()
                     Button(isLoading ? "Looking up…" : "Look up") { Task { await lookup() } }
                         .disabled(reference.trimmingCharacters(in: .whitespaces).isEmpty || isLoading)
                 } header: {
-                    Text("Find a verse to share")
+                    Text("Or type a reference")
                 }
                 .listRowBackground(FFTheme.parchment1)
 
@@ -311,6 +398,12 @@ private struct DMVersePickerSheet: View {
             .navigationTitle("Share a Verse")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .navigationDestination(isPresented: $showBrowse) {
+                BibleBrowseView { verse in
+                    onSend(verse.reference)
+                    dismiss()
+                }
+            }
             .alert("Could not look that up", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK", role: .cancel) { errorMessage = nil }
             } message: { Text(errorMessage ?? "") }

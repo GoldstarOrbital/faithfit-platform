@@ -525,11 +525,11 @@ final class APIClient {
     /// server's link-safety scan (which cannot and must not see inside real
     /// ciphertext) still runs on ordinary text. For an e2e message, `body` is
     /// already the ciphertext blob and the scan is skipped server-side.
-    func sendDM(threadID: String, body: String, isE2E: Bool) async throws -> DMMessageDTO {
+    func sendDM(threadID: String, body: String, isE2E: Bool, replyToID: String? = nil) async throws -> DMMessageDTO {
         if useMock { throw APIError.invalidResponse }
         let r: DMSendResponse = try await request(
             "/api/dms/\(threadID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? threadID)",
-            method: "POST", body: DMSendBody(body: body, e2e: isE2E)
+            method: "POST", body: DMSendBody(body: body, e2e: isE2E, replyToID: replyToID)
         )
         return r.message
     }
@@ -551,10 +551,10 @@ final class APIClient {
         return r.message
     }
 
-    func sendDMVerse(threadID: String, reference: String) async throws -> DMMessageDTO {
+    func sendDMVerse(threadID: String, reference: String, replyToID: String? = nil) async throws -> DMMessageDTO {
         if useMock { throw APIError.invalidResponse }
         let path = "/api/dms/\(threadID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? threadID)/verse"
-        let r: DMSendResponse = try await request(path, method: "POST", body: DMVerseBody(reference: reference))
+        let r: DMSendResponse = try await request(path, method: "POST", body: DMVerseBody(reference: reference, replyToID: replyToID))
         return r.message
     }
 
@@ -1613,6 +1613,13 @@ struct DMThreadDTO: Decodable {
 }
 
 struct DMMessageDTO: Decodable {
+    struct ReplyPreviewDTO: Decodable {
+        let id: String
+        let body: String?
+        let kind: String
+        let fromMe: Bool
+        enum CodingKeys: String, CodingKey { case id, body, kind; case fromMe = "from_me" }
+    }
     let id: String
     let body: String
     let kind: String
@@ -1623,10 +1630,12 @@ struct DMMessageDTO: Decodable {
     let editedAt: String?
     let likeCount: Int?
     let likedByMe: Bool?
+    let replyTo: ReplyPreviewDTO?
 
     enum CodingKeys: String, CodingKey {
         case id, body, kind; case fromMe = "from_me"; case createdAt = "created_at"; case read, metadata
         case editedAt = "edited_at"; case likeCount = "like_count"; case likedByMe = "liked_by_me"
+        case replyTo = "reply_to"
     }
 }
 
@@ -1654,10 +1663,19 @@ private struct DMOpenResponse: Decodable {
     let user: U
     enum CodingKeys: String, CodingKey { case threadID = "thread_id", user }
 }
-private struct DMSendBody: Encodable { let body: String; let e2e: Bool }
+private struct DMSendBody: Encodable {
+    let body: String
+    let e2e: Bool
+    let replyToID: String?
+    enum CodingKeys: String, CodingKey { case body, e2e; case replyToID = "reply_to_id" }
+}
 private struct DMSendResponse: Decodable { let message: DMMessageDTO }
 private struct DMEditBody: Encodable { let body: String }
-private struct DMVerseBody: Encodable { let reference: String }
+private struct DMVerseBody: Encodable {
+    let reference: String
+    let replyToID: String?
+    enum CodingKeys: String, CodingKey { case reference; case replyToID = "reply_to_id" }
+}
 private struct DMLikeResponse: Decodable {
     let liked: Bool
     let likeCount: Int
