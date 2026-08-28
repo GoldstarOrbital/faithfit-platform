@@ -15,6 +15,17 @@
   <key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
   <key>UILaunchScreen</key><dict/>
   <key>FFAPIBaseURL</key><string>https://faithfit-demo-production.up.railway.app</string>
+  <!-- Every build was silently blocked from external-beta review with
+       "The build is missing export compliance" once no other build was
+       ahead of it in Apple's review queue: Codemagic's automated pipeline
+       has no way to answer that prompt interactively. This app's only
+       encryption (E2ECrypto.swift: ECDH over the standard P-256 curve, then
+       AES-256-GCM, both via Apple's own CryptoKit) uses exclusively
+       industry-standard algorithms through OS-provided APIs, with no custom
+       cipher: the standard case Apple's own export-compliance guidance
+       treats as exempt. Declaring that here answers the question for every
+       build going forward instead of leaving it unset. -->
+  <key>ITSAppUsesNonExemptEncryption</key><false/>
   <key>FFAppleClientID</key><string>com.functioningfaith.app</string>
   <key>CFBundleURLTypes</key>
   <array>
