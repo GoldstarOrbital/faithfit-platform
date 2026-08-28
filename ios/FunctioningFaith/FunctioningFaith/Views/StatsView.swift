@@ -1,5 +1,6 @@
 import SwiftUI
 import Charts
+import UIKit
 
 struct StatsView: View {
     @State private var summary: StatsSummary?
@@ -20,18 +21,7 @@ struct StatsView: View {
             } else if let summary {
                 List {
                     if let recap { recapSection(recap) }
-                    Section {
-                        NavigationLink { AthleteIntelligenceView() } label: {
-                            Label("Athlete Intelligence", systemImage: "chart.line.uptrend.xyaxis")
-                        }
-                        NavigationLink { HeatmapView() } label: {
-                            Label("Route heatmap", systemImage: "map.fill")
-                        }
-                        NavigationLink { RouteBuilderView() } label: {
-                            Label("Build a route", systemImage: "map")
-                        }
-                    }
-                    .listRowBackground(FFTheme.parchment1)
+                    quickLinksSection
                     streakSection(summary)
                     totalsSection(summary)
                     goalsSection
@@ -40,6 +30,7 @@ struct StatsView: View {
                     if !breakdown.isEmpty { breakdownSection }
                     if !records.isEmpty { personalRecordsSection }
                 }
+                .listRowSpacing(10)
                 .ffListChrome()
                 .refreshable { await load(forceRefresh: true) }
             } else {
@@ -80,11 +71,47 @@ struct StatsView: View {
         goals = (try? await APIClient.shared.fetchGoals()) ?? []
     }
 
+    private var quickLinksSection: some View {
+        Section {
+            HStack(spacing: 10) {
+                quickLink("Intelligence", icon: "chart.line.uptrend.xyaxis", tint: FFTheme.scripture) { AthleteIntelligenceView() }
+                quickLink("Heatmap", icon: "map.fill", tint: FFTheme.hearth) { HeatmapView() }
+                quickLink("Build route", icon: "point.topleft.down.curvedto.point.bottomright.up.fill", tint: FFTheme.meadow) { RouteBuilderView() }
+            }
+            .padding(.vertical, 2)
+        }
+        .listRowBackground(Color.clear)
+        .listRowInsets(EdgeInsets())
+        .listRowSeparator(.hidden)
+    }
+
+    private func quickLink<Destination: View>(_ title: String, icon: String, tint: Color, @ViewBuilder destination: () -> Destination) -> some View {
+        NavigationLink(destination: destination()) {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 44, height: 44)
+                    .background(tint.opacity(0.12), in: Circle())
+                Text(title)
+                    .font(FFTheme.eyebrow(10.5))
+                    .foregroundStyle(FFTheme.ink)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous).stroke(FFTheme.hairline, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
     @ViewBuilder
     private var goalsSection: some View {
         Section {
             if goals.isEmpty {
-                Text("No goals yet.").foregroundStyle(.secondary)
+                Text("No goals yet.").font(FFTheme.serif(15)).foregroundStyle(FFTheme.inkSoft)
             } else {
                 ForEach(goals) { goal in
                     goalRow(goal)
@@ -92,8 +119,9 @@ struct StatsView: View {
                 .onDelete(perform: deleteGoal)
             }
             Button("Add goal") { showGoalComposer = true }
+                .font(FFTheme.serifSemibold(15))
         } header: {
-            Text("Goals")
+            Text("GOALS").font(FFTheme.eyebrow(12)).foregroundStyle(FFTheme.scripture)
         }
         .listRowBackground(FFTheme.parchment1)
     }
@@ -101,12 +129,12 @@ struct StatsView: View {
     private func goalRow(_ goal: TrainingGoal) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(goal.title).font(.subheadline.weight(.medium))
+                Text(goal.title).font(FFTheme.serifSemibold(15)).foregroundStyle(FFTheme.ink)
                 Spacer()
                 if goal.completed { Image(systemName: "checkmark.seal.fill").foregroundStyle(FFTheme.emerald) }
             }
             ProgressView(value: Double(goal.percent), total: 100).tint(goal.completed ? FFTheme.emerald : FFTheme.hearth)
-            Text("\(goalProgressLabel(goal)) · \(goal.period.capitalized)").font(.caption2).foregroundStyle(.secondary)
+            Text("\(goalProgressLabel(goal)) · \(goal.period.capitalized)").font(FFTheme.caption()).foregroundStyle(FFTheme.inkSoft)
         }
         .padding(.vertical, 3)
     }
@@ -137,22 +165,22 @@ struct StatsView: View {
     @ViewBuilder
     private func recapSection(_ recap: WeeklyRecap) -> some View {
         Section {
-            HStack {
+            HStack(spacing: 0) {
                 recapTile("\(recap.workouts)", "workouts")
                 recapTile(String(format: "%.1f", recap.distanceKm), "km")
                 recapTile("\(recap.minutes)", "minutes")
                 recapTile("\(recap.activeDays)", "active days")
             }
             Text(recap.shareText)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(FFTheme.serifItalic(13))
+                .foregroundStyle(FFTheme.inkSoft)
             if recap.kudos > 0 || recap.replies > 0 {
                 Text("Your community sent \(recap.kudos) kudos and \(recap.replies) replies this week.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(FFTheme.caption())
+                    .foregroundStyle(FFTheme.muted)
             }
         } header: {
-            Text("Your week in motion")
+            Text("YOUR WEEK IN MOTION").font(FFTheme.eyebrow(12)).foregroundStyle(FFTheme.hearth)
         } footer: {
             Text("A private recap of the last seven days.")
         }
@@ -161,8 +189,8 @@ struct StatsView: View {
 
     private func recapTile(_ value: String, _ label: String) -> some View {
         VStack(spacing: 2) {
-            Text(value).font(.headline.monospacedDigit())
-            Text(label).font(.caption2).foregroundStyle(.secondary)
+            Text(value).font(FFTheme.display(20, weight: .bold, relativeTo: .title3)).foregroundStyle(FFTheme.ink)
+            Text(label).font(FFTheme.caption()).foregroundStyle(FFTheme.inkSoft)
         }
         .frame(maxWidth: .infinity)
     }
@@ -171,14 +199,17 @@ struct StatsView: View {
     private func streakSection(_ summary: StatsSummary) -> some View {
         Section {
             HStack {
-                VStack(alignment: .leading) {
-                    Text("\(summary.streakDays)").font(FFTheme.display(34, weight: .bold, relativeTo: .largeTitle))
-                    Text(summary.streakDays == 1 ? "day streak" : "day streak").font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "flame.fill").font(.system(size: 20)).foregroundStyle(FFTheme.hearth)
+                        Text("\(summary.streakDays)").font(FFTheme.display(34, weight: .bold, relativeTo: .largeTitle)).foregroundStyle(FFTheme.ink)
+                    }
+                    Text(summary.streakDays == 1 ? "day streak" : "day streak").font(FFTheme.caption()).foregroundStyle(FFTheme.inkSoft)
                 }
                 Spacer()
-                VStack(alignment: .trailing) {
-                    Text("\(summary.activeDays)").font(FFTheme.display(34, weight: .bold, relativeTo: .largeTitle))
-                    Text("active days").font(.caption).foregroundStyle(.secondary)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(summary.activeDays)").font(FFTheme.display(34, weight: .bold, relativeTo: .largeTitle)).foregroundStyle(FFTheme.ink)
+                    Text("active days").font(FFTheme.caption()).foregroundStyle(FFTheme.inkSoft)
                 }
             }
             .padding(.vertical, 6)
@@ -189,26 +220,44 @@ struct StatsView: View {
     @ViewBuilder
     private func totalsSection(_ summary: StatsSummary) -> some View {
         Section {
-            Picker("Period", selection: $periodTab) {
+            Picker("Period", selection: periodSelection) {
                 Text("Week").tag(0); Text("Month").tag(1); Text("Lifetime").tag(2)
             }.pickerStyle(.segmented)
             let totals = periodTab == 0 ? summary.thisWeek : periodTab == 1 ? summary.thisMonth : summary.lifetime
             HStack {
-                statTile("Workouts", "\(totals.workouts)")
-                statTile("Distance", String(format: "%.1f km", totals.distanceKm))
+                statTile("Workouts", "\(totals.workouts)", icon: "figure.run")
+                statTile("Distance", String(format: "%.1f km", totals.distanceKm), icon: "location.fill")
             }
             HStack {
-                statTile("Time", durationLabel(totals.durationMin))
-                statTile("Calories", "\(totals.calories)")
+                statTile("Time", durationLabel(totals.durationMin), icon: "clock.fill")
+                statTile("Calories", "\(totals.calories)", icon: "bolt.fill")
             }
         }
         .listRowBackground(FFTheme.parchment1)
     }
 
-    private func statTile(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.title3.weight(.semibold))
-            Text(title).font(.caption).foregroundStyle(.secondary)
+    /// A light tap tick on every period switch -- small, but it's the same
+    /// "the data responded to me" feedback the charts below give, so the
+    /// whole page feels consistently alive rather than the charts being an
+    /// isolated interactive island.
+    private var periodSelection: Binding<Int> {
+        Binding(get: { periodTab }, set: { newValue in
+            if newValue != periodTab { UISelectionFeedbackGenerator().selectionChanged() }
+            periodTab = newValue
+        })
+    }
+
+    private func statTile(_ title: String, _ value: String, icon: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(FFTheme.meadow)
+                .frame(width: 30, height: 30)
+                .background(FFTheme.meadow.opacity(0.1), in: Circle())
+            VStack(alignment: .leading, spacing: 1) {
+                Text(value).font(.system(size: 17, weight: .semibold)).monospacedDigit().foregroundStyle(FFTheme.ink)
+                Text(title).font(FFTheme.caption()).foregroundStyle(FFTheme.inkSoft)
+            }
         }.frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -218,66 +267,205 @@ struct StatsView: View {
     }
 
     private var trendsSection: some View {
-        Section("Last 12 weeks") {
-            Chart(trends) { point in
-                BarMark(x: .value("Week", point.label), y: .value("Distance", point.distanceKm))
-                    .foregroundStyle(.tint)
-            }
-            .frame(height: 160)
-            .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) }
+        Section {
+            TrendsChart(trends: trends)
+        } header: {
+            Text("LAST 12 WEEKS").font(FFTheme.eyebrow(12)).foregroundStyle(FFTheme.scripture)
         }
         .listRowBackground(FFTheme.parchment1)
     }
 
     @ViewBuilder
     private func quickRecordsSection(_ r: SummaryRecords) -> some View {
-        Section("Personal bests") {
+        Section {
             if let d = r.longestDistanceKm { recordRow("Longest distance", String(format: "%.2f km", d)) }
             if let d = r.longestDurationMin { recordRow("Longest session", durationLabel(d)) }
             if let p = r.fastestPaceMinKm { recordRow("Fastest pace", String(format: "%.2f min/km", p)) }
             if let c = r.mostCalories { recordRow("Most calories", "\(c) kcal") }
             if let h = r.highestHR { recordRow("Highest heart rate", "\(h) bpm") }
+        } header: {
+            Text("PERSONAL BESTS").font(FFTheme.eyebrow(12)).foregroundStyle(FFTheme.hearth)
         }
         .listRowBackground(FFTheme.parchment1)
     }
 
     private func recordRow(_ label: String, _ value: String) -> some View {
-        HStack { Text(label); Spacer(); Text(value).foregroundStyle(.secondary) }
+        HStack {
+            Text(label).font(FFTheme.serif(15)).foregroundStyle(FFTheme.ink)
+            Spacer()
+            Text(value).font(.system(size: 15, weight: .semibold)).monospacedDigit().foregroundStyle(FFTheme.inkSoft)
+        }
     }
 
     private var breakdownSection: some View {
-        Section("Activity breakdown") {
-            ForEach(breakdown) { entry in
-                HStack {
-                    Text(entry.type)
-                    Spacer()
-                    Text("\(entry.count) · \(String(format: "%.1f", entry.distanceKm)) km")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
+        Section {
+            BreakdownChart(entries: breakdown)
+        } header: {
+            Text("ACTIVITY BREAKDOWN").font(FFTheme.eyebrow(12)).foregroundStyle(FFTheme.scripture)
         }
         .listRowBackground(FFTheme.parchment1)
     }
 
     private var personalRecordsSection: some View {
-        Section("Records by activity") {
+        Section {
             ForEach(records.keys.sorted(), id: \.self) { type in
                 DisclosureGroup(type) {
                     ForEach(records[type] ?? []) { rec in
                         HStack {
-                            Text(rec.label).font(.subheadline)
+                            Text(rec.label).font(FFTheme.serif(14)).foregroundStyle(FFTheme.ink)
                             Spacer()
-                            Text("\(formattedValue(rec)) \(rec.unit)").font(.subheadline.weight(.medium)).foregroundStyle(.secondary)
+                            Text("\(formattedValue(rec)) \(rec.unit)").font(.system(size: 14, weight: .medium)).monospacedDigit().foregroundStyle(FFTheme.inkSoft)
                         }
                     }
                 }
+                .font(FFTheme.serifSemibold(15))
+                .tint(FFTheme.ink)
             }
+        } header: {
+            Text("RECORDS BY ACTIVITY").font(FFTheme.eyebrow(12)).foregroundStyle(FFTheme.hearth)
         }
         .listRowBackground(FFTheme.parchment1)
     }
 
     private func formattedValue(_ r: PersonalRecord) -> String {
         r.value.truncatingRemainder(dividingBy: 1) == 0 ? String(format: "%.0f", r.value) : String(format: "%.2f", r.value)
+    }
+}
+
+// MARK: - Interactive, haptic-driven charts
+//
+// Both charts below share the same idea: dragging a finger across the plot
+// scrubs a highlighted point, firing a light selection "tick" each time the
+// nearest data point changes (the same feel as Apple's own Health and Stocks
+// charts) and surfacing the exact value in a callout instead of making
+// someone squint at an axis. This is the literal ask -- "haptic feedback
+// from graphs" -- not a cosmetic add-on.
+
+private struct TrendsChart: View {
+    let trends: [TrendPoint]
+    @State private var selected: TrendPoint?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Chart(trends) { point in
+                AreaMark(x: .value("Week", point.label), y: .value("Distance", point.distanceKm))
+                    .foregroundStyle(LinearGradient(colors: [FFTheme.meadow.opacity(0.32), FFTheme.meadow.opacity(0)], startPoint: .top, endPoint: .bottom))
+                    .interpolationMethod(.catmullRom)
+                LineMark(x: .value("Week", point.label), y: .value("Distance", point.distanceKm))
+                    .foregroundStyle(FFTheme.meadow)
+                    .lineStyle(StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                    .interpolationMethod(.catmullRom)
+                if let selected, selected.id == point.id {
+                    PointMark(x: .value("Week", point.label), y: .value("Distance", point.distanceKm))
+                        .foregroundStyle(FFTheme.meadowDeep)
+                        .symbolSize(90)
+                    RuleMark(x: .value("Week", point.label))
+                        .foregroundStyle(FFTheme.ink.opacity(0.18))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                }
+            }
+            .frame(height: 170)
+            .chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) { AxisValueLabel().font(FFTheme.caption()) } }
+            .chartYAxis { AxisMarks { AxisValueLabel().font(FFTheme.caption()) } }
+            .chartOverlay { proxy in
+                GeometryReader { geometry in
+                    Rectangle().fill(.clear).contentShape(Rectangle())
+                        .gesture(
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { drag in scrub(to: drag.location, proxy: proxy, geometry: geometry) }
+                                .onEnded { _ in
+                                    UIImpactFeedbackGenerator(style: .light).impactOccurred(intensity: 0.6)
+                                    withAnimation(.easeOut(duration: 0.25)) { selected = nil }
+                                }
+                        )
+                }
+            }
+
+            Group {
+                if let selected {
+                    HStack {
+                        Text(selected.label).font(FFTheme.serifSemibold(13)).foregroundStyle(FFTheme.ink)
+                        Spacer()
+                        Text(String(format: "%.1f km", selected.distanceKm)).font(.system(size: 14, weight: .bold)).monospacedDigit().foregroundStyle(FFTheme.meadowDeep)
+                        Text("· \(selected.workouts) workout\(selected.workouts == 1 ? "" : "s")").font(FFTheme.caption()).foregroundStyle(FFTheme.inkSoft)
+                    }
+                } else {
+                    Text("Touch and drag to inspect a week").font(FFTheme.caption()).foregroundStyle(FFTheme.muted)
+                }
+            }
+            .frame(height: 16)
+        }
+    }
+
+    private func scrub(to location: CGPoint, proxy: ChartProxy, geometry: GeometryProxy) {
+        let plotFrame = geometry[proxy.plotAreaFrame]
+        let xPosition = location.x - plotFrame.origin.x
+        guard xPosition >= 0, xPosition <= plotFrame.width,
+              let label: String = proxy.value(atX: xPosition),
+              let point = trends.first(where: { $0.label == label }) else { return }
+        if selected?.id != point.id {
+            selected = point
+            UISelectionFeedbackGenerator().selectionChanged()
+        }
+    }
+}
+
+private struct BreakdownChart: View {
+    let entries: [ActivityBreakdownEntry]
+    @State private var selected: ActivityBreakdownEntry?
+
+    private static let palette: [Color] = [FFTheme.meadow, FFTheme.hearth, FFTheme.scripture, FFTheme.gold, FFTheme.seal]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Chart(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                BarMark(x: .value("Distance", entry.distanceKm), y: .value("Type", entry.type))
+                    .foregroundStyle(Self.palette[index % Self.palette.count].opacity(selected == nil || selected?.id == entry.id ? 1 : 0.35))
+                    .cornerRadius(6)
+            }
+            .frame(height: CGFloat(entries.count) * 34 + 16)
+            .chartXAxis { AxisMarks { AxisValueLabel().font(FFTheme.caption()) } }
+            .chartYAxis { AxisMarks { AxisValueLabel().font(FFTheme.serifSemibold(12)) } }
+            .chartOverlay { proxy in
+                GeometryReader { geometry in
+                    Rectangle().fill(.clear).contentShape(Rectangle())
+                        .gesture(
+                            // minimumDistance 0 means a plain tap already fires
+                            // onChanged once at the touch-down location, so a
+                            // tap and a drag-to-scrub both work through this
+                            // one gesture -- no separate tap recognizer needed.
+                            DragGesture(minimumDistance: 0)
+                                .onChanged { drag in select(at: drag.location, proxy: proxy, geometry: geometry) }
+                        )
+                }
+            }
+
+            Group {
+                if let selected {
+                    HStack {
+                        Text(selected.type).font(FFTheme.serifSemibold(13)).foregroundStyle(FFTheme.ink)
+                        Spacer()
+                        Text("\(selected.count) · \(String(format: "%.1f km", selected.distanceKm)) · \(selected.calories) kcal")
+                            .font(FFTheme.caption()).foregroundStyle(FFTheme.inkSoft)
+                    }
+                } else {
+                    Text("Tap a bar for the exact numbers").font(FFTheme.caption()).foregroundStyle(FFTheme.muted)
+                }
+            }
+            .frame(height: 16)
+        }
+    }
+
+    private func select(at location: CGPoint, proxy: ChartProxy, geometry: GeometryProxy) {
+        let plotFrame = geometry[proxy.plotAreaFrame]
+        let yPosition = location.y - plotFrame.origin.y
+        guard yPosition >= 0, yPosition <= plotFrame.height,
+              let type: String = proxy.value(atY: yPosition),
+              let entry = entries.first(where: { $0.type == type }) else { return }
+        if selected?.id != entry.id {
+            selected = entry
+            UISelectionFeedbackGenerator().selectionChanged()
+        }
     }
 }
 
