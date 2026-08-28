@@ -344,6 +344,9 @@ struct DMMessage: Identifiable {
     let createdAt: Date
     let read: Bool
     let verseReference: String?
+    var likeCount: Int = 0
+    var likedByMe: Bool = false
+    var editedAt: Date? = nil
 }
 
 // ---- Stats & personal records ----

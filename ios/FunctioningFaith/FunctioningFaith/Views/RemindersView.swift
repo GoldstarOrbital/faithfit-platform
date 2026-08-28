@@ -69,6 +69,7 @@ struct RemindersView: View {
     private static func parseDate(_ s: String) -> Date? {
         if let d = ISO8601DateFormatter().date(from: s) { return d }
         let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        f.timeZone = TimeZone(identifier: "UTC")
         return f.date(from: s)
     }
 

@@ -1,14 +1,21 @@
 import SwiftUI
 import MapKit
+import UIKit
 
-/// Build a route from explicit waypoints, then save it to the member's private
-/// route library. Community density is deliberately coarse and comes only from
-/// public routes, matching the privacy contract used by HeatmapView.
+/// Build a route by tapping the map, then save it to the member's private
+/// route library. Community density is deliberately coarse and comes only
+/// from public routes, matching the privacy contract used by HeatmapView.
+///
+/// Previously the only way to add a waypoint was typing its exact latitude
+/// and longitude by hand -- correct, but nobody actually knows a trailhead's
+/// coordinates to five decimal places. Tapping the map is the primary flow
+/// now; typed coordinates remain available underneath for the rare case
+/// someone has an exact reference point to enter.
 struct RouteBuilderView: View {
     @State private var name = ""
     @State private var activityType = "Run"
-    @State private var latitude = ""
-    @State private var longitude = ""
+    @State private var manualLatitude = ""
+    @State private var manualLongitude = ""
     @State private var points: [[Double]] = []
     @State private var savedRoutes: [SavedRoute] = []
     @State private var communityCells: [HeatmapCell] = []
@@ -18,48 +25,80 @@ struct RouteBuilderView: View {
 
     var body: some View {
         List {
-            Section("Plan a route") {
+            Section {
+                MapReader { proxy in
+                    Map(position: $camera) {
+                        ForEach(communityCells) { cell in
+                            Annotation("Community activity density", coordinate: CLLocationCoordinate2D(latitude: cell.latitude, longitude: cell.longitude)) {
+                                Circle().fill(FFTheme.hearth.opacity(min(0.8, 0.15 + Double(cell.count) / 12)))
+                                    .frame(width: 14, height: 14)
+                            }
+                        }
+                        if points.count > 1 {
+                            MapPolyline(coordinates: coordinates)
+                                .stroke(FFTheme.emerald, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
+                        }
+                        ForEach(Array(points.enumerated()), id: \.offset) { item in
+                            Annotation("Waypoint \(item.offset + 1)", coordinate: CLLocationCoordinate2D(latitude: item.element[0], longitude: item.element[1])) {
+                                Button { removeWaypoint(at: item.offset) } label: {
+                                    Image(systemName: item.offset == 0 ? "figure.run.circle.fill" : "mappin.circle.fill")
+                                        .font(.system(size: item.offset == 0 ? 15 : 13, weight: .bold))
+                                        .foregroundStyle(item.offset == 0 ? FFTheme.emerald : FFTheme.hearth)
+                                        .frame(width: 30, height: 30)
+                                        .background(Circle().fill(.white).shadow(radius: 1.5))
+                                        .contentShape(Circle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .gesture(
+                        SpatialTapGesture()
+                            .onEnded { value in
+                                guard let coordinate = proxy.convert(value.location, from: .local) else { return }
+                                points.append([coordinate.latitude, coordinate.longitude])
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                updateCamera()
+                            }
+                    )
+                }
+                .frame(height: 320)
+                .clipShape(RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
+                .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+
+                Text("Tap the map to drop a waypoint in order. Tap a pin to remove it.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if !points.isEmpty {
+                    HStack {
+                        Text("\(points.count) waypoint\(points.count == 1 ? "" : "s") · \(estimatedDistanceLabel)")
+                            .font(.caption.weight(.semibold))
+                        Spacer()
+                        Button("Clear route", role: .destructive) {
+                            points = []
+                            UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+                        }
+                        .font(.caption)
+                    }
+                }
+                Text("Community activity density is public-route activity rounded to approximate areas; it never reveals another member's exact track.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            .listRowBackground(FFTheme.parchment1)
+
+            Section("Route details") {
                 TextField("Route name", text: $name)
                 Picker("Activity", selection: $activityType) {
                     ForEach(["Run", "Ride", "Walk", "Hike", "Ski"], id: \.self) { Text($0).tag($0) }
                 }
-                HStack {
-                    TextField("Latitude", text: $latitude).keyboardType(.numbersAndPunctuation)
-                    TextField("Longitude", text: $longitude).keyboardType(.numbersAndPunctuation)
-                }
-                Button("Add waypoint", action: addWaypoint)
-                    .disabled(Double(latitude) == nil || Double(longitude) == nil)
-                if !points.isEmpty {
-                    Text("\(points.count) waypoint\(points.count == 1 ? "" : "s") · \(estimatedDistanceLabel)")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Button("Remove last waypoint", role: .destructive) { _ = points.popLast(); updateCamera() }
-                }
-            }
-            .listRowBackground(FFTheme.parchment1)
-
-            Section("Community route density") {
-                Map(position: $camera) {
-                    ForEach(communityCells) { cell in
-                        Annotation("Community activity density", coordinate: CLLocationCoordinate2D(latitude: cell.latitude, longitude: cell.longitude)) {
-                            Circle().fill(FFTheme.hearth.opacity(min(0.8, 0.15 + Double(cell.count) / 12)))
-                                .frame(width: 14, height: 14)
-                        }
+                DisclosureGroup("Add a waypoint by coordinates") {
+                    HStack {
+                        TextField("Latitude", text: $manualLatitude).keyboardType(.numbersAndPunctuation)
+                        TextField("Longitude", text: $manualLongitude).keyboardType(.numbersAndPunctuation)
                     }
-                    if points.count > 1 {
-                        MapPolyline(coordinates: coordinates)
-                            .stroke(FFTheme.emerald, style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
-                    }
-                    ForEach(Array(points.enumerated()), id: \.offset) { item in
-                        Annotation("Waypoint \(item.offset + 1)", coordinate: CLLocationCoordinate2D(latitude: item.element[0], longitude: item.element[1])) {
-                            Image(systemName: item.offset == 0 ? "figure.run" : "mappin.circle.fill")
-                                .foregroundStyle(item.offset == 0 ? FFTheme.emerald : FFTheme.hearth)
-                        }
-                    }
+                    Button("Add waypoint", action: addManualWaypoint)
+                        .disabled(Double(manualLatitude) == nil || Double(manualLongitude) == nil)
                 }
-                .frame(height: 270)
-                .clipShape(RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
-                Text("Density is public-route activity rounded to approximate areas; it never reveals another member's exact track.")
-                    .font(.caption2).foregroundStyle(.secondary)
+                .font(.subheadline)
             }
             .listRowBackground(FFTheme.parchment1)
 
@@ -103,13 +142,19 @@ struct RouteBuilderView: View {
         return String(format: "%.2f km", meters / 1000)
     }
 
-    private func addWaypoint() {
-        guard let lat = Double(latitude), let lon = Double(longitude), (-90...90).contains(lat), (-180...180).contains(lon) else {
+    private func removeWaypoint(at index: Int) {
+        guard points.indices.contains(index) else { return }
+        points.remove(at: index)
+        UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
+    }
+
+    private func addManualWaypoint() {
+        guard let lat = Double(manualLatitude), let lon = Double(manualLongitude), (-90...90).contains(lat), (-180...180).contains(lon) else {
             message = "Enter a valid latitude and longitude."
             return
         }
         points.append([lat, lon])
-        latitude = ""; longitude = ""
+        manualLatitude = ""; manualLongitude = ""
         updateCamera()
     }
 

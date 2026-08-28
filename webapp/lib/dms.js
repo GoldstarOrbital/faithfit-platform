@@ -58,6 +58,15 @@ function init() {
   // Additive migrations for installations created before rich DM cards.
   try { db.exec("ALTER TABLE dm_messages ADD COLUMN kind TEXT NOT NULL DEFAULT 'text'"); } catch {}
   try { db.exec("ALTER TABLE dm_messages ADD COLUMN metadata TEXT"); } catch {}
+  try { db.exec("ALTER TABLE dm_messages ADD COLUMN edited_at TEXT"); } catch {}
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dm_message_likes (
+      message_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (message_id, user_id)
+    );
+  `);
 }
 
 /** The canonical ordering that makes one pair mean one thread. */
@@ -175,8 +184,11 @@ function messages(me, threadId, limit = 200) {
   const t = threadFor(me, threadId);
   if (!t) return null;
   const rows = db.prepare(
-    'SELECT id, sender_id, body, kind, metadata, created_at, read_at FROM dm_messages WHERE thread_id = ? ORDER BY created_at DESC LIMIT ?'
-  ).all(threadId, Math.min(Number(limit) || 200, 500)).reverse();
+    `SELECT m.id, m.sender_id, m.body, m.kind, m.metadata, m.created_at, m.read_at, m.edited_at,
+            (SELECT COUNT(*) FROM dm_message_likes l WHERE l.message_id = m.id) AS like_count,
+            EXISTS(SELECT 1 FROM dm_message_likes l WHERE l.message_id = m.id AND l.user_id = ?) AS liked_by_me
+     FROM dm_messages m WHERE m.thread_id = ? ORDER BY m.created_at DESC LIMIT ?`
+  ).all(me, threadId, Math.min(Number(limit) || 200, 500)).reverse();
 
   db.prepare("UPDATE dm_messages SET read_at = datetime('now') WHERE thread_id = ? AND sender_id != ? AND read_at IS NULL")
     .run(threadId, me);
@@ -189,9 +201,49 @@ function messages(me, threadId, limit = 200) {
     blocked: isBlockedEitherWay(me, otherId),
     messages: rows.map(m => ({
       id: m.id, body: m.body, kind: m.kind || 'text', metadata: m.metadata ? (() => { try { return JSON.parse(m.metadata); } catch { return null; } })() : null, from_me: m.sender_id === me,
-      created_at: m.created_at, read: !!m.read_at,
+      created_at: m.created_at, read: !!m.read_at, edited_at: m.edited_at || null,
+      like_count: Number(m.like_count) || 0, liked_by_me: !!m.liked_by_me,
     })),
   };
+}
+
+/** Toggle the caller's like on a message in a thread they're actually in. */
+function toggleLike(me, threadId, messageId) {
+  const t = threadFor(me, threadId);
+  if (!t) return { error: 'not_found' };
+  const msg = db.prepare('SELECT id FROM dm_messages WHERE id = ? AND thread_id = ?').get(messageId, threadId);
+  if (!msg) return { error: 'not_found' };
+
+  const already = db.prepare('SELECT 1 FROM dm_message_likes WHERE message_id = ? AND user_id = ?').get(messageId, me);
+  if (already) db.prepare('DELETE FROM dm_message_likes WHERE message_id = ? AND user_id = ?').run(messageId, me);
+  else db.prepare('INSERT INTO dm_message_likes (message_id, user_id) VALUES (?, ?)').run(messageId, me);
+
+  const count = db.prepare('SELECT COUNT(*) AS c FROM dm_message_likes WHERE message_id = ?').get(messageId).c;
+  return { liked: !already, like_count: count };
+}
+
+/**
+ * Edit a message's own text. Restricted to the sender, and to plain text --
+ * an end-to-end message's body is ciphertext the server cannot meaningfully
+ * "edit", and a verse card's body is a resolved scripture reference, not
+ * free text someone should be retyping.
+ */
+function editMessage(me, threadId, messageId, body) {
+  const t = threadFor(me, threadId);
+  if (!t) return { error: 'not_found' };
+  const msg = db.prepare('SELECT * FROM dm_messages WHERE id = ? AND thread_id = ?').get(messageId, threadId);
+  if (!msg) return { error: 'not_found' };
+  if (msg.sender_id !== me) return { error: 'not_your_message' };
+  if (msg.kind !== 'text') return { error: 'not_editable' };
+
+  const text = String(body == null ? '' : body).trim().slice(0, MAX_LEN);
+  if (!text) return { error: 'empty_message' };
+
+  db.prepare("UPDATE dm_messages SET body = ?, edited_at = datetime('now') WHERE id = ?").run(text, messageId);
+  const row = db.prepare('SELECT id, body, kind, metadata, created_at, edited_at FROM dm_messages WHERE id = ?').get(messageId);
+  const likeCount = db.prepare('SELECT COUNT(*) AS c FROM dm_message_likes WHERE message_id = ?').get(messageId).c;
+  const likedByMe = !!db.prepare('SELECT 1 FROM dm_message_likes WHERE message_id = ? AND user_id = ?').get(messageId, me);
+  return { message: { ...row, from_me: true, read: true, like_count: likeCount, liked_by_me: likedByMe } };
 }
 
 function send(me, threadId, body, options = {}) {
@@ -208,9 +260,9 @@ function send(me, threadId, body, options = {}) {
   db.prepare('INSERT INTO dm_messages (id, thread_id, sender_id, body, kind, metadata) VALUES (?,?,?,?,?,?)')
     .run(id, threadId, me, text, options.kind || 'text', options.metadata ? JSON.stringify(options.metadata) : null);
   db.prepare("UPDATE dm_threads SET last_message_at = datetime('now') WHERE id = ?").run(threadId);
-  const row = db.prepare('SELECT id, body, kind, metadata, created_at FROM dm_messages WHERE id = ?').get(id);
+  const row = db.prepare('SELECT id, body, kind, metadata, created_at, edited_at FROM dm_messages WHERE id = ?').get(id);
   if (row.metadata) { try { row.metadata = JSON.parse(row.metadata); } catch { row.metadata = null; } }
-  return { message: { ...row, from_me: true, read: false }, recipient_id: otherId };
+  return { message: { ...row, from_me: true, read: false, like_count: 0, liked_by_me: false }, recipient_id: otherId };
 }
 
 function block(me, otherId) {
@@ -226,5 +278,6 @@ function unblock(me, otherId) {
 
 module.exports = {
   init, openThread, threadFor, inbox, messages, send, block, unblock,
+  toggleLike, editMessage,
   totalUnread, isBlockedEitherWay, MAX_LEN,
 };

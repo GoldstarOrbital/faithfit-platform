@@ -1,7 +1,6 @@
 'use strict';
 
 const db = require('./db');
-const youversion = require('./youversion');
 
 // Stable ids make this catalog safe to add to an existing Railway database.
 // Scripture text is never placed here unless it is a short, explicitly cited
@@ -28,6 +27,30 @@ const CURATED = [
   { id: 'curated:kobe', text: 'The moment you give up is the moment you let someone else win.', attribution: 'Kobe Bryant', theme: 'discipline' },
 ];
 
+// A random pick across the whole ~31,000-verse canon (the previous approach)
+// was surfacing genealogies, property disputes, and tragic narratives as
+// "motivation" -- technically fast and technically scripture, but not what
+// anyone means by encouragement. This is what later reports meant by
+// motivation "still not working well": the timeout was fixed, but the verse
+// it handed back often had nothing to do with encouragement. This list is
+// the same kind of hand-vetted, genuinely encouraging references
+// scriptureMission.js already curates for its own verse pool -- every entry
+// confirmed present in this app's own bible_verses table.
+const MOTIVATIONAL_REFS = [
+  ['Psalms', 18, 32], ['Psalms', 46, 1], ['Psalms', 27, 14], ['Psalms', 121, 1],
+  ['Isaiah', 40, 31], ['Isaiah', 41, 10], ['Isaiah', 43, 19],
+  ['Philippians', 4, 13], ['Philippians', 1, 6],
+  ['1 Corinthians', 9, 24],
+  ['Joshua', 1, 9], ['Deuteronomy', 31, 6], ['Deuteronomy', 31, 8],
+  ['2 Timothy', 1, 7],
+  ['Hebrews', 12, 1],
+  ['James', 1, 12],
+  ['Romans', 5, 3], ['Romans', 8, 28],
+  ['Matthew', 11, 28],
+  ['Proverbs', 3, 5],
+  ['Ephesians', 6, 10],
+];
+
 function init() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS motivation_seen (
@@ -36,91 +59,54 @@ function init() {
       seen_at TEXT DEFAULT (datetime('now')),
       PRIMARY KEY (user_id, quote_id)
     );
-    CREATE TABLE IF NOT EXISTS motivation_bible_refs (
-      quote_id TEXT PRIMARY KEY,
-      version_id INTEGER NOT NULL,
-      reference TEXT NOT NULL,
-      book TEXT NOT NULL,
-      chapter INTEGER NOT NULL,
-      verse INTEGER NOT NULL
-    );
   `);
   const insert = db.prepare(`INSERT OR IGNORE INTO motivation_quotes (id, text, attribution, theme)
                              VALUES (?, ?, ?, ?)`);
   for (const quote of CURATED) insert.run(quote.id, quote.text, quote.attribution, quote.theme);
 }
 
-// syncCanon() was being called from next() on every single /api/motivation
-// request -- re-inserting one row per verse in the entire Bible (~31,000
-// INSERT OR IGNORE calls) synchronously, every time. INSERT OR IGNORE makes
-// that idempotent but not cheap: it was blocking the event loop long enough
-// to make the endpoint time out. The canon itself never changes once loaded,
-// so this only ever needs to run once per process.
-let canonSynced = false;
-
-function syncCanon() {
-  if (canonSynced) return 0;
-  if (!youversion.isConfigured() || !youversion.canonLoaded()) return 0;
-  const insert = db.prepare(`INSERT OR IGNORE INTO motivation_bible_refs
-    (quote_id, version_id, reference, book, chapter, verse) VALUES (?, ?, ?, ?, ?, ?)`);
-  let added = 0;
-  for (const book of youversion.books()) {
-    for (const chapter of youversion.chapters(book.book)) {
-      for (let verse = 1; verse <= Number(chapter.verses || 0); verse++) {
-        const reference = `${book.title || book.book} ${chapter.chapter}:${verse}`;
-        const id = `bible:${youversion.DEFAULT_VERSION}:${book.book}:${chapter.chapter}:${verse}`;
-        added += insert.run(id, youversion.DEFAULT_VERSION, reference, book.book, chapter.chapter, verse).changes;
-      }
-    }
-  }
-  canonSynced = true;
-  return added;
-}
-
-function localCandidate(userId) {
-  const curated = () => db.prepare(`
+function curatedQuote(userId) {
+  return db.prepare(`
     SELECT q.id AS quote_id, q.text, q.attribution, q.theme
     FROM motivation_quotes q
     LEFT JOIN motivation_seen s ON s.user_id = ? AND s.quote_id = q.id
     WHERE s.quote_id IS NULL ORDER BY RANDOM() LIMIT 1
   `).get(userId);
-  const scripture = () => db.prepare(`
+}
+
+function curatedScripture(userId) {
+  const placeholders = MOTIVATIONAL_REFS.map(() => '(?, ?, ?)').join(', ');
+  return db.prepare(`
     SELECT 'bible:' || b.id AS quote_id, b.text,
            b.book || ' ' || b.chapter || ':' || b.verse AS attribution,
            'scripture' AS theme
     FROM bible_verses b
     LEFT JOIN motivation_seen s ON s.user_id = ? AND s.quote_id = 'bible:' || b.id
-    WHERE s.quote_id IS NULL ORDER BY RANDOM() LIMIT 1
-  `).get(userId);
-  // Keep the human voices visible alongside the large scripture pool. Once
-  // either source is exhausted, the other source naturally carries the queue.
-  return Math.random() < 0.45 ? (curated() || scripture()) : (scripture() || curated());
+    WHERE s.quote_id IS NULL
+      AND (b.book, b.chapter, b.verse) IN (${placeholders})
+    ORDER BY RANDOM() LIMIT 1
+  `).get(userId, ...MOTIVATIONAL_REFS.flat());
+}
+
+function localCandidate(userId) {
+  // Keep the human voices visible alongside the curated scripture pool.
+  // Once either source is exhausted for this member, the other naturally
+  // carries the queue.
+  return Math.random() < 0.45
+    ? (curatedQuote(userId) || curatedScripture(userId))
+    : (curatedScripture(userId) || curatedQuote(userId));
 }
 
 async function next(userId) {
   init();
-  syncCanon();
 
   let candidate = localCandidate(userId);
-  if (!candidate) {
-    const ref = db.prepare(`
-      SELECT r.* FROM motivation_bible_refs r
-      LEFT JOIN motivation_seen s ON s.user_id = ? AND s.quote_id = r.quote_id
-      WHERE s.quote_id IS NULL ORDER BY RANDOM() LIMIT 1
-    `).get(userId);
-    if (ref) {
-      const passage = await youversion.passage(ref.reference, ref.version_id);
-      if (passage && passage.text) candidate = {
-        quote_id: ref.quote_id,
-        text: passage.text,
-        attribution: passage.reference || ref.reference,
-        theme: 'scripture',
-      };
-    }
-  }
-
   let poolReset = false;
   if (!candidate) {
+    // Every curated quote and every curated verse has already been shown to
+    // this member -- start the rotation over rather than reaching for a
+    // random verse from the full canon (see MOTIVATIONAL_REFS above for why
+    // that was the actual bug).
     db.prepare('DELETE FROM motivation_seen WHERE user_id = ?').run(userId);
     poolReset = true;
     candidate = localCandidate(userId);
@@ -131,4 +117,4 @@ async function next(userId) {
   return { ...candidate, pool_reset: poolReset };
 }
 
-module.exports = { init, syncCanon, next, CURATED };
+module.exports = { init, next, CURATED };

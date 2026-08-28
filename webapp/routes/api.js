@@ -6402,6 +6402,21 @@ router.post('/dms/:threadId/verse', requireAuth, async (req, res) => {
   res.status(201).json({ message: sent.message, verse: { reference, text: row.text }, share_url: shareUrl });
 });
 
+router.post('/dms/:threadId/messages/:messageId/like', requireAuth, (req, res) => {
+  const r = dms.toggleLike(req.session.userId, req.params.threadId, req.params.messageId);
+  if (r.error) return res.status(404).json(r);
+  res.json(r);
+});
+
+router.patch('/dms/:threadId/messages/:messageId', requireAuth, (req, res) => {
+  const r = dms.editMessage(req.session.userId, req.params.threadId, req.params.messageId, req.body && req.body.body);
+  if (r.error) {
+    const code = r.error === 'not_found' ? 404 : r.error === 'not_your_message' ? 403 : 400;
+    return res.status(code).json(r);
+  }
+  res.json(r);
+});
+
 // Planned workout invitations travel as rich DM cards, so both people have the
 // schedule in context and the recipient can accept or decline without leaving
 // the conversation.

@@ -80,7 +80,9 @@ final class DMStore: ObservableObject {
         let messages: [DMMessage] = (dto.messages ?? []).map { m in
             let (body, verseRef) = Self.displayBody(for: m, sharedKey: sharedKey)
             return DMMessage(id: m.id, body: body, kind: m.kind, fromMe: m.fromMe,
-                              createdAt: Self.parseDate(m.createdAt) ?? .now, read: m.read, verseReference: verseRef)
+                              createdAt: Self.parseDate(m.createdAt) ?? .now, read: m.read, verseReference: verseRef,
+                              likeCount: m.likeCount ?? 0, likedByMe: m.likedByMe ?? false,
+                              editedAt: m.editedAt.flatMap(Self.parseDate))
         }
         return DMConversation(threadID: dto.threadID, otherUserID: dto.user.id, otherName: dto.user.displayName,
                                otherHasAvatar: dto.user.hasAvatar, blocked: dto.blocked ?? false, messages: messages)
@@ -120,9 +122,35 @@ final class DMStore: ObservableObject {
                           createdAt: Self.parseDate(dto.createdAt) ?? .now, read: false, verseReference: nil)
     }
 
+    func toggleLike(threadID: String, messageID: String) async throws -> (liked: Bool, count: Int) {
+        try await APIClient.shared.likeDMMessage(threadID: threadID, messageID: messageID)
+    }
+
+    /// Editing is restricted server-side to the sender's own plain-text
+    /// messages, so there's no encryption path to redo here the way `send`
+    /// has -- the new body goes up as-is.
+    func editMessage(threadID: String, messageID: String, newText: String) async throws -> DMMessage {
+        let dto = try await APIClient.shared.editDMMessage(threadID: threadID, messageID: messageID, body: newText)
+        return DMMessage(id: dto.id, body: dto.body, kind: dto.kind, fromMe: true,
+                          createdAt: Self.parseDate(dto.createdAt) ?? .now, read: true, verseReference: nil,
+                          likeCount: dto.likeCount ?? 0, likedByMe: dto.likedByMe ?? false,
+                          editedAt: dto.editedAt.flatMap(Self.parseDate))
+    }
+
+    func sendVerse(threadID: String, reference: String) async throws -> DMMessage {
+        let dto = try await APIClient.shared.sendDMVerse(threadID: threadID, reference: reference)
+        let (body, verseRef) = Self.displayBody(for: dto, sharedKey: nil)
+        return DMMessage(id: dto.id, body: body, kind: dto.kind, fromMe: true,
+                          createdAt: Self.parseDate(dto.createdAt) ?? .now, read: false, verseReference: verseRef)
+    }
+
     private static func parseDate(_ s: String) -> Date? {
         if let d = ISO8601DateFormatter().date(from: s) { return d }
+        // SQLite's timestamp is UTC with no marker; without an explicit
+        // timeZone, DateFormatter assumes the device's own zone and silently
+        // shifts every DM timestamp by that offset.
         let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        f.timeZone = TimeZone(identifier: "UTC")
         return f.date(from: s)
     }
 }

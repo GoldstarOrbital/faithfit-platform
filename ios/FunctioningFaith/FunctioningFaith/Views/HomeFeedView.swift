@@ -481,22 +481,33 @@ struct HomeRhythmHeader: View {
 }
 
 struct HomeActionsRow: View {
-    @EnvironmentObject private var deepLinks: DeepLinkRouter
+    // "Log activity" was redundant with Scripture in Motion's own "Begin the
+    // mission" button just below, which already opens Train -- so this slot
+    // becomes a Reels shortcut instead. Both actions are plain Buttons
+    // sharing one navigationDestination(item:) rather than one of them being
+    // a NavigationLink: a List row with a NavigationLink alongside any other
+    // tappable sibling gets exactly one chevron for the whole row, and every
+    // tap resolves against it regardless of which side was actually pressed
+    // (the same bug already fixed once in this file for the rails below).
+    private enum Destination: Hashable { case journeys, reels }
+    @State private var destination: Destination?
 
     var body: some View {
         HStack(spacing: 10) {
-            Button {
-                deepLinks.selectedTab = .workouts
-            } label: {
-                actionCard(title: "Log activity", subtitle: "Keep your streak alive")
+            Button { destination = .reels } label: {
+                actionCard(title: "Watch Reels", subtitle: "Short encouragement & movement")
             }
             .buttonStyle(.plain)
-            NavigationLink {
-                JourneysListView()
-            } label: {
+            Button { destination = .journeys } label: {
                 actionCard(title: "Explore routes", subtitle: "Bible & fantasy worlds")
             }
             .buttonStyle(.plain)
+        }
+        .navigationDestination(item: $destination) { destination in
+            switch destination {
+            case .journeys: JourneysListView()
+            case .reels: ReelsFeedView()
+            }
         }
     }
 

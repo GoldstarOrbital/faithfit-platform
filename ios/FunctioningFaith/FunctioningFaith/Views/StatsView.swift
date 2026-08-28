@@ -2,6 +2,11 @@ import SwiftUI
 import Charts
 import UIKit
 
+private enum StatsQuickLink: Identifiable {
+    case intelligence, heatmap, routeBuilder
+    var id: Self { self }
+}
+
 struct StatsView: View {
     @State private var summary: StatsSummary?
     @State private var trends: [TrendPoint] = []
@@ -13,6 +18,12 @@ struct StatsView: View {
     @State private var errorMessage: String?
     @State private var periodTab = 0 // 0 = week, 1 = month, 2 = lifetime
     @State private var showGoalComposer = false
+    // A List row holding more than one NavigationLink only ever gets ONE
+    // chevron for the whole row, and every tap resolves against it
+    // regardless of which tile was actually pressed. Plain Buttons driving
+    // one shared navigationDestination(item:) never register as "this row
+    // is a nav link" to List, so no chevron gets added to steal a tap.
+    @State private var quickLinkDestination: StatsQuickLink?
 
     var body: some View {
         Group {
@@ -47,6 +58,13 @@ struct StatsView: View {
         .alert("Could not load stats", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
+        .navigationDestination(item: $quickLinkDestination) { destination in
+            switch destination {
+            case .intelligence: AthleteIntelligenceView()
+            case .heatmap: HeatmapView()
+            case .routeBuilder: RouteBuilderView()
+            }
+        }
     }
 
     private func load(forceRefresh: Bool = false) async {
@@ -74,9 +92,9 @@ struct StatsView: View {
     private var quickLinksSection: some View {
         Section {
             HStack(spacing: 10) {
-                quickLink("Intelligence", icon: "chart.line.uptrend.xyaxis", tint: FFTheme.scripture) { AthleteIntelligenceView() }
-                quickLink("Heatmap", icon: "map.fill", tint: FFTheme.hearth) { HeatmapView() }
-                quickLink("Build route", icon: "point.topleft.down.curvedto.point.bottomright.up.fill", tint: FFTheme.meadow) { RouteBuilderView() }
+                quickLink("Intelligence", icon: "chart.line.uptrend.xyaxis", tint: FFTheme.scripture, target: .intelligence)
+                quickLink("Heatmap", icon: "map.fill", tint: FFTheme.hearth, target: .heatmap)
+                quickLink("Build route", icon: "point.topleft.down.curvedto.point.bottomright.up.fill", tint: FFTheme.meadow, target: .routeBuilder)
             }
             .padding(.vertical, 2)
         }
@@ -85,8 +103,8 @@ struct StatsView: View {
         .listRowSeparator(.hidden)
     }
 
-    private func quickLink<Destination: View>(_ title: String, icon: String, tint: Color, @ViewBuilder destination: () -> Destination) -> some View {
-        NavigationLink(destination: destination()) {
+    private func quickLink(_ title: String, icon: String, tint: Color, target: StatsQuickLink) -> some View {
+        Button { quickLinkDestination = target } label: {
             VStack(spacing: 8) {
                 Image(systemName: icon)
                     .font(.system(size: 18, weight: .semibold))

@@ -53,7 +53,7 @@ struct SearchView: View {
                 resultLabel(item, systemImage: "person.crop.circle")
             }
             .navigationDestination(for: SearchPersonDestination.self) { person in
-                DMOpenerView(userID: person.id, name: person.name)
+                MemberProfileView(userID: person.id)
             }
         } else if groupType == "scripture", let ref = Self.parseScriptureReference(item.id) {
             NavigationLink {
@@ -115,41 +115,6 @@ struct SearchView: View {
 private struct SearchPersonDestination: Hashable {
     let id: UUID
     let name: String
-}
-
-/// Search has no native profile screen to land on yet, so tapping a person
-/// result opens (or resumes) a DM thread with them -- the one real,
-/// already-built destination for "I found this person and want to do
-/// something." A dedicated profile view is worth its own pass later.
-private struct DMOpenerView: View {
-    let userID: UUID
-    let name: String
-    @EnvironmentObject private var session: NativeSession
-    @EnvironmentObject private var store: DMStore
-    @State private var threadID: String?
-    @State private var errorMessage: String?
-
-    var body: some View {
-        Group {
-            if let threadID {
-                DMConversationView(threadID: threadID, otherUserID: userID, otherName: name)
-                    .environmentObject(store)
-            } else {
-                ProgressView().task { await open() }
-            }
-        }
-        .alert("Could not open conversation", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: { Text(errorMessage ?? "") }
-    }
-
-    private func open() async {
-        do {
-            if let id = session.profile?.id { await store.configure(myUserID: id) }
-            threadID = try await store.openThread(withUserID: userID)
-        }
-        catch { errorMessage = error.localizedDescription }
-    }
 }
 
 #Preview {

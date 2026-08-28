@@ -534,6 +534,30 @@ final class APIClient {
         return r.message
     }
 
+    func likeDMMessage(threadID: String, messageID: String) async throws -> (liked: Bool, count: Int) {
+        if useMock { return (true, 1) }
+        let path = "/api/dms/\(threadID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? threadID)/messages/\(messageID)/like"
+        let r: DMLikeResponse = try await request(path, method: "POST", body: EmptyBody())
+        return (r.liked, r.likeCount)
+    }
+
+    /// Editing is server-restricted to the sender's own plain-text messages --
+    /// an e2e body is ciphertext and a verse card is a resolved reference,
+    /// neither of which is free text someone should be retyping.
+    func editDMMessage(threadID: String, messageID: String, body: String) async throws -> DMMessageDTO {
+        if useMock { throw APIError.invalidResponse }
+        let path = "/api/dms/\(threadID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? threadID)/messages/\(messageID)"
+        let r: DMSendResponse = try await request(path, method: "PATCH", body: DMEditBody(body: body))
+        return r.message
+    }
+
+    func sendDMVerse(threadID: String, reference: String) async throws -> DMMessageDTO {
+        if useMock { throw APIError.invalidResponse }
+        let path = "/api/dms/\(threadID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? threadID)/verse"
+        let r: DMSendResponse = try await request(path, method: "POST", body: DMVerseBody(reference: reference))
+        return r.message
+    }
+
     func publishE2EPublicKey(_ jwk: [String: String]) async throws {
         if useMock { return }
         let _: ActionResponse = try await request("/api/dms/keys", method: "POST", body: E2EKeyBody(publicKey: jwk))
@@ -1596,8 +1620,14 @@ struct DMMessageDTO: Decodable {
     let createdAt: String
     let read: Bool
     let metadata: [String: JSONValue]?
+    let editedAt: String?
+    let likeCount: Int?
+    let likedByMe: Bool?
 
-    enum CodingKeys: String, CodingKey { case id, body, kind; case fromMe = "from_me"; case createdAt = "created_at"; case read, metadata }
+    enum CodingKeys: String, CodingKey {
+        case id, body, kind; case fromMe = "from_me"; case createdAt = "created_at"; case read, metadata
+        case editedAt = "edited_at"; case likeCount = "like_count"; case likedByMe = "liked_by_me"
+    }
 }
 
 /// Minimal decode-anything box for `metadata`, whose shape varies by message
@@ -1626,6 +1656,13 @@ private struct DMOpenResponse: Decodable {
 }
 private struct DMSendBody: Encodable { let body: String; let e2e: Bool }
 private struct DMSendResponse: Decodable { let message: DMMessageDTO }
+private struct DMEditBody: Encodable { let body: String }
+private struct DMVerseBody: Encodable { let reference: String }
+private struct DMLikeResponse: Decodable {
+    let liked: Bool
+    let likeCount: Int
+    enum CodingKeys: String, CodingKey { case liked; case likeCount = "like_count" }
+}
 private struct E2EKeyBody: Encodable { let publicKey: [String: String]; enum CodingKeys: String, CodingKey { case publicKey = "public_key" } }
 
 /// A real JWK published by the web client carries `ext`/`key_ops` fields
@@ -2039,7 +2076,13 @@ private enum DateParser {
     static func parse(_ value: String?) -> Date? {
         guard let value else { return nil }
         if let date = ISO8601DateFormatter().date(from: value) { return date }
+        // SQLite's datetime('now') is UTC with no timezone marker in the string
+        // ("2026-08-28 05:16:00"). DateFormatter defaults to the DEVICE's own
+        // timezone when none is set, which silently reinterprets that UTC
+        // clock reading as if it were already local -- the exact bug behind
+        // DM timestamps showing hours off from the real local time.
         let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        formatter.timeZone = TimeZone(identifier: "UTC")
         return formatter.date(from: value)
     }
 }
