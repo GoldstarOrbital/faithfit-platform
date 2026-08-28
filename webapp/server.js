@@ -38,6 +38,7 @@ const records = require('./lib/records');
 const circle = require('./lib/circle');
 const workoutKudos = require('./lib/workout-kudos');
 const scripturePractice = require('./lib/scripture-practice');
+const { rateLimit } = require('./lib/rateLimit');
 
 seed();
 accountSecurity.init();
@@ -143,9 +144,18 @@ app.use('/api', (req, res, next) => {
     : 'no-store');
   next();
 });
+// A blanket flood guard ahead of every API route. Generous enough that no
+// real member session comes close -- even a busy Home load is a couple
+// dozen calls -- strict enough that a scripted flood or a runaway retry
+// loop can no longer run up Railway compute or the paid APIs behind /api
+// unchecked. Auth and AI-cost routes layer stricter, purpose-built limits
+// of their own on top of this (see routes/api.js).
+app.use('/api', rateLimit({ windowMs: 5 * 60 * 1000, max: 600, keyPrefix: 'api', message: 'Too many requests. Please slow down and try again shortly.' }));
 app.use('/api', apiRoutes);
 // Versioned and separate from /api, because this one is a public contract:
-// /api may change with the app, /v1 may not.
+// /api may change with the app, /v1 may not. Third-party callers are exactly
+// who a flood guard matters most for here.
+app.use('/v1', rateLimit({ windowMs: 5 * 60 * 1000, max: 300, keyPrefix: 'v1', message: 'Too many requests. Please slow down and try again shortly.' }));
 app.use('/v1', publicApi);
 
 // Public, unauthenticated share pages are acquisition surfaces as well as a

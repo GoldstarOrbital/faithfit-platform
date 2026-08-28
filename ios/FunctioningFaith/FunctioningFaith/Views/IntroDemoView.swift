@@ -10,35 +10,36 @@ struct IntroDemoView: View {
     let onFinish: () -> Void
 
     @State private var page = 0
-    private let lastPage = 5
+    private let lastPage = 6
 
     var body: some View {
         VStack(spacing: 0) {
             topBar
             TabView(selection: $page.animation(.easeInOut(duration: 0.4))) {
                 IntroWelcomeSlide().tag(0)
+                IntroPillarsSlide().tag(1)
                 IntroFeatureSlide(
                     eyebrow: "Movement",
                     headline: "Every mile,\nfaithfully tracked",
                     subcopy: "GPS-corrected distance, elevation, and pace — calibrated after every run, ride, or walk, so your record is true.",
                     chips: ["Distance", "Elevation", "Pace"]
-                ) { IntroWorkoutShot() }.tag(1)
+                ) { IntroWorkoutShot() }.tag(2)
                 IntroFeatureSlide(
                     eyebrow: "Scripture in Motion",
                     headline: "Scripture that\nmoves with you",
                     subcopy: "A fresh verse greets you every time — chosen from your training rhythm, ready before you begin."
-                ) { IntroScriptureShot() }.tag(2)
+                ) { IntroScriptureShot() }.tag(3)
                 IntroFeatureSlide(
                     eyebrow: "Community",
                     headline: "Grow with others —\nalone or with your church",
                     subcopy: "Follow friends, join a church group, and share encouragement through Reels built for the walk of faith."
-                ) { IntroCommunityShot() }.tag(3)
+                ) { IntroCommunityShot() }.tag(4)
                 IntroFeatureSlide(
                     eyebrow: "Wearables",
                     headline: "Insight drawn from\nbody and spirit",
                     subcopy: "Apple Health syncs your heart rate live during workouts, and AI-personalized encouragement reflects your recovery and consistency."
-                ) { IntroWearableShot() }.tag(4)
-                IntroFinalSlide(onFinish: onFinish).tag(5)
+                ) { IntroWearableShot() }.tag(5)
+                IntroFinalSlide(onFinish: onFinish).tag(6)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
 
@@ -139,6 +140,60 @@ private struct IntroWelcomeSlide: View {
                 .frame(maxWidth: 300)
                 .padding(.top, 12)
             Spacer(minLength: 40)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 32)
+    }
+}
+
+private struct IntroPillarsSlide: View {
+    private let pillars: [(label: String, icon: String, wide: Bool)] = [
+        ("Fitness", "figure.run", false),
+        ("Community", "person.2.fill", false),
+        ("Education", "books.vertical.fill", false),
+        ("Media", "play.rectangle.fill", false),
+        ("News", "newspaper.fill", true),
+    ]
+    private let columns = [GridItem(.flexible()), GridItem(.flexible())]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 24)
+            Text("ONE APP, EVERYTHING")
+                .font(FFTheme.eyebrow(12))
+                .foregroundStyle(FFTheme.hearth)
+            Text("More than\nsocial media.")
+                .font(FFTheme.display(27, weight: .bold, relativeTo: .title))
+                .foregroundStyle(FFTheme.ink)
+                .multilineTextAlignment(.center)
+                .padding(.top, 12)
+            Text("Fitness, community, Scripture, media, and news for the whole Christian life — not scattered across five apps.")
+                .font(FFTheme.serif(16))
+                .foregroundStyle(FFTheme.inkSoft)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 300)
+                .padding(.top, 10)
+
+            LazyVGrid(columns: columns, spacing: 14) {
+                ForEach(pillars, id: \.label) { pillar in
+                    VStack(spacing: 8) {
+                        Image(systemName: pillar.icon)
+                            .font(.system(size: 20))
+                            .foregroundStyle(FFTheme.scripture)
+                            .frame(width: 52, height: 52)
+                            .background(FFTheme.meadow.opacity(0.1), in: Circle())
+                            .overlay(Circle().stroke(FFTheme.meadow.opacity(0.28), lineWidth: 1.4))
+                        Text(pillar.label.uppercased())
+                            .font(FFTheme.eyebrow(12))
+                            .foregroundStyle(FFTheme.ink)
+                    }
+                    .gridCellColumns(pillar.wide ? 2 : 1)
+                }
+            }
+            .frame(maxWidth: 300)
+            .padding(.top, 22)
+
+            Spacer(minLength: 24)
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 32)

@@ -1,9 +1,18 @@
 /**
  * "Scripture in Motion" -- Home's card steering a member toward Scripture or
  * Training first. Distinct from the live workout-trigger pipeline
- * (pipeline.js), which reacts to real biometric signals mid-session: this is
- * meant to feel fresh every time someone opens Home, not a single stable
- * pick for the day, so it never caches -- every call generates a new one.
+ * (pipeline.js), which reacts to real biometric signals mid-session.
+ *
+ * Two pieces move on different clocks, deliberately:
+ *   - the VERSE re-rolls on every single call, free of charge -- picked
+ *     locally from an authored pool and resolved against real scripture
+ *     text, no AI involved, so the card can feel fresh every time someone
+ *     opens Home without ever touching a metered API.
+ *   - the COACHING line is genuinely AI-personalized, but a member re-opening
+ *     Home five times in an hour does not need five different sentences of
+ *     encouragement -- it is generated at most once per real day per member
+ *     (see dailyInsight below) and shown under whichever verse the pick
+ *     above lands on that visit.
  *
  * Reuses daily.js's own weekly-consistency read (weekShape) so the theme
  * offered reflects the member's real recent pattern -- a quiet week gets
@@ -66,9 +75,61 @@ function recentRefs(userId, limit) {
   } catch { return []; }
 }
 
+const FALLBACK_COACHING = 'Take a short movement break, notice your breath, and let this verse ' +
+  'shape what comes next — not a performance test, but a practice of presence.';
+
 /**
- * A fresh pick every call -- the point of this card is to feel new each time
- * a member returns to Home, not to hold steady like the morning verse does.
+ * The AI-personalized coaching line, generated at most once per calendar day
+ * per member. Piggybacks on lib/gloo.js's own cache (keyed on the exact
+ * prompt) rather than a bespoke table: baking today's date and this member's
+ * id into the prompt text makes the cache key naturally stable for the rest
+ * of the day, and `cacheDays: 1` lets it lapse on its own tomorrow.
+ *
+ * Deliberately NOT told which specific verse the card is showing -- that
+ * would tie the cache key to the verse pick and defeat the whole point, and
+ * the line was always written to stand on its own ("let this verse shape
+ * what comes next") rather than react to particular verse text.
+ */
+async function dailyInsight(userId, pool, shape) {
+  if (!gloo.isConfigured()) return FALLBACK_COACHING;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const facts = shape.facts && shape.facts.length
+    ? shape.facts.map(f => '- ' + f).join('\n')
+    : '- no recent activity data available';
+
+  const prompt =
+    `You are writing one short, warm sentence of encouragement for a member of a ` +
+    `Christian fitness and community app (member id ${userId}), for ${today}.\n` +
+    `Their current rhythm this week: "${pool.headline}".\n` +
+    `What is actually true about their recent activity:\n${facts}\n\n` +
+    `Write ONE sentence, max 28 words, inviting them into a short movement break today. ` +
+    `Do NOT quote, paraphrase, or reference any specific Bible verse -- a real verse is ` +
+    `shown separately beside your sentence. Speak to them directly and warmly, grounded ` +
+    `in real presence rather than performance.\n\n` +
+    `Reply with ONLY the sentence -- no quotes, no JSON, no preamble.`;
+
+  try {
+    const res = await gloo.chat({
+      kind: 'scripture_mission_daily_insight',
+      userId,
+      messages: [{ role: 'user', content: prompt }],
+      maxTokens: 120,
+      cacheDays: 1,
+    });
+    const cleaned = res && res.text ? companion.cleanNote(res.text, 30) : null;
+    return cleaned || FALLBACK_COACHING;
+  } catch {
+    return FALLBACK_COACHING;
+  }
+}
+
+/**
+ * A fresh, free verse pick every call -- the point of this card is to feel
+ * new each time a member returns to Home, not to hold steady like the
+ * morning verse does. No AI call: candidates are already hand-vetted per
+ * theme, so a local random pick (excluding what was just shown) is enough,
+ * and it costs nothing no matter how often someone re-opens Home.
  */
 async function next(userId) {
   init();
@@ -78,36 +139,31 @@ async function next(userId) {
   const pool = POOLS[shape.pool] || POOLS.starting;
   const seen = recentRefs(userId, 4);
   const candidates = pool.refs.filter(r => !seen.includes(r));
-  const pickFrom = candidates.length ? candidates : pool.refs;
+  const pickFrom = shuffled(candidates.length ? candidates : pool.refs);
 
   let picked = null;
-  if (gloo.isConfigured()) {
-    try {
-      picked = await companion.chooseVerse({
-        kind: 'scripture_mission',
-        userId, tradition: me.tradition, versionId: me.bible_version_id,
-        label: pool.headline, blurb: 'An invitation to a short movement break today.',
-        facts: shape.facts, candidates: pickFrom,
-        framing: 'This note sits above a "Begin the mission" button that starts a short ' +
-                 'movement session. Keep it warm and grounded in real presence, not performance.',
-      });
-    } catch { picked = null; }
-  }
-  if (!picked) {
-    for (const ref of pickFrom) {
-      const hit = await companion.resolveRef(ref, me.bible_version_id);
-      if (hit) { picked = { reference: hit.reference, text: hit.text, note: null }; break; }
-    }
+  for (const ref of pickFrom) {
+    const hit = await companion.resolveRef(ref, me.bible_version_id);
+    if (hit) { picked = { reference: hit.reference, text: hit.text }; break; }
   }
   if (!picked) return null;
 
-  const coaching = (picked.note ? picked.note + ' ' : '') +
-    'Take a short movement break, notice your breath, and let this verse shape what comes next — not a performance test, but a practice of presence.';
+  const coaching = await dailyInsight(userId, pool, shape);
 
   const row = { id: randomUUID(), user_id: userId, headline: pool.headline, reference: picked.reference, text: picked.text, coaching };
   db.prepare(`INSERT INTO scripture_mission_log (id, user_id, headline, reference, text, coaching)
               VALUES (@id, @user_id, @headline, @reference, @text, @coaching)`).run(row);
   return row;
+}
+
+/** Fisher-Yates -- these lists are short (4-8 refs), so this is plenty. */
+function shuffled(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
 module.exports = { next, POOLS };

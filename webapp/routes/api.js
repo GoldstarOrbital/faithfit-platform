@@ -56,6 +56,7 @@ const retention = require('../lib/retention');
 const workoutKudos = require('../lib/workout-kudos');
 const scripturePractice = require('../lib/scripture-practice');
 const verseSaves = require('../lib/verse-saves');
+const { rateLimit, byUserOrIP } = require('../lib/rateLimit');
 
 // Load real, public-domain Bible text (KJV/WEB) into bible_verses once at startup.
 loadBibleData();
@@ -232,6 +233,27 @@ function cachePrivate(seconds) {
   return (req, res, next) => { res.set('Cache-Control', `private, max-age=${seconds}`); next(); };
 }
 
+// Credential stuffing and signup spam both look the same at this layer: a lot
+// of attempts, fast, from one place. 20 attempts / 15 min per IP is well
+// above any real person mistyping a password, and blocks the cost a flood of
+// fake accounts would otherwise put on everything downstream of signup
+// (welcome push, verification email, seeded rows).
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 20, keyPrefix: 'auth',
+  message: 'Too many attempts. Please wait a few minutes and try again.',
+});
+
+// The direct guard on the app's actual per-call bill: every route wired to
+// this calls a metered external API (Gloo AI, chiefly) once per request, with
+// no server-side cache that a normal client retriggers under regular use.
+// 30 / 10 min per signed-in member is generous for a human re-rolling a card
+// or asking a follow-up question, and hard to reach without a bug or a
+// deliberate flood.
+const aiLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, max: 30, keyFn: byUserOrIP, keyPrefix: 'ai',
+  message: 'You are doing that a little too quickly. Please try again shortly.',
+});
+
 // A personalized verse at the moment someone actually signs in -- reusing the
 // same weekly-shape + Gloo personalization the morning verse already applies,
 // so a login greeting isn't a lesser, generic one. Respects the same
@@ -242,7 +264,7 @@ function sendLoginVerse(userId) {
 
 // Create a real account. Password is scrypt-hashed; email is stored lowercased
 // and must be unique. Signs the new user in on success.
-router.post('/auth/register', async (req, res) => {
+router.post('/auth/register', authLimiter, async (req, res) => {
   const { email, password, display_name, date_of_birth, terms_accepted } = req.body || {};
   const mail = String(email || '').trim().toLowerCase();
   const name = String(display_name || '').trim().slice(0, 60);
@@ -285,7 +307,7 @@ router.post('/auth/register', async (req, res) => {
 });
 
 // Sign in with email + password.
-router.post('/auth/login', async (req, res) => {
+router.post('/auth/login', authLimiter, async (req, res) => {
   const { email, password } = req.body || {};
   const mail = String(email || '').trim().toLowerCase();
   if (!(await captchaAccepted(req))) return res.status(400).json({ error:'captcha_required' });
@@ -310,7 +332,7 @@ router.post('/auth/login', async (req, res) => {
   res.json({ ok: true, user: publicUser(row) });
 });
 
-router.post('/auth/mfa/complete', (req, res) => {
+router.post('/auth/mfa/complete', authLimiter, (req, res) => {
   const pending = req.session?.mfaPending;
   if (!pending || Date.now() - pending.createdAt > 5 * 60 * 1000) return res.status(401).json({ error: 'mfa_session_expired' });
   if (!accountSecurity.verifyMfa(pending.userId, req.body?.code)) return res.status(401).json({ error: 'invalid_mfa_code' });
@@ -330,7 +352,7 @@ router.post('/auth/mfa/complete', (req, res) => {
   res.json({ ok: true, user: publicUser(user) });
 });
 
-router.post('/auth/recovery/request', async (req,res) => {
+router.post('/auth/recovery/request', authLimiter, async (req,res) => {
   const mail=String(req.body?.email||'').trim().toLowerCase();
   const allowed=accountSecurity.loginAllowed(req,`recovery:${mail}`);
   if(!allowed.ok) return res.status(429).json({error:'too_many_attempts'});
@@ -339,7 +361,7 @@ router.post('/auth/recovery/request', async (req,res) => {
   catch(err){ console.error('[security] recovery email failed:',err.message); }
   res.json({ok:true,message:'If that account exists and recovery email is configured, a reset link is on its way.'});
 });
-router.post('/auth/recovery/complete', async (req,res) => {
+router.post('/auth/recovery/complete', authLimiter, async (req,res) => {
   const policy=accountSecurity.passwordPolicy(req.body?.password);
   if(!policy.ok) return res.status(400).json({error:'weak_password',hint:policy.hint});
   const userId=accountSecurity.consumePasswordReset(req.body?.token);
@@ -503,7 +525,7 @@ function nativeOAuthCallback({ code, error }) {
 // Exchanges the short-lived custom-scheme callback for the native app's normal
 // signed, HttpOnly session cookie. A second PKCE verifier binds the callback to
 // the app instance that initiated it, and every code can be redeemed once.
-router.post('/auth/native/exchange', (req, res) => {
+router.post('/auth/native/exchange', authLimiter, (req, res) => {
   if (req.get('x-functioning-faith-client') !== 'ios-native-v1' || !req.is('application/json')) {
     return res.status(400).json({ error: 'native_client_required' });
   }
@@ -522,7 +544,7 @@ router.post('/auth/native/exchange', (req, res) => {
 // Native Sign in with Apple. Apple verifies the human and signs the identity
 // token; this endpoint independently verifies signature, issuer, app audience,
 // expiry, and the SHA-256 nonce before creating a Functioning Faith session.
-router.post('/auth/native/apple', async (req, res) => {
+router.post('/auth/native/apple', authLimiter, async (req, res) => {
   if (req.get('x-functioning-faith-client') !== 'ios-native-v1' || !req.is('application/json')) {
     return res.status(400).json({ error: 'native_client_required' });
   }
@@ -1588,7 +1610,7 @@ router.post('/workouts/start', requireAuth, (req, res) => {
 // Gloo's coaching layer uses the member's real training history to create a
 // short intention before the workout. It never invents metrics, diagnoses, or
 // writes scripture; scripture remains in the verified verse pipeline above.
-router.post('/workouts/coach', requireAuth, async (req, res) => {
+router.post('/workouts/coach', requireAuth, aiLimiter, async (req, res) => {
   if (!gloo.isConfigured()) return res.status(503).json({ error: 'gloo_not_configured' });
   const type = String((req.body || {}).type || 'Run').slice(0, 40);
   const uid = req.session.userId;
@@ -1791,7 +1813,7 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
 // history excluding the workout just saved, so "your longest this month" is a
 // real comparison rather than a comparison with itself.
 // Turn the completed workout into a useful, member-written reflection prompt.
-router.post('/workouts/:id/reflection', requireAuth, async (req, res) => {
+router.post('/workouts/:id/reflection', requireAuth, aiLimiter, async (req, res) => {
   if (!gloo.isConfigured()) return res.status(503).json({ error: 'gloo_not_configured' });
   const workout = db.prepare('SELECT type, duration_sec, distance_km, effort_score FROM workouts WHERE id = ? AND user_id = ? AND end_time IS NOT NULL')
     .get(req.params.id, req.session.userId);
@@ -2820,7 +2842,7 @@ router.get('/groups/username/:username', requireAuth, (req, res) => {
 });
 
 // Gloo recommends from the real group catalog; it never invents group IDs.
-router.get('/groups/recommended', requireAuth, async (req, res) => {
+router.get('/groups/recommended', requireAuth, aiLimiter, async (req, res) => {
   const user = db.prepare('SELECT church, church_name, fitness_group, tradition FROM users WHERE id = ?').get(req.session.userId) || {};
   const groups = db.prepare(`SELECT g.id, g.name, g.username, g.description, g.church_name, g.location_name, g.sport,
       COUNT(gm.user_id) AS member_count FROM groups g LEFT JOIN group_members gm ON gm.group_id = g.id GROUP BY g.id`).all();
@@ -2838,7 +2860,7 @@ router.get('/groups/recommended', requireAuth, async (req, res) => {
   res.json({ groups: ranked.slice(0, 8), chosen_by: gloo.isConfigured() ? 'gloo' : 'fallback' });
 });
 
-router.post('/groups/:id/gloo-sync', requireAuth, async (req, res) => {
+router.post('/groups/:id/gloo-sync', requireAuth, aiLimiter, async (req, res) => {
   const group = db.prepare('SELECT * FROM groups WHERE id = ?').get(req.params.id);
   if (!group) return res.status(404).json({ error: 'not_found' });
   if (!isGroupAdmin(group.id, req.session.userId)) return res.status(403).json({ error: 'admin_only' });
@@ -3433,7 +3455,7 @@ router.get('/workouts/:id/analysis', requireAuth, (req, res) => {
 // A post-workout reflection is grounded in this activity's stored metrics. If
 // Gloo is not configured or temporarily unavailable, the deterministic result
 // still gives every member an honest summary instead of failing the screen.
-router.get('/workouts/:id/intelligence-summary', requireAuth, async (req, res) => {
+router.get('/workouts/:id/intelligence-summary', requireAuth, aiLimiter, async (req, res) => {
   const w = db.prepare('SELECT * FROM workouts WHERE id=? AND user_id=? AND end_time IS NOT NULL').get(req.params.id, req.session.userId);
   if (!w) return res.status(404).json({ error: 'not_found' });
   const minutes = Math.round(Number(w.duration_sec || 0) / 60);
@@ -3849,7 +3871,7 @@ router.get('/motivation', requireAuth, async (req, res) => {
 // Home's "Scripture in Motion" card -- a fresh pick every call, meant to feel
 // new each time a member returns to Home (see scriptureMission.js), not the
 // live per-moment verse a tracked workout uses.
-router.get('/scripture/mission', requireAuth, async (req, res) => {
+router.get('/scripture/mission', requireAuth, aiLimiter, async (req, res) => {
   try {
     const mission = await scriptureMission.next(req.session.userId);
     if (!mission) return res.status(503).json({ error: 'mission_unavailable' });
@@ -4432,7 +4454,7 @@ router.get('/reels/saved', requireAuth, (req, res) => {
 // The single social short-form feed. It combines library Shorts, the member's
 // church videos, and Gloo's grounded curation of those church candidates. Gloo
 // never invents a video ID here: it may only rank IDs we supplied.
-router.get('/reels', requireAuth, async (req, res) => {
+router.get('/reels', requireAuth, aiLimiter, async (req, res) => {
   if (!admin.featureEnabled('reels')) return res.status(503).json({ error: 'reels_paused', hint: 'Reels are temporarily paused.' });
   const blocked = /\b(porn|sex|onlyfans|cannabis|marijuana|weed|alcohol|beer|wine|vodka|drug|steroid|anorexia|bulimia|purge|starvation|pro[- ]ana|laxative)\b/i;
   const library = db.prepare(`SELECT video_id, title, description, thumbnail_url, channel_title, published_at, category, provider, source_url, source_kind
@@ -5163,7 +5185,7 @@ router.get('/verses/:reference/thread', async (req, res) => {
 // It does not tell anyone what they are feeling — see lib/contexts.js. When the
 // inputs are not there (no monitor, no resting baseline) it says exactly what
 // is missing rather than producing a softer answer from thinner evidence.
-router.post('/checkin/heart', requireAuth, async (req, res) => {
+router.post('/checkin/heart', requireAuth, aiLimiter, async (req, res) => {
   const b = req.body || {};
   const me = db.prepare('SELECT max_hr, resting_hr, birth_year, tradition, bible_version_id FROM users WHERE id = ?')
     .get(req.session.userId) || {};
@@ -5220,7 +5242,7 @@ router.post('/checkin/heart', requireAuth, async (req, res) => {
 // The catalogue ships one authored verse per pattern, identical for everyone.
 // This chooses from the shortlist for what the pattern is *for*, in the
 // member's tradition, and can take account of why they opened it.
-router.post('/breathing/:key/verse', requireAuth, async (req, res) => {
+router.post('/breathing/:key/verse', requireAuth, aiLimiter, async (req, res) => {
   const pattern = breathwork.byKey(req.params.key);
   if (!pattern) return res.status(404).json({ error: 'unknown_pattern' });
 
@@ -5393,7 +5415,7 @@ router.get('/moderation/queue', (req,res) => {
 // it as a labelled suggestion alongside the raw report and still makes and
 // records the actual decision through /review below -- this endpoint cannot
 // resolve a report by itself, and nothing here is treated as ground truth.
-router.post('/moderation/queue/:id/suggest', async (req,res) => {
+router.post('/moderation/queue/:id/suggest', aiLimiter, async (req,res) => {
   if(!reviewerAuthorized(req)) return res.status(404).json({error:'not_found'});
   const report=db.prepare('SELECT * FROM moderation_queue WHERE id=?').get(req.params.id);
   if(!report)return res.status(404).json({error:'report_not_found'});
@@ -5610,7 +5632,7 @@ router.get('/ai/status', (req, res) => {
 // It is deliberately not a participant: the answer is returned to the asker and
 // is not written into the thread as a reflection. Nobody's thread fills up with
 // machine text, and nothing here is attributable to another member.
-router.post('/verses/:reference/ask', requireAuth, async (req, res) => {
+router.post('/verses/:reference/ask', requireAuth, aiLimiter, async (req, res) => {
   if (!gloo.isConfigured()) return res.status(503).json({ error: 'companion_unavailable' });
 
   const { row, error, hint } = await resolveVerseReferenceFull(req.params.reference);
