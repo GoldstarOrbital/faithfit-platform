@@ -6,6 +6,19 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const db = new DatabaseSync(path.join(DATA_DIR, 'faithfit.db'));
 
+// WAL lets readers (feed, explore, reels -- most of this app's traffic) proceed
+// while a write is in flight, instead of the default rollback-journal mode's
+// whole-file lock blocking everyone until the write finishes. `synchronous =
+// NORMAL` is the standard, safe pairing with WAL (still durable across an app
+// crash; only an OS-level power loss could lose the last commit, which is an
+// acceptable trade for the concurrency gain). `busy_timeout` makes any
+// remaining lock contention retry briefly instead of failing outright.
+db.exec(`
+  PRAGMA journal_mode = WAL;
+  PRAGMA synchronous = NORMAL;
+  PRAGMA busy_timeout = 5000;
+`);
+
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
