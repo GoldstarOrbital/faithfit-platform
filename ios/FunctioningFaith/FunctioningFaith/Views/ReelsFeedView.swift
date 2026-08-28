@@ -69,6 +69,13 @@ struct ReelsFeedView: View {
     // exactly one video plays at a time, and it pauses the instant its page
     // scrolls out of view instead of continuing to play off-screen.
     @State private var currentReelID: String?
+    // Without this, scrolling through the paging feed never told the server
+    // what was actually watched -- only the fallback modal player
+    // (ReelPlayerView, for reels with no inline playback) recorded an
+    // impression. The feed's own freshness/cooldown logic (lib/reels.js)
+    // depends entirely on that signal, so most scrolling never registered
+    // and the same reels kept resurfacing on every open.
+    @State private var impressedVideoIDs: Set<String> = []
 
     private var visibleReels: [Reel] {
         showOriginalsOnly ? reels.filter { $0.provider == "functioning_faith" } : reels
@@ -113,6 +120,7 @@ struct ReelsFeedView: View {
                 }
                 .scrollTargetBehavior(.paging)
                 .scrollPosition(id: $currentReelID)
+                .onChange(of: currentReelID) { _, newValue in recordImpression(for: newValue) }
                 .scrollIndicators(.hidden)
                 .ignoresSafeArea(edges: .bottom)
                 .background(Color.black)
@@ -171,6 +179,7 @@ struct ReelsFeedView: View {
             guard !Task.isCancelled else { return }
             reels = response.videos
             churchName = response.churchName
+            impressedVideoIDs.removeAll()
             prefetch(after: -1)
         } catch {
             guard !Task.isCancelled else { return }
@@ -192,6 +201,16 @@ struct ReelsFeedView: View {
                 #endif
             } catch { errorMessage = error.localizedDescription }
         }
+    }
+
+    /// Fires as the paging feed settles on a new page -- the actual "this was
+    /// watched" signal the server's freshness/cooldown logic needs, distinct
+    /// from `prefetch(after:)` which only warms upcoming thumbnails.
+    private func recordImpression(for reelID: String?) {
+        guard let reelID, let reel = reels.first(where: { $0.id == reelID }),
+              !impressedVideoIDs.contains(reel.videoID) else { return }
+        impressedVideoIDs.insert(reel.videoID)
+        Task { try? await APIClient.shared.recordReelImpression(videoID: reel.videoID) }
     }
 
     private func hide(_ reel: Reel) {

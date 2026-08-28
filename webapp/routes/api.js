@@ -4607,8 +4607,28 @@ router.get('/reels', requireAuth, aiLimiter, async (req, res) => {
       LEFT JOIN scripture_verses v ON v.id = p.verse_id
      WHERE p.visibility = 'public' AND p.video_data IS NOT NULL
        AND p.video_category IN ('workout','nature','animal','group')
-     ORDER BY p.created_at DESC
   `).all();
+
+  // Every Original still belongs here (see above -- no cap), but a fixed
+  // created_at DESC order meant this member saw the exact same clips in the
+  // exact same sequence, leading the feed, on every single open. Not-seen-by-
+  // this-member first, each half shuffled, keeps the full catalogue while
+  // actually rotating what leads.
+  const ownedSeenAt = owned.length
+    ? new Map(db.prepare(`SELECT video_id, seen_at FROM reel_impressions
+        WHERE user_id = ? AND video_id IN (${owned.map(() => '?').join(',')})`)
+        .all(req.session.userId, ...owned.map(o => String(o.video_id)))
+        .map(r => [r.video_id, r.seen_at]))
+    : new Map();
+  const ownedCutoffMs = Date.now() - reels.SEEN_COOLDOWN_DAYS * 86400000;
+  const ownedUnseen = [], ownedSeen = [];
+  for (const o of owned) {
+    const seenAt = ownedSeenAt.get(String(o.video_id));
+    (!seenAt || Date.parse(seenAt + 'Z') < ownedCutoffMs ? ownedUnseen : ownedSeen).push(o);
+  }
+  const shuffle = arr => arr.map(v => [Math.random(), v]).sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+  owned.length = 0;
+  owned.push(...shuffle(ownedUnseen), ...shuffle(ownedSeen));
 
   const seen = new Set();
   let videos = [...owned, ...curated.videos, ...library, ...curatedChurch]
@@ -4660,19 +4680,25 @@ router.get('/reels', requireAuth, aiLimiter, async (req, res) => {
   });
 });
 
-// A catalogue Reel becomes "seen" when a member opens it, not merely when it
-// happened to be in a response below the fold. That distinction keeps the
-// freshness promise honest and avoids burning through a whole feed on load.
-// Church uploads and Functioning Faith originals are intentionally excluded:
-// they are live/community material rather than ranked catalogue inventory.
+// A Reel becomes "seen" when a member opens it, not merely when it happened
+// to be in a response below the fold. That distinction keeps the freshness
+// promise honest and avoids burning through a whole feed on load. Church
+// uploads stay excluded -- they're live material, not persisted inventory --
+// but Functioning Faith originals now count too: GET /reels rotates which
+// Original leads using this same per-user history (see the ownedUnseen/
+// ownedSeen split above), so a member's own scroll history has to actually
+// be recorded for that rotation to do anything.
 router.post('/reels/:videoId/impression', requireAuth, (req, res) => {
   const videoId = String(req.params.videoId || '').trim().slice(0, 120);
   if (!/^[A-Za-z0-9_-]{6,120}$/.test(videoId)) return res.status(400).json({ error: 'invalid_reel' });
-  const item = db.prepare(`SELECT video_id FROM videos
+  const catalogItem = db.prepare(`SELECT video_id FROM videos
     WHERE video_id = ? AND dead_at IS NULL
       AND source_kind IN ('channel', 'seed', 'query') LIMIT 1`).get(videoId);
-  if (!item) return res.status(204).end();
-  try { reels.markSeen(req.session.userId, [item.video_id]); }
+  const ownedItem = catalogItem ? null : db.prepare(`SELECT id FROM posts
+    WHERE id = ? AND visibility = 'public' AND video_data IS NOT NULL
+      AND video_category IN ('workout','nature','animal','group') LIMIT 1`).get(videoId);
+  if (!catalogItem && !ownedItem) return res.status(204).end();
+  try { reels.markSeen(req.session.userId, [videoId]); }
   catch (err) { console.error('[reels] mark seen failed:', err.message); return res.status(500).json({ error: 'reel_impression_failed' }); }
   res.json({ recorded: true });
 });
