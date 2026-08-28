@@ -120,7 +120,10 @@ final class APIClient {
 
     func followUser(id: UUID) async throws -> FollowResponse {
         if useMock { return FollowResponse(following: true, followersCount: 1) }
-        return try await request("/api/users/\(id.uuidString)/follow", method: "POST", body: EmptyBody())
+        // UUID.uuidString is uppercase on Apple platforms; ids are generated and
+        // stored by Node as lowercase, and SQLite's `=` is case-sensitive -- an
+        // un-lowercased id here reads back as a false "user not found".
+        return try await request("/api/users/\(id.uuidString.lowercased())/follow", method: "POST", body: EmptyBody())
     }
 
     func fetchExploreContent(forceRefresh: Bool = false) async throws -> ExploreContent {
@@ -487,12 +490,12 @@ final class APIClient {
 
     func blockUser(id: UUID) async throws {
         if useMock { return }
-        let _: ActionResponse = try await request("/api/users/\(id.uuidString)/block", method: "POST", body: EmptyBody())
+        let _: ActionResponse = try await request("/api/users/\(id.uuidString.lowercased())/block", method: "POST", body: EmptyBody())
     }
 
     func unblockUser(id: UUID) async throws {
         if useMock { return }
-        let _: ActionResponse = try await request("/api/users/\(id.uuidString)/block", method: "DELETE")
+        let _: ActionResponse = try await request("/api/users/\(id.uuidString.lowercased())/block", method: "DELETE")
     }
 
     // MARK: - Direct messages
@@ -509,7 +512,7 @@ final class APIClient {
 
     func openDMThread(withUserID id: UUID) async throws -> (threadID: String, otherName: String) {
         if useMock { return ("mock-thread", "Preview User") }
-        let r: DMOpenResponse = try await request("/api/dms/with/\(id.uuidString)", method: "POST", body: EmptyBody())
+        let r: DMOpenResponse = try await request("/api/dms/with/\(id.uuidString.lowercased())", method: "POST", body: EmptyBody())
         return (r.threadID, r.user.displayName)
     }
 
@@ -540,7 +543,7 @@ final class APIClient {
     /// encrypted message, or is on an old client version).
     func fetchE2EPublicKey(userID: UUID) async throws -> [String: String]? {
         if useMock { return nil }
-        let r: E2EKeyResponse = try await request("/api/dms/keys/\(userID.uuidString)")
+        let r: E2EKeyResponse = try await request("/api/dms/keys/\(userID.uuidString.lowercased())")
         return r.publicKey?.asStringDict
     }
 
@@ -1292,7 +1295,7 @@ final class APIClient {
     }
 
     func recordWorkoutBiometrics(id: UUID, heartRate: Int) async throws -> WorkoutBiometricResponse {
-        try await request("/api/workouts/\(id.uuidString)/sample", method: "POST", body: WorkoutBiometricBody(heartRate: heartRate))
+        try await request("/api/workouts/\(id.uuidString.lowercased())/sample", method: "POST", body: WorkoutBiometricBody(heartRate: heartRate))
     }
 
     // MARK: - Notifications
