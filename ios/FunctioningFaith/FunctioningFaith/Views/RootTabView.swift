@@ -4,7 +4,6 @@ struct RootTabView: View {
     @EnvironmentObject private var session: NativeSession
     @EnvironmentObject private var network: NetworkMonitor
     @EnvironmentObject private var deepLinks: DeepLinkRouter
-    @AppStorage("onboarding.pendingUserID") private var pendingOnboardingUserID = ""
     @StateObject private var dmStore = DMStore()
     @State private var explorePath = NavigationPath()
 
@@ -47,21 +46,9 @@ struct RootTabView: View {
                 await dmStore.loadInbox()
             }
         }
-        .fullScreenCover(isPresented: onboardingIsPresented) {
-            SocialOnboardingView {
-                pendingOnboardingUserID = ""
-            }
-        }
         .onChange(of: deepLinks.selectedTab) { _, tab in
             if tab == .explore { resetExplore() }
         }
-    }
-
-    private var onboardingIsPresented: Binding<Bool> {
-        Binding(
-            get: { SocialOnboardingGate.shouldPresent(pendingUserID: pendingOnboardingUserID, profileID: session.profile?.id) },
-            set: { if !$0 { pendingOnboardingUserID = "" } }
-        )
     }
 
     private var tabSelection: Binding<AppTab> {

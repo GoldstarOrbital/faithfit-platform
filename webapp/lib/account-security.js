@@ -3,8 +3,19 @@
 const { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual, createCipheriv, createDecipheriv } = require('crypto');
 const db = require('./db');
 
-const IDLE_TIMEOUT_MS = Math.max(15, Number(process.env.SESSION_IDLE_MINUTES) || 30) * 60 * 1000;
 const ABSOLUTE_TIMEOUT_MS = Math.max(1, Number(process.env.SESSION_ABSOLUTE_DAYS) || 30) * 24 * 60 * 60 * 1000;
+// Defaults to the same window as the absolute session lifetime. This is a
+// fitness/social app, not a banking session -- a member who opens the app
+// after being away for a few hours or days (the normal usage pattern) should
+// stay signed in for the full 30 days their session cookie is valid for, the
+// same way Instagram or any other social app behaves, not get bounced back to
+// the sign-in screen for mere inactivity. Previously this defaulted to 30
+// minutes, which meant almost every real-world app open forced a fresh login.
+// SESSION_IDLE_MINUTES remains available for a context that actually wants a
+// tighter idle window.
+const IDLE_TIMEOUT_MS = process.env.SESSION_IDLE_MINUTES
+  ? Math.max(15, Number(process.env.SESSION_IDLE_MINUTES)) * 60 * 1000
+  : ABSOLUTE_TIMEOUT_MS;
 const TERMS_VERSION = '2026-08-11';
 const PRIVACY_VALUES = {
   profile_visibility: new Set(['public', 'followers', 'private']),

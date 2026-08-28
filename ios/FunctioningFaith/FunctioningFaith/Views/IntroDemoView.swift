@@ -6,7 +6,9 @@ import SwiftUI
 /// walk a new member through the app's full scope (fitness, community,
 /// education, media, news), GPS-corrected workouts, Scripture in Motion,
 /// community/Reels, and wearable-driven insight before handing off to
-/// `RootTabView` (new accounts still see `SocialOnboardingView` afterward).
+/// `RootTabView` -- new accounts see `SocialOnboardingView` directly after
+/// this, chained in `FunctioningFaithApp`'s own conditional branching, not
+/// `RootTabView` itself.
 struct IntroDemoView: View {
     let onFinish: () -> Void
 

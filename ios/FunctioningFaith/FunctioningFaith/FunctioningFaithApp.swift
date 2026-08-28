@@ -49,6 +49,15 @@ struct FunctioningFaithApp: App {
                     // or login has succeeded -- never on the auth screen, and
                     // never again once dismissed on this device.
                     IntroDemoView(onFinish: { markIntroDemoSeen(userID) })
+                } else if session.isAuthenticated, SocialOnboardingGate.shouldPresent(pendingUserID: pendingOnboardingUserID, profileID: session.profile?.id) {
+                    // Chained directly from the intro demo's own conditional
+                    // branch above, not presented as a fullScreenCover from
+                    // inside RootTabView -- that used to hand off to
+                    // RootTabView first (a hard cut to the real tab-bar app,
+                    // which briefly flashed on screen) and only then cover it
+                    // with this screen, reading as two different apps/themes
+                    // in quick succession instead of one continuous onboarding.
+                    SocialOnboardingView { pendingOnboardingUserID = "" }
                 } else if session.isAuthenticated {
                     RootTabView()
                 } else {
