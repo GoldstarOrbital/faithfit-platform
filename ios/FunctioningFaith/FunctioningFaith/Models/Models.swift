@@ -1152,6 +1152,18 @@ struct BibleCoverageResponse: Decodable {
     }
 }
 
+/// A term/topic search across the whole local library (see the server's
+/// `/api/bible/search`, backed by SQLite FTS5) -- for someone who has a word
+/// or idea in mind ("peace", "forgiveness") rather than an exact reference.
+struct BibleSearchResponse: Decodable {
+    let query: String
+    let page: Int
+    let limit: Int
+    let total: Int
+    let count: Int
+    let results: [BibleVerse]
+}
+
 /// A member's private saved-verse library -- matches lib/verse-saves.js's
 /// `list()` row shape exactly (has `id`; distinct from the lighter object
 /// `toggle()` echoes back on save, which VerseSaveResponse below models).

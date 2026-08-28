@@ -825,6 +825,13 @@ final class APIClient {
         return try await request("/api/bible/passage/\(encoded)/\(chapter)")
     }
 
+    func searchBible(query: String, page: Int = 1, limit: Int = 25) async throws -> BibleSearchResponse {
+        guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) else {
+            throw APIError.invalidResponse
+        }
+        return try await request("/api/bible/search?q=\(encoded)&page=\(page)&limit=\(limit)")
+    }
+
     func fetchVerseCategories() async throws -> [VerseCategory] {
         if useMock { return [] }
         let r: VerseCategoriesResponse = try await request("/api/verse-categories")

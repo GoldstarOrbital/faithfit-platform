@@ -67,6 +67,9 @@ struct ScriptureView: View {
             NavigationLink { BibleBrowseView() } label: {
                 Label("Read the Bible", systemImage: "book")
             }
+            NavigationLink { VerseCategoryBrowseView() } label: {
+                Label("Browse by Theme", systemImage: "square.grid.2x2")
+            }
             NavigationLink { SavedVersesView() } label: {
                 HStack {
                     Label("Saved verses", systemImage: "bookmark")
@@ -84,6 +87,9 @@ struct ScriptureView: View {
             }
             NavigationLink { VerseLookupView() } label: {
                 Label("Look up any verse", systemImage: "magnifyingglass")
+            }
+            NavigationLink { BibleSearchView() } label: {
+                Label("Search by word or topic", systemImage: "text.magnifyingglass")
             }
             NavigationLink { BibleVersionPickerView() } label: {
                 Label("Bible translation", systemImage: "text.book.closed")
