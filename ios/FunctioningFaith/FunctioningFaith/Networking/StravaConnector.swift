@@ -73,6 +73,14 @@ final class StravaConnector: NSObject, ObservableObject, ASWebAuthenticationPres
     }
 
     private func bridgeSessionCookie() async throws {
+        // A fresh authenticated round-trip guarantees the server's session
+        // cookie has actually been (re)written into HTTPCookieStorage.shared
+        // before we read it -- without this, a member who is genuinely signed
+        // in could still see a spurious "not signed in" if the cookie last
+        // written there was ever stale or momentarily missing. Best-effort:
+        // if this fails, the guard below still correctly reports not signed in.
+        _ = try? await APIClient.shared.fetchProfile()
+
         guard let cookies = HTTPCookieStorage.shared.cookies(for: APIClient.shared.baseURL), !cookies.isEmpty else {
             throw StravaConnectError.notSignedIn
         }
