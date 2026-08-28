@@ -2,8 +2,9 @@ import SwiftUI
 
 /// A skippable, animated first-run product demo shown exactly once per
 /// account, after a successful sign-up or login and after any required
-/// account setup -- never on the auth screen itself. Six swipeable pages
-/// walk a new member through GPS-corrected workouts, Scripture in Motion,
+/// account setup -- never on the auth screen itself. Seven swipeable pages
+/// walk a new member through the app's full scope (fitness, community,
+/// education, media, news), GPS-corrected workouts, Scripture in Motion,
 /// community/Reels, and wearable-driven insight before handing off to
 /// `RootTabView` (new accounts still see `SocialOnboardingView` afterward).
 struct IntroDemoView: View {
@@ -118,6 +119,8 @@ struct IntroDemoView: View {
 // MARK: - Slides
 
 private struct IntroWelcomeSlide: View {
+    @State private var breathe = false
+
     var body: some View {
         VStack(spacing: 0) {
             Spacer(minLength: 28)
@@ -125,6 +128,9 @@ private struct IntroWelcomeSlide: View {
                 .resizable().scaledToFit()
                 .frame(width: 112, height: 112)
                 .shadow(color: FFTheme.walnut.opacity(0.28), radius: 14, y: 8)
+                .scaleEffect(breathe ? 1.045 : 1.0)
+                .animation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true), value: breathe)
+                .onAppear { breathe = true }
             Text("FUNCTIONING FAITH")
                 .font(FFTheme.eyebrow(12))
                 .foregroundStyle(FFTheme.hearth)
@@ -175,19 +181,9 @@ private struct IntroPillarsSlide: View {
                 .padding(.top, 10)
 
             LazyVGrid(columns: columns, spacing: 14) {
-                ForEach(pillars, id: \.label) { pillar in
-                    VStack(spacing: 8) {
-                        Image(systemName: pillar.icon)
-                            .font(.system(size: 20))
-                            .foregroundStyle(FFTheme.scripture)
-                            .frame(width: 52, height: 52)
-                            .background(FFTheme.meadow.opacity(0.1), in: Circle())
-                            .overlay(Circle().stroke(FFTheme.meadow.opacity(0.28), lineWidth: 1.4))
-                        Text(pillar.label.uppercased())
-                            .font(FFTheme.eyebrow(12))
-                            .foregroundStyle(FFTheme.ink)
-                    }
-                    .gridCellColumns(pillar.wide ? 2 : 1)
+                ForEach(Array(pillars.enumerated()), id: \.element.label) { index, pillar in
+                    PillarBadge(label: pillar.label, icon: pillar.icon, delay: Double(index) * 0.07)
+                        .gridCellColumns(pillar.wide ? 2 : 1)
                 }
             }
             .frame(maxWidth: 300)
@@ -197,6 +193,34 @@ private struct IntroPillarsSlide: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 32)
+    }
+}
+
+private struct PillarBadge: View {
+    let label: String
+    let icon: String
+    let delay: Double
+    @State private var appeared = false
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 20))
+                .foregroundStyle(FFTheme.scripture)
+                .frame(width: 52, height: 52)
+                .background(FFTheme.meadow.opacity(0.1), in: Circle())
+                .overlay(Circle().stroke(FFTheme.meadow.opacity(0.28), lineWidth: 1.4))
+            Text(label.uppercased())
+                .font(FFTheme.eyebrow(12))
+                .foregroundStyle(FFTheme.ink)
+        }
+        .scaleEffect(appeared ? 1 : 0.6)
+        .opacity(appeared ? 1 : 0)
+        .onAppear {
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.65).delay(delay)) {
+                appeared = true
+            }
+        }
     }
 }
 
@@ -248,6 +272,7 @@ private struct IntroFeatureSlide<Shot: View>: View {
 
 private struct IntroFinalSlide: View {
     let onFinish: () -> Void
+    @State private var breathe = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -256,6 +281,9 @@ private struct IntroFinalSlide: View {
                 .resizable().scaledToFit()
                 .frame(width: 88, height: 88)
                 .shadow(color: FFTheme.walnut.opacity(0.26), radius: 10, y: 6)
+                .scaleEffect(breathe ? 1.045 : 1.0)
+                .animation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true), value: breathe)
+                .onAppear { breathe = true }
             Text("Ready to begin?")
                 .font(FFTheme.display(27, weight: .bold, relativeTo: .title))
                 .foregroundStyle(FFTheme.ink)
@@ -332,6 +360,8 @@ private struct IntroWorkoutShot: View {
 }
 
 private struct RouteSparkline: View {
+    @State private var drawn: CGFloat = 0
+
     var body: some View {
         GeometryReader { geo in
             Path { path in
@@ -344,8 +374,31 @@ private struct RouteSparkline: View {
                                control1: CGPoint(x: w * 0.82, y: h * 0.6),
                                control2: CGPoint(x: w * 0.92, y: h * 0.05))
             }
+            .trim(from: 0, to: drawn)
             .stroke(FFTheme.meadow, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+            .onAppear {
+                drawn = 0
+                withAnimation(.easeOut(duration: 1.1)) { drawn = 1 }
+            }
         }
+    }
+}
+
+/// A soft, looping glow behind "TODAY" -- a quiet cue that this card is
+/// alive and re-picks itself, not a static screenshot of one fixed verse.
+private struct PulsingBadge: View {
+    let text: String
+    @State private var glowing = false
+
+    var body: some View {
+        Text(text)
+            .font(FFTheme.eyebrow(8))
+            .foregroundStyle(FFTheme.cream)
+            .padding(.horizontal, 8).padding(.vertical, 2)
+            .background(FFTheme.meadow, in: Capsule())
+            .shadow(color: FFTheme.meadow.opacity(glowing ? 0.7 : 0), radius: glowing ? 6 : 0)
+            .animation(.easeInOut(duration: 1.3).repeatForever(autoreverses: true), value: glowing)
+            .onAppear { glowing = true }
     }
 }
 
@@ -357,9 +410,7 @@ private struct IntroScriptureShot: View {
                     Image(systemName: "book.closed.fill").font(.caption2).foregroundStyle(FFTheme.scripture)
                     Text("SCRIPTURE IN MOTION").font(FFTheme.eyebrow(10)).foregroundStyle(FFTheme.scripture)
                     Spacer()
-                    Text("TODAY").font(FFTheme.eyebrow(8)).foregroundStyle(FFTheme.cream)
-                        .padding(.horizontal, 8).padding(.vertical, 2)
-                        .background(FFTheme.meadow, in: Capsule())
+                    PulsingBadge(text: "TODAY")
                 }
                 Text("Philippians 4:13").font(.system(size: 15, weight: .bold)).foregroundStyle(FFTheme.ink)
                 Text("\"I can do all things through him who strengthens me.\"")
@@ -402,8 +453,7 @@ private struct IntroCommunityShot: View {
                             .padding(.horizontal, 8).padding(.vertical, 3)
                             .background(FFTheme.walnut.opacity(0.5), in: Capsule())
                             .padding(8)
-                        Image(systemName: "heart.fill")
-                            .font(.caption).foregroundStyle(FFTheme.cream)
+                        LikeHeart()
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                             .padding(10)
                     }
@@ -442,16 +492,51 @@ private struct IntroCommunityShot: View {
     }
 }
 
+/// A heartbeat, not a static glyph: the heart itself thumps on a steady
+/// cadence while a ring expands and fades outward from it, echoing a live
+/// pulse reading -- the single detail most worth animating in the whole
+/// demo, since "your heart rate, live" is the actual product claim here.
+private struct HeartbeatBadge: View {
+    @State private var beat = false
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(FFTheme.seal.opacity(0.55), lineWidth: 2)
+                .scaleEffect(beat ? 1.65 : 1.0)
+                .opacity(beat ? 0 : 0.75)
+                .animation(.easeOut(duration: 1.15).repeatForever(autoreverses: false), value: beat)
+            Circle().stroke(FFTheme.seal, lineWidth: 2)
+            Image(systemName: "heart.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(FFTheme.seal)
+                .scaleEffect(beat ? 1.22 : 1.0)
+                .animation(.easeInOut(duration: 0.5).repeatForever(autoreverses: true), value: beat)
+        }
+        .frame(width: 44, height: 44)
+        .onAppear { beat = true }
+    }
+}
+
+private struct LikeHeart: View {
+    @State private var liked = false
+
+    var body: some View {
+        Image(systemName: "heart.fill")
+            .font(.caption)
+            .foregroundStyle(FFTheme.cream)
+            .scaleEffect(liked ? 1.3 : 1.0)
+            .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true).delay(0.4), value: liked)
+            .onAppear { liked = true }
+    }
+}
+
 private struct IntroWearableShot: View {
     var body: some View {
         AppShotCard(title: "Train") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 12) {
-                    ZStack {
-                        Circle().stroke(FFTheme.seal, lineWidth: 2)
-                        Image(systemName: "heart.fill").font(.system(size: 18)).foregroundStyle(FFTheme.seal)
-                    }
-                    .frame(width: 44, height: 44)
+                    HeartbeatBadge()
                     VStack(alignment: .leading, spacing: 1) {
                         Text("142 bpm").font(.system(size: 18, weight: .bold)).monospacedDigit().foregroundStyle(FFTheme.ink)
                         Text("Live from Apple Watch").font(.system(size: 10.5)).foregroundStyle(FFTheme.inkSoft)
