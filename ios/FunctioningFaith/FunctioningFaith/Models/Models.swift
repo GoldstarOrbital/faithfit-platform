@@ -1093,7 +1093,7 @@ struct GroupMemberEntry: Decodable, Identifiable {
 // authored or edited client-side. Matches the server's own hard rule against
 // fabricated scripture.
 
-struct BibleVerse: Decodable, Identifiable {
+struct BibleVerse: Decodable, Identifiable, Hashable {
     let book: String
     let chapter: Int
     let verse: Int

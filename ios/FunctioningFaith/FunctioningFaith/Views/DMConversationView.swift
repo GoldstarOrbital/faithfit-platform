@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-private struct OpenVerseReference: Identifiable {
+private struct OpenVerseReference: Identifiable, Hashable {
     let reference: String
     var id: String { reference }
 }

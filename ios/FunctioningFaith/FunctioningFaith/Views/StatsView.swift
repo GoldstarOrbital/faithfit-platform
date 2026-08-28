@@ -416,7 +416,7 @@ private struct TrendsChart: View {
     }
 
     private func scrub(to location: CGPoint, proxy: ChartProxy, geometry: GeometryProxy) {
-        let plotFrame = geometry[proxy.plotAreaFrame]
+        let plotFrame = geometry[proxy.plotFrame]
         let xPosition = location.x - plotFrame.origin.x
         guard xPosition >= 0, xPosition <= plotFrame.width,
               let label: String = proxy.value(atX: xPosition),
@@ -475,7 +475,7 @@ private struct BreakdownChart: View {
     }
 
     private func select(at location: CGPoint, proxy: ChartProxy, geometry: GeometryProxy) {
-        let plotFrame = geometry[proxy.plotAreaFrame]
+        let plotFrame = geometry[proxy.plotFrame]
         let yPosition = location.y - plotFrame.origin.y
         guard yPosition >= 0, yPosition <= plotFrame.height,
               let type: String = proxy.value(atY: yPosition),
