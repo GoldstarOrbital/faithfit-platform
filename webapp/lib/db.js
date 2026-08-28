@@ -572,6 +572,21 @@ CREATE TABLE IF NOT EXISTS user_connectors (
   last_synced_at TEXT,
   UNIQUE(user_id, provider)
 );
+-- A cached summary of a member's Spotify listening, refreshed each sync --
+-- never raw track-by-track history, just what's needed to personalize a
+-- verse notification: a mood bucket derived from real audio-feature
+-- averages (valence/energy, Spotify's own measured acoustic analysis, not
+-- a guess about how the member feels) and whether their own top artists'
+-- genres already skew toward Christian/worship/gospel music.
+CREATE TABLE IF NOT EXISTS user_music_taste (
+  user_id TEXT PRIMARY KEY,
+  mood TEXT,
+  top_genres TEXT,
+  worship_affinity INTEGER DEFAULT 0,
+  avg_valence REAL,
+  avg_energy REAL,
+  synced_at TEXT DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS imported_activities (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,

@@ -97,6 +97,14 @@ async function sendFor(userId) {
   if (!me) return null;
 
   const shape = weekShape(userId);
+  // Real, measured listening data (Spotify's own audio-feature analysis),
+  // when a member has connected it -- never a claim about how they feel,
+  // only what was actually measured, same rule as every other fact here.
+  const music = db.prepare('SELECT mood, worship_affinity FROM user_music_taste WHERE user_id = ?').get(userId);
+  if (music?.mood === 'energized') shape.facts.push('recent listening has been upbeat and high-energy');
+  else if (music?.mood === 'reflective') shape.facts.push('recent listening has been calm and reflective');
+  else if (music?.mood === 'heavy') shape.facts.push('recent listening has trended toward heavier, more somber music');
+  if (music?.worship_affinity) shape.facts.push('their own top artists already skew toward Christian worship music');
   const pool = POOLS[shape.pool];
   const seen = recentRefs(userId, 21);
   const candidates = pool.refs.filter(r => !seen.includes(r));

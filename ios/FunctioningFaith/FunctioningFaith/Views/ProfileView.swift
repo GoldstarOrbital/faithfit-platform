@@ -8,6 +8,7 @@ struct ProfileView: View {
     @EnvironmentObject private var biometricLock: BiometricLock
     @StateObject private var healthKit = HealthKitManager.shared
     @StateObject private var stravaConnector = StravaConnector()
+    @StateObject private var spotifyConnector = SpotifyConnector()
     @AppStorage("security.biometricLock") private var biometricLockEnabled = false
     @AppStorage("notifications.scripture") private var scriptureNotifications = true
     @AppStorage("notifications.community") private var communityNotifications = true
@@ -24,6 +25,9 @@ struct ProfileView: View {
     @State private var connections: [ConnectedAccount] = []
     @State private var stravaConfigured = false
     @State private var isConnectingStrava = false
+    @State private var spotifyConfigured = false
+    @State private var isConnectingSpotify = false
+    @State private var showChristianPlaylists = false
     @State private var connectorError: String?
     @State private var healthKitError: String?
     @State private var avatarImage: UIImage?
@@ -51,6 +55,9 @@ struct ProfileView: View {
         }
         .ffListChrome()
         .navigationTitle("Profile")
+        .navigationDestination(isPresented: $showChristianPlaylists) {
+            MusicPlaylistsView()
+        }
         .task {
             if let current = session.profile {
                 profile = current
@@ -63,6 +70,7 @@ struct ProfileView: View {
             }
             pendingFollowRequests = (try? await APIClient.shared.fetchFollowRequests().count) ?? 0
             stravaConfigured = (try? await APIClient.shared.isStravaConfigured()) ?? false
+            spotifyConfigured = (try? await APIClient.shared.isSpotifyConfigured()) ?? false
             await loadConnections()
             badgeCatalog = (try? await APIClient.shared.fetchBadgeCatalog()) ?? []
             if let saved = try? await APIClient.shared.fetchPrivacySettings() { privacySettings = saved }
@@ -71,7 +79,7 @@ struct ProfileView: View {
                 scripturePersonalization = consent.scopes.contains("scripture_personalization")
             }
         }
-        .alert("Could not connect Strava", isPresented: Binding(get: { connectorError != nil }, set: { if !$0 { connectorError = nil } })) {
+        .alert("Could not connect", isPresented: Binding(get: { connectorError != nil }, set: { if !$0 { connectorError = nil } })) {
             Button("OK", role: .cancel) { connectorError = nil }
         } message: { Text(connectorError ?? "") }
         .alert("Apple Health needs attention", isPresented: Binding(get: { healthKitError != nil }, set: { if !$0 { healthKitError = nil } })) {
@@ -315,6 +323,35 @@ struct ProfileView: View {
         }
         .listRowBackground(FFTheme.parchment1)
         }
+        Section {
+            Button { showChristianPlaylists = true } label: {
+                Label("Browse Christian playlists", systemImage: "music.note.list")
+            }
+            if spotifyConfigured || connections.contains(where: { $0.provider == "spotify" }) {
+                if let spotify = connections.first(where: { $0.provider == "spotify" }) {
+                    Text(spotify.lastSyncedAt != nil ? "Spotify connected · synced" : "Spotify connected — not yet synced")
+                        .foregroundStyle(.secondary)
+                    Button {
+                        Task { await syncSpotify() }
+                    } label: {
+                        if isConnectingSpotify { ProgressView() } else { Text("Sync now") }
+                    }
+                    .disabled(isConnectingSpotify)
+                } else {
+                    Button {
+                        Task { await connectSpotify() }
+                    } label: {
+                        if isConnectingSpotify { ProgressView() } else { Text("Connect Spotify") }
+                    }
+                    .disabled(isConnectingSpotify)
+                }
+            }
+        } header: {
+            Text("Music")
+        } footer: {
+            Text("Connecting Spotify lets us recommend Christian and worship playlists that fit your own taste, and personalize your morning verse using what you've actually been listening to — never anything posted or shared.")
+        }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private func loadConnections() async {
@@ -341,6 +378,28 @@ struct ProfileView: View {
             connectorError = error.localizedDescription
         }
         isConnectingStrava = false
+    }
+
+    private func connectSpotify() async {
+        isConnectingSpotify = true
+        do {
+            try await spotifyConnector.connect()
+            await loadConnections()
+        } catch {
+            connectorError = error.localizedDescription
+        }
+        isConnectingSpotify = false
+    }
+
+    private func syncSpotify() async {
+        isConnectingSpotify = true
+        do {
+            _ = try await APIClient.shared.syncSpotify()
+            await loadConnections()
+        } catch {
+            connectorError = error.localizedDescription
+        }
+        isConnectingSpotify = false
     }
 
     private var privacySection: some View {

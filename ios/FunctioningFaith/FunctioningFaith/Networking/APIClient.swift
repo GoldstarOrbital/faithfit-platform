@@ -1173,6 +1173,22 @@ final class APIClient {
         return try await request("/api/connectors/strava/sync", method: "POST", body: EmptyBody())
     }
 
+    func isSpotifyConfigured() async throws -> Bool {
+        if useMock { return false }
+        let r: StravaConfiguredResponse = try await request("/api/connectors/spotify/configured")
+        return r.configured
+    }
+
+    func syncSpotify() async throws -> SpotifySyncResult {
+        if useMock { throw APIError.invalidResponse }
+        return try await request("/api/connectors/spotify/sync", method: "POST", body: EmptyBody())
+    }
+
+    func fetchMusicPlaylists() async throws -> MusicPlaylistsResponse {
+        if useMock { throw APIError.invalidResponse }
+        return try await request("/api/music/playlists")
+    }
+
     /// Registers the iPhone's APNs token after the member has explicitly
     /// allowed notifications. The token is not a credential and is scoped to
     /// this app + device; the server uses it only for opted-in categories.

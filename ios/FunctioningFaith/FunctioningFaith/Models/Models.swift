@@ -1425,6 +1425,35 @@ struct StravaSyncResult: Decodable {
     let checked: Int
 }
 
+struct SpotifySyncResult: Decodable {
+    let mood: String?
+    let topGenres: [String]
+    let worshipAffinity: Bool
+    enum CodingKeys: String, CodingKey { case mood; case topGenres = "top_genres"; case worshipAffinity = "worship_affinity" }
+}
+
+struct ChristianPlaylist: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let description: String
+    let image: String?
+    let url: String
+    let owner: String
+}
+
+struct MusicPlaylistsResponse: Decodable {
+    let spotifyConfigured: Bool
+    let connected: Bool
+    let mood: String?
+    let worshipAffinity: Bool
+    let recommended: [ChristianPlaylist]
+    let playlists: [ChristianPlaylist]
+    enum CodingKeys: String, CodingKey {
+        case spotifyConfigured = "spotify_configured", connected, mood
+        case worshipAffinity = "worship_affinity", recommended, playlists
+    }
+}
+
 struct ConnectedAccount: Decodable, Identifiable {
     let provider: String
     let scope: String?

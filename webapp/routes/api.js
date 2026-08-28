@@ -39,6 +39,8 @@ const circle = require('../lib/circle');
 const oauth = require('../lib/oauth');
 const strava = require('../lib/strava');
 const googleHealth = require('../lib/google-health');
+const spotify = require('../lib/spotify');
+const christianPlaylists = require('../lib/christianPlaylists');
 const wearables = require('../lib/wearables');
 const recovery = require('../lib/recovery');
 const { searchNearbyChurches } = require('../lib/overpass');
@@ -676,6 +678,73 @@ router.post('/connectors/strava/sync', requireAuth, async (req, res) => {
   }
 });
 
+// ---- Spotify: curated Christian playlists + real-listening-based verse
+// personalization. Same shape as the Strava connector above -- OAuth
+// start/callback into user_connectors, a cached taste summary refreshed on
+// sync (see spotify.js's computeTaste), auto-refreshing an expired token. ----
+router.get('/connectors/spotify/configured', (req, res) => res.json({ configured: spotify.isConfigured() }));
+
+router.get('/connectors/spotify/start', requireAuth, (req, res) => {
+  if (!spotify.isConfigured()) return res.status(404).json({ error: 'spotify_not_configured' });
+  const state = oauth.b64url(require('crypto').randomBytes(16));
+  const native = req.query.native === '1';
+  req.session.spotifyPending = { state, userId: req.session.userId, native, createdAt: Date.now() };
+  const redirectUri = `${baseUrl(req)}/api/connectors/spotify/callback`;
+  res.redirect(spotify.buildAuthorizationUrl({ redirectUri, state }));
+});
+
+router.get('/connectors/spotify/callback', async (req, res) => {
+  const pending = req.session.spotifyPending;
+  const fail = (reason) => res.redirect(pending?.native
+    ? `functioningfaith://connectors/spotify/callback?error=${encodeURIComponent(reason)}`
+    : `/?spotify_error=${encodeURIComponent(reason)}`);
+  if (!pending || Date.now() - pending.createdAt > 10 * 60 * 1000) { req.session.spotifyPending = null; return fail('session_expired'); }
+  if (req.query.error) { req.session.spotifyPending = null; return fail('access_denied'); }
+  if (req.query.state !== pending.state) { req.session.spotifyPending = null; return fail('state_mismatch'); }
+
+  try {
+    const redirectUri = `${baseUrl(req)}/api/connectors/spotify/callback`;
+    const tokens = await spotify.exchangeCodeForTokens(req.query.code, redirectUri);
+    db.prepare(`INSERT INTO user_connectors (id, user_id, provider, access_token, refresh_token, expires_at, scope)
+                VALUES (?,?,?,?,?,?,?)
+                ON CONFLICT(user_id, provider) DO UPDATE SET
+                  access_token=excluded.access_token, refresh_token=excluded.refresh_token,
+                  expires_at=excluded.expires_at, scope=excluded.scope`)
+      .run(randomUUID(), pending.userId, 'spotify', accountSecurity.protectSecret(tokens.access_token), accountSecurity.protectSecret(tokens.refresh_token),
+        new Date(Date.now() + Number(tokens.expires_in || 3600) * 1000).toISOString(), tokens.scope || '');
+    const native = pending.native;
+    req.session.spotifyPending = null;
+    await syncSpotifyForUser(pending.userId).catch(err => console.error('[spotify] initial sync failed:', err.message));
+    res.redirect(native ? 'functioningfaith://connectors/spotify/callback?connected=1' : '/?connected=spotify');
+  } catch (err) {
+    req.session.spotifyPending = null;
+    console.error('[spotify] callback failed:', err.message);
+    fail('connect_failed');
+  }
+});
+
+router.post('/connectors/spotify/sync', requireAuth, async (req, res) => {
+  try {
+    const result = await syncSpotifyForUser(req.session.userId);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(502).json({ error: 'sync_failed', detail: err.message });
+  }
+});
+
+router.get('/music/playlists', requireAuth, (req, res) => {
+  const connected = !!db.prepare('SELECT 1 FROM user_connectors WHERE user_id = ? AND provider = ?').get(req.session.userId, 'spotify');
+  const taste = db.prepare('SELECT mood, top_genres, worship_affinity, synced_at FROM user_music_taste WHERE user_id = ?').get(req.session.userId);
+  res.json({
+    spotify_configured: spotify.isConfigured(),
+    connected,
+    mood: taste?.mood || null,
+    worship_affinity: !!taste?.worship_affinity,
+    recommended: taste ? christianPlaylists.recommended(taste) : [],
+    playlists: christianPlaylists.all(),
+  });
+});
+
 // ---- Device / wearable sync via Google Health (Fitbit + anything else a
 // member has synced into their Google Health account). Same shape as the
 // Strava connector above -- OAuth start/callback into user_connectors,
@@ -909,6 +978,34 @@ async function syncStravaForUser(userId) {
   }
   db.prepare('UPDATE user_connectors SET last_synced_at = ? WHERE user_id = ? AND provider = ?').run(new Date().toISOString(), userId, 'strava');
   return { imported, checked: activities.length };
+}
+
+// Refreshes the cached mood/genre summary in user_music_taste from real
+// Spotify listening data. No workout or content import here -- this
+// connector exists to inform curated-playlist recommendations and the
+// morning verse's personalization, not to create records the way
+// Strava/Google Health do.
+async function syncSpotifyForUser(userId) {
+  let conn = db.prepare('SELECT * FROM user_connectors WHERE user_id = ? AND provider = ?').get(userId, 'spotify');
+  if (!conn) throw new Error('not_connected');
+  conn = { ...conn, access_token: accountSecurity.unprotectSecret(conn.access_token), refresh_token: accountSecurity.unprotectSecret(conn.refresh_token) };
+
+  if (new Date(conn.expires_at).getTime() < Date.now() + 60000) {
+    const fresh = await spotify.refreshTokens(conn.refresh_token);
+    db.prepare('UPDATE user_connectors SET access_token = ?, refresh_token = ?, expires_at = ? WHERE user_id = ? AND provider = ?')
+      .run(accountSecurity.protectSecret(fresh.access_token), accountSecurity.protectSecret(fresh.refresh_token), new Date(Date.now() + Number(fresh.expires_in || 3600) * 1000).toISOString(), userId, 'spotify');
+    conn = { ...conn, access_token: fresh.access_token };
+  }
+
+  const taste = await spotify.computeTaste(conn.access_token);
+  db.prepare(`INSERT INTO user_music_taste (user_id, mood, top_genres, worship_affinity, avg_valence, avg_energy, synced_at)
+              VALUES (?,?,?,?,?,?,datetime('now'))
+              ON CONFLICT(user_id) DO UPDATE SET
+                mood=excluded.mood, top_genres=excluded.top_genres, worship_affinity=excluded.worship_affinity,
+                avg_valence=excluded.avg_valence, avg_energy=excluded.avg_energy, synced_at=excluded.synced_at`)
+    .run(userId, taste.mood, JSON.stringify(taste.topGenres), taste.worshipAffinity ? 1 : 0, taste.avgValence, taste.avgEnergy);
+  db.prepare('UPDATE user_connectors SET last_synced_at = ? WHERE user_id = ? AND provider = ?').run(new Date().toISOString(), userId, 'spotify');
+  return { mood: taste.mood, top_genres: taste.topGenres, worship_affinity: taste.worshipAffinity };
 }
 
 // Seeded demo accounts only — powers the "explore a demo profile" affordance on
