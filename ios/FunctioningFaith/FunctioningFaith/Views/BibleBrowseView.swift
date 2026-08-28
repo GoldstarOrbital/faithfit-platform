@@ -23,16 +23,32 @@ struct BibleBrowseView: View {
             } else if books.isEmpty {
                 ContentUnavailableView("No books available", systemImage: "book", description: Text("Scripture text isn't loaded yet."))
             } else {
-                List(books) { book in
-                    NavigationLink {
-                        BibleChapterGridView(book: book, onSelectVerse: onSelectVerse)
-                    } label: {
-                        HStack {
-                            Text(book.book)
-                            Spacer()
-                            Text("\(book.chapters) ch").font(.caption).foregroundStyle(.secondary)
+                List {
+                    Section {
+                        NavigationLink {
+                            VerseCategoryBrowseView(onSelectVerse: onSelectVerse)
+                        } label: {
+                            Label("Browse by Theme", systemImage: "square.grid.2x2")
+                        }
+                    } footer: {
+                        Text("The seven deadly sins, and the seven virtues that answer them.")
+                    }
+                    .listRowBackground(FFTheme.parchment1)
+
+                    Section("Books") {
+                        ForEach(books) { book in
+                            NavigationLink {
+                                BibleChapterGridView(book: book, onSelectVerse: onSelectVerse)
+                            } label: {
+                                HStack {
+                                    Text(book.book)
+                                    Spacer()
+                                    Text("\(book.chapters) ch").font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
                         }
                     }
+                    .listRowBackground(FFTheme.parchment1)
                 }
                 .ffListChrome()
             }

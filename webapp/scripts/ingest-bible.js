@@ -58,6 +58,62 @@ const TARGETS = [
   { key: 'joshua',      book: 'Joshua',      book_id: 'JOS', api: 'joshua',      chapters: 24, translation: 'web' }, // 1:9 strong and courageous
   { key: '1kings',      book: '1 Kings',     book_id: '1KI', api: '1kings',      chapters: 22, translation: 'web' }, // 19:8 Elijah to Horeb
   { key: 'acts',        book: 'Acts',        book_id: 'ACT', api: 'acts',        chapters: 28, translation: 'web' }, // Paul's journeys
+  // --- The rest of the 66-book canon. Members browsing the Bible in-app, and
+  // the growing set of Scripture-in-Motion / DM verse-category references
+  // drawing from books beyond the original curated set, both need real local
+  // text rather than falling through to a live network lookup on every miss. ---
+  { key: 'leviticus',        book: 'Leviticus',        book_id: 'LEV', api: 'leviticus',        chapters: 27, translation: 'web' },
+  { key: 'judges',           book: 'Judges',           book_id: 'JDG', api: 'judges',           chapters: 21, translation: 'web' },
+  { key: 'ruth',             book: 'Ruth',             book_id: 'RUT', api: 'ruth',             chapters: 4,  translation: 'web' },
+  { key: '1samuel',          book: '1 Samuel',         book_id: '1SA', api: '1samuel',          chapters: 31, translation: 'web' },
+  { key: '2samuel',          book: '2 Samuel',         book_id: '2SA', api: '2samuel',          chapters: 24, translation: 'web' },
+  { key: '2kings',           book: '2 Kings',          book_id: '2KI', api: '2kings',           chapters: 25, translation: 'web' },
+  { key: '1chronicles',      book: '1 Chronicles',     book_id: '1CH', api: '1chronicles',      chapters: 29, translation: 'web' },
+  { key: '2chronicles',      book: '2 Chronicles',     book_id: '2CH', api: '2chronicles',      chapters: 36, translation: 'web' },
+  { key: 'ezra',             book: 'Ezra',             book_id: 'EZR', api: 'ezra',             chapters: 10, translation: 'web' },
+  { key: 'nehemiah',         book: 'Nehemiah',         book_id: 'NEH', api: 'nehemiah',         chapters: 13, translation: 'web' },
+  { key: 'esther',           book: 'Esther',           book_id: 'EST', api: 'esther',           chapters: 10, translation: 'web' },
+  { key: 'job',              book: 'Job',              book_id: 'JOB', api: 'job',              chapters: 42, translation: 'web' },
+  { key: 'ecclesiastes',     book: 'Ecclesiastes',     book_id: 'ECC', api: 'ecclesiastes',     chapters: 12, translation: 'web' },
+  { key: 'songofsolomon',    book: 'Song of Solomon',  book_id: 'SNG', api: 'songofsolomon',    chapters: 8,  translation: 'web' },
+  { key: 'jeremiah',         book: 'Jeremiah',         book_id: 'JER', api: 'jeremiah',         chapters: 52, translation: 'web' },
+  { key: 'lamentations',     book: 'Lamentations',     book_id: 'LAM', api: 'lamentations',     chapters: 5,  translation: 'web' },
+  { key: 'ezekiel',          book: 'Ezekiel',          book_id: 'EZK', api: 'ezekiel',          chapters: 48, translation: 'web' },
+  { key: 'daniel',           book: 'Daniel',           book_id: 'DAN', api: 'daniel',           chapters: 12, translation: 'web' },
+  { key: 'hosea',            book: 'Hosea',            book_id: 'HOS', api: 'hosea',            chapters: 14, translation: 'web' },
+  { key: 'joel',             book: 'Joel',             book_id: 'JOL', api: 'joel',             chapters: 3,  translation: 'web' },
+  { key: 'amos',             book: 'Amos',             book_id: 'AMO', api: 'amos',             chapters: 9,  translation: 'web' },
+  { key: 'obadiah',          book: 'Obadiah',          book_id: 'OBA', api: 'obadiah',          chapters: 1,  translation: 'web', versesCh1: 21 },
+  { key: 'jonah',            book: 'Jonah',            book_id: 'JON', api: 'jonah',            chapters: 4,  translation: 'web' },
+  { key: 'micah',            book: 'Micah',            book_id: 'MIC', api: 'micah',            chapters: 7,  translation: 'web' },
+  { key: 'nahum',            book: 'Nahum',            book_id: 'NAM', api: 'nahum',            chapters: 3,  translation: 'web' },
+  { key: 'habakkuk',         book: 'Habakkuk',         book_id: 'HAB', api: 'habakkuk',         chapters: 3,  translation: 'web' },
+  { key: 'zephaniah',        book: 'Zephaniah',        book_id: 'ZEP', api: 'zephaniah',        chapters: 3,  translation: 'web' },
+  { key: 'haggai',           book: 'Haggai',           book_id: 'HAG', api: 'haggai',           chapters: 2,  translation: 'web' },
+  { key: 'zechariah',        book: 'Zechariah',        book_id: 'ZEC', api: 'zechariah',        chapters: 14, translation: 'web' },
+  { key: 'malachi',          book: 'Malachi',          book_id: 'MAL', api: 'malachi',          chapters: 4,  translation: 'web' },
+  { key: '2corinthians',     book: '2 Corinthians',    book_id: '2CO', api: '2corinthians',     chapters: 13, translation: 'web' },
+  { key: 'galatians',        book: 'Galatians',        book_id: 'GAL', api: 'galatians',        chapters: 6,  translation: 'web' },
+  { key: 'colossians',       book: 'Colossians',       book_id: 'COL', api: 'colossians',       chapters: 4,  translation: 'web' },
+  { key: '1thessalonians',   book: '1 Thessalonians',  book_id: '1TH', api: '1thessalonians',   chapters: 5,  translation: 'web' },
+  { key: '2thessalonians',   book: '2 Thessalonians',  book_id: '2TH', api: '2thessalonians',   chapters: 3,  translation: 'web' },
+  { key: '1timothy',         book: '1 Timothy',        book_id: '1TI', api: '1timothy',         chapters: 6,  translation: 'web' },
+  { key: 'titus',            book: 'Titus',            book_id: 'TIT', api: 'titus',            chapters: 3,  translation: 'web' },
+  // versesCh1 on a single-chapter book: bible-api.com parses "book 1" as
+  // "book chapter:verse 1" (Obadiah 1:1), not "book chapter 1", for any book
+  // with exactly one chapter -- there's no bare-chapter query that isn't also
+  // a valid single-verse reference. Discovered live: an initial ingest of
+  // Obadiah and Philemon silently wrote exactly one verse each instead of
+  // failing loudly. An explicit "1:1-N" verse range is unambiguous and pulls
+  // the whole chapter; N is the book's real, well-known total verse count.
+  { key: 'philemon',         book: 'Philemon',         book_id: 'PHM', api: 'philemon',         chapters: 1,  translation: 'web', versesCh1: 25 },
+  { key: '1peter',           book: '1 Peter',          book_id: '1PE', api: '1peter',           chapters: 5,  translation: 'web' },
+  { key: '2peter',           book: '2 Peter',          book_id: '2PE', api: '2peter',           chapters: 3,  translation: 'web' },
+  { key: '1john',            book: '1 John',           book_id: '1JN', api: '1john',            chapters: 5,  translation: 'web' },
+  { key: '2john',            book: '2 John',           book_id: '2JN', api: '2john',            chapters: 1,  translation: 'web', versesCh1: 13 },
+  { key: '3john',            book: '3 John',           book_id: '3JN', api: '3john',            chapters: 1,  translation: 'web', versesCh1: 14 },
+  { key: 'jude',             book: 'Jude',             book_id: 'JUD', api: 'jude',             chapters: 1,  translation: 'web', versesCh1: 25 },
+  { key: 'revelation',       book: 'Revelation',       book_id: 'REV', api: 'revelation',       chapters: 22, translation: 'web' },
 ];
 
 // --- args ---
@@ -93,7 +149,12 @@ function writeBook(t, data) {
 
 // Fetch one chapter with retries + backoff. Returns { verses:[{v,t}] } or throws.
 async function fetchChapter(t, chapter) {
-  const url = `${API}/${encodeURIComponent(t.api)}%20${chapter}?translation=${t.translation}`;
+  // See the versesCh1 comment on the single-chapter TARGETS entries above --
+  // "book 1" is ambiguous with "book chapter:verse 1" for those books, and
+  // silently returns just that one verse instead of erroring.
+  const url = t.chapters === 1 && t.versesCh1
+    ? `${API}/${encodeURIComponent(t.api)}%201:1-${t.versesCh1}?translation=${t.translation}`
+    : `${API}/${encodeURIComponent(t.api)}%20${chapter}?translation=${t.translation}`;
   let lastErr;
   for (let attempt = 1; attempt <= 4; attempt++) {
     try {

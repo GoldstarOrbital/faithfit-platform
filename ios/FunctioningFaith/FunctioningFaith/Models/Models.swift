@@ -1125,6 +1125,25 @@ struct BibleCoverageBook: Decodable, Identifiable {
     }
 }
 
+/// Browsing Scripture by theme (the seven deadly sins and the seven virtues
+/// that answer them) rather than by book/chapter or an exact reference
+/// someone already has memorized -- see the server's lib/verse-categories.js.
+struct VerseCategory: Decodable, Identifiable, Hashable {
+    let id: String
+    let label: String
+    let kind: String
+    let count: Int
+}
+
+struct VerseCategoryDetail: Decodable {
+    let id: String
+    let label: String
+    let kind: String
+    let verses: [BibleVerse]
+}
+
+struct VerseCategoriesResponse: Decodable { let categories: [VerseCategory] }
+
 struct BibleCoverageResponse: Decodable {
     let totalVerses: Int
     let coverage: [BibleCoverageBook]

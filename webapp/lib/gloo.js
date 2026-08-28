@@ -236,7 +236,10 @@ function stats(days) {
  * Returns null on any failure — no credentials, no token, non-2xx, timeout,
  * malformed body. Callers treat null as "no AI available" and fall back.
  */
-async function chat(opts) {
+// Shared by chat() and peekCache() so the two never compute the cache key
+// differently -- a caller peeking for a cached answer must land on exactly
+// the same key a real chat() call for the same opts would use.
+function buildRequest(opts) {
   const o = opts || {};
   if (!Array.isArray(o.messages) || !o.messages.length) return null;
 
@@ -261,7 +264,28 @@ async function chat(opts) {
   }
 
   const kind = o.kind || 'chat';
-  const key = cacheKey(kind, body);
+  return { body, kind, key: cacheKey(kind, body), grounded, trad };
+}
+
+/**
+ * A synchronous, network-free peek at whether this exact chat() call is
+ * already cached. Lets a latency-sensitive caller (a card that must render
+ * immediately, like Scripture in Motion's coaching line) use a fast fallback
+ * on a cache miss instead of blocking the whole response on a live AI round
+ * trip, while a real chat() call -- fired in the background, not awaited --
+ * populates the cache for next time.
+ */
+function peekCache(opts) {
+  const req = buildRequest(opts);
+  if (!req || (opts && opts.cache === false)) return null;
+  return cacheGet(req.key);
+}
+
+async function chat(opts) {
+  const o = opts || {};
+  const req = buildRequest(o);
+  if (!req) return null;
+  const { body, kind, key, grounded, trad } = req;
   if (o.cache !== false) {
     const hit = cacheGet(key);
     if (hit) return { ...hit, cached: true };
@@ -465,7 +489,7 @@ function start() {
 }
 
 module.exports = {
-  start, init, isConfigured, chat, chatJson, stats,
+  start, init, isConfigured, chat, chatJson, peekCache, stats,
   extractRefs, verifyRefs, normaliseTradition, TRADITIONS,
   _cache: { cacheKey, cacheGet, cachePut },
 };

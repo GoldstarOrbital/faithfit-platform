@@ -25,6 +25,7 @@ const overlay = require('../lib/overlay');
 const usernames = require('../lib/usernames');
 const youversion = require('../lib/youversion');
 const motivation = require('../lib/motivation');
+const verseCategories = require('../lib/verse-categories');
 const scriptureMission = require('../lib/scriptureMission');
 const gloo = require('../lib/gloo');
 const companion = require('../lib/companion');
@@ -4385,6 +4386,20 @@ router.get('/bible/coverage', (req, res) => {
   const rows = db.prepare('SELECT book, translation, MIN(chapter) min_ch, MAX(chapter) max_ch, COUNT(DISTINCT chapter) chapters, COUNT(*) verse_count FROM bible_verses GROUP BY book, translation ORDER BY book').all();
   const total = db.prepare('SELECT COUNT(*) c FROM bible_verses').get().c;
   res.json({ note: 'Verified public-domain subset (KJV/WEB via bible-api.com), not the full canon.', total_verses: total, books: rows.length, coverage: rows });
+});
+
+// Browsing Scripture by theme rather than by book/chapter or an exact
+// reference someone already has memorized -- see lib/verse-categories.js.
+// Public, same as the rest of /bible/*: reading Scripture never requires an
+// account.
+router.get('/verse-categories', (req, res) => {
+  res.json({ categories: verseCategories.list() });
+});
+
+router.get('/verse-categories/:id', async (req, res) => {
+  const category = await verseCategories.versesFor(String(req.params.id || ''));
+  if (!category) return res.status(404).json({ error: 'category_not_found' });
+  res.json(category);
 });
 
 // ---- Location-based church discovery (free OpenStreetMap Overpass API, no key) ----

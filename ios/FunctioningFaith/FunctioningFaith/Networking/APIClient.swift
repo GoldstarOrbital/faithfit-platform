@@ -825,6 +825,19 @@ final class APIClient {
         return try await request("/api/bible/passage/\(encoded)/\(chapter)")
     }
 
+    func fetchVerseCategories() async throws -> [VerseCategory] {
+        if useMock { return [] }
+        let r: VerseCategoriesResponse = try await request("/api/verse-categories")
+        return r.categories
+    }
+
+    func fetchVerseCategoryDetail(id: String) async throws -> VerseCategoryDetail {
+        guard let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw APIError.invalidResponse
+        }
+        return try await request("/api/verse-categories/\(encoded)")
+    }
+
     func fetchRandomVerse() async throws -> BibleVerse {
         if useMock {
             return BibleVerse(book: "Isaiah", chapter: 40, verse: 31, text: "Those who wait for Yahweh will renew their strength.", translation: "WEB")

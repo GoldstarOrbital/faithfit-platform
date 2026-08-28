@@ -174,8 +174,19 @@ struct DMConversationView: View {
                                                otherHasAvatar: c.otherHasAvatar, blocked: c.blocked, messages: c.messages + [sent])
             }
         } catch {
-            messageText = text // put it back rather than losing what they typed
-            errorMessage = error.localizedDescription
+            // A request can fail on the client side (a dropped or timed-out
+            // response) after the server already stored the message -- the
+            // message really did send. Restoring the typed text in that case
+            // left it sitting in the composer looking unsent, and a member
+            // resending it would have posted a duplicate. Check the thread's
+            // actual state before assuming the send truly failed.
+            if let fresh = try? await store.loadThread(id: threadID),
+               fresh.messages.contains(where: { $0.fromMe && $0.body == text }) {
+                conversation = fresh
+            } else {
+                messageText = text // put it back rather than losing what they typed
+                errorMessage = error.localizedDescription
+            }
         }
         isSending = false
     }
