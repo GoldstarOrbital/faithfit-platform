@@ -7,9 +7,13 @@ enum SocialOnboardingGate {
     }
 }
 
-/// A short, choice-led first run for newly created accounts. The goal is a
-/// meaningful community connection, not compulsory engagement: every action
-/// can be skipped and notification permission is requested only after opt-in.
+/// A short, choice-led first run for newly created accounts, continuing
+/// directly from `IntroDemoView`'s "Get Started" -- same parchment/walnut/
+/// gold theme, same Cinzel/Spectral type, so the two feel like one flow
+/// instead of the product demo handing off to a plain system-styled screen.
+/// The goal is a meaningful community connection, not compulsory engagement:
+/// every action can be skipped and notification permission is requested only
+/// after opt-in.
 struct SocialOnboardingView: View {
     let onComplete: () -> Void
 
@@ -27,7 +31,7 @@ struct SocialOnboardingView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 ProgressView(value: Double(step + 1), total: 3)
-                    .tint(FFTheme.hearth)
+                    .tint(FFTheme.meadow)
                     .padding(.horizontal, 24)
                     .padding(.top, 12)
 
@@ -53,10 +57,15 @@ struct SocialOnboardingView: View {
                 }
                 .padding(24)
             }
-            .background(Color(.systemGroupedBackground))
+            .background(
+                LinearGradient(colors: [FFTheme.parchment0, FFTheme.parchment1, FFTheme.parchment2], startPoint: .top, endPoint: .bottom)
+                    .ignoresSafeArea()
+            )
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Skip") { onComplete() }
+                        .font(FFTheme.serifMedium(15))
+                        .foregroundStyle(FFTheme.inkSoft)
                 }
             }
             .task { await loadCommunity() }
@@ -66,16 +75,18 @@ struct SocialOnboardingView: View {
     private var welcomeStep: some View {
         ScrollView {
             VStack(spacing: 22) {
-                Image(systemName: "figure.run.circle.fill")
-                    .font(.system(size: 74))
-                    .foregroundStyle(FFTheme.hearth)
+                Image("BrandMarkTransparent")
+                    .resizable().scaledToFit()
+                    .frame(width: 84, height: 84)
+                    .shadow(color: FFTheme.walnut.opacity(0.26), radius: 10, y: 6)
                     .accessibilityHidden(true)
                 Text("Welcome to your Christian fitness community")
-                    .font(.largeTitle.bold())
+                    .font(FFTheme.display(27, weight: .bold, relativeTo: .title))
+                    .foregroundStyle(FFTheme.ink)
                     .multilineTextAlignment(.center)
                 Text("Training is easier to sustain when it is connected to purpose and people. Choose what helps; everything here remains under your control.")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
+                    .font(FFTheme.serif(16))
+                    .foregroundStyle(FFTheme.inkSoft)
                     .multilineTextAlignment(.center)
                 VStack(alignment: .leading, spacing: 14) {
                     onboardingPoint("Move with purpose", icon: "figure.run")
@@ -84,7 +95,9 @@ struct SocialOnboardingView: View {
                     onboardingPoint("Control your privacy", icon: "lock.shield.fill")
                 }
                 .padding()
-                .background(.background, in: RoundedRectangle(cornerRadius: 18))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.lg, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: FFTheme.Radius.lg, style: .continuous).stroke(FFTheme.hairline, lineWidth: 1))
             }
             .padding(24)
         }
@@ -93,15 +106,18 @@ struct SocialOnboardingView: View {
     private var communityStep: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("Find your people").font(.largeTitle.bold())
+                Text("Find your people")
+                    .font(FFTheme.display(27, weight: .bold, relativeTo: .title))
+                    .foregroundStyle(FFTheme.ink)
                 Text("One genuine connection makes the feed more useful. These suggestions come from shared communities and mutual connections.")
-                    .foregroundStyle(.secondary)
+                    .font(FFTheme.serif(16))
+                    .foregroundStyle(FFTheme.inkSoft)
 
                 if isLoading {
                     ProgressView("Finding community...").frame(maxWidth: .infinity).padding(.vertical, 40)
                 } else {
                     if !suggestions.isEmpty {
-                        Text("People").font(.headline)
+                        Text("PEOPLE").font(FFTheme.eyebrow(12)).foregroundStyle(FFTheme.scripture)
                         ForEach(suggestions.prefix(3)) { user in
                             actionRow(
                                 title: user.displayName,
@@ -112,7 +128,7 @@ struct SocialOnboardingView: View {
                         }
                     }
                     if !groups.isEmpty {
-                        Text("Groups").font(.headline).padding(.top, 6)
+                        Text("GROUPS").font(FFTheme.eyebrow(12)).foregroundStyle(FFTheme.scripture).padding(.top, 6)
                         ForEach(groups.prefix(3)) { group in
                             actionRow(
                                 title: group.name,
@@ -127,7 +143,7 @@ struct SocialOnboardingView: View {
                     }
                 }
                 if let statusMessage {
-                    Text(statusMessage).font(.caption).foregroundStyle(.secondary)
+                    Text(statusMessage).font(FFTheme.caption()).foregroundStyle(FFTheme.inkSoft)
                 }
             }
             .padding(24)
@@ -137,9 +153,12 @@ struct SocialOnboardingView: View {
     private var notificationStep: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text("Choose your encouragement").font(.largeTitle.bold())
+                Text("Choose your encouragement")
+                    .font(FFTheme.display(27, weight: .bold, relativeTo: .title))
+                    .foregroundStyle(FFTheme.ink)
                 Text("Notifications are optional. Select only what would add value to your day; neither choice is required to use the app.")
-                    .foregroundStyle(.secondary)
+                    .font(FFTheme.serif(16))
+                    .foregroundStyle(FFTheme.inkSoft)
                 notificationChoice(
                     title: "Scripture encouragement",
                     detail: "Occasional verses connected to your chosen rhythm.",
@@ -153,8 +172,8 @@ struct SocialOnboardingView: View {
                     isOn: $communityNotifications
                 )
                 Label("You can change these choices in Profile or iOS Settings.", systemImage: "hand.raised.fill")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .font(FFTheme.caption())
+                    .foregroundStyle(FFTheme.inkSoft)
                     .padding(.top, 8)
             }
             .padding(24)
@@ -164,8 +183,9 @@ struct SocialOnboardingView: View {
     @ViewBuilder
     private func onboardingPoint(_ title: String, icon: String) -> some View {
         Label(title, systemImage: icon)
-            .font(.headline)
-            .foregroundStyle(.primary)
+            .font(FFTheme.serifSemibold(16))
+            .foregroundStyle(FFTheme.ink)
+            .tint(FFTheme.scripture)
     }
 
     @ViewBuilder
@@ -175,8 +195,8 @@ struct SocialOnboardingView: View {
                 .font(.title2)
                 .foregroundStyle(completed ? FFTheme.emerald : FFTheme.meadow)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.headline)
-                if !subtitle.isEmpty { Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                Text(title).font(FFTheme.serifSemibold(16)).foregroundStyle(FFTheme.ink)
+                if !subtitle.isEmpty { Text(subtitle).font(FFTheme.caption()).foregroundStyle(FFTheme.inkSoft).lineLimit(2) }
             }
             Spacer()
             Button(completed ? "Added" : actionTitle, action: action)
@@ -184,7 +204,8 @@ struct SocialOnboardingView: View {
                 .disabled(completed)
         }
         .padding()
-        .background(.background, in: RoundedRectangle(cornerRadius: 16))
+        .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous).stroke(FFTheme.hairline, lineWidth: 1))
     }
 
     @ViewBuilder
@@ -192,15 +213,17 @@ struct SocialOnboardingView: View {
         Toggle(isOn: isOn) {
             Label {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.headline)
-                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                    Text(title).font(FFTheme.serifSemibold(16)).foregroundStyle(FFTheme.ink)
+                    Text(detail).font(FFTheme.caption()).foregroundStyle(FFTheme.inkSoft)
                 }
             } icon: {
                 Image(systemName: icon).foregroundStyle(FFTheme.hearth)
             }
         }
+        .tint(FFTheme.meadow)
         .padding()
-        .background(.background, in: RoundedRectangle(cornerRadius: 16))
+        .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous).stroke(FFTheme.hairline, lineWidth: 1))
     }
 
     private func loadCommunity() async {
