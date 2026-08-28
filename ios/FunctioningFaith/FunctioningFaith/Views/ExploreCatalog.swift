@@ -28,8 +28,8 @@ enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
 
     var blurb: String {
         switch self {
-        case .journeys: return "Ride or run a 3D route through scripture and story."
-        case .challenges: return "Themed distance and effort goals to join."
+        case .journeys: return "An interactive virtual world — real workouts move your marker along real routes."
+        case .challenges: return "Scripture- and story-themed goals. Join one; your workouts carry it forward."
         case .videos: return "Kids, fitness, and short teaching films."
         case .reels: return "Scroll short encouragement, movement, faith, and food."
         case .podcasts: return "Full episodes from public faith and fitness feeds."
@@ -161,7 +161,7 @@ struct ChallengesHubView: View {
     var body: some View {
         List {
             Section {
-                Text("Themed journeys through scripture and story. Join one — your workouts move you forward.")
+                Text("Goals drawn from scripture and story — Frodo's Sprint, the Emmaus Road, Gideon's 300. Join one and let your workouts carry you toward it.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .listRowBackground(Color.clear)
@@ -193,7 +193,7 @@ struct ChallengesHubView: View {
                 FFIconBadge(systemImage: "flame.fill", tint: challenge.completed ? FFTheme.emerald : FFTheme.hearth)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(challenge.name).font(.headline)
-                    Text(challenge.description ?? challenge.flavor ?? "")
+                    Text(challenge.flavor ?? challenge.description ?? "")
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()

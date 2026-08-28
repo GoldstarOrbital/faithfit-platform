@@ -7,6 +7,7 @@ struct JourneyDetailView: View {
     @State private var isChangingMembership = false
     @State private var errorMessage: String?
     @State private var showLiveSession = false
+    @State private var selectedWaypoint: JourneyWaypoint?
 
     var body: some View {
         Group {
@@ -15,7 +16,12 @@ struct JourneyDetailView: View {
             } else if let detail {
                 List {
                     Section {
-                        JourneyWorldVisual(world: detail.journey.world, progress: detail.percent)
+                        JourneyInteractiveMap(
+                            world: detail.journey.world,
+                            progress: detail.percent,
+                            waypoints: detail.waypoints,
+                            totalKm: detail.journey.totalKm
+                        ) { waypoint in selectedWaypoint = waypoint }
                             .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
                         if let subtitle = detail.journey.subtitle { Text(subtitle).font(.callout) }
                         if let description = detail.journey.description { Text(description).font(.caption).foregroundStyle(.secondary) }
@@ -84,6 +90,9 @@ struct JourneyDetailView: View {
                 Task { await load() }
             }
         }
+        .sheet(item: $selectedWaypoint) { waypoint in
+            WaypointDetailSheet(waypoint: waypoint)
+        }
         .alert("Could not complete that action", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
@@ -132,6 +141,50 @@ private struct WaypointRow: View {
         }
         .padding(.vertical, 3)
         .opacity(waypoint.unlocked ? 1 : 0.55)
+    }
+}
+
+/// What tapping a pin on the interactive map actually opens -- the same
+/// narrative and scripture the scrollable waypoint list below shows, just
+/// surfaced at the moment of tapping the spot on the route it belongs to.
+private struct WaypointDetailSheet: View {
+    let waypoint: JourneyWaypoint
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text(String(format: "%.1f km mark", waypoint.kmMark))
+                        .font(FFTheme.eyebrow(12))
+                        .foregroundStyle(FFTheme.hearth)
+                    Text(waypoint.title)
+                        .font(FFTheme.display(24, weight: .bold, relativeTo: .title2))
+                        .foregroundStyle(FFTheme.ink)
+                    if let narrative = waypoint.narrative {
+                        Text(narrative)
+                            .font(FFTheme.serif(16))
+                            .foregroundStyle(FFTheme.inkSoft)
+                    }
+                    if let ref = waypoint.scriptureRef {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(ref).font(FFTheme.serifSemibold(16)).foregroundStyle(FFTheme.scripture)
+                            if let text = waypoint.scriptureText {
+                                Text(text).font(FFTheme.serifItalic(15)).foregroundStyle(FFTheme.inkSoft)
+                            }
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(FFTheme.scripture.opacity(0.08), in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
+                    }
+                }
+                .padding(24)
+            }
+            .background(FFTheme.parchment0.ignoresSafeArea())
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 
