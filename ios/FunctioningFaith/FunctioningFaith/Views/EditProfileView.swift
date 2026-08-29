@@ -17,6 +17,7 @@ struct EditProfileView: View {
     @State private var job: String
     @State private var church: String
     @State private var tradition: String
+    @State private var linkedInURL: String
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var avatarPickerItem: PhotosPickerItem?
@@ -47,6 +48,7 @@ struct EditProfileView: View {
         _job = State(initialValue: profile.job ?? "")
         _church = State(initialValue: profile.church ?? "")
         _tradition = State(initialValue: profile.tradition ?? "")
+        _linkedInURL = State(initialValue: profile.bioLinkURL ?? "")
     }
 
     var body: some View {
@@ -70,6 +72,14 @@ struct EditProfileView: View {
                     .listRowBackground(FFTheme.parchment1)
                 Section("Church") { TextField("e.g. Grace Community Church", text: $church) }
                     .listRowBackground(FFTheme.parchment1)
+
+                Section {
+                    TextField("https://www.linkedin.com/in/you", text: $linkedInURL)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } header: { Text("LinkedIn") } footer: { Text("Shown on your profile as a tappable link. Leave blank to remove it.") }
+                .listRowBackground(FFTheme.parchment1)
 
                 Section {
                     Picker("Tradition", selection: $tradition) {
@@ -205,6 +215,7 @@ struct EditProfileView: View {
                 job: job.trimmingCharacters(in: .whitespaces),
                 church: church.trimmingCharacters(in: .whitespaces),
                 tradition: tradition,
+                bioLinkURL: linkedInURL.trimmingCharacters(in: .whitespaces),
                 avatarData: avatarData.map(ImageUpload.dataURL(from:))
             )
             let fresh = try await APIClient.shared.fetchProfile()

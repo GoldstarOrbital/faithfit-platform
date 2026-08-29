@@ -144,6 +144,9 @@ struct ProfileView: View {
             if let bio = profile.bio, !bio.isEmpty { Text(bio).font(.caption).foregroundStyle(.secondary) }
             if let job = profile.job, !job.isEmpty { Text(job).font(.caption).foregroundStyle(.secondary) }
             if let church = profile.church, !church.isEmpty { Text(church).font(.caption).foregroundStyle(.secondary) }
+            if let label = profile.bioLinkLabel, let rawURL = profile.bioLinkURL, let url = URL(string: rawURL) {
+                Link(destination: url) { Label(label, systemImage: "link") }.buttonStyle(.ffGhost)
+            }
             Button { showEditProfile = true } label: {
                 Label("Edit profile", systemImage: "slider.horizontal.3")
                     .frame(maxWidth: .infinity)

@@ -91,8 +91,12 @@ private struct NewMessageView: View {
                 List(people) { person in
                     Button { Task { await open(person) } } label: {
                         HStack(spacing: 12) {
-                            Image(systemName: "person.crop.circle.fill")
-                                .font(.title2).foregroundStyle(FFTheme.hearth)
+                            if let personID = UUID(uuidString: person.id) {
+                                MemberAvatarView(userID: personID, hasAvatar: person.hasAvatar ?? false, size: 32)
+                            } else {
+                                Image(systemName: "person.crop.circle.fill")
+                                    .font(.title2).foregroundStyle(FFTheme.hearth)
+                            }
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(person.title).foregroundStyle(FFTheme.ink)
                                 if let subtitle = person.subtitle, !subtitle.isEmpty {
@@ -161,14 +165,7 @@ private struct DMThreadRow: View {
 
     var body: some View {
         HStack(spacing: FFTheme.Space.sm) {
-            Circle()
-                .fill(.secondary.opacity(0.2))
-                .frame(width: FFTheme.minTapTarget, height: FFTheme.minTapTarget)
-                .overlay(
-                    Text(initials(thread.otherName))
-                        .font(.subheadline.weight(.semibold))
-                )
-                .accessibilityHidden(true)
+            MemberAvatarView(userID: thread.otherUserID, hasAvatar: thread.otherHasAvatar, size: FFTheme.minTapTarget)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack {
@@ -208,12 +205,6 @@ private struct DMThreadRow: View {
         case "verse": return prefix + "Shared a verse"
         default: return prefix + (thread.previewText ?? "…")
         }
-    }
-
-    private func initials(_ name: String) -> String {
-        let parts = name.split(separator: " ")
-        let letters = parts.prefix(2).compactMap { $0.first }
-        return String(letters).uppercased()
     }
 }
 

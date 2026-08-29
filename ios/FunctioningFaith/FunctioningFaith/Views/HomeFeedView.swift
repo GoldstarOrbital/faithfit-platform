@@ -277,9 +277,12 @@ struct FeedPostRow: View {
                 NavigationLink {
                     MemberProfileView(userID: authorID)
                 } label: {
-                    Label(post.authorName, systemImage: "person.circle.fill")
-                        .font(.system(.subheadline, design: .default).weight(.semibold))
-                        .foregroundStyle(FFTheme.ink)
+                    HStack(spacing: 8) {
+                        MemberAvatarView(userID: authorID, hasAvatar: post.authorHasAvatar, size: 30)
+                        Text(post.authorName)
+                            .font(.system(.subheadline, design: .default).weight(.semibold))
+                            .foregroundStyle(FFTheme.ink)
+                    }
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Open \(post.authorName)'s profile")

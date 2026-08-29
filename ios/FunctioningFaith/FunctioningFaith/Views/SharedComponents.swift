@@ -1,5 +1,51 @@
 import SwiftUI
 
+// MARK: - Member avatar
+
+/// A member's real profile photo, fetched lazily -- matches the circle +
+/// meadow-gradient-placeholder treatment already used inline in
+/// MemberProfileView/ProfileView/EditProfileView, pulled out so the feed and
+/// the DM inbox (which previously showed only a generic person icon or bare
+/// initials, never the real photo) can share the exact same look and fetch
+/// path instead of each growing its own copy.
+///
+/// `hasAvatar` must come from whatever list/feed response already carries it
+/// (author_has_avatar, other_has_avatar, etc.) -- this view never guesses
+/// whether a fetch is worth attempting, it only skips one when told there's
+/// definitely nothing to fetch.
+struct MemberAvatarView: View {
+    let userID: UUID
+    let hasAvatar: Bool
+    var size: CGFloat = 36
+    @State private var image: UIImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Image(systemName: "person.fill")
+                    .font(.system(size: size * 0.45))
+                    .foregroundStyle(FFTheme.cream)
+            }
+        }
+        .frame(width: size, height: size)
+        .background(LinearGradient(colors: [FFTheme.meadow2, FFTheme.meadowDeep], startPoint: .topLeading, endPoint: .bottomTrailing), in: Circle())
+        .clipShape(Circle())
+        .accessibilityHidden(true)
+        // id: userID -- a recycled row (List/LazyVStack) reusing this view
+        // for a different person must re-fetch, not keep showing whichever
+        // photo happened to load first for that view identity.
+        .task(id: userID) {
+            image = nil
+            guard hasAvatar else { return }
+            if let dataURL = try? await APIClient.shared.fetchAvatarData(userID: userID) {
+                image = ImageUpload.decode(dataURL)
+            }
+        }
+    }
+}
+
 // MARK: - Async edge states (loading / empty / error)
 // Built for small screens: clear hierarchy, large tap targets, recovery actions.
 

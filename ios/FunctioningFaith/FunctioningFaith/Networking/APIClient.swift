@@ -1320,10 +1320,10 @@ final class APIClient {
     /// Empty string clears bioVerseRef/tradition (server semantics: `''`
     /// means "unset", matching the web form exactly); job/church have no
     /// such special case and just get stored as-is, empty or not.
-    func updateProfile(displayName: String, bioVerseRef: String, job: String, church: String, tradition: String, avatarData: String? = nil) async throws {
+    func updateProfile(displayName: String, bioVerseRef: String, job: String, church: String, tradition: String, bioLinkURL: String = "", avatarData: String? = nil) async throws {
         let _: UpdateProfileResponse = try await request(
             "/api/profile", method: "PUT",
-            body: UpdateProfileBody(displayName: displayName, bioVerseRef: bioVerseRef, job: job, church: church, tradition: tradition, avatarData: avatarData),
+            body: UpdateProfileBody(displayName: displayName, bioVerseRef: bioVerseRef, job: job, church: church, tradition: tradition, bioLinkURL: bioLinkURL, avatarData: avatarData),
             timeoutInterval: 45
         )
     }
@@ -1821,15 +1821,19 @@ struct UsernameCheckResult: Decodable {
 }
 
 private struct UpdateProfileBody: Encodable {
-    let displayName: String, bioVerseRef: String, job: String, church: String, tradition: String
+    let displayName: String, bioVerseRef: String, job: String, church: String, tradition: String, bioLinkURL: String
     let avatarData: String?
     enum CodingKeys: String, CodingKey {
-        case displayName = "display_name", bioVerseRef = "bio_verse_ref", job, church, tradition, avatarData = "avatar_data"
+        case displayName = "display_name", bioVerseRef = "bio_verse_ref", job, church, tradition
+        case bioLinkURL = "bio_link_url", avatarData = "avatar_data"
     }
 
     // Do not send `avatar_data: null` when someone edits only a profile field;
     // omission preserves their existing picture. A separate explicit removal
     // flow can intentionally send null when that feature is added.
+    // bio_link_url IS always sent, including empty -- the server distinguishes
+    // an omitted key (leave unchanged) from an empty string (clear the link),
+    // matching how every other plain-text field here already always sends.
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(displayName, forKey: .displayName)
@@ -1837,6 +1841,7 @@ private struct UpdateProfileBody: Encodable {
         try container.encode(job, forKey: .job)
         try container.encode(church, forKey: .church)
         try container.encode(tradition, forKey: .tradition)
+        try container.encode(bioLinkURL, forKey: .bioLinkURL)
         try container.encodeIfPresent(avatarData, forKey: .avatarData)
     }
 }
@@ -2068,17 +2073,17 @@ struct FeedPage {
 }
 
 private struct FeedDTO: Decodable {
-    let id: UUID; let authorID: UUID?; let content: String?; let author: String; let createdAt: String
+    let id: UUID; let authorID: UUID?; let content: String?; let author: String; let authorHasAvatar: Bool?; let createdAt: String
     let workoutID: UUID?; let workoutType: String?; let startTime: String?; let endTime: String?
     let calories: Int?; let avgHR: Int?; let verseReference: String?; let verseText: String?; let youVersionID: String?
     let likeCount: Int?; let likedByMe: Bool?; let savedByMe: Bool?; let commentCount: Int?
     let photoData: String?; let photoCategory: String?; let videoData: String?; let videoCategory: String?; let visibility: String?
 
-    enum CodingKeys: String, CodingKey { case id; case authorID = "author_id"; case content, author, visibility; case createdAt = "created_at"; case workoutID = "workout_id"; case workoutType = "workout_type"; case startTime = "start_time"; case endTime = "end_time"; case calories; case avgHR = "avg_hr"; case verseReference = "verse_reference"; case verseText = "verse_text"; case youVersionID = "youversion_id"; case likeCount = "like_count"; case likedByMe = "liked_by_me"; case savedByMe = "saved_by_me"; case commentCount = "comment_count"; case photoData = "photo_data"; case photoCategory = "photo_category"; case videoData = "video_data"; case videoCategory = "video_category" }
+    enum CodingKeys: String, CodingKey { case id; case authorID = "author_id"; case content, author; case authorHasAvatar = "author_has_avatar"; case visibility; case createdAt = "created_at"; case workoutID = "workout_id"; case workoutType = "workout_type"; case startTime = "start_time"; case endTime = "end_time"; case calories; case avgHR = "avg_hr"; case verseReference = "verse_reference"; case verseText = "verse_text"; case youVersionID = "youversion_id"; case likeCount = "like_count"; case likedByMe = "liked_by_me"; case savedByMe = "saved_by_me"; case commentCount = "comment_count"; case photoData = "photo_data"; case photoCategory = "photo_category"; case videoData = "video_data"; case videoCategory = "video_category" }
     var model: FeedPost {
         let workout = workoutType.map { WorkoutSummary(id: workoutID ?? UUID(), type: $0, startTime: DateParser.parse(startTime) ?? .now, endTime: DateParser.parse(endTime), calories: calories, avgHR: avgHR) }
         let verse = verseReference.map { VerseSnippet(id: youVersionID ?? $0, reference: $0, snippet: verseText ?? "", deepLink: "https://www.bible.com/bible?query=\($0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0)") }
-        return FeedPost(id: id, authorID: authorID, authorName: author, content: content ?? "", workout: workout, verse: verse, createdAt: DateParser.parse(createdAt) ?? .now, photoData: photoData, photoCategory: photoCategory, videoData: videoData, videoCategory: videoCategory, visibility: visibility ?? "private", likeCount: likeCount ?? 0, likedByMe: likedByMe ?? false, savedByMe: savedByMe ?? false, commentCount: commentCount ?? 0)
+        return FeedPost(id: id, authorID: authorID, authorName: author, authorHasAvatar: authorHasAvatar ?? false, content: content ?? "", workout: workout, verse: verse, createdAt: DateParser.parse(createdAt) ?? .now, photoData: photoData, photoCategory: photoCategory, videoData: videoData, videoCategory: videoCategory, visibility: visibility ?? "private", likeCount: likeCount ?? 0, likedByMe: likedByMe ?? false, savedByMe: savedByMe ?? false, commentCount: commentCount ?? 0)
     }
 }
 
@@ -2089,7 +2094,8 @@ private struct MeDTO: Decodable {
         UserProfile(id: user.id, displayName: user.displayName, bio: user.bioVerseRef, xp: xp?.xp ?? 0, level: xp?.level ?? 1,
                     badges: badges.map { Badge(id: $0.id, name: $0.name, iconURL: $0.icon) },
                     job: user.job, church: user.church, tradition: user.tradition,
-                    churchOsmID: user.churchOsmID, churchName: user.churchName, bibleVersionID: user.bibleVersionID)
+                    churchOsmID: user.churchOsmID, churchName: user.churchName, bibleVersionID: user.bibleVersionID,
+                    bioLinkURL: user.bioLinkURL, bioLinkLabel: user.bioLinkLabel)
     }
 }
 private struct UserDTO: Decodable {
@@ -2097,11 +2103,13 @@ private struct UserDTO: Decodable {
     let job: String?; let church: String?; let tradition: String?
     let churchOsmID: String?; let churchName: String?
     let bibleVersionID: Int?
+    let bioLinkURL: String?; let bioLinkLabel: String?
     enum CodingKeys: String, CodingKey {
         case id; case displayName = "display_name"; case bioVerseRef = "bio_verse_ref"
         case job, church, tradition
         case churchOsmID = "church_osm_id"; case churchName = "church_name"
         case bibleVersionID = "bible_version_id"
+        case bioLinkURL = "bio_link_url"; case bioLinkLabel = "bio_link_label"
     }
 }
 private struct XPDTO: Decodable { let xp: Int; let level: Int }

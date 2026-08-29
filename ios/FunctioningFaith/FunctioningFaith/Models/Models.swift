@@ -45,6 +45,7 @@ struct FeedPost: Codable, Identifiable {
     let id: UUID
     let authorID: UUID?
     let authorName: String
+    let authorHasAvatar: Bool
     let content: String
     let workout: WorkoutSummary?
     let verse: VerseSnippet?
@@ -63,6 +64,7 @@ struct FeedPost: Codable, Identifiable {
         id: UUID,
         authorID: UUID? = nil,
         authorName: String,
+        authorHasAvatar: Bool = false,
         content: String,
         workout: WorkoutSummary?,
         verse: VerseSnippet?,
@@ -80,6 +82,7 @@ struct FeedPost: Codable, Identifiable {
         self.id = id
         self.authorID = authorID
         self.authorName = authorName
+        self.authorHasAvatar = authorHasAvatar
         self.content = content
         self.workout = workout
         self.verse = verse
@@ -126,6 +129,12 @@ struct UserProfile: Codable, Identifiable {
     var churchOsmID: String? = nil
     var churchName: String? = nil
     var bibleVersionID: Int? = nil
+    /// The server derives `bioLinkLabel` from the URL's domain itself (an
+    /// allowlist of LinkedIn plus known fundraiser platforms -- see the
+    /// server's BIO_LINK_ALLOWLIST) rather than letting a member type
+    /// arbitrary label text, so the two always agree.
+    var bioLinkURL: String? = nil
+    var bioLinkLabel: String? = nil
 }
 
 /// The server-calculated result of ending a live workout. Values are either

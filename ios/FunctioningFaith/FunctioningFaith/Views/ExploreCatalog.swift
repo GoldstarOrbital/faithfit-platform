@@ -430,10 +430,16 @@ struct MotivationExploreView: View {
                 .multilineTextAlignment(.center)
         }
         .padding(FFTheme.Space.lg)
+        }
+        }
+        // Was attached to the VStack inside the "loaded" branch only -- but
+        // that branch can never render until load() has already run once,
+        // and nothing else ever called it, so the view was stuck on the
+        // loading spinner forever on every first appearance. Attaching it to
+        // the outer Group means it fires regardless of which branch is
+        // currently showing.
         .navigationTitle("Motivation")
         .task { await load() }
-        }
-        }
     }
 
     private func load() async {
@@ -442,7 +448,6 @@ struct MotivationExploreView: View {
         do {
             quote = try await APIClient.shared.fetchMotivationQuote()
         } catch {
-            guard !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
         }
         isLoading = false

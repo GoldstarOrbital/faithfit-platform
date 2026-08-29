@@ -1381,7 +1381,14 @@ router.get('/feed', (req, res) => {
     }
     const commentCount = Number(p.comment_count || 0);
     delete p.comment_count;
-    return { ...p, like_count: likeCount, liked_by_me: likedByMe, saved_by_me: savedByMe, comment_count: commentCount, distance_km: distanceKm, pace_min_per_km: pace };
+    // author_has_avatar / author_verified_developer come straight out of a
+    // SQL CASE WHEN as SQLite integers (0/1), not real JSON booleans -- every
+    // other social flag here goes through !! first; these two were spread
+    // through untouched, which decodes fine to a dynamically-typed client
+    // but throws a hard type-mismatch against a native Bool field.
+    return { ...p, author_has_avatar: !!p.author_has_avatar, author_verified_developer: !!p.author_verified_developer,
+             like_count: likeCount, liked_by_me: likedByMe, saved_by_me: savedByMe, comment_count: commentCount,
+             distance_km: distanceKm, pace_min_per_km: pace };
   });
   res.json({ posts: withSocial, next_cursor: withSocial.length === limit ? withSocial[withSocial.length - 1].created_at : null });
 });
@@ -1409,7 +1416,7 @@ router.get('/feed/friends-workouts', requireAuth, (req, res) => {
       AND NOT EXISTS (SELECT 1 FROM account_relationship_controls rc WHERE rc.actor_id=@me AND rc.subject_id=p.user_id AND rc.control='mute')
     ORDER BY p.created_at DESC LIMIT @limit
   `).all({ me: meId, limit });
-  res.json({ workouts: rows.map(w => ({ ...w, kudos_count: Number(w.kudos_count || 0), kudos_by_me: !!w.kudos_by_me })) });
+  res.json({ workouts: rows.map(w => ({ ...w, author_has_avatar: !!w.author_has_avatar, kudos_count: Number(w.kudos_count || 0), kudos_by_me: !!w.kudos_by_me })) });
 });
 
 // Workout-specific encouragement. This is deliberately scoped to a workout a
