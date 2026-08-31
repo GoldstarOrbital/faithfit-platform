@@ -261,6 +261,23 @@ function timeAgo(iso) {
   return `${Math.floor(s/86400)}d`;
 }
 
+function workoutStat(value, label) {
+  return `<div class="stat"><div class="v">${value}</div><div class="l">${label}</div></div>`;
+}
+
+function postWorkoutStatsHtml(post, { includePace = false, includeCalories = true, includeAvgHr = true, avgHrLabel = 'avg hr' } = {}) {
+  const stats = [];
+  const distance = Number(post && post.distance_km);
+  if (Number.isFinite(distance) && distance > 0) stats.push(workoutStat(fmtKm(distance), 'km'));
+  const pace = Number(post && post.pace_min_per_km);
+  if (includePace && Number.isFinite(pace) && pace > 0) stats.push(workoutStat(pace.toFixed(1), 'min/km'));
+  const calories = Number(post && post.calories);
+  if (includeCalories && Number.isFinite(calories) && calories > 0) stats.push(workoutStat(Math.round(calories), 'kcal'));
+  const avgHr = Number(post && post.avg_hr);
+  if (includeAvgHr && Number.isFinite(avgHr) && avgHr > 0) stats.push(workoutStat(Math.round(avgHr), avgHrLabel));
+  return stats.length ? `<div class="stat-row">${stats.join('')}</div>` : '';
+}
+
 let signInMode = 'login'; // 'login' | 'register'
 
 const OAUTH_ERROR_MESSAGES = {
@@ -839,7 +856,7 @@ async function renderHome(main) {
           return `<button class="home-explore-tile" data-home-tab="explore" data-home-explore="journeys">
             <span class="home-explore-tile-icon">🗺️</span>
             <span class="home-explore-tile-label">${escapeHtml(j.name || 'Journeys')}</span>
-            <span class="home-explore-tile-sub">${j.progress_km ? `${j.progress_km} / ${j.total_km} km` : `${j.total_km} km · ${escapeHtml(j.world || '')}`}</span>
+            <span class="home-explore-tile-sub">${j.progress_km ? `${fmtKm(j.progress_km)} / ${fmtKm(j.total_km)} km` : `${fmtKm(j.total_km)} km · ${escapeHtml(j.world || '')}`}</span>
           </button>`;
         })() : ''}
         ${homeReels?.videos?.slice(0, 2).map(v => `
@@ -868,7 +885,7 @@ async function renderHome(main) {
           <button class="home-explore-tile" data-user="${escapeHtml(w.author_id)}">
             <span class="home-explore-tile-icon">${{Run:'🏃',Walk:'🚶',Hike:'🥾','Trail Run':'⛰️',Cycle:'🚴',Swim:'🏊',Row:'🚣',Strength:'🏋️',Yoga:'🧘',Pickleball:'🏓',Tennis:'🎾',Basketball:'🏀'}[w.workout_type] || '💪'}</span>
             <span class="home-explore-tile-label">${escapeHtml(w.author)}</span>
-            <span class="home-explore-tile-sub">${escapeHtml(w.workout_type || 'Workout')}${w.distance_km ? ' · ' + w.distance_km + ' km' : ''} · ${timeAgo(w.created_at)} ago</span>
+            <span class="home-explore-tile-sub">${escapeHtml(w.workout_type || 'Workout')}${w.distance_km ? ' · ' + fmtKm(w.distance_km) + ' km' : ''} · ${timeAgo(w.created_at)} ago</span>
           </button>
           <button class="workout-kudos ${w.kudos_by_me ? 'given' : ''}" data-workout-kudos="${escapeHtml(w.workout_id)}" aria-pressed="${w.kudos_by_me ? 'true' : 'false'}">${w.kudos_by_me ? '✦ Kudos sent' : '✦ Give kudos'} <span>${w.kudos_count || 0}</span></button>
           <button class="workout-encourage" data-workout-encourage="${escapeHtml(w.author_id)}" data-workout-encourage-name="${escapeHtml(w.author)}" data-workout-encourage-type="${escapeHtml(w.workout_type || 'workout')}">Share Scripture</button>
@@ -1053,12 +1070,7 @@ async function renderHome(main) {
       <div class="post-content">${linkifyText(p.content || '')}</div>
       ${p.workout_type ? `
         ${p.route ? `<div class="route-banner">${realRouteSvg(p.route)}<span class="badge-overlay">${escapeHtml(p.workout_type)}</span></div>` : ''}
-        <div class="stat-row">
-          <div class="stat"><div class="v">${p.distance_km ?? '—'}</div><div class="l">km</div></div>
-          <div class="stat"><div class="v">${p.pace_min_per_km ?? '—'}</div><div class="l">min/km</div></div>
-          <div class="stat"><div class="v">${p.calories ?? '—'}</div><div class="l">kcal</div></div>
-          <div class="stat"><div class="v">${p.avg_hr ?? '—'}</div><div class="l">avg hr</div></div>
-        </div>` : ''}
+        ${postWorkoutStatsHtml(p, { includePace: true })}` : ''}
       ${p.photo_data ? `<div class="post-photo"><img src="${escapeHtml(p.photo_data)}" alt="${escapeHtml(p.photo_category || 'photo')}" style="width:100%;border-radius:10px;margin-top:8px;display:block" /><div class="muted" style="font-size:0.72rem;margin-top:4px">${{nature:'🌿 Nature',animal:'🐾 Animal',group:'👥 Group of people'}[p.photo_category] || ''}</div></div>` : ''}
       ${p.video_data ? `<div class="post-photo"><video src="${escapeHtml(p.video_data)}" controls preload="none" playsinline style="width:100%;border-radius:10px;margin-top:8px;display:block;background:#000"></video><div class="muted" style="font-size:0.72rem;margin-top:4px">${{workout:'🏃 Workout',nature:'🌿 Nature',animal:'🐾 Animal',group:'👥 Group of people'}[p.video_category] || ''}</div></div>` : ''}
       ${p.verse_reference ? `<div class="verse-card verse-tappable" data-verse-ref="${escapeHtml(p.verse_reference)}"><div class="verse-ref">${escapeHtml(p.verse_reference)}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div><div class="verse-convo" data-convo-for="${escapeHtml(p.verse_reference)}">💬 Start the conversation</div></div>` : ''}
@@ -1311,11 +1323,7 @@ async function renderUserProfile(userId) {
       ${p.photo_data ? `<img src="${escapeHtml(p.photo_data)}" alt="${escapeHtml(p.photo_category || 'photo')}" style="width:100%;border-radius:10px;margin-top:8px;display:block" />` : ''}
       ${p.video_data ? `<video src="${escapeHtml(p.video_data)}" controls preload="none" playsinline style="width:100%;border-radius:10px;margin-top:8px;display:block;background:#000"></video>` : ''}
       ${p.workout_type ? `${p.route ? `<div class="route-banner">${realRouteSvg(p.route)}<span class="badge-overlay">${p.workout_type}</span></div>` : ''}
-        <div class="stat-row">
-          <div class="stat"><div class="v">${p.distance_km ?? '—'}</div><div class="l">km</div></div>
-          <div class="stat"><div class="v">${p.calories ?? '—'}</div><div class="l">kcal</div></div>
-          <div class="stat"><div class="v">${p.avg_hr ?? '—'}</div><div class="l">avg hr</div></div>
-        </div>` : ''}
+        ${postWorkoutStatsHtml(p)}` : ''}
       ${p.verse_reference ? `<div class="verse-card verse-tappable" data-verse-ref="${escapeHtml(p.verse_reference)}"><div class="verse-ref">${escapeHtml(p.verse_reference)}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div><div class="verse-convo" data-convo-for="${escapeHtml(p.verse_reference)}">💬 Start the conversation</div></div>` : ''}
     </div>`).join('');
 
@@ -2837,7 +2845,7 @@ async function renderSavedPosts(main) {
     ${p.content ? `<div class="post-content">${linkifyText(p.content)}</div>` : ''}
     ${p.photo_data ? `<img src="${escapeHtml(p.photo_data)}" alt="${escapeHtml(p.photo_category || 'Saved community photo')}" style="width:100%;border-radius:12px;margin-top:8px;display:block" />` : ''}
     ${p.video_data ? `<video src="${escapeHtml(p.video_data)}" controls preload="none" playsinline style="width:100%;border-radius:12px;margin-top:8px;display:block;background:#000"></video>` : ''}
-    ${p.workout_type ? `<div class="stat-row"><div class="stat"><div class="v">${p.distance_km ?? '—'}</div><div class="l">km</div></div><div class="stat"><div class="v">${p.calories ?? '—'}</div><div class="l">kcal</div></div><div class="stat"><div class="v">${p.avg_hr ?? '—'}</div><div class="l">avg HR</div></div></div>` : ''}
+    ${p.workout_type ? postWorkoutStatsHtml(p, { includePace: false, includeCalories: true, includeAvgHr: true, avgHrLabel: 'avg HR' }) : ''}
     ${p.verse_reference ? `<div class="verse-card"><div class="verse-ref">${escapeHtml(p.verse_reference)}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div></div>` : ''}
     <button class="action-btn saved" data-unsave-post="${escapeHtml(p.id)}">🔖 Remove from saved</button>
   </article>`).join('') : '<div class="card glass"><p class="muted">Nothing saved yet. Tap 🔖 Save on a community post to keep it here.</p></div>';
@@ -6535,7 +6543,11 @@ function churchVideosHtml(data) {
             ${v.title ? `<div class="church-video-title">${escapeHtml(v.title)}</div>` : ''}
           </div>`).join('')}
       </div>
-      <div class="muted" style="font-size:0.72rem;margin-top:6px">${data.source === 'website' ? "Embedded on your church's own website." : `From your church's channel${data.channel_title ? ` (${escapeHtml(data.channel_title)})` : ''}.`}</div>
+      <div class="muted" style="font-size:0.72rem;margin-top:6px">${data.source === 'website'
+        ? "Embedded on your church's own website."
+        : data.source === 'demo_seed'
+          ? 'Demo church video library.'
+          : `From your church's channel${data.channel_title ? ` (${escapeHtml(data.channel_title)})` : ''}.`}</div>
     </div>`;
 }
 

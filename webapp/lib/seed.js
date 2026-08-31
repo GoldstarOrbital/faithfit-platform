@@ -8,17 +8,24 @@ function seed() {
   const users = [
     { id: randomUUID(), email: 'alex@functioningfaith.demo', display_name: 'Alex G.',
       bio_verse_ref: 'Philippians 4:13', bio_verse_text: 'I can do all things through Christ who strengtheneth me.',
-      job: 'Software Engineer', church: 'Grace Community Church', fitness_group: 'Sunrise 5K Fellowship', gym: 'Anytime Fitness', age: 29, show_age: 1 },
+      job: 'Software Engineer', church: 'Grace Community Church', church_name: 'Grace Community Church', church_osm_id: 'demo-grace-community',
+      fitness_group: 'Sunrise 5K Fellowship', gym: 'Anytime Fitness', age: 29, show_age: 1 },
     { id: randomUUID(), email: 'sam@functioningfaith.demo', display_name: 'Sam T.',
       bio_verse_ref: 'Isaiah 40:31', bio_verse_text: 'Those who hope in the Lord will renew their strength. They will soar on wings like eagles.',
-      job: 'Physical Therapist', church: 'Riverside Fellowship', fitness_group: 'Sunrise 5K Fellowship', gym: null, age: null, show_age: 0 },
+      job: 'Physical Therapist', church: 'Riverside Fellowship', church_name: 'Riverside Fellowship', church_osm_id: 'demo-riverside-fellowship',
+      fitness_group: 'Sunrise 5K Fellowship', gym: null, age: null, show_age: 0 },
     { id: randomUUID(), email: 'priya@functioningfaith.demo', display_name: 'Priya K.',
       bio_verse_ref: 'Psalm 46:1', bio_verse_text: 'God is our refuge and strength, an ever-present help in trouble.',
-      job: 'Yoga Instructor', church: 'New Hope Chapel', fitness_group: null, gym: 'Peak Studio', age: 34, show_age: 1 },
+      job: 'Yoga Instructor', church: 'New Hope Chapel', church_name: 'New Hope Chapel', church_osm_id: 'demo-new-hope-chapel',
+      fitness_group: null, gym: 'Peak Studio', age: 34, show_age: 1 },
   ];
-  const insertUser = db.prepare(`INSERT INTO users (id, email, display_name, bio_verse_ref, bio_verse_text, job, church, fitness_group, gym, age, show_age)
-    VALUES (@id, @email, @display_name, @bio_verse_ref, @bio_verse_text, @job, @church, @fitness_group, @gym, @age, @show_age)`);
+  const insertUser = db.prepare(`INSERT INTO users
+    (id, email, display_name, bio_verse_ref, bio_verse_text, job, church, church_name, church_osm_id, fitness_group, gym, age, show_age)
+    VALUES (@id, @email, @display_name, @bio_verse_ref, @bio_verse_text, @job, @church, @church_name, @church_osm_id, @fitness_group, @gym, @age, @show_age)`);
   users.forEach(u => insertUser.run(u));
+
+  const insertChurch = db.prepare('INSERT OR IGNORE INTO churches (id, osm_id, name) VALUES (?, ?, ?)');
+  users.forEach(u => insertChurch.run(randomUUID(), u.church_osm_id, u.church_name || u.church));
 
   const insertConsent = db.prepare("INSERT INTO user_consents (id, user_id, scope) VALUES (?, ?, ?)");
   users.forEach(u => {
@@ -67,8 +74,9 @@ function seed() {
   // Seed a couple of demo workouts + posts so the feed isn't empty on first load.
   const now = Date.now();
   const w1 = randomUUID();
-  db.prepare('INSERT INTO workouts (id, user_id, type, start_time, end_time, calories, avg_hr, max_hr) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(w1, users[1].id, 'Run', new Date(now - 3600000).toISOString(), new Date(now - 1800000).toISOString(), 420, 152, 171);
+  const w1DurationSec = 30 * 60;
+  db.prepare('INSERT INTO workouts (id, user_id, type, start_time, end_time, calories, avg_hr, max_hr, distance_km, duration_sec) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(w1, users[1].id, 'Run', new Date(now - 3600000).toISOString(), new Date(now - 1800000).toISOString(), 420, 152, 171, 5.2, w1DurationSec);
   db.prepare('INSERT INTO posts (id, user_id, content, workout_id, verse_id) VALUES (?, ?, ?, ?, ?)')
     .run(randomUUID(), users[1].id, 'Morning 5K done! Legs are tired but spirit is strong.', w1, 'isa.40.31');
 

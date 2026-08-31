@@ -98,6 +98,8 @@ const webhookTestWindow = new Map();
 const dmRateWindow = new Map();
 const commentRateWindow = new Map();
 const churchSearchWindow = new Map();
+const demoAuthWindow = new Map();
+const churchVideosWindow = new Map();
 
 // ---- auth: real email + password accounts (scrypt-hashed). ----
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -106,6 +108,39 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // every visibility check in this file matches positively, so any surface not
 // taught about circle posts excludes them rather than leaking them.
 const VISIBILITIES = ['private', 'circle', 'followers', 'public'];
+const DEMO_LOGIN_EMAILS = Object.freeze([
+  'alex@functioningfaith.demo',
+  'priya@functioningfaith.demo',
+  'sam@functioningfaith.demo',
+]);
+const SYNTHETIC_ACCOUNT_TOKEN_RE = /\b(?:test|qa|e2e|probe|check|verify|monitor|synthetic|smoke|load|bot)\b/i;
+
+function isDemoLoginEmail(email) {
+  return DEMO_LOGIN_EMAILS.includes(String(email || '').trim().toLowerCase());
+}
+
+function isLikelySyntheticAccount(row) {
+  const email = String(row?.email || '').trim().toLowerCase();
+  const localPart = email.split('@')[0].replace(/[._+-]+/g, ' ');
+  const displayName = String(row?.display_name || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+  if (email.endsWith('@functioningfaith.demo')) return true;
+  return SYNTHETIC_ACCOUNT_TOKEN_RE.test(localPart) || SYNTHETIC_ACCOUNT_TOKEN_RE.test(displayName);
+}
+
+function demoChurchVideos(limit = 4) {
+  return db.prepare(`
+    SELECT provider, video_id, title, thumbnail_url, published_at
+    FROM videos
+    ORDER BY datetime(COALESCE(published_at, datetime('now'))) DESC
+    LIMIT ?
+  `).all(limit).map(v => ({
+    provider: v.provider || 'youtube',
+    video_id: v.video_id,
+    title: v.title || 'Church video',
+    thumbnail_url: v.thumbnail_url || null,
+    published_at: v.published_at || null,
+  }));
+}
 
 async function captchaAccepted(req) {
   if (!process.env.TURNSTILE_SECRET_KEY) return true;
@@ -386,9 +421,12 @@ router.post('/auth/logout', (req, res) => {
 // explore a populated app instantly — clearly optional demo content, not the
 // primary way to use Functioning Faith. Only works for the pre-seeded demo emails.
 router.post('/auth/demo', (req, res) => {
+  if (!allowWindow(demoAuthWindow, `demo:${req.ip}`, 20, 60 * 1000)) {
+    return res.status(429).json({ error: 'too_many_attempts' });
+  }
   const { user_id } = req.body || {};
-  const user = db.prepare("SELECT * FROM users WHERE id = ? AND email LIKE '%@functioningfaith.demo'").get(user_id);
-  if (!user) return res.status(404).json({ error: 'demo_user_not_found' });
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(user_id);
+  if (!user || !isDemoLoginEmail(user.email)) return res.status(404).json({ error: 'demo_user_not_found' });
   accountSecurity.startSession(req, user.id, 'demo');
   res.json({ ok: true, user: publicUser(user) });
 });
@@ -1013,16 +1051,29 @@ async function syncSpotifyForUser(userId) {
 // the sign-in screen without exposing real users as passwordless login targets.
 router.get('/auth/demo-users', (req, res) => {
   res.json(db.prepare(`
-    SELECT id, display_name, bio_verse_ref FROM users WHERE email LIKE '%@functioningfaith.demo' ORDER BY display_name
-  `).all());
+    SELECT id, display_name, bio_verse_ref FROM users
+    WHERE lower(email) IN (?, ?, ?)
+    ORDER BY CASE lower(email)
+      WHEN ? THEN 1
+      WHEN ? THEN 2
+      WHEN ? THEN 3
+      ELSE 99
+    END
+  `).all(
+    DEMO_LOGIN_EMAILS[0], DEMO_LOGIN_EMAILS[1], DEMO_LOGIN_EMAILS[2],
+    DEMO_LOGIN_EMAILS[0], DEMO_LOGIN_EMAILS[1], DEMO_LOGIN_EMAILS[2],
+  ));
 });
 
 // Back-compat: the old demo picker POSTed here. Route it through the demo path so
 // existing sessions/clients keep working, but restrict to seeded demo accounts.
 router.post('/session', (req, res) => {
+  if (!allowWindow(demoAuthWindow, `session:${req.ip}`, 20, 60 * 1000)) {
+    return res.status(429).json({ error: 'too_many_attempts' });
+  }
   const { user_id } = req.body || {};
-  const user = db.prepare("SELECT * FROM users WHERE id = ? AND email LIKE '%@functioningfaith.demo'").get(user_id);
-  if (!user) return res.status(404).json({ error: 'user_not_found' });
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(user_id);
+  if (!user || !isDemoLoginEmail(user.email)) return res.status(404).json({ error: 'user_not_found' });
   accountSecurity.startSession(req, user.id, 'demo');
   res.json({ ok: true, user: publicUser(user) });
 });
@@ -2694,7 +2745,7 @@ router.get('/users/suggested', requireAuth, cachePrivate(60), (req, res) => {
   const me = req.session.userId;
   const rows = db.prepare(`
     WITH following AS (SELECT followee_id FROM followers WHERE follower_id = @me)
-    SELECT u.id, u.display_name, u.bio_verse_ref,
+    SELECT u.id, u.display_name, u.bio_verse_ref, u.email,
            (SELECT COUNT(*) FROM followers f WHERE f.followee_id = u.id) AS followers_count,
            (SELECT COUNT(*) FROM followers mutual
              WHERE mutual.followee_id = u.id
@@ -2705,14 +2756,17 @@ router.get('/users/suggested', requireAuth, cachePrivate(60), (req, res) => {
     WHERE u.id != @me
       AND u.id NOT IN (SELECT followee_id FROM following)
     ORDER BY shared_church DESC, shared_group DESC, mutual_count DESC, followers_count DESC, u.display_name
-    LIMIT 12
+    LIMIT 48
   `).all({
     me,
     church: db.prepare('SELECT church FROM users WHERE id = ?').get(me)?.church || null,
     group_name: db.prepare('SELECT fitness_group FROM users WHERE id = ?').get(me)?.fitness_group || null,
-  }).map(row => ({
+  }).filter(row => !isLikelySyntheticAccount(row))
+    .slice(0, 12)
+    .map(row => ({
     ...row,
     reason: row.shared_church ? 'From your church' : row.shared_group ? 'In your fitness group' : row.mutual_count ? `${row.mutual_count} mutual connection${row.mutual_count === 1 ? '' : 's'}` : 'Popular in the community',
+    email: undefined,
     shared_church: undefined,
     shared_group: undefined,
   }));
@@ -6018,17 +6072,26 @@ router.post('/churches/:osmId/auto-link', requireAuth, requireVerifiedChurchAdmi
 // The current user's church's recent videos, for the home feed.
 // Always HTTP 200 — an empty list is a normal, honest answer.
 router.get('/church/videos', requireAuth, async (req, res) => {
-  const me = db.prepare('SELECT church_osm_id, church_name FROM users WHERE id = ?').get(req.session.userId);
-  if (!me || !me.church_osm_id) return res.json({ videos: [], source: 'none', church_name: null });
-  const church = db.prepare('SELECT * FROM churches WHERE osm_id = ?').get(me.church_osm_id);
-  if (!church) return res.json({ videos: [], source: 'none', church_name: me.church_name });
+  if (!allowWindow(churchVideosWindow, `church-videos:${req.session.userId}`, 60, 60 * 1000)) {
+    return res.status(429).json({ error: 'too_many_requests' });
+  }
+  const me = db.prepare('SELECT email, church_osm_id, church_name, church FROM users WHERE id = ?').get(req.session.userId);
+  if (!me) return res.json({ videos: [], source: 'none', church_name: null });
+  const churchName = me.church_name || me.church || null;
+  let church = null;
+  if (me.church_osm_id) church = db.prepare('SELECT * FROM churches WHERE osm_id = ?').get(me.church_osm_id);
+  if (!church && churchName) {
+    church = db.prepare('SELECT * FROM churches WHERE lower(name) = lower(?) ORDER BY website_url IS NOT NULL DESC, youtube_channel_id IS NOT NULL DESC LIMIT 1')
+      .get(churchName);
+  }
+  if (!churchName && !church) return res.json({ videos: [], source: 'none', church_name: null });
 
-  if (church.youtube_channel_id && youtube.isConfigured()) {
+  if (church && church.youtube_channel_id && youtube.isConfigured()) {
     try {
       const uploads = await youtube.fetchRecentUploads(church.youtube_channel_id, 4);
       if (uploads && uploads.length) {
         return res.json({
-          church_name: church.name || me.church_name,
+          church_name: church.name || churchName,
           source: 'youtube_channel',
           channel_title: church.youtube_channel_title,
           videos: uploads.map(v => ({ provider: 'youtube', video_id: v.videoId, title: v.title, thumbnail_url: v.thumbnailUrl, published_at: v.publishedAt })),
@@ -6039,12 +6102,12 @@ router.get('/church/videos', requireAuth, async (req, res) => {
     }
   }
 
-  if (church.website_url) {
+  if (church && church.website_url) {
     try {
       const embeds = await fetchChurchWebsiteEmbeds(church.website_url);
       if (embeds && embeds.length) {
         return res.json({
-          church_name: church.name || me.church_name,
+          church_name: church.name || churchName,
           source: 'website',
           videos: embeds.slice(0, 4).map(e => ({ provider: e.provider, video_id: e.videoId, title: null, thumbnail_url: null, published_at: null })),
         });
@@ -6054,9 +6117,11 @@ router.get('/church/videos', requireAuth, async (req, res) => {
     }
   }
 
+  const fallbackDemoVideos = isDemoLoginEmail(me.email) ? demoChurchVideos(4) : [];
   res.json({
-    videos: [], source: 'none',
-    church_name: church.name || me.church_name,
+    videos: fallbackDemoVideos,
+    source: fallbackDemoVideos.length ? 'demo_seed' : 'none',
+    church_name: church?.name || churchName,
     youtube_configured: youtube.isConfigured(),
   });
 });
