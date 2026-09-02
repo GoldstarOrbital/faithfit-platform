@@ -22,6 +22,9 @@ const FEEDS = [
   { title: 'Christian History Almanac', host: '1517 Podcasts', theme: 'renewal',
     description: 'Daily short episodes on church history figures and events.',
     feed_url: 'https://rss.libsyn.com/shows/176333/destinations/1192955.xml' },
+  { title: "Pastor Rick's Daily Hope", host: 'Rick Warren', theme: 'devotion',
+    description: 'A daily devotional from Pastor Rick Warren, author of The Purpose Driven Life, on faith and everyday living.',
+    feed_url: 'https://rss.libsyn.com/shows/87974/destinations/430545.xml' },
 ];
 
 const MAX_EPISODES = 15;
