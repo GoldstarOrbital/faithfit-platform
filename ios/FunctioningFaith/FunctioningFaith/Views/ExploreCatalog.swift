@@ -5,7 +5,7 @@ import CoreLocation
 /// so the whole member product is visible at a glance, same as `renderExploreIndex`.
 enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
     case journeys, challenges, videos, reels, podcasts, scripture
-    case groups, leaderboard, breathe, motivation, news, recruiting
+    case groups, leaderboard, breathe, motivation, news, recruiting, bibleAnswers
 
     var id: String { rawValue }
 
@@ -23,6 +23,7 @@ enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
         case .motivation: return "Motivation"
         case .news: return "News"
         case .recruiting: return "Recruiting"
+        case .bibleAnswers: return "Bible Answers"
         }
     }
 
@@ -40,6 +41,7 @@ enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
         case .motivation: return "Short encouragement for the middle of a hard week."
         case .news: return "Christian news headlines from independent outlets."
         case .recruiting: return "Athlete stat profiles and coach connections, by sport."
+        case .bibleAnswers: return "Ask any Bible or faith question — answers cite only verified Scripture."
         }
     }
 
@@ -57,6 +59,7 @@ enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
         case .motivation: return "bolt.fill"
         case .news: return "newspaper.fill"
         case .recruiting: return "figure.run.circle.fill"
+        case .bibleAnswers: return "questionmark.bubble.fill"
         }
     }
 
@@ -74,6 +77,7 @@ enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
         case .motivation: return [FFTheme.goldBright, FFTheme.hearth]
         case .news: return [FFTheme.hearth, FFTheme.seal]
         case .recruiting: return [FFTheme.emerald, FFTheme.meadowDeep]
+        case .bibleAnswers: return [FFTheme.forest, FFTheme.meadowDeep]
         }
     }
 
@@ -92,6 +96,7 @@ enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
         case .motivation: MotivationExploreView()
         case .news: NewsView()
         case .recruiting: AthleteSearchView()
+        case .bibleAnswers: BibleAnswersView()
         }
     }
 }

@@ -5870,6 +5870,30 @@ router.post('/verses/:reference/ask', requireAuth, aiLimiter, async (req, res) =
   res.json(answer);
 });
 
+// Bible Answers -- Explore's general Bible/faith Q&A, not anchored to a
+// specific verse the way the thread companion above is. Gloo's own purpose
+// is answering questions like this, not just narrating one passage, hence
+// its own Explore surface rather than living inside a verse thread.
+router.post('/bible/ask', requireAuth, aiLimiter, async (req, res) => {
+  if (!gloo.isConfigured()) return res.status(503).json({ error: 'companion_unavailable' });
+
+  const question = String((req.body && req.body.question) || '').trim();
+  if (!question) return res.status(400).json({ error: 'empty_question' });
+  if (question.length > 500) return res.status(400).json({ error: 'question_too_long' });
+
+  const me = db.prepare('SELECT tradition, bible_version_id FROM users WHERE id = ?')
+    .get(req.session.userId) || {};
+
+  const answer = await companion.askBibleQuestion({
+    userId: req.session.userId,
+    tradition: me.tradition,
+    versionId: me.bible_version_id,
+    question,
+  });
+  if (!answer) return res.status(502).json({ error: 'no_verified_answer' });
+  res.json(answer);
+});
+
 // Add a reflection, or a reply to one (exactly one level deep).
 router.post('/verses/threads/:id/reflections', requireAuth, (req, res) => {
   const thread = db.prepare('SELECT * FROM verse_threads WHERE id = ?').get(req.params.id);

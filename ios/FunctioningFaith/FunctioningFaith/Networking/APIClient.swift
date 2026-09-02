@@ -984,15 +984,13 @@ final class APIClient {
         let _: UpdateProfileResponse = try await request("/api/profile", method: "PUT", body: UnitsSystemBody(unitsSystem: system?.rawValue))
     }
 
-    /// Grounded in the verse's own real text; every reference it cites is
-    /// independently re-verified server-side before this call ever returns
-    /// -- see companion.js's askAboutVerse. 503 when Gloo isn't configured.
-    func askAboutVerse(reference: String, question: String) async throws -> VerseAskAnswer {
+    /// Explore's "Bible Answers" -- a general Bible/faith question, grounded
+    /// by Gloo and re-verified against real Scripture server-side before
+    /// this call ever returns -- see companion.js's askBibleQuestion. 503
+    /// when Gloo isn't configured.
+    func askBibleQuestion(_ question: String) async throws -> BibleAnswer {
         if useMock { throw APIError.invalidResponse }
-        guard let encoded = reference.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
-            throw APIError.invalidResponse
-        }
-        return try await request("/api/verses/\(encoded)/ask", method: "POST", body: AskVerseBody(question: question))
+        return try await request("/api/bible/ask", method: "POST", body: AskVerseBody(question: question))
     }
 
     // MARK: - Podcasts

@@ -313,8 +313,8 @@ struct ResolvedPassage: Decodable {
     }
 }
 
-// ---- Ask about a verse: Gloo-grounded Q&A that only ever cites references
-// it has independently verified -- see companion.js's askAboutVerse. ----
+// ---- Bible Q&A: Gloo-grounded answers that only ever cite references they
+// have independently verified -- see companion.js's askBibleQuestion. ----
 
 struct AlsoCitedVerse: Decodable, Identifiable {
     let reference: String
@@ -322,9 +322,12 @@ struct AlsoCitedVerse: Decodable, Identifiable {
     var id: String { reference }
 }
 
-struct VerseAskAnswer: Decodable {
-    let reference: String
-    let text: String
+/// Explore's "Bible Answers" -- a general Bible/faith question, not anchored
+/// to one specific verse someone happens to be reading. `also` is only ever
+/// real, resolved Scripture: the server verifies every citation before this
+/// ever reaches the client.
+struct BibleAnswer: Decodable {
+    let question: String
     let answer: String
     let also: [AlsoCitedVerse]
 }

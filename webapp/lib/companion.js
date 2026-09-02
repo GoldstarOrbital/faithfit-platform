@@ -375,7 +375,70 @@ async function askAboutVerse(opts) {
   };
 }
 
+/**
+ * Answer a general Bible/faith question -- not anchored to a specific verse
+ * someone is currently reading, the way askAboutVerse above is. This is the
+ * Explore tab's "Bible Answers": "what does the Bible say about anxiety?",
+ * "who was Nehemiah?", things a member wonders on their own rather than a
+ * question that comes up mid-conversation on one particular passage.
+ *
+ * Same non-negotiable rule as askAboutVerse: any reference the model cites
+ * is resolved and verified against the real Bible text before the answer
+ * ever goes back to the member, and one that cannot be verified is dropped
+ * from the prose rather than shown as an unverifiable citation.
+ */
+async function askBibleQuestion(opts) {
+  const o = opts || {};
+  if (!gloo.isConfigured()) return null;
+
+  const question = String(o.question || '').trim();
+  if (!question) return null;
+  if (question.length > 500) return null;
+
+  const prompt =
+    `A member of a Christian fitness and community app has a question about the Bible ` +
+    `or the Christian faith. It is not about one specific verse they're currently ` +
+    `reading -- just something they're wondering:\n\n"${question}"\n\n` +
+    `Answer in 3-6 short sentences, plainly and warmly, as if talking to a friend after ` +
+    `church. Cite real Bible references by reference (e.g. "Romans 8:28") when they ` +
+    `genuinely help -- but do NOT write out their words, because the app will show the ` +
+    `real text for any reference you cite. If the question is not really answerable ` +
+    `from scripture, say so honestly rather than inventing an answer.`;
+
+  const res = await gloo.chat({
+    kind: 'bible_answers',
+    userId: o.userId,
+    tradition: o.tradition,
+    messages: [{ role: 'user', content: prompt }],
+    maxTokens: 900,
+    grounded: true,
+    sourcesLimit: 3,
+    cacheDays: 14,
+  });
+  if (!res) return null;
+
+  const check = await gloo.verifyRefs(res.text, (r) => resolveRef(r, o.versionId),
+    { kind: 'bible_answers_refs', userId: o.userId, tradition: res.tradition });
+  if (!check.ok) return null;
+
+  let answer = res.text;
+  for (const bad of check.rejected) {
+    answer = answer.split(bad).join('that passage');
+  }
+
+  return {
+    question,
+    answer: answer.trim(),
+    also: check.verified,
+    dropped: check.rejected.length,
+    citations: res.citations || [],
+    tradition: res.tradition || null,
+    model: res.model || null,
+    cached: !!res.cached,
+  };
+}
+
 module.exports = {
-  momentVerse, breathVerse, restVerse, askAboutVerse,
+  momentVerse, breathVerse, restVerse, askAboutVerse, askBibleQuestion,
   chooseVerse, resolveRef, cleanNote,
 };
