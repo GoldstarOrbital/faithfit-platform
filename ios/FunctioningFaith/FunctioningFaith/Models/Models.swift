@@ -326,9 +326,14 @@ struct AlsoCitedVerse: Decodable, Identifiable {
 /// to one specific verse someone happens to be reading. `also` is only ever
 /// real, resolved Scripture: the server verifies every citation before this
 /// ever reaches the client.
-struct BibleAnswer: Decodable {
+struct BibleAnswer: Decodable, Identifiable {
     let question: String
     let answer: String
+    // No server-side id -- these are generated fresh, never persisted (see
+    // companion.askBibleQuestion). Unique enough within one session's
+    // in-memory history, which is all this is ever used for (e.g. as a
+    // SwiftUI list/sheet item identity).
+    var id: String { question + "\u{0}" + answer }
     let also: [AlsoCitedVerse]
 }
 
@@ -392,6 +397,33 @@ struct DMMessage: Identifiable {
     var likedByMe: Bool = false
     var editedAt: Date? = nil
     var replyTo: DMReplyPreview? = nil
+    // Populated only for their respective `kind` -- see DMStore's parsing of
+    // each message's metadata. Sharing anything on the app through DM (a
+    // reel, a workout, a Bible Answers response) follows the exact same
+    // shape verse-sharing already used: real content re-resolved server-side,
+    // never trusted as-authored by the sender.
+    var sharedReel: DMSharedReel? = nil
+    var sharedWorkout: DMSharedWorkout? = nil
+    var sharedBibleAnswer: DMSharedBibleAnswer? = nil
+}
+
+struct DMSharedReel {
+    let videoID: String
+    let title: String?
+    let thumbnailURL: String?
+    let sourceURL: String?
+}
+
+struct DMSharedWorkout {
+    let workoutID: String
+    let type: String
+    let distanceKM: Double?
+    let durationSec: Int?
+}
+
+struct DMSharedBibleAnswer {
+    let question: String
+    let answer: String
 }
 
 /// A quoted snippet of the message being replied to -- never the raw

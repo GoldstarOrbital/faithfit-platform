@@ -11,6 +11,7 @@ struct WorkoutAnalysisView: View {
     @State private var isCorrectingGPS = false
     @State private var correctionResult: GPSCorrectionResult?
     @State private var correctionError: String?
+    @State private var showSharePicker = false
 
     var body: some View {
         Group {
@@ -121,6 +122,15 @@ struct WorkoutAnalysisView: View {
         }
         .navigationTitle("Activity analysis")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if analysis != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showSharePicker = true } label: { Image(systemName: "paperplane") }
+                        .accessibilityLabel("Share this workout")
+                }
+            }
+        }
+        .sheet(isPresented: $showSharePicker) { SharePickerSheet(content: .workout(id: workoutID)) }
         .task { await load() }
     }
 

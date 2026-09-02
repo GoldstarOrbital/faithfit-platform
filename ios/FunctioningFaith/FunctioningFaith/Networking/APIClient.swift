@@ -569,6 +569,30 @@ final class APIClient {
         return r.message
     }
 
+    /// Sharing anything else on the app through DM -- same shape as
+    /// sendDMVerse: the server re-resolves the real content, never trusting
+    /// what the client claims it is.
+    func sendDMReel(threadID: String, videoID: String, replyToID: String? = nil) async throws -> DMMessageDTO {
+        if useMock { throw APIError.invalidResponse }
+        let path = "/api/dms/\(threadID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? threadID)/reel"
+        let r: DMSendResponse = try await request(path, method: "POST", body: DMReelBody(videoID: videoID, replyToID: replyToID))
+        return r.message
+    }
+
+    func sendDMWorkout(threadID: String, workoutID: String, replyToID: String? = nil) async throws -> DMMessageDTO {
+        if useMock { throw APIError.invalidResponse }
+        let path = "/api/dms/\(threadID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? threadID)/workout"
+        let r: DMSendResponse = try await request(path, method: "POST", body: DMWorkoutBody(workoutID: workoutID, replyToID: replyToID))
+        return r.message
+    }
+
+    func sendDMBibleAnswer(threadID: String, question: String, answer: String, replyToID: String? = nil) async throws -> DMMessageDTO {
+        if useMock { throw APIError.invalidResponse }
+        let path = "/api/dms/\(threadID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? threadID)/bible-answer"
+        let r: DMSendResponse = try await request(path, method: "POST", body: DMBibleAnswerBody(question: question, answer: answer, replyToID: replyToID))
+        return r.message
+    }
+
     func publishE2EPublicKey(_ jwk: [String: String]) async throws {
         if useMock { return }
         let _: ActionResponse = try await request("/api/dms/keys", method: "POST", body: E2EKeyBody(publicKey: jwk))
@@ -1741,6 +1765,22 @@ private struct DMVerseBody: Encodable {
     let reference: String
     let replyToID: String?
     enum CodingKeys: String, CodingKey { case reference; case replyToID = "reply_to_id" }
+}
+private struct DMReelBody: Encodable {
+    let videoID: String
+    let replyToID: String?
+    enum CodingKeys: String, CodingKey { case videoID = "video_id"; case replyToID = "reply_to_id" }
+}
+private struct DMWorkoutBody: Encodable {
+    let workoutID: String
+    let replyToID: String?
+    enum CodingKeys: String, CodingKey { case workoutID = "workout_id"; case replyToID = "reply_to_id" }
+}
+private struct DMBibleAnswerBody: Encodable {
+    let question: String
+    let answer: String
+    let replyToID: String?
+    enum CodingKeys: String, CodingKey { case question, answer; case replyToID = "reply_to_id" }
 }
 private struct DMLikeResponse: Decodable {
     let liked: Bool

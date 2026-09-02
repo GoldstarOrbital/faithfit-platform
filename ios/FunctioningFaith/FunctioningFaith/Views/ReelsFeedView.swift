@@ -57,6 +57,7 @@ struct ReelsFeedView: View {
     @State private var playingReel: Reel?
     @State private var commentPost: FeedPost?
     @State private var showComposer = false
+    @State private var sharingReel: Reel?
     // "Functioning Faith Originals" -- videos uploaded directly to the app --
     // are always provider == "functioning_faith" and always carry their own
     // video_data, which is what makes true inline autoplay possible for them
@@ -110,6 +111,7 @@ struct ReelsFeedView: View {
                                      onLike: { react(reel, kind: "like") },
                                      onSave: { react(reel, kind: "save") },
                                      onComments: reel.provider == "functioning_faith" ? { openComments(for: reel) } : nil,
+                                     onShare: { sharingReel = reel },
                                      onNotInterested: { hide(reel) })
                                 .containerRelativeFrame([.horizontal, .vertical])
                                 .id(reel.id)
@@ -149,6 +151,7 @@ struct ReelsFeedView: View {
         .task { await load() }
         .sheet(item: $playingReel) { reel in ReelPlayerView(reel: reel) }
         .sheet(item: $commentPost) { post in NavigationStack { CommentThreadView(post: post) { } } }
+        .sheet(item: $sharingReel) { reel in SharePickerSheet(content: .reel(videoID: reel.videoID)) }
         .sheet(isPresented: $showComposer) {
             ReelComposerView {
                 Task { await load() }
@@ -286,6 +289,7 @@ private struct ReelPage: View {
     let onLike: () -> Void
     let onSave: () -> Void
     let onComments: (() -> Void)?
+    let onShare: () -> Void
     let onNotInterested: () -> Void
 
     @State private var showVerseThread = false
@@ -402,6 +406,7 @@ private struct ReelPage: View {
                         if let onComments {
                             actionButton(systemImage: "bubble.left.fill", label: "Reply", tint: .white, action: onComments)
                         }
+                        actionButton(systemImage: "paperplane.fill", label: "Share", tint: .white, action: onShare)
                         actionButton(systemImage: "hand.thumbsdown", label: "Not for me", tint: .white.opacity(0.85), action: onNotInterested)
                             .accessibilityLabel("Not interested")
                     }

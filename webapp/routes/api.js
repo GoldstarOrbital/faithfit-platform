@@ -6639,6 +6639,87 @@ router.post('/dms/:threadId/verse', requireAuth, async (req, res) => {
   res.status(201).json({ message: sent.message, verse: { reference, text: row.text }, share_url: shareUrl });
 });
 
+// Share anything on the app through DM -- a reel, a workout, or a Bible
+// Answers response -- the same way a verse already could. Every kind below
+// re-resolves the real content server-side rather than trusting whatever the
+// client claims it is, the same rule the verse route above already follows.
+router.post('/dms/:threadId/reel', requireAuth, (req, res) => {
+  const videoId = String((req.body && req.body.video_id) || '').trim().slice(0, 120);
+  if (!/^[A-Za-z0-9_-]{6,120}$/.test(videoId)) return res.status(400).json({ error: 'invalid_reel' });
+  const thread = dms.threadFor(req.session.userId, req.params.threadId);
+  if (!thread) return res.status(404).json({ error: 'not_found' });
+
+  const catalogItem = db.prepare(`SELECT video_id, title, thumbnail_url, source_url FROM videos
+    WHERE video_id = ? AND dead_at IS NULL LIMIT 1`).get(videoId);
+  const ownedItem = catalogItem ? null : db.prepare(`SELECT id, content FROM posts
+    WHERE id = ? AND visibility = 'public' AND video_data IS NOT NULL
+      AND video_category IN ('workout','nature','animal','group') LIMIT 1`).get(videoId);
+  if (!catalogItem && !ownedItem) return res.status(404).json({ error: 'reel_not_found' });
+
+  const title = catalogItem ? (catalogItem.title || 'A reel') : (ownedItem.content || 'A Functioning Faith Original');
+  const sent = dms.send(req.session.userId, req.params.threadId, `Shared a reel: ${title}`, {
+    kind: 'reel',
+    metadata: {
+      video_id: videoId, title,
+      thumbnail_url: catalogItem ? catalogItem.thumbnail_url : null,
+      source_url: catalogItem ? catalogItem.source_url : null,
+    },
+    replyToId: req.body && req.body.reply_to_id,
+  });
+  if (sent.error) return res.status(sent.error === 'blocked' ? 403 : 400).json(sent);
+  notify(sent.recipient_id, 'dm', `${displayName(req.session.userId)} shared a reel with you.`, { thread_id: req.params.threadId });
+  res.status(201).json({ message: sent.message });
+});
+
+// Only a member's own completed workout can be shared -- there is no route
+// that grants a recipient access to someone else's raw workout data, so the
+// shared metadata below is the full extent of what the recipient ever sees.
+router.post('/dms/:threadId/workout', requireAuth, (req, res) => {
+  const workoutId = String((req.body && req.body.workout_id) || '').trim();
+  if (!workoutId) return res.status(400).json({ error: 'invalid_workout' });
+  const thread = dms.threadFor(req.session.userId, req.params.threadId);
+  if (!thread) return res.status(404).json({ error: 'not_found' });
+
+  const workout = db.prepare(`SELECT id, type, distance_km, duration_sec, calories FROM workouts
+    WHERE id = ? AND user_id = ? AND end_time IS NOT NULL`).get(workoutId, req.session.userId);
+  if (!workout) return res.status(404).json({ error: 'workout_not_found' });
+
+  const summary = workout.distance_km > 0.05 ? `${workout.distance_km.toFixed(2)} km ${workout.type}` : workout.type;
+  const sent = dms.send(req.session.userId, req.params.threadId, `Shared a workout: ${summary}`, {
+    kind: 'workout',
+    metadata: {
+      workout_id: workout.id, type: workout.type, distance_km: workout.distance_km || null,
+      duration_sec: workout.duration_sec || null, calories: workout.calories || null,
+    },
+    replyToId: req.body && req.body.reply_to_id,
+  });
+  if (sent.error) return res.status(sent.error === 'blocked' ? 403 : 400).json(sent);
+  notify(sent.recipient_id, 'dm', `${displayName(req.session.userId)} shared a workout with you.`, { thread_id: req.params.threadId });
+  res.status(201).json({ message: sent.message });
+});
+
+// A Bible Answers response has no server-side record of its own (see
+// companion.askBibleQuestion -- it's generated fresh, not persisted), so
+// there's nothing to re-resolve here the way the other two kinds do. It
+// already passed Gloo's own citation-verification step once, when it was
+// first generated; this only forwards that already-verified text.
+router.post('/dms/:threadId/bible-answer', requireAuth, (req, res) => {
+  const question = String((req.body && req.body.question) || '').trim().slice(0, 500);
+  const answer = String((req.body && req.body.answer) || '').trim().slice(0, 2000);
+  if (!question || !answer) return res.status(400).json({ error: 'invalid_answer' });
+  const thread = dms.threadFor(req.session.userId, req.params.threadId);
+  if (!thread) return res.status(404).json({ error: 'not_found' });
+
+  const sent = dms.send(req.session.userId, req.params.threadId, 'Shared a Bible Answers response', {
+    kind: 'bible_answer',
+    metadata: { question, answer },
+    replyToId: req.body && req.body.reply_to_id,
+  });
+  if (sent.error) return res.status(sent.error === 'blocked' ? 403 : 400).json(sent);
+  notify(sent.recipient_id, 'dm', `${displayName(req.session.userId)} shared a Bible Answers response with you.`, { thread_id: req.params.threadId });
+  res.status(201).json({ message: sent.message });
+});
+
 router.post('/dms/:threadId/messages/:messageId/like', requireAuth, (req, res) => {
   const r = dms.toggleLike(req.session.userId, req.params.threadId, req.params.messageId);
   if (r.error) return res.status(404).json(r);

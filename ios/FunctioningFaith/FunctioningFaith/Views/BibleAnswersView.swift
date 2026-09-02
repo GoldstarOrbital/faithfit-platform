@@ -17,6 +17,7 @@ struct BibleAnswersView: View {
     @State private var isAsking = false
     @State private var errorMessage: String?
     @State private var openedReference: OpenVerseReference?
+    @State private var sharingAnswer: BibleAnswer?
 
     var body: some View {
         Form {
@@ -53,6 +54,9 @@ struct BibleAnswersView: View {
         .navigationTitle("Bible Answers")
         .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(item: $openedReference) { ref in VerseThreadView(reference: ref.reference) }
+        .sheet(item: $sharingAnswer) { answer in
+            SharePickerSheet(content: .bibleAnswer(question: answer.question, answer: answer.answer))
+        }
         .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
@@ -70,6 +74,10 @@ struct BibleAnswersView: View {
                 }
                 .buttonStyle(.plain)
             }
+            Button { sharingAnswer = item } label: {
+                Label("Share", systemImage: "paperplane")
+            }
+            .font(.caption)
         }
         .listRowBackground(FFTheme.parchment1)
     }

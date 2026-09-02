@@ -82,7 +82,8 @@ final class DMStore: ObservableObject {
             return DMMessage(id: m.id, body: body, kind: m.kind, fromMe: m.fromMe,
                               createdAt: Self.parseDate(m.createdAt) ?? .now, read: m.read, verseReference: verseRef,
                               likeCount: m.likeCount ?? 0, likedByMe: m.likedByMe ?? false,
-                              editedAt: m.editedAt.flatMap(Self.parseDate), replyTo: Self.replyPreview(m.replyTo))
+                              editedAt: m.editedAt.flatMap(Self.parseDate), replyTo: Self.replyPreview(m.replyTo),
+                              sharedReel: Self.sharedReel(m), sharedWorkout: Self.sharedWorkout(m), sharedBibleAnswer: Self.sharedBibleAnswer(m))
         }
         return DMConversation(threadID: dto.threadID, otherUserID: dto.user.id, otherName: dto.user.displayName,
                                otherHasAvatar: dto.user.hasAvatar, blocked: dto.blocked ?? false, messages: messages)
@@ -144,6 +145,53 @@ final class DMStore: ObservableObject {
         return DMMessage(id: dto.id, body: body, kind: dto.kind, fromMe: true,
                           createdAt: Self.parseDate(dto.createdAt) ?? .now, read: false, verseReference: verseRef,
                           replyTo: Self.replyPreview(dto.replyTo))
+    }
+
+    /// Sharing a reel, a workout, or a Bible Answers response through DM --
+    /// same shape as sendVerse: the server re-resolves the real content
+    /// (verse/reel/workout) rather than trusting what the client sends, so
+    /// there's nothing to encrypt or decrypt here either.
+    func sendReel(threadID: String, videoID: String, replyToID: String? = nil) async throws -> DMMessage {
+        let dto = try await APIClient.shared.sendDMReel(threadID: threadID, videoID: videoID, replyToID: replyToID)
+        return DMMessage(id: dto.id, body: dto.body, kind: dto.kind, fromMe: true,
+                          createdAt: Self.parseDate(dto.createdAt) ?? .now, read: false, verseReference: nil,
+                          replyTo: Self.replyPreview(dto.replyTo), sharedReel: Self.sharedReel(dto))
+    }
+
+    func sendWorkout(threadID: String, workoutID: String, replyToID: String? = nil) async throws -> DMMessage {
+        let dto = try await APIClient.shared.sendDMWorkout(threadID: threadID, workoutID: workoutID, replyToID: replyToID)
+        return DMMessage(id: dto.id, body: dto.body, kind: dto.kind, fromMe: true,
+                          createdAt: Self.parseDate(dto.createdAt) ?? .now, read: false, verseReference: nil,
+                          replyTo: Self.replyPreview(dto.replyTo), sharedWorkout: Self.sharedWorkout(dto))
+    }
+
+    func sendBibleAnswer(threadID: String, question: String, answer: String, replyToID: String? = nil) async throws -> DMMessage {
+        let dto = try await APIClient.shared.sendDMBibleAnswer(threadID: threadID, question: question, answer: answer, replyToID: replyToID)
+        return DMMessage(id: dto.id, body: dto.body, kind: dto.kind, fromMe: true,
+                          createdAt: Self.parseDate(dto.createdAt) ?? .now, read: false, verseReference: nil,
+                          replyTo: Self.replyPreview(dto.replyTo), sharedBibleAnswer: Self.sharedBibleAnswer(dto))
+    }
+
+    private static func sharedReel(_ m: DMMessageDTO) -> DMSharedReel? {
+        guard m.kind == "reel", let md = m.metadata, case .string(let videoID)? = md["video_id"] else { return nil }
+        func str(_ key: String) -> String? { if case .string(let v)? = md[key] { return v }; return nil }
+        return DMSharedReel(videoID: videoID, title: str("title"), thumbnailURL: str("thumbnail_url"), sourceURL: str("source_url"))
+    }
+
+    private static func sharedWorkout(_ m: DMMessageDTO) -> DMSharedWorkout? {
+        guard m.kind == "workout", let md = m.metadata,
+              case .string(let workoutID)? = md["workout_id"],
+              case .string(let type)? = md["type"] else { return nil }
+        func num(_ key: String) -> Double? { if case .number(let v)? = md[key] { return v }; return nil }
+        return DMSharedWorkout(workoutID: workoutID, type: type, distanceKM: num("distance_km"),
+                                durationSec: num("duration_sec").map { Int($0) })
+    }
+
+    private static func sharedBibleAnswer(_ m: DMMessageDTO) -> DMSharedBibleAnswer? {
+        guard m.kind == "bible_answer", let md = m.metadata,
+              case .string(let question)? = md["question"],
+              case .string(let answer)? = md["answer"] else { return nil }
+        return DMSharedBibleAnswer(question: question, answer: answer)
     }
 
     private static func replyPreview(_ dto: DMMessageDTO.ReplyPreviewDTO?) -> DMReplyPreview? {

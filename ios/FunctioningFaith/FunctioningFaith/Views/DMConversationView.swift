@@ -307,6 +307,12 @@ private struct DMBubble: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.primary)
+                } else if message.kind == "reel", let reel = message.sharedReel {
+                    sharedReelCard(reel)
+                } else if message.kind == "workout", let workout = message.sharedWorkout {
+                    sharedWorkoutCard(workout)
+                } else if message.kind == "bible_answer", let answer = message.sharedBibleAnswer {
+                    sharedBibleAnswerCard(answer)
                 } else {
                     Text(message.body)
                         .padding(.horizontal, 12).padding(.vertical, 8)
@@ -340,6 +346,70 @@ private struct DMBubble: View {
         }
     }
 
+    @ViewBuilder
+    private func sharedReelCard(_ reel: DMSharedReel) -> some View {
+        let card = HStack(spacing: 10) {
+            if let thumb = reel.thumbnailURL, let url = URL(string: thumb) {
+                AsyncImage(url: url) { $0.resizable().scaledToFill() } placeholder: { Color.secondary.opacity(0.15) }
+                    .frame(width: 48, height: 48)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else {
+                RoundedRectangle(cornerRadius: 8, style: .continuous).fill(.tint.opacity(0.15))
+                    .frame(width: 48, height: 48)
+                    .overlay(Image(systemName: "play.rectangle.fill").foregroundStyle(.tint))
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Shared a reel").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                Text(reel.title ?? "Untitled").font(.callout).lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 12).fill(.tint.opacity(0.12)))
+        .foregroundStyle(.primary)
+
+        if let sourceURL = reel.sourceURL, let url = URL(string: sourceURL) {
+            Link(destination: url) { card }
+        } else {
+            card
+        }
+    }
+
+    private func sharedWorkoutCard(_ workout: DMSharedWorkout) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "figure.run.circle.fill").font(.title).foregroundStyle(.tint)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Shared a workout").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                Text(workout.type).font(.callout.weight(.semibold))
+                HStack(spacing: 8) {
+                    if let km = workout.distanceKM, km > 0.05 {
+                        Text(Units.distanceString(km: km))
+                    }
+                    if let sec = workout.durationSec {
+                        Text(TrainingMath.elapsedString(TimeInterval(sec)))
+                    }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 12).fill(.tint.opacity(0.12)))
+        .foregroundStyle(.primary)
+    }
+
+    private func sharedBibleAnswerCard(_ answer: DMSharedBibleAnswer) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label("Bible Answers", systemImage: "questionmark.bubble.fill")
+                .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+            Text(answer.question).font(.callout.weight(.semibold)).lineLimit(2)
+            Text(answer.answer).font(.callout).foregroundStyle(.secondary).lineLimit(6)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 12).fill(.tint.opacity(0.12)))
+        .foregroundStyle(.primary)
+    }
+
     private func replyQuote(_ reply: DMReplyPreview) -> some View {
         HStack(spacing: 6) {
             Rectangle().fill(.secondary.opacity(0.4)).frame(width: 2)
@@ -355,6 +425,9 @@ private struct DMBubble: View {
         switch reply.kind {
         case "e2e": return "🔒 Encrypted message"
         case "verse": return reply.body ?? "Shared a verse"
+        case "reel": return reply.body ?? "Shared a reel"
+        case "workout": return reply.body ?? "Shared a workout"
+        case "bible_answer": return reply.body ?? "Shared a Bible Answers response"
         default: return reply.body ?? "…"
         }
     }

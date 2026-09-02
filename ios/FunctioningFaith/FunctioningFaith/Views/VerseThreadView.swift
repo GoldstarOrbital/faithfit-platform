@@ -16,6 +16,7 @@ struct VerseThreadView: View {
     @State private var replyDraftFor: String?
     @State private var replyText = ""
     @State private var errorMessage: String?
+    @State private var showSharePicker = false
 
     var body: some View {
         Group {
@@ -37,6 +38,13 @@ struct VerseThreadView: View {
         }
         .navigationTitle(reference)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showSharePicker = true } label: { Image(systemName: "paperplane") }
+                    .accessibilityLabel("Send this verse to someone")
+            }
+        }
+        .sheet(isPresented: $showSharePicker) { SharePickerSheet(content: .verse(reference: reference)) }
         .task { await load() }
         .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
