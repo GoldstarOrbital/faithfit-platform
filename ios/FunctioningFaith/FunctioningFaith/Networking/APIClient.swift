@@ -93,11 +93,22 @@ final class APIClient {
         if useMock {
             return MemberProfileResponse(
                 user: MemberProfile(id: userID, displayName: "Member", bioVerseRef: "Philippians 4:13", bioVerseText: "I can do all this through him who gives me strength.", bioLinkURL: nil, bioLinkLabel: nil, verifiedDeveloper: false, hasAvatar: false),
-                stats: MemberProfileStats(workouts: 0, followers: 0, following: 0), posts: [], isMe: false,
+                stats: MemberProfileStats(workouts: 0, posts: 0, followers: 0, following: 0), posts: [], isMe: false,
                 isFollowing: false, isBlocked: false, followRequested: false
             )
         }
         return try await request("/api/users/\(userID.uuidString.lowercased())")
+    }
+
+    /// `kind` is "followers" or "following" -- both are the same shape server-side.
+    func fetchSocialList(userID: UUID, kind: String) async throws -> SocialListResponse {
+        if useMock { return SocialListResponse(kind: kind, members: []) }
+        return try await request("/api/users/\(userID.uuidString.lowercased())/\(kind)")
+    }
+
+    func fetchMutualFollowers(userID: UUID) async throws -> MutualFollowersResponse {
+        if useMock { return MutualFollowersResponse(total: 0, members: []) }
+        return try await request("/api/users/\(userID.uuidString.lowercased())/mutual-followers")
     }
 
     func fetchSessionState() async throws -> NativeSessionState {
@@ -960,6 +971,19 @@ final class APIClient {
         let _: UpdateProfileResponse = try await request("/api/profile", method: "PUT", body: BibleVersionBody(bibleVersionID: versionID))
     }
 
+    /// `hour` is 0-23, server-local (there is no stored timezone) -- nil
+    /// clears the preference and returns to the app's default 6-10am window.
+    func setDailyVerseHour(_ hour: Int?) async throws {
+        if useMock { return }
+        let _: UpdateProfileResponse = try await request("/api/profile", method: "PUT", body: DailyVerseHourBody(dailyVerseHour: hour))
+    }
+
+    /// nil means "follow this device's own locale" -- see Units.swift.
+    func setUnitsSystem(_ system: UnitsSystem?) async throws {
+        if useMock { return }
+        let _: UpdateProfileResponse = try await request("/api/profile", method: "PUT", body: UnitsSystemBody(unitsSystem: system?.rawValue))
+    }
+
     /// Grounded in the verse's own real text; every reference it cites is
     /// independently re-verified server-side before this call ever returns
     /// -- see companion.js's askAboutVerse. 503 when Gloo isn't configured.
@@ -1484,6 +1508,14 @@ private struct SegmentCompleteBody: Encodable {
 private struct BibleVersionBody: Encodable {
     let bibleVersionID: Int?
     enum CodingKeys: String, CodingKey { case bibleVersionID = "bible_version_id" }
+}
+private struct DailyVerseHourBody: Encodable {
+    let dailyVerseHour: Int?
+    enum CodingKeys: String, CodingKey { case dailyVerseHour = "daily_verse_hour" }
+}
+private struct UnitsSystemBody: Encodable {
+    let unitsSystem: String?
+    enum CodingKeys: String, CodingKey { case unitsSystem = "units_system" }
 }
 private struct AskVerseBody: Encodable { let question: String }
 private struct CreateEventBody: Encodable {
@@ -2095,7 +2127,8 @@ private struct MeDTO: Decodable {
                     badges: badges.map { Badge(id: $0.id, name: $0.name, iconURL: $0.icon) },
                     job: user.job, church: user.church, tradition: user.tradition,
                     churchOsmID: user.churchOsmID, churchName: user.churchName, bibleVersionID: user.bibleVersionID,
-                    bioLinkURL: user.bioLinkURL, bioLinkLabel: user.bioLinkLabel)
+                    bioLinkURL: user.bioLinkURL, bioLinkLabel: user.bioLinkLabel,
+                    dailyVerseHour: user.dailyVerseHour, unitsSystem: user.unitsSystem)
     }
 }
 private struct UserDTO: Decodable {
@@ -2104,12 +2137,16 @@ private struct UserDTO: Decodable {
     let churchOsmID: String?; let churchName: String?
     let bibleVersionID: Int?
     let bioLinkURL: String?; let bioLinkLabel: String?
+    let dailyVerseHour: Int?
+    let unitsSystem: String?
     enum CodingKeys: String, CodingKey {
         case id; case displayName = "display_name"; case bioVerseRef = "bio_verse_ref"
         case job, church, tradition
         case churchOsmID = "church_osm_id"; case churchName = "church_name"
         case bibleVersionID = "bible_version_id"
         case bioLinkURL = "bio_link_url"; case bioLinkLabel = "bio_link_label"
+        case dailyVerseHour = "daily_verse_hour"
+        case unitsSystem = "units_system"
     }
 }
 private struct XPDTO: Decodable { let xp: Int; let level: Int }
@@ -2118,6 +2155,7 @@ private struct SuggestedUserDTO: Decodable {
     let id: UUID
     let displayName: String
     let bioVerseRef: String?
+    let hasAvatar: Bool?
     let followersCount: Int
     let reason: String
 
@@ -2125,12 +2163,13 @@ private struct SuggestedUserDTO: Decodable {
         case id
         case displayName = "display_name"
         case bioVerseRef = "bio_verse_ref"
+        case hasAvatar = "has_avatar"
         case followersCount = "followers_count"
         case reason
     }
 
     var model: SuggestedUser {
-        SuggestedUser(id: id, displayName: displayName, bio: bioVerseRef, followersCount: followersCount, reason: reason)
+        SuggestedUser(id: id, displayName: displayName, bio: bioVerseRef, hasAvatar: hasAvatar ?? false, followersCount: followersCount, reason: reason)
     }
 }
 

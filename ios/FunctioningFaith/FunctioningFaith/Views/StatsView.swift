@@ -159,7 +159,8 @@ struct StatsView: View {
 
     private func goalProgressLabel(_ goal: TrainingGoal) -> String {
         switch goal.metric {
-        case "distance_km": return String(format: "%.1f / %.1f km", goal.progress, goal.target)
+        case "distance_km":
+            return String(format: "%.1f / %.1f %@", Units.distanceValue(km: goal.progress), Units.distanceValue(km: goal.target), Units.distanceUnitLabel)
         case "duration_min": return "\(Int(goal.progress)) / \(Int(goal.target)) min"
         case "calories": return "\(Int(goal.progress)) / \(Int(goal.target)) kcal"
         default: return "\(Int(goal.progress)) / \(Int(goal.target)) workouts"
@@ -185,7 +186,7 @@ struct StatsView: View {
         Section {
             HStack(spacing: 0) {
                 recapTile("\(recap.workouts)", "workouts")
-                recapTile(String(format: "%.1f", recap.distanceKm), "km")
+                recapTile(String(format: "%.1f", Units.distanceValue(km: recap.distanceKm)), Units.distanceUnitLabel)
                 recapTile("\(recap.minutes)", "minutes")
                 recapTile("\(recap.activeDays)", "active days")
             }
@@ -244,7 +245,7 @@ struct StatsView: View {
             let totals = periodTab == 0 ? summary.thisWeek : periodTab == 1 ? summary.thisMonth : summary.lifetime
             HStack {
                 statTile("Workouts", "\(totals.workouts)", icon: "figure.run")
-                statTile("Distance", String(format: "%.1f km", totals.distanceKm), icon: "location.fill")
+                statTile("Distance", Units.distanceString(km: totals.distanceKm, decimals: 1), icon: "location.fill")
             }
             HStack {
                 statTile("Time", durationLabel(totals.durationMin), icon: "clock.fill")
@@ -296,9 +297,9 @@ struct StatsView: View {
     @ViewBuilder
     private func quickRecordsSection(_ r: SummaryRecords) -> some View {
         Section {
-            if let d = r.longestDistanceKm { recordRow("Longest distance", String(format: "%.2f km", d)) }
+            if let d = r.longestDistanceKm { recordRow("Longest distance", Units.distanceString(km: d)) }
             if let d = r.longestDurationMin { recordRow("Longest session", durationLabel(d)) }
-            if let p = r.fastestPaceMinKm { recordRow("Fastest pace", String(format: "%.2f min/km", p)) }
+            if let p = r.fastestPaceMinKm { recordRow("Fastest pace", "\(Units.paceString(minutesPerKm: p)) /\(Units.distanceUnitLabel)") }
             if let c = r.mostCalories { recordRow("Most calories", "\(c) kcal") }
             if let h = r.highestHR { recordRow("Highest heart rate", "\(h) bpm") }
         } header: {
@@ -404,7 +405,7 @@ private struct TrendsChart: View {
                     HStack {
                         Text(selected.label).font(FFTheme.serifSemibold(13)).foregroundStyle(FFTheme.ink)
                         Spacer()
-                        Text(String(format: "%.1f km", selected.distanceKm)).font(.system(size: 14, weight: .bold)).monospacedDigit().foregroundStyle(FFTheme.meadowDeep)
+                        Text(Units.distanceString(km: selected.distanceKm, decimals: 1)).font(.system(size: 14, weight: .bold)).monospacedDigit().foregroundStyle(FFTheme.meadowDeep)
                         Text("· \(selected.workouts) workout\(selected.workouts == 1 ? "" : "s")").font(FFTheme.caption()).foregroundStyle(FFTheme.inkSoft)
                     }
                 } else {
@@ -464,7 +465,7 @@ private struct BreakdownChart: View {
                     HStack {
                         Text(selected.type).font(FFTheme.serifSemibold(13)).foregroundStyle(FFTheme.ink)
                         Spacer()
-                        Text("\(selected.count) · \(String(format: "%.1f km", selected.distanceKm)) · \(selected.calories) kcal")
+                        Text("\(selected.count) · \(Units.distanceString(km: selected.distanceKm, decimals: 1)) · \(selected.calories) kcal")
                             .font(FFTheme.caption()).foregroundStyle(FFTheme.inkSoft)
                     }
                 } else {
@@ -500,7 +501,7 @@ private struct GoalComposerView: View {
     @State private var errorMessage: String?
 
     private let metrics: [(key: String, label: String)] = [
-        ("distance_km", "Distance (km)"), ("duration_min", "Time (min)"),
+        ("distance_km", "Distance (\(Units.distanceUnitLabel))"), ("duration_min", "Time (min)"),
         ("workouts", "Workouts"), ("calories", "Calories"),
     ]
     private let periods = ["week", "month", "year"]
@@ -539,9 +540,15 @@ private struct GoalComposerView: View {
         guard let targetValue = Double(target) else { return }
         isSaving = true
         do {
+            // The server always stores/compares this metric in km (see
+            // goalProgressLabel's "distance_km" case) -- a member typing a
+            // target in miles must have it converted back before it's saved,
+            // or the label would say "mi" while the stored goal quietly
+            // meant km.
+            let storedTarget = metric == "distance_km" && Units.isImperial ? targetValue / 0.621371 : targetValue
             try await APIClient.shared.createGoal(
                 title: title.trimmingCharacters(in: .whitespaces), metric: metric,
-                target: targetValue, period: period, activityType: nil)
+                target: storedTarget, period: period, activityType: nil)
             await onCreated()
             dismiss()
         } catch {

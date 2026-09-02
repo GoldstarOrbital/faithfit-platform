@@ -21,7 +21,7 @@ enum LeaderboardMetric: String, CaseIterable, Identifiable, Hashable {
     func format(_ value: Double) -> String {
         switch self {
         case .distanceKm:
-            return String(format: "%.1f km", value)
+            return Units.distanceString(km: value, decimals: 1)
         case .durationMin:
             let minutes = Int(value)
             return minutes >= 60 ? "\(minutes / 60)h \(minutes % 60)m" : "\(minutes)m"

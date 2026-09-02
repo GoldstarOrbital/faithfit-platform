@@ -37,7 +37,7 @@ struct JourneyLiveSessionView: View {
         VStack(spacing: 24) {
             Text(journeyName).font(FFTheme.display(20, weight: .semibold, relativeTo: .title3))
 
-            Text(String(format: "%.2f km", tracker.sessionKm))
+            Text(Units.distanceString(km: tracker.sessionKm))
                 .font(.system(size: 56, weight: .bold, design: .rounded))
                 .monospacedDigit()
             Text("this session").font(.caption).foregroundStyle(.secondary)
@@ -147,7 +147,7 @@ struct JourneyLiveSessionView: View {
 
     private var speedLabel: String {
         guard let speed = tracker.currentSpeedKmh else { return "Pace locating…" }
-        return String(format: "%.1f km/h", speed)
+        return Units.speedString(kmh: speed)
     }
 
     private var comparisonLabel: (text: String, systemImage: String, isAhead: Bool)? {

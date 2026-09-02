@@ -56,7 +56,7 @@ struct FriendsWorkoutsRail: View {
             Text(workout.author).font(.caption.weight(.semibold)).lineLimit(1)
             Text(workout.workoutType ?? "Workout").font(.subheadline)
             if let distanceKm = workout.distanceKm {
-                Text(String(format: "%.1f km", distanceKm)).font(.caption2).foregroundStyle(.secondary)
+                Text(Units.distanceString(km: distanceKm, decimals: 1)).font(.caption2).foregroundStyle(.secondary)
             }
             Button {
                 toggleKudos(workout)

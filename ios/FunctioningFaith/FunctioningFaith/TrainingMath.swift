@@ -57,22 +57,36 @@ enum TrainingMath {
 
     static func speedString(_ kmh: Double?) -> String {
         guard let kmh, kmh > 0 else { return "—" }
-        return String(format: "%.1f", kmh)
+        return String(format: "%.1f", Units.speedValue(kmh: kmh))
+    }
+
+    /// Run/cycle/hike pace, honoring the member's unit system (see
+    /// Units.swift) -- distinct from `paceString(elapsed:km:)` above, which
+    /// stays a bare, unit-agnostic "M:SS" for callers that don't want a
+    /// converted-and-labeled result.
+    private static func unitPaceString(elapsed: TimeInterval, km: Double) -> String {
+        guard km > 0.05, elapsed > 0 else { return "—" }
+        return Units.paceString(minutesPerKm: (elapsed / 60) / km)
     }
 
     static func liveMetrics(activity: String, elapsed: TimeInterval, distanceKm: Double,
                             currentSpeedKmh: Double?, maxSpeedKmh: Double,
                             elevationGainM: Double, elevationLossM: Double, heartRate: Int) -> [LiveMetric] {
+        let unitLabel = Units.distanceUnitLabel.uppercased()
         let elapsedMetric = LiveMetric(value: elapsedString(elapsed), label: "ELAPSED")
-        let distance = LiveMetric(value: String(format: "%.2f", distanceKm), label: "DISTANCE · KM")
+        let distance = LiveMetric(value: String(format: "%.2f", Units.distanceValue(km: distanceKm)), label: "DISTANCE · \(unitLabel)")
         let heart = LiveMetric(value: heartRate > 0 ? "\(heartRate)" : "—", label: heartRate > 0 ? "HEART RATE · BPM" : "HEART RATE")
         let calories = LiveMetric(value: "~\(estimatedKcal(elapsed: elapsed, km: distanceKm))", label: "CALORIES · EST.")
-        let pace = LiveMetric(value: paceString(elapsed: elapsed, km: distanceKm), label: "PACE · /KM")
+        let pace = LiveMetric(value: unitPaceString(elapsed: elapsed, km: distanceKm), label: "PACE · /\(unitLabel)")
+        // Swim pace stays per-100m regardless of unit system -- pool
+        // convention (25/50m) doesn't map onto imperial the way road
+        // distance does, and guessing a yard-pool assumption would be
+        // exactly the kind of invented precision this app avoids elsewhere.
         let waterPace = LiveMetric(value: paceString(elapsed: elapsed, km: distanceKm * 10), label: "PACE · /100 M")
-        let speed = LiveMetric(value: speedString(currentSpeedKmh), label: "SPEED · KM/H")
-        let topSpeed = LiveMetric(value: speedString(maxSpeedKmh), label: "TOP SPEED · KM/H")
-        let ascent = LiveMetric(value: "\(Int(elevationGainM.rounded()))", label: "ASCENT · M")
-        let descent = LiveMetric(value: "\(Int(elevationLossM.rounded()))", label: "DESCENT · M")
+        let speed = LiveMetric(value: speedString(currentSpeedKmh), label: "SPEED · \(Units.speedUnitLabel.uppercased())")
+        let topSpeed = LiveMetric(value: speedString(maxSpeedKmh), label: "TOP SPEED · \(Units.speedUnitLabel.uppercased())")
+        let ascent = LiveMetric(value: "\(Int(Units.elevationValue(meters: elevationGainM).rounded()))", label: "ASCENT · \(Units.elevationUnitLabel.uppercased())")
+        let descent = LiveMetric(value: "\(Int(Units.elevationValue(meters: elevationLossM).rounded()))", label: "DESCENT · \(Units.elevationUnitLabel.uppercased())")
 
         switch activity {
         case "Skiing": return [speed, topSpeed, descent, ascent]

@@ -115,7 +115,7 @@ struct RouteBuilderView: View {
                     ForEach(savedRoutes) { route in
                         VStack(alignment: .leading, spacing: 3) {
                             Text(route.name).font(.headline)
-                            Text("\(route.activityType) · \(String(format: "%.2f km", route.distanceKm))")
+                            Text("\(route.activityType) · \(Units.distanceString(km: route.distanceKm))")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -139,7 +139,7 @@ struct RouteBuilderView: View {
         let meters = zip(points.dropFirst(), points).reduce(0.0) { total, pair in
             total + CLLocation(latitude: pair.0[0], longitude: pair.0[1]).distance(from: CLLocation(latitude: pair.1[0], longitude: pair.1[1]))
         }
-        return String(format: "%.2f km", meters / 1000)
+        return Units.distanceString(km: meters / 1000)
     }
 
     private func removeWaypoint(at index: Int) {

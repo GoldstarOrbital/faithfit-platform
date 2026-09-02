@@ -28,10 +28,10 @@ struct WorkoutAnalysisView: View {
                     Section("Activity intelligence") {
                         metricRow("Relative effort", "\(analysis.relativeEffort) RE")
                         if let pace = analysis.paceMinPerKm {
-                            metricRow("Pace", String(format: "%.2f min/km", pace))
+                            metricRow("Pace", "\(Units.paceString(minutesPerKm: pace)) /\(Units.distanceUnitLabel)")
                         }
                         if let gap = analysis.gradeAdjustedPaceMinPerKm {
-                            metricRow("Grade-adjusted pace", String(format: "%.2f min/km", gap))
+                            metricRow("Grade-adjusted pace", "\(Units.paceString(minutesPerKm: gap)) /\(Units.distanceUnitLabel)")
                         } else {
                             metricRow("Grade-adjusted pace", "Unavailable")
                         }
@@ -39,20 +39,20 @@ struct WorkoutAnalysisView: View {
                             metricRow("Power", "\(Int(power.rounded())) W")
                         }
                         if let speed = analysis.topSpeedKmh {
-                            metricRow("Top speed", String(format: "%.1f km/h", speed))
+                            metricRow("Top speed", Units.speedString(kmh: speed))
                         }
                         Text(analysis.note).font(.caption2).foregroundStyle(.secondary)
                     }
                     if analysis.hasRoute {
                         Section("Route") {
                             if let km = analysis.distanceKm {
-                                metricRow("Distance", String(format: "%.2f km", km))
+                                metricRow("Distance", Units.distanceString(km: km))
                             }
                             if let gain = analysis.elevationGainM {
-                                metricRow("Elevation gain", "\(Int(gain.rounded())) m")
+                                metricRow("Elevation gain", Units.elevationString(meters: gain))
                             }
                             if let loss = analysis.elevationLossM {
-                                metricRow("Elevation loss", "\(Int(loss.rounded())) m")
+                                metricRow("Elevation loss", Units.elevationString(meters: loss))
                             }
                             Button {
                                 Task { await correctGPS() }
@@ -88,14 +88,14 @@ struct WorkoutAnalysisView: View {
                                 HStack {
                                     VStack(alignment: .leading, spacing: 3) {
                                         Text(match.startTime.prefix(10))
-                                        Text(String(format: "%.2f km", match.distanceKm))
+                                        Text(Units.distanceString(km: match.distanceKm))
                                             .font(.caption).foregroundStyle(.secondary)
                                     }
                                     Spacer()
                                     VStack(alignment: .trailing, spacing: 3) {
                                         Text(time(match.durationSec)).monospacedDigit()
                                         if let pace = match.paceMinPerKm {
-                                            Text(String(format: "%.2f min/km", pace))
+                                            Text("\(Units.paceString(minutesPerKm: pace)) /\(Units.distanceUnitLabel)")
                                                 .font(.caption).foregroundStyle(.secondary)
                                         }
                                     }

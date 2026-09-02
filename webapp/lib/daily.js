@@ -153,16 +153,29 @@ async function sendFor(userId) {
  *
  * Deliberately keyed off local hour rather than a cron expression, because the
  * point is that it arrives in the morning where the member is. Without a stored
- * timezone we use the server's, and the member can turn the category off.
+ * timezone we use the server's by default -- but a member can now set
+ * `daily_verse_hour` (0-23, server-local) to pick their own hour instead of
+ * the 6-10am default window, so this runs on every tick and decides who is
+ * actually due itself, rather than the whole sweep being gated to one window.
  */
 async function runOnce() {
-  const ids = db.prepare(`
-    SELECT user_id FROM push_subscriptions WHERE categories LIKE '%daily_verse%'
+  const h = new Date().getHours();
+  const candidates = db.prepare(`
+    SELECT ps.user_id AS user_id, u.daily_verse_hour AS daily_verse_hour
+      FROM push_subscriptions ps JOIN users u ON u.id = ps.user_id
+     WHERE ps.categories LIKE '%daily_verse%'
     UNION
-    SELECT user_id FROM native_push_tokens WHERE platform = 'ios' AND categories LIKE '%daily_verse%'
-  `).all().map(r => r.user_id);
+    SELECT npt.user_id AS user_id, u.daily_verse_hour AS daily_verse_hour
+      FROM native_push_tokens npt JOIN users u ON u.id = npt.user_id
+     WHERE npt.platform = 'ios' AND npt.categories LIKE '%daily_verse%'
+  `).all();
   let sent = 0;
-  for (const id of ids) {
+  for (const { user_id: id, daily_verse_hour } of candidates) {
+    // No preference set: keep the original default window. A preference
+    // set: only that exact hour, whatever it is -- the whole point of
+    // letting someone pick a time is that it stops arriving at the default one.
+    const due = daily_verse_hour == null ? (h >= 6 && h < 10) : h === daily_verse_hour;
+    if (!due) continue;
     // Once per member per day, whatever else happens.
     const already = db.prepare(`SELECT COUNT(*) c FROM push_log
                                  WHERE user_id = ? AND category = 'daily_verse'
@@ -181,11 +194,9 @@ function start() {
   // an APNs-only deployment (the normal case once this shipped as a native
   // app) must not sit dark just because no VAPID keypair was ever generated.
   if (!push.isConfigured() && !push.isNativeConfigured()) return;
-  const tick = () => {
-    const h = new Date().getHours();
-    if (h >= 6 && h < 10) runOnce().catch(() => {});
-  };
-  timer = setInterval(tick, 30 * 60 * 1000);
+  // Runs every tick now (not gated to a fixed hour range) since runOnce()
+  // itself decides who is due, per-member, against their own chosen hour.
+  timer = setInterval(() => runOnce().catch(() => {}), 30 * 60 * 1000);
   if (timer.unref) timer.unref();
   console.log('[daily] morning verse scheduled');
 }

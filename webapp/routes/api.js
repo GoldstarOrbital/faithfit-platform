@@ -2695,6 +2695,7 @@ router.get('/users/suggested', requireAuth, cachePrivate(60), (req, res) => {
   const rows = db.prepare(`
     WITH following AS (SELECT followee_id FROM followers WHERE follower_id = @me)
     SELECT u.id, u.display_name, u.bio_verse_ref,
+           CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar,
            (SELECT COUNT(*) FROM followers f WHERE f.followee_id = u.id) AS followers_count,
            (SELECT COUNT(*) FROM followers mutual
              WHERE mutual.followee_id = u.id
@@ -2704,6 +2705,7 @@ router.get('/users/suggested', requireAuth, cachePrivate(60), (req, res) => {
     FROM users u
     WHERE u.id != @me
       AND u.id NOT IN (SELECT followee_id FROM following)
+      AND NOT EXISTS (SELECT 1 FROM dm_blocks b WHERE (b.blocker_id=@me AND b.blocked_id=u.id) OR (b.blocker_id=u.id AND b.blocked_id=@me))
     ORDER BY shared_church DESC, shared_group DESC, mutual_count DESC, followers_count DESC, u.display_name
     LIMIT 12
   `).all({
@@ -2712,6 +2714,7 @@ router.get('/users/suggested', requireAuth, cachePrivate(60), (req, res) => {
     group_name: db.prepare('SELECT fitness_group FROM users WHERE id = ?').get(me)?.fitness_group || null,
   }).map(row => ({
     ...row,
+    has_avatar: !!row.has_avatar,
     reason: row.shared_church ? 'From your church' : row.shared_group ? 'In your fitness group' : row.mutual_count ? `${row.mutual_count} mutual connection${row.mutual_count === 1 ? '' : 's'}` : 'Popular in the community',
     shared_church: undefined,
     shared_group: undefined,
@@ -2740,11 +2743,41 @@ function socialList(req, res, userId, kind) {
                        WHERE (b.blocker_id = @me AND b.blocked_id = u.id)
                           OR (b.blocker_id = u.id AND b.blocked_id = @me))
      ORDER BY u.display_name LIMIT 100
-  `).all({ me: req.session.userId, target: userId });
+  `).all({ me: req.session.userId, target: userId })
+    // has_avatar / is_following come out of SQL CASE WHENs as raw SQLite
+    // 0/1 integers, not real JSON booleans -- same class of bug found and
+    // fixed in GET /feed: a native Bool field throws outright on a bare 0/1.
+    .map(r => ({ ...r, has_avatar: !!r.has_avatar, is_following: !!r.is_following }));
   res.json({ kind, members: rows });
 }
 router.get('/users/:id/followers', requireAuth, (req, res) => socialList(req, res, req.params.id, 'followers'));
 router.get('/users/:id/following', requireAuth, (req, res) => socialList(req, res, req.params.id, 'following'));
+
+// "Followed by X, Y and N others" -- people the viewer already follows who
+// also follow the target. The standard mutual-connections line on any social
+// profile, absent anywhere in this app until now. A capped preview (for the
+// row's names/avatars) plus the real total, not a second full list.
+router.get('/users/:id/mutual-followers', requireAuth, (req, res) => {
+  const me = req.session.userId;
+  const targetId = req.params.id;
+  if (targetId === me) return res.json({ total: 0, members: [] });
+  if (!db.prepare('SELECT 1 FROM users WHERE id = ?').get(targetId)) return res.status(404).json({ error: 'user_not_found' });
+  const rows = db.prepare(`
+    SELECT u.id, u.display_name, CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar
+      FROM followers mine
+      JOIN followers theirs ON theirs.follower_id = mine.followee_id AND theirs.followee_id = @target
+      JOIN users u ON u.id = mine.followee_id
+     WHERE mine.follower_id = @me
+       AND NOT EXISTS (SELECT 1 FROM dm_blocks b
+                       WHERE (b.blocker_id = @me AND b.blocked_id = u.id)
+                          OR (b.blocker_id = u.id AND b.blocked_id = @me))
+     ORDER BY u.display_name
+  `).all({ me, target: targetId });
+  res.json({
+    total: rows.length,
+    members: rows.slice(0, 3).map(r => ({ ...r, has_avatar: !!r.has_avatar })),
+  });
+});
 
 // Public-facing profile for any user. Never exposes private fields (job/church/
 // gym/age/email). Posts respect the viewer's visibility (public to all; followers
@@ -2776,6 +2809,16 @@ router.get('/users/:id', (req, res) => {
 
   const stats = {
     workouts: db.prepare("SELECT COUNT(*) c FROM workouts WHERE user_id = ? AND end_time IS NOT NULL").get(u.id).c,
+    // Same visibility rule as the `posts` query below, as a COUNT rather than
+    // a capped LIMIT 20 list -- a standard social profile leads with a real
+    // post count, not however many happened to fit the feed page.
+    posts: db.prepare(`
+      SELECT COUNT(*) c FROM posts p WHERE p.user_id = @uid AND (
+        p.visibility = 'public'
+        OR @me = @uid
+        OR (p.visibility = 'followers' AND EXISTS (SELECT 1 FROM followers f WHERE f.followee_id = @uid AND f.follower_id = @me))
+        OR (p.visibility = 'circle' AND EXISTS (SELECT 1 FROM circle_members c WHERE c.owner_id = @uid AND c.member_id = @me)))
+    `).get({ uid: u.id, me }).c,
     followers: db.prepare('SELECT COUNT(*) c FROM followers WHERE followee_id = ?').get(u.id).c,
     following: db.prepare('SELECT COUNT(*) c FROM followers WHERE follower_id = ?').get(u.id).c,
   };
@@ -4179,7 +4222,7 @@ const MAX_FIELD_LEN = 80;
 router.put('/profile', requireAuth, (req, res) => {
   const uid = req.session.userId;
   const { display_name, bio_verse_ref, job, church, fitness_group, gym, age, show_age, avatar_data, bio_link_url,
-          tradition, bible_version_id } = req.body || {};
+          tradition, bible_version_id, daily_verse_hour, units_system } = req.body || {};
 
   const updates = {};
 
@@ -4206,6 +4249,29 @@ router.put('/profile', requireAuth, (req, res) => {
       const known = youversion.versions().some(v => v.id === vid);
       if (!known) return res.status(400).json({ error: 'unknown_version' });
       updates.bible_version_id = vid;
+    }
+  }
+
+  // What hour the daily verse push arrives -- see the daily_verse_hour
+  // migration note in db.js. Clearing it (null) returns to the default
+  // 6-10am window lib/daily.js has always used.
+  if (daily_verse_hour !== undefined) {
+    if (daily_verse_hour === null || daily_verse_hour === '') {
+      updates.daily_verse_hour = null;
+    } else {
+      const hour = Number(daily_verse_hour);
+      if (!Number.isInteger(hour) || hour < 0 || hour > 23) return res.status(400).json({ error: 'invalid_daily_verse_hour' });
+      updates.daily_verse_hour = hour;
+    }
+  }
+
+  if (units_system !== undefined) {
+    if (units_system === null || units_system === '') {
+      updates.units_system = null;
+    } else if (!['metric', 'imperial'].includes(units_system)) {
+      return res.status(400).json({ error: 'invalid_units_system' });
+    } else {
+      updates.units_system = units_system;
     }
   }
 

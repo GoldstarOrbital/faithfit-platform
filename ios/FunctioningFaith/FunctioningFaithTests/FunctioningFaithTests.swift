@@ -50,6 +50,14 @@ final class FunctioningFaithTests: XCTestCase {
     }
 
     func testSkiingMetricsPrioritizeSpeedAndVertical() {
+        // liveMetrics reads the member's unit preference (Units.current),
+        // which otherwise falls back to this device/simulator's own region --
+        // pin it explicitly so the test is deterministic regardless of what
+        // locale happens to run it.
+        let original = UserDefaults.standard.string(forKey: Units.storageKey)
+        UserDefaults.standard.set(UnitsSystem.metric.rawValue, forKey: Units.storageKey)
+        defer { UserDefaults.standard.set(original, forKey: Units.storageKey) }
+
         let metrics = TrainingMath.liveMetrics(
             activity: "Skiing", elapsed: 600, distanceKm: 4.2,
             currentSpeedKmh: 42.3, maxSpeedKmh: 61.8,
@@ -57,6 +65,20 @@ final class FunctioningFaithTests: XCTestCase {
         )
         XCTAssertEqual(metrics.map(\.label), ["SPEED · KM/H", "TOP SPEED · KM/H", "DESCENT · M", "ASCENT · M"])
         XCTAssertEqual(metrics[1].value, "61.8")
+    }
+
+    func testSkiingMetricsConvertToImperialWhenChosen() {
+        let original = UserDefaults.standard.string(forKey: Units.storageKey)
+        UserDefaults.standard.set(UnitsSystem.imperial.rawValue, forKey: Units.storageKey)
+        defer { UserDefaults.standard.set(original, forKey: Units.storageKey) }
+
+        let metrics = TrainingMath.liveMetrics(
+            activity: "Skiing", elapsed: 600, distanceKm: 4.2,
+            currentSpeedKmh: 42.3, maxSpeedKmh: 61.8,
+            elevationGainM: 130, elevationLossM: 540, heartRate: 0
+        )
+        XCTAssertEqual(metrics.map(\.label), ["SPEED · MPH", "TOP SPEED · MPH", "DESCENT · FT", "ASCENT · FT"])
+        XCTAssertEqual(metrics[1].value, "38.4") // 61.8 km/h * 0.621371
     }
 
     func testActivityCatalogMatchesRailwayVocabulary() {

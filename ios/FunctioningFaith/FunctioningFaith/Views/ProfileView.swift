@@ -34,6 +34,14 @@ struct ProfileView: View {
     @AppStorage("notifications.heartRateCalm") private var heartRateCalmNotifications = false
     @AppStorage("notifications.heartRateCalm.threshold") private var heartRateCalmThreshold = 160
     @AppStorage("appearance.accentTheme") private var accentThemeRaw = FFTheme.AccentTheme.meadow.rawValue
+    // Mirrors the server's units_system column into local storage so
+    // Units.current (read by every distance/pace/speed display in the app,
+    // including non-View code like TrainingMath) reflects it immediately --
+    // see the sync in .task below and the write-through in setUnits(_:).
+    @AppStorage(Units.storageKey) private var unitsSystemRaw = ""
+    @State private var isSavingUnits = false
+    @State private var dailyVerseHour: Int?
+    @State private var isSavingDailyVerseHour = false
 
     var body: some View {
         Form {
@@ -48,6 +56,7 @@ struct ProfileView: View {
             safetySection
             signInSecuritySection
             appearanceSection
+            unitsSection
             notificationsSection
             remindersSection
             savedPostsSection
@@ -64,6 +73,11 @@ struct ProfileView: View {
             } else {
                 profile = try? await APIClient.shared.fetchProfile()
             }
+            // The server is the source of truth across devices; mirror it
+            // into local storage so Units.current picks it up immediately,
+            // and seed the verse-hour picker from the same fetch.
+            if let units = profile?.unitsSystem { unitsSystemRaw = units }
+            dailyVerseHour = profile?.dailyVerseHour
             if let userID = profile?.id,
                let dataURL = try? await APIClient.shared.fetchAvatarData(userID: userID) {
                 avatarImage = ImageUpload.decode(dataURL)
@@ -502,6 +516,7 @@ struct ProfileView: View {
     private var notificationsSection: some View {
         Section {
             notificationToggle(.scripture, isOn: $scriptureNotifications)
+            if scriptureNotifications { dailyVerseHourPicker }
             notificationToggle(.community, isOn: $communityNotifications)
             notificationToggle(.reminders, isOn: $reminderNotifications)
             Toggle(isOn: $heartRateCalmNotifications) {
@@ -535,6 +550,45 @@ struct ProfileView: View {
             Text("You choose each category. Functioning Faith does not use notifications to create pressure or shame. You can change access any time in iOS Settings.")
         }
         .listRowBackground(FFTheme.parchment1)
+    }
+
+    /// `daily_verse_hour` (0-23, server-local -- there is no stored
+    /// timezone) lets a member pick a specific hour instead of the app's
+    /// default 6-10am morning window; see the server's lib/daily.js.
+    private var dailyVerseHourPicker: some View {
+        Picker("Verse arrives", selection: Binding(
+            get: { dailyVerseHour },
+            set: { newValue in Task { await setDailyVerseHour(newValue) } }
+        )) {
+            Text("Anytime, 6–10 AM").tag(Optional<Int>.none)
+            ForEach(0..<24, id: \.self) { hour in
+                Text(Self.hourLabel(hour)).tag(Optional(hour))
+            }
+        }
+        .disabled(isSavingDailyVerseHour)
+    }
+
+    private static func hourLabel(_ hour: Int) -> String {
+        var components = DateComponents()
+        components.hour = hour
+        let calendar = Calendar.current
+        guard let date = calendar.date(from: components) else { return "\(hour):00" }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h a"
+        return formatter.string(from: date)
+    }
+
+    private func setDailyVerseHour(_ hour: Int?) async {
+        let previous = dailyVerseHour
+        dailyVerseHour = hour
+        isSavingDailyVerseHour = true
+        do {
+            try await APIClient.shared.setDailyVerseHour(hour)
+        } catch {
+            dailyVerseHour = previous
+            connectorError = error.localizedDescription
+        }
+        isSavingDailyVerseHour = false
     }
 
     private var remindersSection: some View {
@@ -595,6 +649,43 @@ struct ProfileView: View {
             Text("Choose which accent leads across the app. Free for every member.")
         }
         .listRowBackground(FFTheme.parchment1)
+    }
+
+    /// nil (the picker's "Automatic" option) means "follow this device's own
+    /// region" -- see Units.swift. An explicit choice is synced to the
+    /// server (units_system) so it's the same on every device the member
+    /// signs into, not just this one.
+    private var unitsSection: some View {
+        Section {
+            Picker("Distance & speed", selection: Binding(
+                get: { UnitsSystem(rawValue: unitsSystemRaw) },
+                set: { newValue in Task { await setUnits(newValue) } }
+            )) {
+                Text("Automatic").tag(Optional<UnitsSystem>.none)
+                ForEach(UnitsSystem.allCases) { system in
+                    Text(system.label).tag(Optional(system))
+                }
+            }
+            .disabled(isSavingUnits)
+        } header: {
+            Text("Units")
+        } footer: {
+            Text("Automatic follows this device's own region. Applies to every distance, pace, speed, and elevation shown in the app.")
+        }
+        .listRowBackground(FFTheme.parchment1)
+    }
+
+    private func setUnits(_ system: UnitsSystem?) async {
+        let previous = unitsSystemRaw
+        unitsSystemRaw = system?.rawValue ?? ""
+        isSavingUnits = true
+        do {
+            try await APIClient.shared.setUnitsSystem(system)
+        } catch {
+            unitsSystemRaw = previous
+            connectorError = error.localizedDescription
+        }
+        isSavingUnits = false
     }
 
     private var accountSection: some View {

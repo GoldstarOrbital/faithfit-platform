@@ -68,7 +68,7 @@ struct AthleteProfileDetailView: View {
         Section {
             HStack {
                 statTile("Workouts (90d)", "\(p.stats.workouts90d)")
-                statTile("Distance (90d)", String(format: "%.1f km", p.stats.distanceKm90d))
+                statTile("Distance (90d)", Units.distanceString(km: p.stats.distanceKm90d, decimals: 1))
                 if let hr = p.stats.avgHR90d { statTile("Avg HR", "\(hr) bpm") }
             }
         } header: { Text("Real training data") } footer: { Text("Pulled live from logged workouts, not self-reported.") }

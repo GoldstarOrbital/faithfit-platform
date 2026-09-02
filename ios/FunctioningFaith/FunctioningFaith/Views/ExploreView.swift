@@ -16,6 +16,11 @@ struct ExploreView: View {
     @State private var isLoadingContent = true
     @State private var contentError: String?
     @State private var actionError: String?
+    // A List row containing both a NavigationLink and another tappable
+    // sibling (the Follow button) only ever gets one tap target for the
+    // whole row -- routing "open this profile" through a plain Button +
+    // this shared destination keeps Follow a genuinely separate target.
+    @State private var openedSuggestion: UUID?
 
     var body: some View {
         List {
@@ -82,19 +87,20 @@ struct ExploreView: View {
                 } else {
                     ForEach(suggestions) { user in
                         HStack(spacing: 12) {
-                            Image(systemName: "person.crop.circle.fill")
-                                .font(.title2)
-                                .foregroundStyle(FFTheme.meadow)
-                                .background(FFTheme.parchment2, in: Circle())
-                                .ffGradientRing()
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(user.displayName).font(.headline)
-                                Text(user.reason).font(.caption).foregroundStyle(.secondary)
-                                if let bio = user.bio, !bio.isEmpty {
-                                    Text(bio).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                            Button { openedSuggestion = user.id } label: {
+                                HStack(spacing: 12) {
+                                    MemberAvatarView(userID: user.id, hasAvatar: user.hasAvatar, size: 44)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(user.displayName).font(.headline)
+                                        Text(user.reason).font(.caption).foregroundStyle(.secondary)
+                                        if let bio = user.bio, !bio.isEmpty {
+                                            Text(bio).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                                        }
+                                    }
+                                    Spacer(minLength: 0)
                                 }
                             }
-                            Spacer()
+                            .buttonStyle(.plain)
                             Button(user.isFollowing ? "Following" : "Follow") {
                                 follow(user)
                             }
@@ -251,6 +257,7 @@ struct ExploreView: View {
         .navigationTitle("Explore")
         .task { await loadExplore() }
         .refreshable { await loadExplore(forceRefresh: true) }
+        .navigationDestination(item: $openedSuggestion) { id in MemberProfileView(userID: id) }
         .alert("Couldn’t complete that action", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
             Button("OK", role: .cancel) { actionError = nil }
         } message: {

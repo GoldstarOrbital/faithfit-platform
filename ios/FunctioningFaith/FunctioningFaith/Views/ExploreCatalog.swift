@@ -334,7 +334,7 @@ private struct GroupDiscoveryRow: View {
     let group: NearbyGroup
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack { Text(group.name).font(.headline); Spacer(); if let distance = group.distanceKm { Text(String(format: "%.1f km", distance)).font(.caption.weight(.semibold)).foregroundStyle(.tint) } }
+            HStack { Text(group.name).font(.headline); Spacer(); if let distance = group.distanceKm { Text(Units.distanceString(km: distance, decimals: 1)).font(.caption.weight(.semibold)).foregroundStyle(.tint) } }
             Text([group.sport, group.locationName, group.churchName].compactMap { $0 }.joined(separator: " · "))
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }

@@ -213,7 +213,7 @@ struct WorkoutView: View {
                 HStack(spacing: 10) {
                     if let cadence = bluetooth.cadenceRPM { Label("\(cadence) rpm", systemImage: "gauge.with.dots.needle.50percent") }
                     if let power = bluetooth.cyclingPowerWatts { Label("\(power) W", systemImage: "bolt.fill") }
-                    if let speed = bluetooth.speedKmh { Label(String(format: "%.1f km/h", speed), systemImage: "gauge.with.dots.needle.50percent") }
+                    if let speed = bluetooth.speedKmh { Label(Units.speedString(kmh: speed), systemImage: "gauge.with.dots.needle.50percent") }
                 }
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(FFTheme.inkSoft)
@@ -303,7 +303,7 @@ struct WorkoutView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             labeledField("Duration (minutes)", text: $manualMinutes, keyboard: .numberPad)
-            labeledField("Distance (km) — optional", text: $manualKm, keyboard: .decimalPad)
+            labeledField("Distance (\(Units.distanceUnitLabel)) — optional", text: $manualKm, keyboard: .decimalPad)
             labeledField("Note — optional", text: $manualNote, keyboard: .default)
             Button {
                 Task { await saveManual() }
@@ -361,7 +361,7 @@ struct WorkoutView: View {
                         Spacer()
                         VStack(alignment: .trailing, spacing: 2) {
                             if let km = workout.distanceKm {
-                                Text(String(format: "%.2f km", km)).font(.subheadline.monospacedDigit())
+                                Text(Units.distanceString(km: km)).font(.subheadline.monospacedDigit())
                             }
                             if let sec = workout.durationSec {
                                 Text(TrainingMath.elapsedString(TimeInterval(sec))).font(.caption).foregroundStyle(.secondary)
@@ -533,7 +533,10 @@ struct WorkoutView: View {
         isSavingManual = true
         defer { isSavingManual = false }
         let minutes = Double(manualMinutes) ?? 0
-        let km = Double(manualKm)
+        // The field is labeled in the member's own unit (see labeledField
+        // above) but the server always stores/compares distance in km.
+        let enteredDistance = Double(manualKm)
+        let km = enteredDistance.map { Units.isImperial ? $0 / 0.621371 : $0 }
         do {
             let saved = try await APIClient.shared.logManualWorkout(
                 type: selectedType,
@@ -587,23 +590,23 @@ struct PostWorkoutSummaryView: View {
 
     private var distanceText: String? {
         guard let distance = completion.distanceKm, distance > 0 else { return nil }
-        return String(format: "%.2f km", distance)
+        return Units.distanceString(km: distance)
     }
 
     private var paceText: String? {
         guard let km = completion.distanceKm, km > 0, completion.durationSec > 0,
               !["Skiing", "Strength", "HIIT", "Yoga", "Pilates"].contains(activityType) else { return nil }
-        let seconds = Double(completion.durationSec) / km
-        return String(format: "%d:%02d /km", Int(seconds) / 60, Int(seconds) % 60)
+        let minutesPerKm = (Double(completion.durationSec) / 60) / km
+        return "\(Units.paceString(minutesPerKm: minutesPerKm)) /\(Units.distanceUnitLabel)"
     }
 
     private var extraMetrics: [(String, String)] {
         var items: [(String, String)] = []
         if let topSpeed = sportMetrics["top_speed_kmh"], topSpeed > 0 {
-            items.append((String(format: "%.1f km/h", topSpeed), "Top speed"))
+            items.append((Units.speedString(kmh: topSpeed), "Top speed"))
         }
         if let elevation = sportMetrics["elevation_gain_m"], elevation > 0 {
-            items.append(("\(Int(elevation.rounded())) m", "Elevation gain"))
+            items.append((Units.elevationString(meters: elevation), "Elevation gain"))
         }
         if let cadence = sportMetrics["cadence_rpm"], cadence > 0 {
             items.append(("\(Int(cadence.rounded())) rpm", "Cadence"))
@@ -695,7 +698,7 @@ struct PostWorkoutSummaryView: View {
         guard !name.isEmpty else { routeSaveStatus = "Give this route a name first."; return }
         do {
             let saved = try await APIClient.shared.saveRoute(name: name, activityType: activityType, path: route)
-            routeSaveStatus = String(format: "Saved %.2f km route.", saved.distanceKm)
+            routeSaveStatus = "Saved \(Units.distanceString(km: saved.distanceKm)) route."
         } catch { routeSaveStatus = error.localizedDescription }
     }
 }

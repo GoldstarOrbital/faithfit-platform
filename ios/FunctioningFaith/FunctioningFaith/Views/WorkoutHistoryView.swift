@@ -61,7 +61,7 @@ struct WorkoutHistoryView: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 if let km = workout.distanceKm {
-                    Text(String(format: "%.2f km", km)).font(.subheadline.monospacedDigit())
+                    Text(Units.distanceString(km: km)).font(.subheadline.monospacedDigit())
                 }
                 if let sec = workout.durationSec {
                     Text(TrainingMath.elapsedString(TimeInterval(sec))).font(.caption).foregroundStyle(.secondary)

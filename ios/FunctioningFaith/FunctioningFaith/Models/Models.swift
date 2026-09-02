@@ -135,6 +135,11 @@ struct UserProfile: Codable, Identifiable {
     /// arbitrary label text, so the two always agree.
     var bioLinkURL: String? = nil
     var bioLinkLabel: String? = nil
+    /// 0-23, server-local -- nil means "no preference", the app's default
+    /// 6-10am morning-verse window (see the server's lib/daily.js).
+    var dailyVerseHour: Int? = nil
+    /// nil means "follow this device's own locale" -- see Units.swift.
+    var unitsSystem: String? = nil
 }
 
 /// The server-calculated result of ending a live workout. Values are either
@@ -202,8 +207,35 @@ struct MemberProfile: Decodable, Identifiable {
 
 struct MemberProfileStats: Decodable {
     let workouts: Int
+    let posts: Int
     let followers: Int?
     let following: Int?
+}
+
+/// One row in a followers/following list (GET /users/:id/followers|following)
+/// or a mutual-connections preview (GET /users/:id/mutual-followers) -- same
+/// shape either way, just a member's public identity plus, for a followers/
+/// following list, whether the viewer already follows that row's person.
+struct SocialListMember: Decodable, Identifiable {
+    let id: UUID
+    let displayName: String
+    let bioVerseRef: String?
+    let hasAvatar: Bool
+    var isFollowing: Bool? = nil
+    enum CodingKeys: String, CodingKey {
+        case id, displayName = "display_name", bioVerseRef = "bio_verse_ref"
+        case hasAvatar = "has_avatar", isFollowing = "is_following"
+    }
+}
+
+struct SocialListResponse: Decodable {
+    let kind: String
+    let members: [SocialListMember]
+}
+
+struct MutualFollowersResponse: Decodable {
+    let total: Int
+    let members: [SocialListMember]
 }
 
 struct MemberProfileResponse: Decodable {
@@ -898,6 +930,7 @@ struct SuggestedUser: Codable, Identifiable {
     let id: UUID
     let displayName: String
     let bio: String?
+    let hasAvatar: Bool
     let followersCount: Int
     let reason: String
     var isFollowing: Bool = false

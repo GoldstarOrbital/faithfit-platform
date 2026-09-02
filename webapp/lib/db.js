@@ -879,6 +879,15 @@ if (!userColsTrad.includes('tradition')) db.exec('ALTER TABLE users ADD COLUMN t
 // Preferred YouVersion translation. Also nullable: unset means the app's
 // default (engWEBUS), which matches the locally ingested text.
 if (!userColsTrad.includes('bible_version_id')) db.exec('ALTER TABLE users ADD COLUMN bible_version_id INTEGER');
+// The hour (0-23, server local time -- there is no stored timezone) the
+// member wants their daily verse to arrive. NULL means "no preference",
+// which keeps the original 6-10am default window in lib/daily.js; a member
+// who sets one gets sent only in that hour instead.
+if (!userColsTrad.includes('daily_verse_hour')) db.exec('ALTER TABLE users ADD COLUMN daily_verse_hour INTEGER');
+// Distance/weight display preference. NULL means "follow the device's own
+// locale" (native client picks metric/imperial from Locale.current); an
+// explicit choice here overrides that everywhere the app shows a unit.
+if (!userColsTrad.includes('units_system')) db.exec('ALTER TABLE users ADD COLUMN units_system TEXT');
 
 // --- Scripture as conversation, not broadcast (additive) ---
 // One canonical thread per verse reference (UNIQUE) so conversation about a

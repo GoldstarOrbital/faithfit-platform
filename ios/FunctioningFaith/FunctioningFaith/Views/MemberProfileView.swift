@@ -15,6 +15,7 @@ struct MemberProfileView: View {
     @State private var isOpeningMessage = false
     @State private var errorMessage: String?
     @State private var expandedPost: MemberProfilePost?
+    @State private var mutuals: MutualFollowersResponse?
 
     var body: some View {
         Group {
@@ -22,6 +23,7 @@ struct MemberProfileView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         identityHeader(profile)
+                        if let mutuals { mutualsRow(mutuals) }
                         actionRow(profile)
                         if let ref = profile.user.bioVerseRef { verseCard(reference: ref, text: profile.user.bioVerseText) }
                         if let label = profile.user.bioLinkLabel, let rawURL = profile.user.bioLinkURL, let url = URL(string: rawURL) {
@@ -72,9 +74,10 @@ struct MemberProfileView: View {
                 Text(profile.isFollowing ? "Moving with you" : "Functioning Faith member")
                     .font(.subheadline).foregroundStyle(FFTheme.inkSoft)
                 HStack(spacing: 0) {
+                    profileStat("Posts", profile.stats.posts)
                     profileStat("Workouts", profile.stats.workouts)
-                    profileStat("Followers", profile.stats.followers)
-                    profileStat("Following", profile.stats.following)
+                    profileStat("Followers", profile.stats.followers, kind: "followers")
+                    profileStat("Following", profile.stats.following, kind: "following")
                 }
             }
         }
@@ -82,11 +85,59 @@ struct MemberProfileView: View {
         .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.lg, style: .continuous))
     }
 
-    private func profileStat(_ label: String, _ value: Int?) -> some View {
+    /// `kind`, when given, makes a non-nil count tappable through to the real
+    /// followers/following list (SocialListView) -- previously these were
+    /// plain numbers with nowhere to go. A nil value means the member hides
+    /// this count, shown as a lock rather than the word "Private" reading
+    /// like a stat literally named that.
+    @ViewBuilder
+    private func profileStat(_ label: String, _ value: Int?, kind: String? = nil) -> some View {
+        if let kind, value != nil {
+            NavigationLink {
+                SocialListView(userID: userID, kind: kind, title: label)
+            } label: { statContent(label, value) }
+            .buttonStyle(.plain)
+        } else {
+            statContent(label, value)
+        }
+    }
+
+    private func statContent(_ label: String, _ value: Int?) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(value.map(String.init) ?? "Private").font(.subheadline.weight(.bold).monospacedDigit())
+            if let value {
+                Text(String(value)).font(.subheadline.weight(.bold).monospacedDigit())
+            } else {
+                Label("Private", systemImage: "lock.fill")
+                    .font(.caption.weight(.semibold)).foregroundStyle(FFTheme.muted)
+            }
             Text(label).font(.caption2).foregroundStyle(FFTheme.inkSoft)
         }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// "Followed by X, Y and N others" -- the standard mutual-connections
+    /// line on any social profile, absent from this app until now.
+    private func mutualsRow(_ mutuals: MutualFollowersResponse) -> some View {
+        Group {
+            if mutuals.total > 0 {
+                HStack(spacing: 8) {
+                    HStack(spacing: -8) {
+                        ForEach(mutuals.members.prefix(3)) { member in
+                            MemberAvatarView(userID: member.id, hasAvatar: member.hasAvatar, size: 22)
+                                .overlay(Circle().stroke(FFTheme.parchment0, lineWidth: 2))
+                        }
+                    }
+                    Text(mutualsText(mutuals)).font(.caption).foregroundStyle(FFTheme.inkSoft)
+                }
+            }
+        }
+    }
+
+    private func mutualsText(_ mutuals: MutualFollowersResponse) -> String {
+        let names = mutuals.members.prefix(2).map(\.displayName)
+        let extra = mutuals.total - names.count
+        if names.isEmpty { return "Followed by \(mutuals.total) people you follow" }
+        let joined = names.joined(separator: ", ")
+        return extra > 0 ? "Followed by \(joined) and \(extra) more you follow" : "Followed by \(joined)"
     }
 
     @ViewBuilder
@@ -184,6 +235,7 @@ struct MemberProfileView: View {
             let loaded = try await APIClient.shared.fetchMemberProfile(userID: userID)
             profile = loaded
             if loaded.user.hasAvatar, let dataURL = try? await APIClient.shared.fetchAvatarData(userID: userID) { avatarImage = ImageUpload.decode(dataURL) }
+            if !loaded.isMe { mutuals = try? await APIClient.shared.fetchMutualFollowers(userID: userID) }
         } catch { errorMessage = error.localizedDescription }
     }
 
