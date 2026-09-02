@@ -87,11 +87,16 @@ final class FunctioningFaithTests: XCTestCase {
         XCTAssertTrue(types.isSuperset(of: ["Run", "Walk", "Hike", "Trail Run", "Cycle", "Swim", "Row", "Strength", "Yoga", "Pickleball"]))
     }
 
-    func testExploreCatalogHasRailwayTwelveSections() {
-        XCTAssertEqual(ExploreCatalogItem.allCases.count, 12)
+    // "Bible Answers" is deliberately native-only: it has no web Explore
+    // equivalent, so this now has one more section than Railway's
+    // EXPLORE_SECTIONS (12) -- everything else still matches that list
+    // exactly, in the same order.
+    func testExploreCatalogHasRailwaySectionsPlusBibleAnswers() {
+        XCTAssertEqual(ExploreCatalogItem.allCases.count, 13)
         XCTAssertEqual(ExploreCatalogItem.allCases.map(\.rawValue), [
             "journeys", "challenges", "videos", "reels", "podcasts", "scripture",
             "groups", "leaderboard", "breathe", "motivation", "news", "recruiting",
+            "bibleAnswers",
         ])
     }
 
