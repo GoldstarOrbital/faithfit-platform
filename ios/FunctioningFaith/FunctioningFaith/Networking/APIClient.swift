@@ -593,6 +593,19 @@ final class APIClient {
         return r.message
     }
 
+    /// A short-lived, single-use token that stands in for the app's cookie
+    /// session when opening a connector's OAuth "start" URL in
+    /// ASWebAuthenticationSession -- that browsing context is a separate,
+    /// system-managed cookie jar this app's own session cookie can never
+    /// reach, so the token (passed as ?token=... on the start URL) carries
+    /// the member's identity for that one request instead. See the server's
+    /// requireAuthOrHandoffToken for the full reasoning.
+    func fetchOAuthHandoffToken() async throws -> String {
+        if useMock { throw APIError.invalidResponse }
+        let response: OAuthHandoffTokenResponse = try await request("/api/connectors/handoff-token", method: "POST")
+        return response.token
+    }
+
     func publishE2EPublicKey(_ jwk: [String: String]) async throws {
         if useMock { return }
         let _: ActionResponse = try await request("/api/dms/keys", method: "POST", body: E2EKeyBody(publicKey: jwk))
@@ -1916,6 +1929,7 @@ private struct UpdateProfileBody: Encodable {
     }
 }
 private struct UpdateProfileResponse: Decodable { let ok: Bool }
+private struct OAuthHandoffTokenResponse: Decodable { let token: String }
 private struct AvatarResponse: Decodable {
     let avatarData: String
     enum CodingKeys: String, CodingKey { case avatarData = "avatar_data" }

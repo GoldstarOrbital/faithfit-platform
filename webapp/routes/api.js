@@ -623,18 +623,24 @@ router.post('/auth/identities/:provider/unlink', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// A native client calls this (with its normal, working cookie session --
+// this is a plain requireAuth route, not the handoff-token path) right
+// before opening a connector's "start" URL in ASWebAuthenticationSession,
+// then passes the returned token as ?token=... on that URL. See
+// requireAuthOrHandoffToken above for why a cookie alone can't reach that
+// browsing context.
+router.post('/connectors/handoff-token', requireAuth, (req, res) => {
+  const token = randomUUID();
+  db.prepare('INSERT INTO oauth_handoff_tokens (token, user_id) VALUES (?, ?)').run(token, req.session.userId);
+  res.json({ token });
+});
+
 // ---- Device / wearable sync via Strava (real GPS-watch data, free to connect) ----
 router.get('/connectors/strava/configured', (req, res) => res.json({ configured: strava.isConfigured() }));
 
-router.get('/connectors/strava/start', requireAuth, (req, res) => {
+router.get('/connectors/strava/start', requireAuthOrHandoffToken, (req, res) => {
   if (!strava.isConfigured()) return res.status(404).json({ error: 'strava_not_configured' });
   const state = oauth.b64url(require('crypto').randomBytes(16));
-  // native=1: the iOS client bridges its existing session cookie into the
-  // ASWebAuthenticationSession's browsing context before opening this URL
-  // (a different cookie jar from the one its own API calls use), so
-  // req.session here is the member's real, already-authenticated session --
-  // no separate handoff-code exchange needed, only a different final
-  // redirect so the app can detect completion (see callback below).
   const native = req.query.native === '1';
   req.session.stravaPending = { state, userId: req.session.userId, native, createdAt: Date.now() };
   const redirectUri = `${baseUrl(req)}/api/connectors/strava/callback`;
@@ -685,7 +691,7 @@ router.post('/connectors/strava/sync', requireAuth, async (req, res) => {
 // sync (see spotify.js's computeTaste), auto-refreshing an expired token. ----
 router.get('/connectors/spotify/configured', (req, res) => res.json({ configured: spotify.isConfigured() }));
 
-router.get('/connectors/spotify/start', requireAuth, (req, res) => {
+router.get('/connectors/spotify/start', requireAuthOrHandoffToken, (req, res) => {
   if (!spotify.isConfigured()) return res.status(404).json({ error: 'spotify_not_configured' });
   const state = oauth.b64url(require('crypto').randomBytes(16));
   const native = req.query.native === '1';
@@ -1063,7 +1069,7 @@ router.get('/connectors/configured', (req, res) => {
 router.get('/connectors/:provider/configured', (req, res) => {
   res.json({ configured: wearables.isConfigured(req.params.provider) });
 });
-router.get('/connectors/:provider/start', requireAuth, (req, res) => {
+router.get('/connectors/:provider/start', requireAuthOrHandoffToken, (req, res) => {
   const name = req.params.provider;
   if (!wearables.isConfigured(name)) return res.status(404).json({ error: 'provider_not_configured' });
   const state = oauth.b64url(require('crypto').randomBytes(16));
@@ -1143,6 +1149,35 @@ function requireAuth(req, res, next) {
     return res.status(401).json({ error: checked.error });
   }
   next();
+}
+
+// Same authorization as requireAuth, but a valid single-use handoff token
+// (issued by POST /connectors/handoff-token, itself requireAuth-gated) is
+// accepted in place of a cookie session -- needed only for the "start" leg
+// of a native OAuth connector flow. ASWebAuthenticationSession
+// (prefersEphemeralWebBrowserSession = false) runs its own system-managed,
+// Safari-shared browsing context, not the app's WKWebsiteDataStore and not
+// reachable by any public WebKit API -- so a cookie copied into
+// WKWebsiteDataStore.default() (the previous approach) never actually
+// reaches it, and that very first /start request has no way to carry the
+// member's real session. A token in the URL sidesteps cookies for that one
+// request; the connector-session cookie the response sets from there on
+// carries correctly through the rest of that same OAuth round trip.
+function requireAuthOrHandoffToken(req, res, next) {
+  const checked = accountSecurity.validateSession(req);
+  if (checked.ok) return next();
+
+  const token = String(req.query.token || '');
+  if (token) {
+    const row = db.prepare('SELECT * FROM oauth_handoff_tokens WHERE token = ? AND used_at IS NULL').get(token);
+    if (row && Date.now() - Date.parse(row.created_at + 'Z') <= 5 * 60 * 1000) {
+      db.prepare("UPDATE oauth_handoff_tokens SET used_at = datetime('now') WHERE token = ?").run(token);
+      req.session.userId = row.user_id;
+      return next();
+    }
+  }
+  req.session = null;
+  return res.status(401).json({ error: checked.error });
 }
 
 // 404, not 403 -- same reasoning as reviewerAuthorized elsewhere in this file:

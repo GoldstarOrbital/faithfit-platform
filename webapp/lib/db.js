@@ -572,6 +572,21 @@ CREATE TABLE IF NOT EXISTS user_connectors (
   last_synced_at TEXT,
   UNIQUE(user_id, provider)
 );
+
+-- A short-lived, single-use token that stands in for a cookie session when
+-- opening a connector's OAuth "start" URL from native. ASWebAuthenticationSession
+-- (prefersEphemeralWebBrowserSession = false) runs in a system-managed,
+-- Safari-shared browsing context -- NOT the app's own WKWebsiteDataStore, and
+-- not reachable by any public WebKit API -- so a cookie copied into
+-- WKWebsiteDataStore.default() (the previous approach) never actually reaches
+-- it. Passing this token as a query parameter sidesteps cookies entirely for
+-- that one request.
+CREATE TABLE IF NOT EXISTS oauth_handoff_tokens (
+  token TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  used_at TEXT
+);
 -- A cached summary of a member's Spotify listening, refreshed each sync --
 -- never raw track-by-track history, just what's needed to personalize a
 -- verse notification: a mood bucket derived from real audio-feature

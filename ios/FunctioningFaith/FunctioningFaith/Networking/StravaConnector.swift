@@ -1,5 +1,4 @@
 import AuthenticationServices
-import WebKit
 
 enum StravaConnectError: LocalizedError {
     case notSignedIn
@@ -23,21 +22,31 @@ enum StravaConnectError: LocalizedError {
 /// simpler case: the member is already authenticated, so there's no
 /// separate code-for-session exchange -- only a way to detect completion.
 ///
-/// ASWebAuthenticationSession's browsing context draws from
-/// WKWebsiteDataStore, a different cookie jar from URLSession.shared (which
-/// APIClient uses for every other call) -- so without bridging the existing
-/// session cookie across first, the web view would hit
-/// /connectors/strava/start unauthenticated. This is the standard fix for
-/// exactly that gap.
+/// ASWebAuthenticationSession's browsing context is a separate,
+/// system-managed Safari-shared jar -- it is NOT WKWebsiteDataStore.default()
+/// and isn't reachable from any public WebKit API, so there's no way to
+/// bridge the app's session cookie into it. Instead, a short-lived
+/// single-use handoff token carries the member's identity as a query
+/// parameter on the start URL. See the server's requireAuthOrHandoffToken
+/// for the full reasoning.
 @MainActor
 final class StravaConnector: NSObject, ObservableObject, ASWebAuthenticationPresentationContextProviding {
     private var webSession: ASWebAuthenticationSession?
     private var fallbackWindow: UIWindow?
 
     func connect() async throws {
-        try await bridgeSessionCookie()
+        let token: String
+        do {
+            token = try await APIClient.shared.fetchOAuthHandoffToken()
+        } catch {
+            throw StravaConnectError.notSignedIn
+        }
 
-        guard let startURL = URL(string: "/api/connectors/strava/start?native=1", relativeTo: APIClient.shared.baseURL) else {
+        guard var components = URLComponents(url: URL(string: "/api/connectors/strava/start", relativeTo: APIClient.shared.baseURL)!, resolvingAgainstBaseURL: true) else {
+            throw StravaConnectError.couldNotStart
+        }
+        components.queryItems = [URLQueryItem(name: "native", value: "1"), URLQueryItem(name: "token", value: token)]
+        guard let startURL = components.url else {
             throw StravaConnectError.couldNotStart
         }
 
@@ -68,43 +77,6 @@ final class StravaConnector: NSObject, ObservableObject, ASWebAuthenticationPres
             if !session.start() {
                 webSession = nil
                 continuation.resume(throwing: StravaConnectError.couldNotStart)
-            }
-        }
-    }
-
-    private func bridgeSessionCookie() async throws {
-        // A fresh authenticated round-trip guarantees the server's session
-        // cookie has actually been (re)written into HTTPCookieStorage.shared
-        // before we read it -- without this, a member who is genuinely signed
-        // in could still see a spurious "not signed in" if the cookie last
-        // written there was ever stale or momentarily missing. Best-effort:
-        // if this fails, the guard below still correctly reports not signed in.
-        _ = try? await APIClient.shared.fetchProfile()
-
-        guard let cookies = HTTPCookieStorage.shared.cookies(for: APIClient.shared.baseURL), !cookies.isEmpty else {
-            throw StravaConnectError.notSignedIn
-        }
-        let store = WKWebsiteDataStore.default().httpCookieStore
-        // WKWebsiteDataStore.default() is a persistent, process-wide jar shared
-        // by every WKWebView/ASWebAuthenticationSession in the app -- a stale
-        // cookie left behind by an earlier connector attempt (or a session
-        // that has since been revoked server-side) can coexist with the fresh
-        // one instead of being cleanly replaced, and the server may end up
-        // validating the wrong one. Clear this host's cookies here first so
-        // only the current, actually-valid session cookie is ever present.
-        if let host = APIClient.shared.baseURL.host {
-            let existing = await withCheckedContinuation { (continuation: CheckedContinuation<[HTTPCookie], Never>) in
-                store.getAllCookies { continuation.resume(returning: $0) }
-            }
-            for cookie in existing where cookie.domain.hasSuffix(host) {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    store.delete(cookie) { continuation.resume() }
-                }
-            }
-        }
-        for cookie in cookies {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                store.setCookie(cookie) { continuation.resume() }
             }
         }
     }
