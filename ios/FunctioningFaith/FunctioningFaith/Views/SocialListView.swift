@@ -62,8 +62,13 @@ struct SocialListView: View {
             .buttonStyle(.plain)
 
             if let isFollowing = member.isFollowing {
+                // A ternary between two distinct named ButtonStyle types
+                // doesn't type-check (Swift can't unify them into one
+                // concrete style) -- .ffPrimary throughout, matching
+                // MemberProfileView's own Follow button, which distinguishes
+                // state by label rather than by swapping styles.
                 Button(isFollowing ? "Following" : "Follow") { Task { await toggleFollow(member) } }
-                    .buttonStyle(isFollowing ? .ffGhost : .ffPrimary)
+                    .buttonStyle(.ffPrimary)
                     .font(.caption)
                     .disabled(followBusy.contains(member.id))
             }
