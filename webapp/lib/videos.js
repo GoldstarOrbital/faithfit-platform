@@ -62,6 +62,13 @@ const SOURCES = {
     'Nick Bare Fitness official',
     'Nick Bare Podcast official',
   ],
+  // The Chosen -- a specific, hugely popular series about the life of Christ,
+  // uploaded free and in full by its own production team (their model is
+  // pay-it-forward donations, not a paywall), so it earns its own category
+  // the same way VeggieTales/Nick Bare did rather than folding into "christian".
+  thechosen: [
+    'The Chosen TV series official',
+  ],
 };
 
 const MAX_VIDEOS_PER_CHANNEL = 8;

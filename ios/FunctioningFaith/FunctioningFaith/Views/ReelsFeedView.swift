@@ -296,6 +296,7 @@ private struct ReelPage: View {
         "food": "Food + fitness", "kids": "Kids + family", "fitness": "Faith + movement",
         "christian": "Scripture + formation", "motivational": "Purpose + perseverance",
         "veggietales": "Kids + family", "nickbare": "Training + discipline", "church": "Your church",
+        "thechosen": "The Chosen",
         "instagram": "Instagram · external", "tiktok": "TikTok · external", "youtube": "YouTube · external",
     ]
     private var audienceLabel: String { Self.categoryLabels[reel.category ?? ""] ?? "Faith + movement" }

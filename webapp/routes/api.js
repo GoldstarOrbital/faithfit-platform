@@ -4577,7 +4577,7 @@ router.patch('/scripture/practice/days/:day/note', requireAuth, (req, res) => {
 // ---- Curated video library (real YouTube channels, gated behind YOUTUBE_API_KEY) ----
 router.get('/videos', (req, res) => {
   const category = String(req.query.category || '').trim();
-  const allowed = new Set(['kids', 'fitness', 'food', 'motivational', 'christian', 'veggietales', 'nickbare', 'reels']);
+  const allowed = new Set(['kids', 'fitness', 'food', 'motivational', 'christian', 'veggietales', 'nickbare', 'thechosen', 'reels']);
   if (!allowed.has(category)) return res.status(400).json({ error: 'invalid_category' });
   const rows = category === 'reels'
     ? db.prepare(`SELECT video_id, title, description, thumbnail_url, channel_title, published_at, category

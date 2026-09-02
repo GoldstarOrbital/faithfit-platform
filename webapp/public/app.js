@@ -2256,7 +2256,7 @@ async function renderReelsTab(body) {
     .map(v => { seen.add(v.video_id); return v; });
   const list = document.getElementById('reels-list');
   if (!videos.length) { list.innerHTML = `<div class="card glass"><p class="muted">${state.reelsView === 'saved' ? 'Your saved Reels will appear here. Tap 🔖 on anything you want to come back to.' : 'No reels in this filter yet. Fresh videos will appear here as the library refreshes.'}</p></div>`; return; }
-  const labels = { food: 'Food + fitness', kids: 'Kids + family', fitness: 'Faith + movement', christian: 'Scripture + formation', motivational: 'Purpose + perseverance', veggietales: 'Kids + family', nickbare: 'Training + discipline', church: 'Your church', instagram: 'Instagram · external', tiktok: 'TikTok · external', youtube: 'YouTube · external' };
+  const labels = { food: 'Food + fitness', kids: 'Kids + family', fitness: 'Faith + movement', christian: 'Scripture + formation', motivational: 'Purpose + perseverance', veggietales: 'Kids + family', nickbare: 'Training + discipline', thechosen: 'The Chosen', church: 'Your church', instagram: 'Instagram · external', tiktok: 'TikTok · external', youtube: 'YouTube · external' };
   const sourceLabel = v => v.source_kind === 'functioning_faith' ? 'Functioning Faith original'
     : v.source_kind === 'church' ? 'From your church'
       : v.source_kind === 'channel' ? 'Official channel' : 'Curated for this community';
@@ -2400,6 +2400,7 @@ async function renderVideosTab(body) {
     { key: 'christian', label: 'Christian voices' },
     { key: 'veggietales', label: 'VeggieTales' },
     { key: 'nickbare', label: 'Nick Bare' },
+    { key: 'thechosen', label: 'The Chosen' },
   ];
   const CURATED = {
     kids: [

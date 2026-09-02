@@ -7,6 +7,7 @@ struct VideoLibraryView: View {
     private static let categories: [(key: String, label: String)] = [
         ("christian", "Christian"), ("motivational", "Motivational"), ("fitness", "Fitness"),
         ("food", "Food"), ("kids", "Kids"), ("veggietales", "VeggieTales"), ("nickbare", "Nick Bare"),
+        ("thechosen", "The Chosen"),
     ]
 
     @State private var category = "christian"
