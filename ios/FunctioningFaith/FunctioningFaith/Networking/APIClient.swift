@@ -1030,6 +1030,18 @@ final class APIClient {
         return try await request("/api/bible/ask", method: "POST", body: AskVerseBody(question: question))
     }
 
+    /// Same verified-citation guarantee as askBibleQuestion, but anchored to
+    /// the one passage someone is actually reading (lib/companion.js's
+    /// askAboutVerse) -- distinct endpoint, distinct response shape (no
+    /// `question` field; carries the verse's own reference and text back).
+    func askAboutVerse(reference: String, question: String) async throws -> VerseAskAnswer {
+        if useMock { throw APIError.invalidResponse }
+        guard let encoded = reference.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
+            throw APIError.invalidResponse
+        }
+        return try await request("/api/verses/\(encoded)/ask", method: "POST", body: AskVerseBody(question: question))
+    }
+
     // MARK: - Podcasts
 
     func fetchPodcasts(episodesPerShow: Int = 8, forceRefresh: Bool = false) async throws -> [Podcast] {

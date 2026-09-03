@@ -3,6 +3,12 @@ import SwiftUI
 /// Scripture as conversation, not broadcast: one public thread per verse,
 /// replies nested exactly one level (server enforces this -- a reply to a
 /// reply attaches to the top-level parent instead).
+///
+/// Reading comes first: the verse text and the per-verse "explain this"
+/// companion are always on screen; the community discussion is real but
+/// opt-in, behind a single toggle row, so tapping a verse from anywhere in
+/// the app (browse, search, a shared verse, a reel) shows you the verse to
+/// read, not a discussion you have to scroll past.
 struct VerseThreadView: View {
     let reference: String
 
@@ -17,6 +23,15 @@ struct VerseThreadView: View {
     @State private var replyText = ""
     @State private var errorMessage: String?
     @State private var showSharePicker = false
+    @State private var showDiscussion = false
+
+    @State private var askQuestion = ""
+    @State private var askHistory: [VerseAskAnswer] = []
+    @State private var isAsking = false
+
+    private var totalReflectionCount: Int {
+        reflections.reduce(0) { $0 + 1 + $1.replies.count }
+    }
 
     var body: some View {
         Group {
@@ -25,11 +40,15 @@ struct VerseThreadView: View {
             } else {
                 List {
                     verseSection
-                    if thread != nil {
-                        reflectionsSection
-                        composeSection
-                    } else {
-                        startSection
+                    askSection
+                    discussionToggleSection
+                    if showDiscussion {
+                        if thread != nil {
+                            reflectionsSection
+                            composeSection
+                        } else {
+                            startSection
+                        }
                     }
                 }
                 .ffListChrome()
@@ -55,16 +74,74 @@ struct VerseThreadView: View {
     private var verseSection: some View {
         if let verse {
             Section {
-                Text(verse.text).font(FFTheme.serif())
-                if let openedByName = thread?.openedByName {
-                    Text("Conversation started by \(openedByName)").font(.caption).foregroundStyle(.secondary)
-                }
-                if let prompt = thread?.prompt, !prompt.isEmpty {
-                    Text(prompt).font(.subheadline).italic()
+                Text(verse.text)
+                    .font(FFTheme.serif(20))
+                    .lineSpacing(5)
+                    .padding(.vertical, 4)
+                if let translation = verse.translation {
+                    Text(translation).font(.caption).foregroundStyle(.secondary)
                 }
             }
             .listRowBackground(FFTheme.parchment1)
         }
+    }
+
+    // "Explain this verse" -- the per-verse companion, tied to the exact
+    // passage on screen (lib/companion.js's askAboutVerse), distinct from
+    // Explore's general "Bible Answers" Q&A. Always visible, not gated
+    // behind the discussion toggle: reading and asking are the primary
+    // actions here, discussing is secondary.
+    private var askSection: some View {
+        Section {
+            TextField("e.g. \"What does this mean for me today?\"", text: $askQuestion, axis: .vertical)
+                .lineLimit(1...3)
+            Button("Explain this verse") { Task { await askAboutThisVerse() } }
+                .buttonStyle(.ffPrimary)
+                .disabled(askQuestion.trimmingCharacters(in: .whitespaces).isEmpty || isAsking)
+            if isAsking {
+                ProgressView().frame(maxWidth: .infinity)
+            }
+            ForEach(Array(askHistory.enumerated().reversed()), id: \.offset) { _, item in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(item.answer).font(FFTheme.serif(15)).foregroundStyle(FFTheme.ink)
+                    ForEach(item.also) { cited in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(cited.reference).font(.caption.weight(.semibold)).foregroundStyle(FFTheme.scripture)
+                            Text(cited.text).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        }
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        } header: {
+            Text("Explain this verse")
+        }
+        .listRowBackground(FFTheme.parchment1)
+    }
+
+    private var discussionToggleSection: some View {
+        Section {
+            Button {
+                withAnimation { showDiscussion.toggle() }
+            } label: {
+                HStack {
+                    Label(
+                        totalReflectionCount == 0 ? "Join the conversation" : "\(totalReflectionCount) reflection\(totalReflectionCount == 1 ? "" : "s")",
+                        systemImage: "bubble.left.and.bubble.right"
+                    )
+                    Spacer()
+                    Image(systemName: showDiscussion ? "chevron.up" : "chevron.down").foregroundStyle(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+            if showDiscussion, let openedByName = thread?.openedByName {
+                Text("Conversation started by \(openedByName)").font(.caption).foregroundStyle(.secondary)
+            }
+            if showDiscussion, let prompt = thread?.prompt, !prompt.isEmpty {
+                Text(prompt).font(.subheadline).italic()
+            }
+        }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     private var startSection: some View {
@@ -161,6 +238,21 @@ struct VerseThreadView: View {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func askAboutThisVerse() async {
+        let trimmed = askQuestion.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        isAsking = true
+        errorMessage = nil
+        do {
+            let answer = try await APIClient.shared.askAboutVerse(reference: reference, question: trimmed)
+            askHistory.append(answer)
+            askQuestion = ""
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        isAsking = false
     }
 
     private func openThread() async {

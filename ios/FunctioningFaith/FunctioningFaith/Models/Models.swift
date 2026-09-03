@@ -337,6 +337,18 @@ struct BibleAnswer: Decodable, Identifiable {
     let also: [AlsoCitedVerse]
 }
 
+/// The per-verse companion's answer -- anchored to one passage (see
+/// VerseThreadView), as opposed to BibleAnswer's general Q&A. No `question`
+/// field: the server already knows which verse this is about and returns
+/// its own reference/text instead.
+struct VerseAskAnswer: Decodable, Identifiable {
+    let reference: String
+    let text: String
+    let answer: String
+    let also: [AlsoCitedVerse]
+    var id: String { reference + "\u{0}" + answer }
+}
+
 // ---- Selected church: daily devotional + this week's service, both
 // resolved server-side from the member's own church_osm_id. Either can be
 // nil -- most churches haven't been linked by a verified admin yet, and
