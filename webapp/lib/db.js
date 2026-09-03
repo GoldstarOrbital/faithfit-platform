@@ -587,6 +587,19 @@ CREATE TABLE IF NOT EXISTS oauth_handoff_tokens (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   used_at TEXT
 );
+
+-- Bible Answers Q&A history, kept so a member's own conversation survives
+-- leaving and reopening the tab, and so follow-up suggestions can be drawn
+-- from what they've actually asked about rather than a generic list.
+CREATE TABLE IF NOT EXISTS bible_answers_history (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  question TEXT NOT NULL,
+  answer TEXT NOT NULL,
+  also_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bible_answers_history_user ON bible_answers_history(user_id, created_at);
 -- A cached summary of a member's Spotify listening, refreshed each sync --
 -- never raw track-by-track history, just what's needed to personalize a
 -- verse notification: a mood bucket derived from real audio-feature

@@ -329,12 +329,25 @@ struct AlsoCitedVerse: Decodable, Identifiable {
 struct BibleAnswer: Decodable, Identifiable {
     let question: String
     let answer: String
-    // No server-side id -- these are generated fresh, never persisted (see
-    // companion.askBibleQuestion). Unique enough within one session's
-    // in-memory history, which is all this is ever used for (e.g. as a
-    // SwiftUI list/sheet item identity).
+    // No id in the JSON itself -- history rows are keyed by (user, created_at)
+    // server-side, not exposed to the client. Unique enough for SwiftUI
+    // list/sheet identity since the same question+answer pair only ever
+    // appears once in one member's history.
     var id: String { question + "\u{0}" + answer }
     let also: [AlsoCitedVerse]
+}
+
+/// This member's own past Bible Answers conversation (GET /bible/ask/history),
+/// oldest first -- how BibleAnswersView renders a chat.
+struct BibleAnswerHistoryResponse: Decodable {
+    let history: [BibleAnswer]
+}
+
+/// Personalized follow-up prompts drawn from this member's own recent
+/// questions (GET /bible/ask/suggestions) -- empty when they have no history
+/// yet, in which case the client falls back to its generic starter prompts.
+struct BibleAnswerSuggestionsResponse: Decodable {
+    let suggestions: [String]
 }
 
 /// The per-verse companion's answer -- anchored to one passage (see

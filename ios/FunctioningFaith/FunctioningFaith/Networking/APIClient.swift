@@ -1030,6 +1030,21 @@ final class APIClient {
         return try await request("/api/bible/ask", method: "POST", body: AskVerseBody(question: question))
     }
 
+    func fetchBibleAnswerHistory() async throws -> [BibleAnswer] {
+        if useMock { return [] }
+        let response: BibleAnswerHistoryResponse = try await request("/api/bible/ask/history")
+        return response.history
+    }
+
+    /// Best-effort: an empty result (no history, rate-limited, Gloo down) is
+    /// a normal, silent case -- the empty state's generic starter prompts
+    /// already cover it, so this never surfaces an error of its own.
+    func fetchBibleAnswerSuggestions() async throws -> [String] {
+        if useMock { return [] }
+        let response: BibleAnswerSuggestionsResponse = try await request("/api/bible/ask/suggestions")
+        return response.suggestions
+    }
+
     /// Same verified-citation guarantee as askBibleQuestion, but anchored to
     /// the one passage someone is actually reading (lib/companion.js's
     /// askAboutVerse) -- distinct endpoint, distinct response shape (no

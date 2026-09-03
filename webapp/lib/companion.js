@@ -438,7 +438,44 @@ async function askBibleQuestion(opts) {
   };
 }
 
+/**
+ * Personalize Bible Answers' empty state: given a member's own most recent
+ * questions (never another member's -- see the route, which only ever reads
+ * this member's own bible_answers_history rows), suggest natural follow-ups.
+ *
+ * Deliberately not grounded/citation-checked: these are just questions, not
+ * answers, so there is nothing here that could misrepresent Scripture. A
+ * malformed or empty response degrades to no suggestions, never a fake one.
+ */
+async function suggestFollowUpQuestions(opts) {
+  const o = opts || {};
+  if (!gloo.isConfigured()) return [];
+  const recent = (o.recentQuestions || []).filter(Boolean).slice(0, 5);
+  if (!recent.length) return [];
+
+  const prompt =
+    `A member of a Christian fitness and community app recently asked these ` +
+    `Bible/faith questions, most recent first:\n` +
+    recent.map((q, i) => `${i + 1}. ${q}`).join('\n') +
+    `\n\nSuggest exactly 4 short, natural follow-up questions they might want ` +
+    `to ask next -- related to their interests but not simple repeats of what ` +
+    `they already asked. One per line, no numbering, no quotes, each under 12 words.`;
+
+  const res = await gloo.chat({
+    kind: 'bible_answers_suggestions',
+    userId: o.userId,
+    tradition: o.tradition,
+    messages: [{ role: 'user', content: prompt }],
+    maxTokens: 200,
+  });
+  if (!res || !res.text) return [];
+  return res.text.split('\n')
+    .map((s) => s.replace(/^[-*\d.)]+\s*/, '').replace(/^["'"]|["'"]$/g, '').trim())
+    .filter((s) => s.length > 0 && s.length <= 140)
+    .slice(0, 4);
+}
+
 module.exports = {
-  momentVerse, breathVerse, restVerse, askAboutVerse, askBibleQuestion,
+  momentVerse, breathVerse, restVerse, askAboutVerse, askBibleQuestion, suggestFollowUpQuestions,
   chooseVerse, resolveRef, cleanNote,
 };

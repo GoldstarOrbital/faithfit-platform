@@ -25,6 +25,8 @@ struct BibleAnswersView: View {
     @State private var errorMessage: String?
     @State private var openedReference: OpenVerseReference?
     @State private var sharingAnswer: BibleAnswer?
+    @State private var suggestions: [String] = []
+    @State private var hasLoadedHistory = false
     @FocusState private var inputFocused: Bool
 
     private let starterPrompts = [
@@ -39,11 +41,16 @@ struct BibleAnswersView: View {
             FFTheme.parchment0.ignoresSafeArea()
             ScriptureTreeBackdrop().ignoresSafeArea()
             VStack(spacing: 0) {
-                if history.isEmpty && pendingQuestion == nil {
+                if !hasLoadedHistory {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                } else if history.isEmpty && pendingQuestion == nil {
                     emptyState
                 } else {
                     conversation
                 }
+                if !suggestions.isEmpty { suggestionsRow }
                 composeBar
             }
         }
@@ -56,6 +63,52 @@ struct BibleAnswersView: View {
         .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
+        .task {
+            // Both best-effort: a member's own history/suggestions never
+            // block the tab from being usable. A failed history load just
+            // starts the conversation fresh; failed suggestions fall back
+            // to the empty state's generic starter prompts.
+            async let loadedHistory = try? APIClient.shared.fetchBibleAnswerHistory()
+            async let loadedSuggestions = try? APIClient.shared.fetchBibleAnswerSuggestions()
+            history = await loadedHistory ?? []
+            suggestions = await loadedSuggestions ?? []
+            hasLoadedHistory = true
+        }
+    }
+
+    // MARK: - Personalized suggestions
+
+    private var suggestionsRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Suggested for you")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(FFTheme.inkSoft)
+                .padding(.horizontal, FFTheme.Space.sm)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: FFTheme.Space.xs) {
+                    ForEach(suggestions, id: \.self) { suggestion in
+                        Button {
+                            question = suggestion
+                            Task { await ask() }
+                        } label: {
+                            Text(suggestion)
+                                .font(FFTheme.serif(13))
+                                .foregroundStyle(FFTheme.ink)
+                                .padding(.horizontal, FFTheme.Space.sm)
+                                .padding(.vertical, 7)
+                                .background(FFTheme.parchment1, in: Capsule())
+                                .overlay(Capsule().strokeBorder(FFTheme.hairline, lineWidth: 1))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isAsking)
+                    }
+                }
+                .padding(.horizontal, FFTheme.Space.sm)
+            }
+        }
+        .padding(.top, FFTheme.Space.xs)
+        .padding(.bottom, 2)
+        .background(.ultraThinMaterial)
     }
 
     // MARK: - Empty state
@@ -248,6 +301,9 @@ struct BibleAnswersView: View {
         do {
             let answer = try await APIClient.shared.askBibleQuestion(trimmed)
             history.append(answer)
+            // Best-effort refresh so suggestions reflect what was just
+            // asked rather than going stale after the first question.
+            suggestions = (try? await APIClient.shared.fetchBibleAnswerSuggestions()) ?? suggestions
         } catch {
             errorMessage = error.localizedDescription
             question = trimmed
@@ -324,6 +380,34 @@ private struct BranchingTreeMark: Shape {
         branch(from: trunkTop, angle: .pi / 2 - 0.5, length: rect.height * 0.24, depth: 5)
         branch(from: trunkTop, angle: .pi / 2, length: rect.height * 0.27, depth: 5)
         branch(from: trunkTop, angle: .pi / 2 + 0.5, length: rect.height * 0.24, depth: 5)
+
+        // Roots -- the same forking logic as the crown above, mirrored
+        // downward from the trunk's base instead of upward from its top,
+        // shorter and with fewer generations since a root system reads as
+        // denser and more tangled than a canopy at the same branch count.
+        func rootBranch(from point: CGPoint, angle: Double, length: CGFloat, depth: Int) {
+            guard depth > 0, length > 3 else { return }
+            let jitter = (next() - 0.5) * 0.16
+            let end = CGPoint(
+                x: point.x + CGFloat(cos(angle + jitter)) * length,
+                y: point.y + CGFloat(sin(angle + jitter)) * length
+            )
+            let control = CGPoint(
+                x: point.x + CGFloat(cos(angle)) * length * 0.5,
+                y: point.y + CGFloat(sin(angle)) * length * 0.5 + length * 0.1
+            )
+            path.move(to: point)
+            path.addQuadCurve(to: end, control: control)
+
+            let spread = 0.3 + next() * 0.16
+            rootBranch(from: end, angle: angle - spread, length: length * (0.62 + next() * 0.08), depth: depth - 1)
+            rootBranch(from: end, angle: angle + spread, length: length * (0.62 + next() * 0.08), depth: depth - 1)
+        }
+
+        let baseRoot = CGPoint(x: baseX, y: baseY)
+        rootBranch(from: baseRoot, angle: .pi / 2 - 0.4, length: rect.height * 0.11, depth: 3)
+        rootBranch(from: baseRoot, angle: .pi / 2, length: rect.height * 0.13, depth: 3)
+        rootBranch(from: baseRoot, angle: .pi / 2 + 0.4, length: rect.height * 0.11, depth: 3)
 
         return path
     }

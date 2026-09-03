@@ -5938,7 +5938,44 @@ router.post('/bible/ask', requireAuth, aiLimiter, async (req, res) => {
     question,
   });
   if (!answer) return res.status(502).json({ error: 'no_verified_answer' });
+
+  db.prepare('INSERT INTO bible_answers_history (id, user_id, question, answer, also_json) VALUES (?, ?, ?, ?, ?)')
+    .run(randomUUID(), req.session.userId, question, answer.answer, JSON.stringify(answer.also || []));
+
   res.json(answer);
+});
+
+// This member's own past Bible Answers conversation, oldest first (how the
+// client renders a chat) -- never another member's; the query is always
+// scoped to req.session.userId.
+router.get('/bible/ask/history', requireAuth, (req, res) => {
+  const rows = db.prepare(
+    'SELECT question, answer, also_json FROM bible_answers_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 30'
+  ).all(req.session.userId);
+  const history = rows.reverse().map((r) => ({
+    question: r.question,
+    answer: r.answer,
+    also: JSON.parse(r.also_json || '[]'),
+  }));
+  res.json({ history });
+});
+
+// Personalized follow-up prompts for Bible Answers' empty state, drawn from
+// this member's own recent questions. No history yet -- a brand-new member,
+// or one who has never asked -- returns no suggestions; the client already
+// has generic starter prompts for that case.
+router.get('/bible/ask/suggestions', requireAuth, aiLimiter, async (req, res) => {
+  const rows = db.prepare(
+    'SELECT question FROM bible_answers_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 5'
+  ).all(req.session.userId);
+  if (!rows.length) return res.json({ suggestions: [] });
+  const me = db.prepare('SELECT tradition FROM users WHERE id = ?').get(req.session.userId) || {};
+  const suggestions = await companion.suggestFollowUpQuestions({
+    userId: req.session.userId,
+    tradition: me.tradition,
+    recentQuestions: rows.map((r) => r.question),
+  });
+  res.json({ suggestions });
 });
 
 // Add a reflection, or a reply to one (exactly one level deep).
