@@ -12,9 +12,14 @@ import CoreLocation
 /// was to fold every real destination into one categorized catalog instead
 /// of pruning the duplicates piecemeal.
 enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
-    case scripture, bibleBrowse, scripturePractice, savedVerses, bibleAnswers, breathe, heartCheckIn
-    case journeys, challenges, groups, leaderboard, recruiting, reels
-    case videos, podcasts, motivation, news, churchFinder, search
+    // The first 13 cases match Railway's EXPLORE_SECTIONS plus Bible Answers,
+    // in their original relative order -- FunctioningFaithTests asserts this
+    // exactly, so new native-only cases are appended after rather than
+    // interleaved. Category grouping for the grid comes from `category`
+    // below, not from declaration order.
+    case journeys, challenges, videos, reels, podcasts, scripture
+    case groups, leaderboard, breathe, motivation, news, recruiting, bibleAnswers
+    case bibleBrowse, scripturePractice, savedVerses, heartCheckIn, churchFinder, search
 
     enum Category: String, CaseIterable, Identifiable {
         case faith = "Faith & Scripture"
