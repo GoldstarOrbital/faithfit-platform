@@ -163,6 +163,13 @@ enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
     }
 }
 
+/// Every destination, always visible -- no collapsing, no extra tap to
+/// reveal a category. An earlier version of this grid made Community &
+/// Movement and Discover collapsed by default to look less busy; that
+/// traded away the one thing this catalog exists for (everything reachable
+/// at a glance) for a tidier first screenshot, which is the wrong trade for
+/// an app's own directory of itself. Category headers are here purely for
+/// scanning, not for gating.
 struct ExploreCatalogGrid: View {
     private let columns = [GridItem(.flexible(), spacing: FFTheme.Space.sm), GridItem(.flexible(), spacing: FFTheme.Space.sm)]
     // Each row of two tiles was showing exactly one trailing disclosure
@@ -174,7 +181,6 @@ struct ExploreCatalogGrid: View {
     // never register as "this row is a nav link" to List in the first
     // place, so it never adds a chevron to steal a tap.
     @State private var selectedItem: ExploreCatalogItem?
-    @State private var expandedCategories: Set<ExploreCatalogItem.Category> = [.faith]
 
     var body: some View {
         VStack(alignment: .leading, spacing: FFTheme.Space.md) {
@@ -190,35 +196,17 @@ struct ExploreCatalogGrid: View {
 
     private func categorySection(_ category: ExploreCatalogItem.Category) -> some View {
         let items = ExploreCatalogItem.allCases.filter { $0.category == category }
-        let isExpanded = expandedCategories.contains(category)
         return VStack(alignment: .leading, spacing: FFTheme.Space.xs) {
-            Button {
-                withAnimation { toggle(category) }
-            } label: {
-                HStack {
-                    Text(category.rawValue)
-                        .font(FFTheme.section())
-                        .foregroundStyle(FFTheme.ink)
-                    Spacer()
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .buttonStyle(.plain)
-            if isExpanded {
-                LazyVGrid(columns: columns, spacing: FFTheme.Space.sm) {
-                    ForEach(items) { item in
-                        tile(item)
-                    }
+            Text(category.rawValue)
+                .font(FFTheme.section())
+                .foregroundStyle(FFTheme.ink)
+                .accessibilityAddTraits(.isHeader)
+            LazyVGrid(columns: columns, spacing: FFTheme.Space.sm) {
+                ForEach(items) { item in
+                    tile(item)
                 }
             }
         }
-    }
-
-    private func toggle(_ category: ExploreCatalogItem.Category) {
-        if expandedCategories.contains(category) { expandedCategories.remove(category) }
-        else { expandedCategories.insert(category) }
     }
 
     private func tile(_ item: ExploreCatalogItem) -> some View {
@@ -234,6 +222,7 @@ struct ExploreCatalogGrid: View {
                         LinearGradient(colors: item.colors, startPoint: .topLeading, endPoint: .bottomTrailing),
                         in: RoundedRectangle(cornerRadius: FFTheme.Radius.sm, style: .continuous)
                     )
+                    .accessibilityHidden(true)
                 Text(item.name)
                     .font(.headline)
                     .foregroundStyle(FFTheme.ink)
@@ -249,7 +238,13 @@ struct ExploreCatalogGrid: View {
             .contentShape(RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityHint("Open \(item.name)")
+        // One combined label instead of letting VoiceOver read the icon,
+        // name and blurb as three separate stops -- this is one tappable
+        // thing, and should read as one.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(item.name)
+        .accessibilityHint(item.blurb)
+        .accessibilityAddTraits(.isButton)
     }
 }
 

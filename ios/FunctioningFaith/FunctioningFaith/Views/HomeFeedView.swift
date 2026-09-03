@@ -4,10 +4,17 @@ import AVKit
 import UIKit
 #endif
 
+enum HomeFeedMode: String, CaseIterable, Identifiable {
+    case forYou = "For You"
+    case following = "Following"
+    var id: String { rawValue }
+}
+
 struct HomeFeedView: View {
     @EnvironmentObject private var session: NativeSession
     @EnvironmentObject private var deepLinks: DeepLinkRouter
     @EnvironmentObject private var dmStore: DMStore
+    @State private var feedMode: HomeFeedMode = .forYou
     @State private var posts: [FeedPost] = []
     @State private var isLoading = true
     @State private var isLoadingMore = false
@@ -55,6 +62,15 @@ struct HomeFeedView: View {
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
+            Picker("Feed", selection: $feedMode) {
+                ForEach(HomeFeedMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
+            }
+            .pickerStyle(.segmented)
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .accessibilityLabel("Feed mode")
+            .accessibilityHint("For You shows posts ranked for your interests. Following shows posts from people you follow, newest first.")
             ForEach(posts) { post in
                 FeedPostRow(
                     post: post,
@@ -118,6 +134,7 @@ struct HomeFeedView: View {
             await loadFeed()
             unreadNotifications = (try? await APIClient.shared.fetchNotifications().unreadCount) ?? 0
         }
+        .onChange(of: feedMode) { _, _ in Task { await loadFeed() } }
         .sheet(isPresented: $showComposer) {
             NavigationStack {
                 PostComposerView {
@@ -154,7 +171,13 @@ struct HomeFeedView: View {
             } else if let feedError, posts.isEmpty {
                 FFErrorStateView(message: feedError, onRetry: { Task { await loadFeed() } })
             } else if !isLoading && posts.isEmpty {
-                FFEmptyStateView(title: "Your feed is ready", systemImage: "person.2", message: "Follow people, join a group, or share your first activity to see community updates here.")
+                FFEmptyStateView(
+                    title: "Your feed is ready",
+                    systemImage: "person.2",
+                    message: feedMode == .following
+                        ? "Follow people to see their updates here, newest first."
+                        : "Follow people, join a group, or share your first activity to see community updates here."
+                )
             }
         }
         .alert("Couldn’t complete that action", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
@@ -167,10 +190,19 @@ struct HomeFeedView: View {
         defer { isLoading = false }
         feedError = nil
         do {
-            let page = try await APIClient.shared.fetchFeedPage()
-            guard !Task.isCancelled else { return }
-            posts = page.posts
-            nextCursor = page.nextCursor
+            switch feedMode {
+            case .forYou:
+                // A fixed-size ranked snapshot, not a paginated cursor --
+                // see the server's GET /feed/for-you for why re-ranking a
+                // paginated list isn't safe. No "load more" for this mode.
+                posts = try await APIClient.shared.fetchForYouFeed()
+                nextCursor = nil
+            case .following:
+                let page = try await APIClient.shared.fetchFeedPage(followingOnly: true)
+                guard !Task.isCancelled else { return }
+                posts = page.posts
+                nextCursor = page.nextCursor
+            }
         } catch {
             guard !Task.isCancelled else { return }
             feedError = error.localizedDescription
@@ -187,7 +219,7 @@ struct HomeFeedView: View {
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
-            let page = try await APIClient.shared.fetchFeedPage(before: cursor)
+            let page = try await APIClient.shared.fetchFeedPage(before: cursor, followingOnly: feedMode == .following)
             guard !Task.isCancelled else { return }
             let existing = Set(posts.map(\.id))
             posts.append(contentsOf: page.posts.filter { !existing.contains($0.id) })

@@ -67,16 +67,26 @@ final class APIClient {
         return page.posts
     }
 
-    func fetchFeedPage(before: String? = nil) async throws -> FeedPage {
+    func fetchFeedPage(before: String? = nil, followingOnly: Bool = false) async throws -> FeedPage {
         if useMock { return FeedPage(posts: MockData.feed, nextCursor: nil) }
         // The production feed is a cursor-paginated envelope. Keep the cursor
         // on the client so native scrolling never reloads already-rendered rows.
         var path = "/api/feed?limit=20"
+        if followingOnly { path += "&scope=following" }
         if let before, let encoded = before.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
             path += "&before=\(encoded)"
         }
         let response: FeedResponse = try await request(path)
         return FeedPage(posts: response.posts.map(\.model), nextCursor: response.nextCursor)
+    }
+
+    /// A small, ranked, non-paginated snapshot (see the server's GET
+    /// /feed/for-you) -- deliberately not cursor-paginated like the
+    /// chronological feed above, so there's no "load more" for this one.
+    func fetchForYouFeed() async throws -> [FeedPost] {
+        if useMock { return MockData.feed }
+        let response: ForYouResponse = try await request("/api/feed/for-you")
+        return response.posts.map(\.model)
     }
 
     func fetchProfile() async throws -> UserProfile {
@@ -2093,6 +2103,8 @@ private struct FeedResponse: Decodable {
     let nextCursor: String?
     enum CodingKeys: String, CodingKey { case posts; case nextCursor = "next_cursor" }
 }
+
+private struct ForYouResponse: Decodable { let posts: [FeedDTO] }
 
 private struct CommentListResponse: Decodable {
     let comments: [CommentDTO]

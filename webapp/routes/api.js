@@ -16,6 +16,7 @@ const { ensureJourneys, applyWorkoutToJourneys, advanceJourney, lookupScriptureT
 const moments = require('../lib/moments');
 const contexts = require('../lib/contexts');
 const reels = require('../lib/reels');
+const personalization = require('../lib/personalization');
 const apikeys = require('../lib/apikeys');
 const push = require('../lib/push');
 const daily = require('../lib/daily');
@@ -1354,6 +1355,39 @@ router.post('/consent', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// Shapes one raw posts-join row (see /feed and /feed/for-you, which select
+// the same columns) into the JSON shape FeedPost expects. Shared so the two
+// routes can never drift into two different ideas of a post's public shape.
+function shapeFeedPost(p, meId) {
+  if (p.photo_data && !validateDataUrlImage(p.photo_data).ok) p.photo_data = null;
+  // Replace the raw trace with only what the author chose to publish, so the
+  // full path never leaves the server on a post that did not opt in.
+  const route = publishedRoute(p);
+  delete p.gps_path;
+  delete p.route_privacy_m;
+  p.route = route;
+  p.has_route = !!route;
+  const likeCount = db.prepare('SELECT COUNT(*) c FROM post_likes WHERE post_id = ?').get(p.id).c;
+  const likedByMe = meId ? !!db.prepare('SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?').get(p.id, meId) : false;
+  const savedByMe = meId ? !!db.prepare('SELECT 1 FROM post_saves WHERE post_id = ? AND user_id = ?').get(p.id, meId) : false;
+  let pace = null, distanceKm = p.distance_km ?? null;
+  if (p.workout_type && p.start_time && p.end_time) {
+    const mins = (new Date(p.end_time) - new Date(p.start_time)) / 60000;
+    if (distanceKm == null) distanceKm = +(mins / 6).toFixed(1); // fallback estimate when no real GPS data
+    pace = distanceKm > 0 ? (mins / distanceKm).toFixed(1) : null;
+  }
+  const commentCount = Number(p.comment_count || 0);
+  delete p.comment_count;
+  // author_has_avatar / author_verified_developer come straight out of a
+  // SQL CASE WHEN as SQLite integers (0/1), not real JSON booleans -- every
+  // other social flag here goes through !! first; these two were spread
+  // through untouched, which decodes fine to a dynamically-typed client
+  // but throws a hard type-mismatch against a native Bool field.
+  return { ...p, author_has_avatar: !!p.author_has_avatar, author_verified_developer: !!p.author_verified_developer,
+           like_count: likeCount, liked_by_me: likedByMe, saved_by_me: savedByMe, comment_count: commentCount,
+           distance_km: distanceKm, pace_min_per_km: pace };
+}
+
 // ---- feed ----
 router.get('/feed', (req, res) => {
   const meId = req.session.userId || null;
@@ -1396,36 +1430,86 @@ router.get('/feed', (req, res) => {
     ORDER BY p.created_at DESC LIMIT @limit
   `).all({ me: meId, following_only: followingOnly ? 1 : 0, before, limit });
 
-  const withSocial = posts.map(p => {
-    if (p.photo_data && !validateDataUrlImage(p.photo_data).ok) p.photo_data = null;
-    // Replace the raw trace with only what the author chose to publish, so the
-    // full path never leaves the server on a post that did not opt in.
-    const route = publishedRoute(p);
-    delete p.gps_path;
-    delete p.route_privacy_m;
-    p.route = route;
-    p.has_route = !!route;
-    const likeCount = db.prepare('SELECT COUNT(*) c FROM post_likes WHERE post_id = ?').get(p.id).c;
-    const likedByMe = meId ? !!db.prepare('SELECT 1 FROM post_likes WHERE post_id = ? AND user_id = ?').get(p.id, meId) : false;
-    const savedByMe = meId ? !!db.prepare('SELECT 1 FROM post_saves WHERE post_id = ? AND user_id = ?').get(p.id, meId) : false;
-    let pace = null, distanceKm = p.distance_km ?? null;
-    if (p.workout_type && p.start_time && p.end_time) {
-      const mins = (new Date(p.end_time) - new Date(p.start_time)) / 60000;
-      if (distanceKm == null) distanceKm = +(mins / 6).toFixed(1); // fallback estimate when no real GPS data
-      pace = distanceKm > 0 ? (mins / distanceKm).toFixed(1) : null;
-    }
-    const commentCount = Number(p.comment_count || 0);
-    delete p.comment_count;
-    // author_has_avatar / author_verified_developer come straight out of a
-    // SQL CASE WHEN as SQLite integers (0/1), not real JSON booleans -- every
-    // other social flag here goes through !! first; these two were spread
-    // through untouched, which decodes fine to a dynamically-typed client
-    // but throws a hard type-mismatch against a native Bool field.
-    return { ...p, author_has_avatar: !!p.author_has_avatar, author_verified_developer: !!p.author_verified_developer,
-             like_count: likeCount, liked_by_me: likedByMe, saved_by_me: savedByMe, comment_count: commentCount,
-             distance_km: distanceKm, pace_min_per_km: pace };
-  });
+  const withSocial = posts.map(p => shapeFeedPost(p, meId));
   res.json({ posts: withSocial, next_cursor: withSocial.length === limit ? withSocial[withSocial.length - 1].created_at : null });
+});
+
+// ---- "For You": a small, ranked, non-paginated set of posts drawn from the
+// same content /feed already knows about, but ordered by relevance instead
+// of strict recency. Deliberately a SEPARATE endpoint rather than a re-sort
+// of /feed's own results: /feed paginates with a created_at cursor, and
+// re-ranking a cursor-paginated list breaks "load more" -- a post whose
+// score moves it below the cursor on page 1 could vanish entirely, or
+// reappear duplicated, once scores shift on the next page. A fixed-size
+// snapshot recomputed fresh on every request has no such failure mode.
+//
+// Ranking signals, all real and drawn from this member's own account (see
+// lib/personalization.js): whether they follow the author, whether they've
+// engaged with this author before, recency, engagement (likes+comments),
+// and content-affinity -- a workout post in a sport they log boosts higher,
+// a verse post does too if they save verses or use Bible Answers. Nothing
+// here is a guess about interests; every signal is something this member
+// actually did.
+router.get('/feed/for-you', requireAuth, (req, res) => {
+  const meId = req.session.userId;
+  const limit = Math.max(4, Math.min(20, Number(req.query.limit) || 12));
+
+  const candidates = db.prepare(`
+    SELECT p.id, p.content, p.created_at, p.user_id author_id, u.display_name author,
+           CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS author_has_avatar,
+           CASE WHEN EXISTS(SELECT 1 FROM developer_applications da WHERE da.user_id=u.id AND da.status='verified') THEN 1 ELSE 0 END AS author_verified_developer,
+           p.visibility, p.workout_id, p.photo_data, p.photo_category, p.video_data, p.video_category,
+           p.show_route, p.route_privacy_m, w.gps_path,
+           w.type workout_type, w.calories, w.avg_hr, w.start_time, w.end_time, w.distance_km,
+           v.reference verse_reference, v.text verse_text, v.youversion_id,
+           (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comment_count,
+           (SELECT COUNT(*) FROM post_likes pl WHERE pl.post_id = p.id) AS _score_like_count,
+           EXISTS(SELECT 1 FROM followers f WHERE f.follower_id = @me AND f.followee_id = p.user_id) AS _score_is_followed
+    FROM posts p
+    JOIN users u ON u.id = p.user_id
+    LEFT JOIN workouts w ON w.id = p.workout_id
+    LEFT JOIN scripture_verses v ON v.id = p.verse_id
+    WHERE p.user_id != @me
+      AND (
+        p.visibility = 'public'
+        OR (p.visibility = 'followers' AND EXISTS (
+              SELECT 1 FROM followers f WHERE f.followee_id = p.user_id AND f.follower_id = @me))
+        OR (p.visibility = 'circle' AND EXISTS (
+              SELECT 1 FROM circle_members c WHERE c.owner_id = p.user_id AND c.member_id = @me))
+      )
+      AND NOT EXISTS (
+            SELECT 1 FROM dm_blocks blocked
+            WHERE (blocked.blocker_id = @me AND blocked.blocked_id = p.user_id)
+               OR (blocked.blocker_id = p.user_id AND blocked.blocked_id = @me))
+      AND NOT EXISTS (
+            SELECT 1 FROM account_relationship_controls rc
+            WHERE rc.actor_id=@me AND rc.subject_id=p.user_id AND rc.control='mute')
+      AND p.created_at >= datetime('now', '-21 days')
+    ORDER BY p.created_at DESC
+    LIMIT 200
+  `).all({ me: meId });
+
+  const myWorkoutTypes = db.prepare('SELECT DISTINCT type FROM workouts WHERE user_id = ? AND type IS NOT NULL').all(meId).map(r => r.type);
+  const engagesWithScripture = !!(
+    db.prepare('SELECT 1 FROM saved_verses WHERE user_id = ? LIMIT 1').get(meId) ||
+    db.prepare('SELECT 1 FROM bible_answers_history WHERE user_id = ? LIMIT 1').get(meId)
+  );
+  const priorAuthors = db.prepare(`
+    SELECT DISTINCT p2.user_id FROM post_likes pl JOIN posts p2 ON p2.id = pl.post_id WHERE pl.user_id = @me
+    UNION
+    SELECT DISTINCT p3.user_id FROM post_comments pc JOIN posts p3 ON p3.id = pc.post_id WHERE pc.user_id = @me
+  `).all({ me: meId }).map(r => r.user_id);
+
+  const ranked = personalization.rankPosts(candidates, {
+    myWorkoutTypes, engagesWithScripture, priorAuthors, now: Date.now(),
+  });
+  const top = ranked.slice(0, limit).map((p) => {
+    delete p._score_like_count;
+    delete p._score_is_followed;
+    delete p._score;
+    return shapeFeedPost(p, meId);
+  });
+  res.json({ posts: top });
 });
 
 // A compact, dedicated read for the home page's "Friends' workouts" widget --

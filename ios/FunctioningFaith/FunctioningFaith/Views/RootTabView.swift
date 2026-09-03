@@ -6,39 +6,56 @@ struct RootTabView: View {
     @EnvironmentObject private var deepLinks: DeepLinkRouter
     @StateObject private var dmStore = DMStore()
     @State private var explorePath = NavigationPath()
+    @State private var showAskAI = false
 
     var body: some View {
         VStack(spacing: 0) {
             OfflineBanner()
 
-            TabView(selection: tabSelection) {
-                NavigationStack { HomeFeedView().ffRootBrand() }
-                    .tabItem { Label("Home", systemImage: "house.fill") }
-                    .tag(AppTab.home)
+            ZStack(alignment: .bottomTrailing) {
+                TabView(selection: tabSelection) {
+                    NavigationStack { HomeFeedView().ffRootBrand() }
+                        .tabItem { Label("Home", systemImage: "house.fill") }
+                        .tag(AppTab.home)
 
-                NavigationStack { WorkoutView().ffRootBrand() }
-                    .tabItem { Label("Train", systemImage: "figure.run") }
-                    .tag(AppTab.workouts)
+                    NavigationStack { WorkoutView().ffRootBrand() }
+                        .tabItem { Label("Train", systemImage: "figure.run") }
+                        .tag(AppTab.workouts)
 
-                NavigationStack(path: $explorePath) { ExploreView().ffRootBrand() }
-                    .tabItem { Label("Explore", systemImage: "safari.fill") }
-                    .tag(AppTab.explore)
+                    NavigationStack(path: $explorePath) { ExploreView().ffRootBrand() }
+                        .tabItem { Label("Explore", systemImage: "safari.fill") }
+                        .tag(AppTab.explore)
 
-                NavigationStack { DMInboxView().environmentObject(dmStore).ffRootBrand() }
-                    .tabItem { Label("Messages", systemImage: "bubble.left.and.bubble.right.fill") }
-                    .badge(dmStore.unreadTotal > 0 ? dmStore.unreadTotal : 0)
-                    .tag(AppTab.messages)
+                    NavigationStack { DMInboxView().environmentObject(dmStore).ffRootBrand() }
+                        .tabItem { Label("Messages", systemImage: "bubble.left.and.bubble.right.fill") }
+                        .badge(dmStore.unreadTotal > 0 ? dmStore.unreadTotal : 0)
+                        .tag(AppTab.messages)
 
-                NavigationStack { ProfileView().ffRootBrand() }
-                    .tabItem { Label("Profile", systemImage: "person.crop.circle.fill") }
-                    .tag(AppTab.profile)
+                    NavigationStack { ProfileView().ffRootBrand() }
+                        .tabItem { Label("Profile", systemImage: "person.crop.circle.fill") }
+                        .tag(AppTab.profile)
+                }
+                // A single authenticated message store must be available to every
+                // navigation path (home, search, notifications, and the tab). A
+                // view that creates an inbox without this environment object
+                // terminates at runtime as soon as it is opened.
+                .environmentObject(dmStore)
+                .ffCurrentTabBehavior()
+
+                // A persistent, one-tap way to reach the AI companion from
+                // the app's main hub -- "most sites have their AI readily
+                // accessible" was the ask, and Bible Answers otherwise only
+                // lived three taps deep inside Explore's catalog. Scoped to
+                // the Home tab specifically: Home is a plain scrolling List
+                // with no compose bar or full-bleed media fighting for the
+                // same corner (unlike Messages' compose field or Explore's
+                // Reels), so this is the one tab a floating corner button is
+                // safe to overlay everywhere within it, pushed screens
+                // included.
+                if deepLinks.selectedTab == .home {
+                    askAIButton
+                }
             }
-            // A single authenticated message store must be available to every
-            // navigation path (home, search, notifications, and the tab). A
-            // view that creates an inbox without this environment object
-            // terminates at runtime as soon as it is opened.
-            .environmentObject(dmStore)
-            .ffCurrentTabBehavior()
         }
         .task {
             if let id = session.profile?.id {
@@ -49,6 +66,30 @@ struct RootTabView: View {
         .onChange(of: deepLinks.selectedTab) { _, tab in
             if tab == .explore { resetExplore() }
         }
+        .sheet(isPresented: $showAskAI) {
+            NavigationStack { BibleAnswersView() }
+        }
+    }
+
+    private var askAIButton: some View {
+        Button {
+            showAskAI = true
+        } label: {
+            Image(systemName: "sparkles")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(FFTheme.cream)
+                .frame(width: 56, height: 56)
+                .background(
+                    LinearGradient(colors: [FFTheme.meadow2, FFTheme.meadowDeep], startPoint: .topLeading, endPoint: .bottomTrailing),
+                    in: Circle()
+                )
+                .overlay(Circle().strokeBorder(FFTheme.goldBright.opacity(0.5), lineWidth: 1))
+                .shadow(color: FFTheme.walnut.opacity(0.35), radius: 10, x: 0, y: 4)
+        }
+        .padding(.trailing, FFTheme.Space.md)
+        .padding(.bottom, 70)
+        .accessibilityLabel("Ask Bible Answers")
+        .accessibilityHint("Opens a chat to ask any Bible or faith question, answered with verified Scripture")
     }
 
     private var tabSelection: Binding<AppTab> {
