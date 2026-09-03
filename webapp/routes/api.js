@@ -5285,11 +5285,23 @@ router.get('/stats/effort', requireAuth, (req, res) => {
 
 const REFLECTION_MAX_LEN = 1000;
 
+// A citation Gloo verifies (lib/gloo.js's REF_RE/LOOSE_REF_RE) is deliberately
+// allowed to be a range like "Galatians 5:22-23" -- that's the natural way to
+// cite a thought spanning a couple of verses. But a verse thread, a saved
+// verse, and a DM verse-share are all keyed to exactly one verse (bible_verses
+// and verse_threads have no range columns), so a range has to resolve to
+// something openable rather than fail "invalid_verse_format" on the very
+// citation the app just told the member was real. Opening the range's first
+// verse is the same convention most Bible apps use for a range deep link.
+function normalizeVerseRef(raw) {
+  return String(raw || '').trim().replace(/^(.+?\s+\d+:\d+)\s*[-–]\s*\d+$/, '$1');
+}
+
 // Parse "Book Chapter:Verse" and resolve it against the verified library.
 // Mirrors the validation used by PUT /profile's bio_verse_ref handler.
 // Returns { row } on success, or { error, hint } describing the rejection.
 function resolveVerseReference(raw) {
-  const ref = String(raw || '').trim();
+  const ref = normalizeVerseRef(raw);
   const m = ref.match(/^(.+?)\s+(\d+):(\d+)$/);
   if (!m) return { error: 'invalid_verse_format', hint: 'Use "Book Chapter:Verse", e.g. "Psalms 23:4"' };
   const [, book, chapter, verse] = m;
@@ -5314,7 +5326,7 @@ async function resolveVerseReferenceFull(raw) {
   const local = resolveVerseReference(raw);
   if (local.row || local.error === 'invalid_verse_format') return local;
 
-  const ref = String(raw || '').trim();
+  const ref = normalizeVerseRef(raw);
   const m = ref.match(/^(.+?)\s+(\d+):(\d+)$/);
   const inCanon = youversion.canonHas(ref);
   if (inCanon === false) {
