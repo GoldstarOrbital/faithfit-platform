@@ -3,100 +3,157 @@ import CoreLocation
 
 /// Railway `EXPLORE_SECTIONS` — the native Explore tab opens on this catalogue
 /// so the whole member product is visible at a glance, same as `renderExploreIndex`.
+///
+/// Every destination Explore can open lives here exactly once. Explore used
+/// to show this catalog grid AND a second, separate list of plain
+/// NavigationLinks underneath it -- several pointing at the very same
+/// screens (Scripture, Breathe, Motivation, News, Videos, Podcasts, the full
+/// Challenges/Groups lists), so the tab read as two competing menus. The fix
+/// was to fold every real destination into one categorized catalog instead
+/// of pruning the duplicates piecemeal.
 enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
-    case journeys, challenges, videos, reels, podcasts, scripture
-    case groups, leaderboard, breathe, motivation, news, recruiting, bibleAnswers
+    case scripture, bibleBrowse, scripturePractice, savedVerses, bibleAnswers, breathe, heartCheckIn
+    case journeys, challenges, groups, leaderboard, recruiting, reels
+    case videos, podcasts, motivation, news, churchFinder, search
+
+    enum Category: String, CaseIterable, Identifiable {
+        case faith = "Faith & Scripture"
+        case community = "Community & Movement"
+        case discover = "Discover"
+        var id: String { rawValue }
+    }
 
     var id: String { rawValue }
 
+    var category: Category {
+        switch self {
+        case .scripture, .bibleBrowse, .scripturePractice, .savedVerses, .bibleAnswers, .breathe, .heartCheckIn:
+            return .faith
+        case .journeys, .challenges, .groups, .leaderboard, .recruiting, .reels:
+            return .community
+        case .videos, .podcasts, .motivation, .news, .churchFinder, .search:
+            return .discover
+        }
+    }
+
     var name: String {
         switch self {
+        case .scripture: return "Scripture"
+        case .bibleBrowse: return "Bible Browse"
+        case .scripturePractice: return "Scripture Practice"
+        case .savedVerses: return "Saved Verses"
+        case .bibleAnswers: return "Bible Answers"
+        case .breathe: return "Breathe"
+        case .heartCheckIn: return "Heart Check-in"
         case .journeys: return "Journeys"
         case .challenges: return "Challenges"
-        case .videos: return "Videos"
-        case .reels: return "Reels"
-        case .podcasts: return "Podcasts"
-        case .scripture: return "Scripture"
         case .groups: return "Groups"
         case .leaderboard: return "Leaderboard"
-        case .breathe: return "Breathe"
+        case .recruiting: return "Recruiting"
+        case .reels: return "Reels"
+        case .videos: return "Videos"
+        case .podcasts: return "Podcasts"
         case .motivation: return "Motivation"
         case .news: return "News"
-        case .recruiting: return "Recruiting"
-        case .bibleAnswers: return "Bible Answers"
+        case .churchFinder: return "Find a Church"
+        case .search: return "Search"
         }
     }
 
     var blurb: String {
         switch self {
+        case .scripture: return "Search the Bible and join the conversation on a verse."
+        case .bibleBrowse: return "Read any book, chapter by chapter."
+        case .scripturePractice: return "Memorize verses with guided practice."
+        case .savedVerses: return "Your personal library of kept verses."
+        case .bibleAnswers: return "Ask any Bible or faith question — answers cite only verified Scripture."
+        case .breathe: return "A guided breathing pause with scripture."
+        case .heartCheckIn: return "Log a resting-heart-rate moment and get scripture and a way to breathe."
         case .journeys: return "An interactive virtual world — real workouts move your marker along real routes."
         case .challenges: return "Scripture- and story-themed goals. Join one; your workouts carry it forward."
-        case .videos: return "Kids, fitness, and short teaching films."
-        case .reels: return "Scroll short encouragement, movement, faith, and food."
-        case .podcasts: return "Full episodes from public faith and fitness feeds."
-        case .scripture: return "Search the Bible and join the conversation on a verse."
         case .groups: return "Your churches and clubs, their chat and meetups."
         case .leaderboard: return "Where you stand this week."
-        case .breathe: return "A guided breathing pause with scripture."
+        case .recruiting: return "Athlete stat profiles and coach connections, by sport."
+        case .reels: return "Scroll short encouragement, movement, faith, and food."
+        case .videos: return "Kids, fitness, and short teaching films."
+        case .podcasts: return "Full episodes from public faith and fitness feeds."
         case .motivation: return "Short encouragement for the middle of a hard week."
         case .news: return "Christian news headlines from independent outlets."
-        case .recruiting: return "Athlete stat profiles and coach connections, by sport."
-        case .bibleAnswers: return "Ask any Bible or faith question — answers cite only verified Scripture."
+        case .churchFinder: return "Locate and link a nearby church."
+        case .search: return "Find people and posts across the app."
         }
     }
 
     var systemImage: String {
         switch self {
+        case .scripture: return "book.fill"
+        case .bibleBrowse: return "books.vertical.fill"
+        case .scripturePractice: return "checkmark.circle.fill"
+        case .savedVerses: return "bookmark.fill"
+        case .bibleAnswers: return "questionmark.bubble.fill"
+        case .breathe: return "wind"
+        case .heartCheckIn: return "heart.text.square.fill"
         case .journeys: return "map.fill"
         case .challenges: return "flame.fill"
-        case .videos: return "play.rectangle.fill"
-        case .reels: return "rectangle.stack.fill"
-        case .podcasts: return "microphone.fill"
-        case .scripture: return "book.fill"
         case .groups: return "person.3.fill"
         case .leaderboard: return "trophy.fill"
-        case .breathe: return "wind"
+        case .recruiting: return "figure.run.circle.fill"
+        case .reels: return "rectangle.stack.fill"
+        case .videos: return "play.rectangle.fill"
+        case .podcasts: return "microphone.fill"
         case .motivation: return "bolt.fill"
         case .news: return "newspaper.fill"
-        case .recruiting: return "figure.run.circle.fill"
-        case .bibleAnswers: return "questionmark.bubble.fill"
+        case .churchFinder: return "building.2.fill"
+        case .search: return "magnifyingglass"
         }
     }
 
     var colors: [Color] {
         switch self {
+        case .scripture: return [FFTheme.forest, FFTheme.meadowDeep]
+        case .bibleBrowse: return [FFTheme.forest, FFTheme.meadow]
+        case .scripturePractice: return [FFTheme.meadow2, FFTheme.forest]
+        case .savedVerses: return [FFTheme.gold, FFTheme.hearth]
+        case .bibleAnswers: return [FFTheme.forest, FFTheme.meadowDeep]
+        case .breathe: return [FFTheme.hearth, FFTheme.hearthSoft]
+        case .heartCheckIn: return [FFTheme.seal, FFTheme.hearth]
         case .journeys: return [FFTheme.meadow2, FFTheme.meadowDeep]
         case .challenges: return [FFTheme.hearth, FFTheme.gold]
-        case .videos: return [FFTheme.meadow, FFTheme.forest]
-        case .reels: return [FFTheme.hearth, FFTheme.goldBright]
-        case .podcasts: return [FFTheme.gold, FFTheme.hearth]
-        case .scripture: return [FFTheme.forest, FFTheme.meadowDeep]
         case .groups: return [FFTheme.meadow, FFTheme.meadowDeep]
         case .leaderboard: return [FFTheme.goldBright, FFTheme.gold]
-        case .breathe: return [FFTheme.hearth, FFTheme.hearthSoft]
+        case .recruiting: return [FFTheme.emerald, FFTheme.meadowDeep]
+        case .reels: return [FFTheme.hearth, FFTheme.goldBright]
+        case .videos: return [FFTheme.meadow, FFTheme.forest]
+        case .podcasts: return [FFTheme.gold, FFTheme.hearth]
         case .motivation: return [FFTheme.goldBright, FFTheme.hearth]
         case .news: return [FFTheme.hearth, FFTheme.seal]
-        case .recruiting: return [FFTheme.emerald, FFTheme.meadowDeep]
-        case .bibleAnswers: return [FFTheme.forest, FFTheme.meadowDeep]
+        case .churchFinder: return [FFTheme.forest, FFTheme.gold]
+        case .search: return [FFTheme.meadow, FFTheme.meadow2]
         }
     }
 
     @ViewBuilder
     var destination: some View {
         switch self {
+        case .scripture: ScriptureView()
+        case .bibleBrowse: BibleBrowseView()
+        case .scripturePractice: ScripturePracticeView()
+        case .savedVerses: SavedVersesView()
+        case .bibleAnswers: BibleAnswersView()
+        case .breathe: BreathworkView()
+        case .heartCheckIn: HeartCheckInView()
         case .journeys: JourneysListView()
         case .challenges: ChallengesHubView()
-        case .videos: VideoLibraryView()
-        case .reels: ReelsFeedView()
-        case .podcasts: PodcastsView()
-        case .scripture: ScriptureView()
         case .groups: GroupsHubView()
         case .leaderboard: LeaderboardView()
-        case .breathe: BreathworkView()
+        case .recruiting: AthleteSearchView()
+        case .reels: ReelsFeedView()
+        case .videos: VideoLibraryView()
+        case .podcasts: PodcastsView()
         case .motivation: MotivationExploreView()
         case .news: NewsView()
-        case .recruiting: AthleteSearchView()
-        case .bibleAnswers: BibleAnswersView()
+        case .churchFinder: ChurchFinderView()
+        case .search: SearchView()
         }
     }
 }
@@ -112,49 +169,82 @@ struct ExploreCatalogGrid: View {
     // never register as "this row is a nav link" to List in the first
     // place, so it never adds a chevron to steal a tap.
     @State private var selectedItem: ExploreCatalogItem?
+    @State private var expandedCategories: Set<ExploreCatalogItem.Category> = [.faith]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: FFTheme.Space.sm) {
-            Text("Jump straight into a community, route, reel, or resource.")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
-            LazyVGrid(columns: columns, spacing: FFTheme.Space.sm) {
-                ForEach(ExploreCatalogItem.allCases) { item in
-                    Button {
-                        selectedItem = item
-                    } label: {
-                        VStack(alignment: .leading, spacing: FFTheme.Space.xs) {
-                            Image(systemName: item.systemImage)
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundStyle(FFTheme.cream)
-                                .frame(width: 36, height: 36)
-                                .background(
-                                    LinearGradient(colors: item.colors, startPoint: .topLeading, endPoint: .bottomTrailing),
-                                    in: RoundedRectangle(cornerRadius: FFTheme.Radius.sm, style: .continuous)
-                                )
-                            Text(item.name)
-                                .font(.headline)
-                                .foregroundStyle(FFTheme.ink)
-                            Text(item.blurb)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(3)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(FFTheme.Space.sm)
-                        .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
-                        .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
-                        .contentShape(RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Open \(item.name)")
-                }
+        VStack(alignment: .leading, spacing: FFTheme.Space.md) {
+            ForEach(ExploreCatalogItem.Category.allCases) { category in
+                categorySection(category)
             }
         }
         .padding(.vertical, FFTheme.Space.xxs)
         .navigationDestination(item: $selectedItem) { item in
             item.destination
         }
+    }
+
+    private func categorySection(_ category: ExploreCatalogItem.Category) -> some View {
+        let items = ExploreCatalogItem.allCases.filter { $0.category == category }
+        let isExpanded = expandedCategories.contains(category)
+        return VStack(alignment: .leading, spacing: FFTheme.Space.xs) {
+            Button {
+                withAnimation { toggle(category) }
+            } label: {
+                HStack {
+                    Text(category.rawValue)
+                        .font(FFTheme.section())
+                        .foregroundStyle(FFTheme.ink)
+                    Spacer()
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+            if isExpanded {
+                LazyVGrid(columns: columns, spacing: FFTheme.Space.sm) {
+                    ForEach(items) { item in
+                        tile(item)
+                    }
+                }
+            }
+        }
+    }
+
+    private func toggle(_ category: ExploreCatalogItem.Category) {
+        if expandedCategories.contains(category) { expandedCategories.remove(category) }
+        else { expandedCategories.insert(category) }
+    }
+
+    private func tile(_ item: ExploreCatalogItem) -> some View {
+        Button {
+            selectedItem = item
+        } label: {
+            VStack(alignment: .leading, spacing: FFTheme.Space.xs) {
+                Image(systemName: item.systemImage)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(FFTheme.cream)
+                    .frame(width: 36, height: 36)
+                    .background(
+                        LinearGradient(colors: item.colors, startPoint: .topLeading, endPoint: .bottomTrailing),
+                        in: RoundedRectangle(cornerRadius: FFTheme.Radius.sm, style: .continuous)
+                    )
+                Text(item.name)
+                    .font(.headline)
+                    .foregroundStyle(FFTheme.ink)
+                Text(item.blurb)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(FFTheme.Space.sm)
+            .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
+            .background(FFTheme.parchment1, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Open \(item.name)")
     }
 }
 

@@ -6,6 +6,16 @@ import UIKit
 /// Explore hub — mirrors web `renderExplore` / `renderExploreIndex` surface area:
 /// reels, journeys, recruiting, people, challenges, groups, quests, and Discover links
 /// (scripture, breathwork, heart check-in, podcasts, church, news, videos, stats).
+///
+/// Every navigable destination lives exactly once, in ExploreCatalogGrid's
+/// categorized catalog below. This screen used to also carry a second, full
+/// list of plain NavigationLinks duplicating several of the same
+/// destinations (Scripture, Breathe, Motivation, News, Videos, Podcasts) plus
+/// full inline copies of the Challenges and Groups lists you could already
+/// reach from the catalog -- two competing menus stacked on one screen. What
+/// remains here is the catalog, the live "People for you" suggestions (never
+/// duplicated elsewhere), and compact horizontal previews of what's
+/// happening in Challenges/Groups/Quests, each with a way to see the rest.
 struct ExploreView: View {
     @State private var suggestions: [SuggestedUser] = []
     @State private var isLoadingSuggestions = true
@@ -21,6 +31,7 @@ struct ExploreView: View {
     // whole row -- routing "open this profile" through a plain Button +
     // this shared destination keeps Follow a genuinely separate target.
     @State private var openedSuggestion: UUID?
+    @State private var selectedGroupID: String?
 
     var body: some View {
         List {
@@ -31,50 +42,6 @@ struct ExploreView: View {
             }
             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             .listRowBackground(Color.clear)
-
-            Section {
-                NavigationLink { ScriptureView() } label: {
-                    HStack(spacing: FFTheme.Space.sm) {
-                        FFIconBadge(systemImage: "book.fill", tint: FFTheme.scripture)
-                        Text("Scripture")
-                    }
-                }
-                NavigationLink { BibleBrowseView() } label: {
-                    HStack(spacing: FFTheme.Space.sm) {
-                        FFIconBadge(systemImage: "books.vertical.fill", tint: FFTheme.scripture)
-                        Text("Bible browse")
-                    }
-                }
-                NavigationLink { ScripturePracticeView() } label: {
-                    HStack(spacing: FFTheme.Space.sm) {
-                        FFIconBadge(systemImage: "checkmark.circle.fill", tint: FFTheme.scripture)
-                        Text("Scripture practice")
-                    }
-                }
-                NavigationLink { SavedVersesView() } label: {
-                    HStack(spacing: FFTheme.Space.sm) {
-                        FFIconBadge(systemImage: "bookmark.fill", tint: FFTheme.gold)
-                        Text("Saved verses")
-                    }
-                }
-                NavigationLink { BreathworkView() } label: {
-                    HStack(spacing: FFTheme.Space.sm) {
-                        FFIconBadge(systemImage: "wind", tint: FFTheme.hearth)
-                        Text("Breathwork")
-                    }
-                }
-                NavigationLink { HeartCheckInView() } label: {
-                    HStack(spacing: FFTheme.Space.sm) {
-                        FFIconBadge(systemImage: "heart.text.square.fill", tint: FFTheme.seal)
-                        Text("Heart check-in")
-                    }
-                }
-            } header: {
-                Text("Faith & body")
-            } footer: {
-                Text("Same surfaces as the web Scripture / Breathe flows — verified verse text only; models never author Scripture.")
-            }
-            .listRowBackground(FFTheme.parchment1)
 
             Section {
                 if isLoadingSuggestions {
@@ -117,152 +84,122 @@ struct ExploreView: View {
             }
             .listRowBackground(FFTheme.parchment1)
 
-            Section("Challenges") {
+            Section {
                 if isLoadingContent {
                     ProgressView()
                 } else if let contentError {
                     FFErrorStateView(message: contentError, onRetry: { Task { await loadExplore() } })
-                } else if challenges.isEmpty {
-                    Text("New challenges are being prepared.").foregroundStyle(.secondary)
+                } else if challenges.isEmpty && groups.isEmpty && quests.isEmpty {
+                    Text("Nothing happening yet — check back soon.").foregroundStyle(.secondary)
                 } else {
-                    ForEach(challenges) { challenge in
-                        VStack(alignment: .leading, spacing: 7) {
-                            HStack(alignment: .top) {
-                                FFIconBadge(systemImage: "flame.fill", tint: challenge.completed ? FFTheme.emerald : FFTheme.hearth)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(challenge.name).font(.headline)
-                                    Text(challenge.description ?? challenge.flavor ?? "")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Button(challenge.joined ? "Joined" : "Join") {
-                                    join(challenge)
-                                }
-                                .buttonStyle(.ffGhost)
-                                .disabled(challenge.joined)
-                            }
-                            ProgressView(value: Double(challenge.percent), total: 100)
-                                .tint(challenge.completed ? FFTheme.emerald : FFTheme.hearth)
-                            HStack {
-                                Text("\(challenge.percent)%")
-                                Spacer()
-                                Text("\(challenge.participants) participating")
-                            }
-                            .font(.caption2).foregroundStyle(.secondary)
-                            if let reference = challenge.scriptureReference {
-                                Text(reference).font(.caption.weight(.semibold)).foregroundStyle(FFTheme.scripture)
+                    VStack(alignment: .leading, spacing: FFTheme.Space.lg) {
+                        if !challenges.isEmpty {
+                            previewCarousel(title: "Challenges", seeAll: AnyView(ChallengesHubView())) {
+                                ForEach(challenges.prefix(6)) { challengeCard($0) }
                             }
                         }
-                        .padding(.vertical, 5)
-                    }
-                }
-            }
-            .listRowBackground(FFTheme.parchment1)
-
-            Section("Groups") {
-                if isLoadingContent {
-                    ProgressView()
-                } else if let contentError {
-                    FFErrorStateView(message: contentError, onRetry: { Task { await loadExplore() } })
-                } else if groups.isEmpty {
-                    Text("No groups yet.").foregroundStyle(.secondary)
-                } else {
-                    ForEach(groups.prefix(8)) { group in
-                        NavigationLink {
-                            GroupDetailView(group: group)
-                        } label: {
-                            HStack(spacing: FFTheme.Space.sm) {
-                                FFIconBadge(systemImage: "person.3.fill", tint: FFTheme.meadow2)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(group.name).font(.headline)
-                                    if let description = group.description {
-                                        Text(description).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                                    }
-                                    HStack {
-                                        if let sport = group.sport { Label(sport, systemImage: "figure.run") }
-                                        Spacer()
-                                        Text("\(group.memberCount) members")
-                                    }
-                                    .font(.caption2).foregroundStyle(.secondary)
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    }
-                }
-            }
-            .listRowBackground(FFTheme.parchment1)
-
-            Section("Quests") {
-                if isLoadingContent {
-                    ProgressView()
-                } else if let contentError {
-                    FFErrorStateView(message: contentError, onRetry: { Task { await loadExplore() } })
-                } else {
-                    ForEach(quests) { quest in
-                        HStack(spacing: FFTheme.Space.sm) {
-                            FFIconBadge(systemImage: "sparkles", tint: FFTheme.hearth)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(quest.name).font(.headline)
-                                Text(quest.description ?? "").font(.caption).foregroundStyle(.secondary)
+                        if !groups.isEmpty {
+                            previewCarousel(title: "Groups", seeAll: AnyView(GroupsHubView())) {
+                                ForEach(groups.prefix(6)) { groupCard($0) }
                             }
                         }
-                        .padding(.vertical, 2)
+                        if !quests.isEmpty {
+                            previewCarousel(title: "Quests", seeAll: nil) {
+                                ForEach(quests.prefix(6)) { questCard($0) }
+                            }
+                        }
                     }
+                    .padding(.vertical, FFTheme.Space.xxs)
                 }
+            } header: {
+                Text("Happening now")
             }
             .listRowBackground(FFTheme.parchment1)
-
-            Section("Discover") {
-                NavigationLink { MotivationExploreView() } label: {
-                    HStack(spacing: FFTheme.Space.sm) {
-                        FFIconBadge(systemImage: "bolt.fill", tint: FFTheme.hearth)
-                        Text("Motivation")
-                    }
-                }
-                NavigationLink { PodcastsView() } label: {
-                    HStack(spacing: FFTheme.Space.sm) {
-                        FFIconBadge(systemImage: "microphone.fill", tint: FFTheme.gold)
-                        Text("Podcasts")
-                    }
-                }
-                NavigationLink { ChurchFinderView() } label: {
-                    HStack(spacing: FFTheme.Space.sm) {
-                        FFIconBadge(systemImage: "building.2.fill", tint: FFTheme.scripture)
-                        Text("Find a church nearby")
-                    }
-                }
-                NavigationLink { NewsView() } label: {
-                    HStack(spacing: FFTheme.Space.sm) {
-                        FFIconBadge(systemImage: "newspaper.fill", tint: FFTheme.hearth)
-                        Text("News")
-                    }
-                }
-                NavigationLink { VideoLibraryView() } label: {
-                    HStack(spacing: FFTheme.Space.sm) {
-                        FFIconBadge(systemImage: "play.rectangle.fill", tint: FFTheme.meadow)
-                        Text("Videos")
-                    }
-                }
-                NavigationLink { SearchView() } label: {
-                    HStack(spacing: FFTheme.Space.sm) {
-                        FFIconBadge(systemImage: "magnifyingglass", tint: FFTheme.meadow)
-                        Text("Search people & posts")
-                    }
-                }
-            }
-            .listRowBackground(FFTheme.parchment1)
+            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         }
         .ffListChrome()
         .navigationTitle("Explore")
         .task { await loadExplore() }
         .refreshable { await loadExplore(forceRefresh: true) }
         .navigationDestination(item: $openedSuggestion) { id in MemberProfileView(userID: id) }
+        .navigationDestination(item: $selectedGroupID) { id in
+            if let group = groups.first(where: { $0.id == id }) { GroupDetailView(group: group) }
+        }
         .alert("Couldn’t complete that action", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
             Button("OK", role: .cancel) { actionError = nil }
         } message: {
             Text(actionError ?? "")
         }
+    }
+
+    // MARK: - Happening now: compact previews
+
+    @ViewBuilder
+    private func previewCarousel<Content: View>(title: String, seeAll: AnyView?, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: FFTheme.Space.xs) {
+            HStack {
+                Text(title).font(.headline).foregroundStyle(FFTheme.ink)
+                Spacer()
+                if let seeAll {
+                    NavigationLink { seeAll } label: { Text("See all").font(.caption.weight(.semibold)) }
+                }
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(alignment: .top, spacing: FFTheme.Space.sm) { content() }
+                .padding(.bottom, 2)
+            }
+        }
+    }
+
+    private func challengeCard(_ challenge: ExploreChallenge) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            FFIconBadge(systemImage: "flame.fill", tint: challenge.completed ? FFTheme.emerald : FFTheme.hearth)
+            Text(challenge.name).font(.subheadline.weight(.semibold)).foregroundStyle(FFTheme.ink).lineLimit(2)
+            ProgressView(value: Double(challenge.percent), total: 100)
+                .tint(challenge.completed ? FFTheme.emerald : FFTheme.hearth)
+            HStack {
+                Text("\(challenge.percent)%").font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                Button(challenge.joined ? "Joined" : "Join") { join(challenge) }
+                    .buttonStyle(.ffGhost)
+                    .disabled(challenge.joined)
+                    .font(.caption2)
+            }
+        }
+        .padding(FFTheme.Space.sm)
+        .frame(width: 180, alignment: .leading)
+        .background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
+    }
+
+    private func groupCard(_ group: ExploreGroup) -> some View {
+        Button { selectedGroupID = group.id } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                FFIconBadge(systemImage: "person.3.fill", tint: FFTheme.meadow2)
+                Text(group.name).font(.subheadline.weight(.semibold)).foregroundStyle(FFTheme.ink).lineLimit(2)
+                if let sport = group.sport, !sport.isEmpty {
+                    Text(sport).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Text("\(group.memberCount) member\(group.memberCount == 1 ? "" : "s")")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            .padding(FFTheme.Space.sm)
+            .frame(width: 160, alignment: .leading)
+            .background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func questCard(_ quest: ExploreQuest) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            FFIconBadge(systemImage: "sparkles", tint: FFTheme.hearth)
+            Text(quest.name).font(.subheadline.weight(.semibold)).foregroundStyle(FFTheme.ink).lineLimit(2)
+            if let description = quest.description, !description.isEmpty {
+                Text(description).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+            }
+        }
+        .padding(FFTheme.Space.sm)
+        .frame(width: 170, alignment: .leading)
+        .background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: FFTheme.Radius.md, style: .continuous))
     }
 
     private func loadExplore(forceRefresh: Bool = false) async {
