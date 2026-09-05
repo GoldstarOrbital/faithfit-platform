@@ -22,6 +22,7 @@ struct HomeFeedView: View {
     @State private var mode: HomeFeedMode = .forYou
 
     @EnvironmentObject private var session: NativeSession
+    @EnvironmentObject private var deepLinks: DeepLinkRouter
     @State private var posts: [FeedPost] = []
     @State private var isLoading = true
     @State private var isLoadingMore = false
@@ -139,6 +140,8 @@ struct HomeFeedView: View {
         .task {
             unreadNotifications = (try? await APIClient.shared.fetchNotifications().unreadCount) ?? 0
         }
+        .task { openPendingDeepLinkPostIfNeeded() }
+        .onChange(of: deepLinks.openPostID) { _, _ in openPendingDeepLinkPostIfNeeded() }
         .sheet(isPresented: $showComposer) {
             NavigationStack {
                 PostComposerView {
@@ -187,6 +190,26 @@ struct HomeFeedView: View {
         .alert("Couldn’t complete that action", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
             Button("OK", role: .cancel) { actionError = nil }
         } message: { Text(actionError ?? "") }
+    }
+
+    // functioningfaith://post/<id> used to just switch to the Home tab and
+    // stop -- nothing ever read DeepLinkRouter.openPostID. Unlike the
+    // dm/group/verse equivalents, CommentThreadView takes a fully-loaded
+    // FeedPost, not just an id, and doesn't fetch its own data the way
+    // GroupDetailView/VerseThreadView do -- so this fetches the real post
+    // via the existing single-post endpoint before presenting it, rather
+    // than pushing a placeholder and filling it in later.
+    private func openPendingDeepLinkPostIfNeeded() {
+        guard let idString = deepLinks.openPostID else { return }
+        deepLinks.openPostID = nil
+        guard let id = UUID(uuidString: idString) else { return }
+        Task {
+            do {
+                selectedPost = try await APIClient.shared.fetchPost(id: id)
+            } catch {
+                actionError = "That post could not be found."
+            }
+        }
     }
 
     private func loadFeed() async {

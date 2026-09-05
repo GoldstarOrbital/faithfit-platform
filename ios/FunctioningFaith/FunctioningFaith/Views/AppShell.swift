@@ -336,6 +336,7 @@ struct ExploreSectionShell: View {
     @EnvironmentObject private var deepLinks: DeepLinkRouter
     @State private var subTab = "community"
     @State private var deepLinkGroup: ExploreGroup?
+    @State private var deepLinkAthlete: DeepLinkAthleteRef?
     // See HomeSectionShell's path property for why every shell resets its
     // own navigation stack on deactivation.
     @State private var path = NavigationPath()
@@ -367,15 +368,33 @@ struct ExploreSectionShell: View {
             .navigationDestination(item: $deepLinkGroup) { group in
                 GroupDetailView(group: group)
             }
+            .navigationDestination(item: $deepLinkAthlete) { ref in
+                AthleteProfileDetailView(userID: ref.id, displayName: "")
+            }
         }
         .task { openPendingDeepLinkGroupIfNeeded() }
+        .task { openPendingDeepLinkAthleteIfNeeded() }
         .onChange(of: deepLinks.openGroupID) { _, _ in openPendingDeepLinkGroupIfNeeded() }
+        .onChange(of: deepLinks.openAthleteID) { _, _ in openPendingDeepLinkAthleteIfNeeded() }
         .onChange(of: isActive) { _, active in
             if !active {
                 path = NavigationPath()
                 deepLinkGroup = nil
+                deepLinkAthlete = nil
             }
         }
+    }
+
+    // functioningfaith://athlete/<id> (or /user/, /users/) used to just
+    // switch to Explore and stop -- nothing ever read
+    // DeepLinkRouter.openAthleteID. AthleteProfileDetailView fetches its own
+    // AthleteProfile in a .task keyed on userID, using displayName only as a
+    // loading-state placeholder, so an empty display name here is fine --
+    // same reasoning as GroupDetailView's placeholder above.
+    private func openPendingDeepLinkAthleteIfNeeded() {
+        guard let id = deepLinks.openAthleteID else { return }
+        deepLinkAthlete = DeepLinkAthleteRef(id: id)
+        deepLinks.openAthleteID = nil
     }
 
     // functioningfaith://group/<id> used to just switch to this tab and stop
@@ -393,6 +412,10 @@ struct ExploreSectionShell: View {
                                       churchName: nil, locationName: nil, sport: nil, memberCount: 0)
         deepLinks.openGroupID = nil
     }
+}
+
+private struct DeepLinkAthleteRef: Identifiable, Hashable {
+    let id: String
 }
 
 /// Messages, unchanged in content -- no five-item bar, see this file's
