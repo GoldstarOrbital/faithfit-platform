@@ -14,48 +14,39 @@ struct SearchView: View {
     @State private var searchTask: Task<Void, Never>?
 
     var body: some View {
-        Group {
-            // .searchable() integrates with UIKit's UISearchController on
-            // the navigation bar -- the same class of UIKit-bridged chrome
-            // as .toolbar (see AppShell.swift's ffRootBrand(isActive:)),
-            // and RootTabView keeps every section's NavigationStack mounted
-            // at once, toggling only opacity/hit-testing rather than
-            // actually removing the inactive ones. Nine simultaneous
-            // .toolbar installations broke the brand-mark button the same
-            // way; installing this section's search controller while it
-            // isn't the visible tab is the same failure mode applied to
-            // .searchable() instead, and is why the search field could
-            // render but not actually respond to input.
-            if isActive {
-                // Explicit .always placement: the default .automatic
-                // placement docks the search field into a scrollable List's
-                // own drawer, and needs that scrollable context to know
-                // where to render it. This screen's empty and no-results
-                // states are a static ContentUnavailableView, not a List --
-                // confirmed live in the simulator, .automatic rendered no
-                // search field at all there, field or no field, whether or
-                // not the section was active. .always forces it to render
-                // in the nav bar regardless of what the content below it is.
-                content.searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
-                                    prompt: "People, groups, journeys, scripture…")
-            } else {
-                content
+        // .searchable() must NOT be applied inside a conditional branch --
+        // that was the actual bug, not placement or content type. It was
+        // previously wrapped in `if isActive { content.searchable(...) }
+        // else { content }`, on the theory that it's UIKit-bridged chrome
+        // like .toolbar and needed the same isActive gate (see
+        // AppShell.swift's ffRootBrand(isActive:)). But .toolbar's bug came
+        // from NINE simultaneously-mounted roots each installing their own
+        // competing toolbar; SearchView is the only always-mounted section
+        // root that calls .searchable() at all, so there's no competing
+        // installation for it to guard against in the first place -- and
+        // nesting the modifier inside one arm of an if/else is a known
+        // SwiftUI failure mode that keeps it from ever registering with the
+        // navigation bar, which is exactly why it rendered no field at all
+        // regardless of isActive or placement. AthleteSearchView applies
+        // .searchable() unconditionally on the same kind of conditional
+        // (ProgressView / ContentUnavailableView / List) content and works
+        // reliably -- this now matches that proven pattern exactly.
+        content
+            .searchable(text: $query, prompt: "People, groups, journeys, scripture…")
+            .navigationTitle("Search")
+            .onChange(of: query) { _, newValue in
+                searchTask?.cancel()
+                let trimmed = newValue.trimmingCharacters(in: .whitespaces)
+                guard trimmed.count >= 2 else { results = nil; return }
+                searchTask = Task {
+                    try? await Task.sleep(nanoseconds: 300_000_000) // debounce -- matches the web's own search-as-you-type pacing
+                    guard !Task.isCancelled else { return }
+                    await runSearch(trimmed)
+                }
             }
-        }
-        .navigationTitle("Search")
-        .onChange(of: query) { _, newValue in
-            searchTask?.cancel()
-            let trimmed = newValue.trimmingCharacters(in: .whitespaces)
-            guard trimmed.count >= 2 else { results = nil; return }
-            searchTask = Task {
-                try? await Task.sleep(nanoseconds: 300_000_000) // debounce -- matches the web's own search-as-you-type pacing
-                guard !Task.isCancelled else { return }
-                await runSearch(trimmed)
-            }
-        }
-        .alert("Search failed", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-            Button("OK", role: .cancel) { errorMessage = nil }
-        } message: { Text(errorMessage ?? "") }
+            .alert("Search failed", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+                Button("OK", role: .cancel) { errorMessage = nil }
+            } message: { Text(errorMessage ?? "") }
     }
 
     @ViewBuilder
