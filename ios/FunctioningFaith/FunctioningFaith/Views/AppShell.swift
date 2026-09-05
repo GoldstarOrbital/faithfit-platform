@@ -171,13 +171,22 @@ struct FeatureBottomBar: View {
 
 // MARK: - Shared shell layout
 
-private extension View {
+extension View {
     /// FeatureBottomBar overlays the bottom of its ZStack rather than
     /// participating in layout, so scrollable content underneath (a List,
     /// a Form) needs this to know to leave room at the bottom instead of
     /// letting its last rows land behind the bar.
+    ///
+    /// 140pt, not 60: the floating "Ask Bible Answers" button (see
+    /// RootTabView's askAIButton) floats globally above whichever bar is
+    /// showing, on every screen -- 60pt only cleared the bar itself, which
+    /// is how a "Follow" button on Explore's People-for-you list ended up
+    /// partially covered by the AI button once it stopped being scoped to
+    /// just the Home tab. The AI button is a RootTabView-level overlay, not
+    /// something each screen can see, so the fix has to be "always leave
+    /// enough room for it" rather than something screen-specific.
     func reserveFeatureBottomBar() -> some View {
-        safeAreaInset(edge: .bottom) { Color.clear.frame(height: 60) }
+        safeAreaInset(edge: .bottom) { Color.clear.frame(height: 140) }
     }
 }
 
@@ -195,6 +204,7 @@ struct HomeSectionShell: View {
     var body: some View {
         NavigationStack {
             HomeFeedView()
+                .reserveFeatureBottomBar()
                 .ffRootBrand(onTapLogo: onTapLogo)
         }
     }
@@ -202,7 +212,10 @@ struct HomeSectionShell: View {
 
 /// Reels, Scripture, and Search are plain top-level destinations in the
 /// global bottom bar -- no sub-bar of their own, just the screen plus the
-/// logo button for reaching Train/Explore/Profile.
+/// logo button for reaching Train/Explore/Profile. Reels alone skips
+/// reserving space: it's full-bleed video, and both the bar and the
+/// floating AI button sit over it translucently the same way they do in
+/// Reels-style apps generally, rather than shrinking the video.
 struct ReelsSectionShell: View {
     let onTapLogo: () -> Void
     var body: some View {
@@ -216,7 +229,9 @@ struct ScriptureSectionShell: View {
     let onTapLogo: () -> Void
     var body: some View {
         NavigationStack {
-            ScriptureView().ffRootBrand(onTapLogo: onTapLogo)
+            ScriptureView()
+                .reserveFeatureBottomBar()
+                .ffRootBrand(onTapLogo: onTapLogo)
         }
     }
 }
@@ -230,7 +245,9 @@ struct SearchSectionShell: View {
     let onTapLogo: () -> Void
     var body: some View {
         NavigationStack {
-            SearchView().ffRootBrand(onTapLogo: onTapLogo)
+            SearchView()
+                .reserveFeatureBottomBar()
+                .ffRootBrand(onTapLogo: onTapLogo)
         }
     }
 }
@@ -317,6 +334,7 @@ struct MessagesSectionShell: View {
         NavigationStack {
             DMInboxView()
                 .environmentObject(dmStore)
+                .reserveFeatureBottomBar()
                 .ffRootBrand(onTapLogo: onTapLogo)
         }
     }
