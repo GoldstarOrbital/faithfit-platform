@@ -120,6 +120,13 @@ struct RootTabView: View {
     // MARK: - Ask Bible Answers (global)
 
     private var askAIButton: some View {
+        // Bottom-CENTER, not bottom-trailing: confirmed live that trailing
+        // placement collides with two different, unrelated things that both
+        // happen to live in that same corner -- a row's trailing "Follow"
+        // button on Explore, and Reels' own vertical action stack (like/
+        // save/reply/share/not-interested) which also hugs the trailing
+        // edge. Center avoids both at the source instead of chasing every
+        // screen's trailing content one at a time.
         HStack {
             Spacer()
             Button {
@@ -136,18 +143,18 @@ struct RootTabView: View {
                     .overlay(Circle().strokeBorder(FFTheme.goldBright.opacity(0.5), lineWidth: 1))
                     .shadow(color: FFTheme.walnut.opacity(0.35), radius: 8, x: 0, y: 3)
             }
-            .padding(.trailing, FFTheme.Space.md)
             .accessibilityLabel("Ask Bible Answers")
             .accessibilityHint("Opens a chat to ask any Bible or faith question, answered with verified Scripture")
+            Spacer()
         }
         // Sits just above whichever bar is showing (bar height is ~78-80pt
         // including its own safe-area padding) rather than hovering well
         // above it -- confirmed live that hovering higher (previously
         // 56pt button at 70pt padding) reached far enough into ordinary
-        // list content to cover a trailing-aligned row button (Explore's
-        // "Follow"). Smaller footprint (44pt, Apple's own minimum tap
-        // target) plus sitting lower cuts how far it intrudes into content
-        // without disappearing into the bar itself.
+        // list content to cover a trailing-aligned row button. Smaller
+        // footprint (44pt, Apple's own minimum tap target) plus sitting
+        // lower cuts how far it intrudes into content without disappearing
+        // into the bar itself.
         .padding(.bottom, 54)
     }
 
