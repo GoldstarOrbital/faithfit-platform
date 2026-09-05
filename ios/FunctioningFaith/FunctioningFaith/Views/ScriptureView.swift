@@ -1,11 +1,18 @@
 import SwiftUI
 
 struct ScriptureView: View {
+    private struct OpenVerseReference: Identifiable, Hashable {
+        let reference: String
+        var id: String { reference }
+    }
+
+    @EnvironmentObject private var deepLinks: DeepLinkRouter
     @State private var verse: BibleVerse?
     @State private var isLoadingVerse = true
     @State private var savedReferences: Set<String> = []
     @State private var savedCount = 0
     @State private var errorMessage: String?
+    @State private var deepLinkReference: OpenVerseReference?
 
     var body: some View {
         Form {
@@ -14,13 +21,27 @@ struct ScriptureView: View {
         }
         .ffListChrome()
         .navigationTitle("Scripture")
+        .navigationDestination(item: $deepLinkReference) { ref in
+            VerseThreadView(reference: ref.reference)
+        }
         .task {
             await loadVerse()
             await loadSavedCount()
+            openPendingDeepLinkVerseIfNeeded()
         }
+        .onChange(of: deepLinks.openVerseReference) { _, _ in openPendingDeepLinkVerseIfNeeded() }
         .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
+    }
+
+    // functioningfaith://verse?ref=<x> used to just switch to this tab and
+    // stop -- nothing ever read DeepLinkRouter.openVerseReference. Mirrors
+    // DMInboxView's identical fix for openDMThreadID.
+    private func openPendingDeepLinkVerseIfNeeded() {
+        guard let ref = deepLinks.openVerseReference else { return }
+        deepLinkReference = OpenVerseReference(reference: ref)
+        deepLinks.openVerseReference = nil
     }
 
     // Split out of `body` -- a single Form with a conditional verse card plus

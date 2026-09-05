@@ -103,11 +103,17 @@ final class DeepLinkRouter: ObservableObject {
             selectedTab = .search
         case .workouts, .workout:
             selectedTab = .workouts
-        case .explore, .group, .verse, .athlete:
+        case .explore, .group, .athlete:
             selectedTab = .explore
             if case .group(let id) = link { openGroupID = id }
-            if case .verse(let ref) = link { openVerseReference = ref }
             if case .athlete(let id) = link { openAthleteID = id }
+        case .verse(let ref):
+            // Scripture split out into its own global-bar tab after this
+            // routing was written (see AppShell.swift) -- a verse belongs
+            // there now, not in Explore, which no longer hosts Scripture
+            // content at all.
+            selectedTab = .scripture
+            openVerseReference = ref
         case .messages, .dm:
             selectedTab = .messages
             if case .dm(let id) = link { openDMThreadID = id }
