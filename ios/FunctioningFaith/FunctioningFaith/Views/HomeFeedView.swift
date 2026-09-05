@@ -11,15 +11,12 @@ enum HomeFeedMode: String, CaseIterable, Identifiable {
 }
 
 struct HomeFeedView: View {
-    // Owned by whichever sub-tab in Home's bottom bar is selected (see
-    // AppShell.swift's HomeSectionShell) rather than an internal Picker --
-    // this view used to switch its own mode with a segmented control, but
-    // that duplicated the same choice the bottom bar now makes.
-    let mode: HomeFeedMode
+    // Home is a single top-level tab again (see AppShell.swift), so its
+    // For You / Following choice is back to being this view's own
+    // in-feed toggle rather than something owned by a bottom bar.
+    @State private var mode: HomeFeedMode = .forYou
 
     @EnvironmentObject private var session: NativeSession
-    @EnvironmentObject private var deepLinks: DeepLinkRouter
-    @EnvironmentObject private var dmStore: DMStore
     @State private var posts: [FeedPost] = []
     @State private var isLoading = true
     @State private var isLoadingMore = false
@@ -28,6 +25,8 @@ struct HomeFeedView: View {
     @State private var actionError: String?
     @State private var selectedPost: FeedPost?
     @State private var showComposer = false
+    @State private var showNotifications = false
+    @State private var unreadNotifications = 0
     @State private var blockCandidate: (id: UUID, name: String)?
     @State private var showBlockConfirmation = false
 
@@ -64,6 +63,15 @@ struct HomeFeedView: View {
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
+            Picker("Feed", selection: $mode) {
+                ForEach(HomeFeedMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
+            }
+            .pickerStyle(.segmented)
+            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .accessibilityLabel("Feed mode")
+            .accessibilityHint("For You shows posts ranked for your interests. Following shows posts from people you follow, newest first.")
             ForEach(posts) { post in
                 FeedPostRow(
                     post: post,
@@ -98,26 +106,29 @@ struct HomeFeedView: View {
         .ffListChrome()
         .listStyle(.plain)
         .refreshable { await loadFeed() }
-        .navigationTitle(mode == .forYou ? "For You" : "Following")
+        .navigationTitle("Home")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showComposer = true } label: { Image(systemName: "square.and.pencil") }
                     .accessibilityLabel("Create post")
             }
-            // Notifications and Search moved to Home's own peer tabs (see
-            // AppShell.swift's HomeSectionShell) -- keeping icons for them
-            // here too would be the same destination reachable two ways at
-            // once. Messages stays: it's a different top-level section
-            // entirely, and a one-tap shortcut to it from Home is a normal
-            // cross-section convenience, not a duplicate.
+            // Messages and Search are now global bottom-bar items
+            // themselves (see AppShell.swift), so a shortcut to Messages
+            // here would be the same destination one tap away two
+            // different ways. Notifications has no tab of its own, so it
+            // keeps its toolbar icon.
             ToolbarItem(placement: .topBarTrailing) {
-                Button { deepLinks.selectedTab = .messages } label: {
-                    badgedIcon("bubble.left.and.bubble.right", count: dmStore.unreadTotal)
+                Button { showNotifications = true } label: {
+                    badgedIcon("bell", count: unreadNotifications)
                 }
-                .accessibilityLabel(dmStore.unreadTotal > 0 ? "Messages, \(dmStore.unreadTotal) unread" : "Messages")
+                .accessibilityLabel(unreadNotifications > 0 ? "Notifications, \(unreadNotifications) unread" : "Notifications")
             }
         }
+        .navigationDestination(isPresented: $showNotifications) { NotificationsView() }
         .task(id: mode) { await loadFeed() }
+        .task {
+            unreadNotifications = (try? await APIClient.shared.fetchNotifications().unreadCount) ?? 0
+        }
         .sheet(isPresented: $showComposer) {
             NavigationStack {
                 PostComposerView {
@@ -596,7 +607,7 @@ struct FromExploreRail: View {
 }
 
 #Preview {
-    NavigationStack { HomeFeedView(mode: .forYou) }
+    NavigationStack { HomeFeedView() }
         .environmentObject(NativeSession())
         .environmentObject(DeepLinkRouter())
         .environmentObject(DMStore())

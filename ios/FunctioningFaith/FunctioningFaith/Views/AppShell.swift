@@ -1,17 +1,18 @@
 import SwiftUI
 
-/// The app's top-level navigation, redesigned around two pieces:
+/// The app's top-level navigation, built around three pieces:
 ///
-/// 1. A full side panel (like X's own left-drawer pattern) opened by tapping
-///    the brand mark in the top-left corner, listing the five main sections
-///    -- Home, Train, Explore, Messages, Profile -- that used to live in a
-///    permanent bottom tab bar.
-/// 2. Once inside a section, that section shows its OWN five-item bottom
-///    bar for switching between its real sub-areas (e.g. Explore's Faith /
-///    Community / Reels / Discover / Search), instead of one bar meaning
-///    the same five things everywhere.
+/// 1. A persistent GLOBAL bottom bar with the app's five most common
+///    destinations: Home, Reels, Scripture, Messages, Search.
+/// 2. A full side panel (like X's own left-drawer pattern) opened by
+///    tapping the brand mark in the top-left corner, for the rest --
+///    Train, Explore, Profile -- that don't fit in five slots.
+/// 3. Once inside Train, Explore, or Profile, THAT section shows its own
+///    five-item bottom bar for its real sub-areas (e.g. Explore's Faith /
+///    Community / Discover), replacing the global bar while you're there.
+///    Only one bottom bar is ever on screen at once.
 ///
-/// Messages doesn't get a bottom bar here: today it only has two genuinely
+/// Messages has no sub-bar of its own: today it only has two genuinely
 /// distinct destinations (the inbox, and starting a new conversation), and
 /// padding that out to five with invented tabs would be worse than being
 /// honest that it isn't there yet.
@@ -21,7 +22,11 @@ import SwiftUI
 extension AppTab: Identifiable {
     var id: Self { self }
 
-    static let orderedSections: [AppTab] = [.home, .workouts, .explore, .messages, .profile]
+    /// The persistent global bottom bar's five items, in order.
+    static let globalBarSections: [AppTab] = [.home, .reels, .scripture, .messages, .search]
+    /// Everything else -- reached through the side panel instead, since it
+    /// doesn't fit in the global bar's five slots.
+    static let overflowSections: [AppTab] = [.workouts, .explore, .profile]
 
     var title: String {
         switch self {
@@ -30,6 +35,9 @@ extension AppTab: Identifiable {
         case .explore: return "Explore"
         case .messages: return "Messages"
         case .profile: return "Profile"
+        case .reels: return "Reels"
+        case .scripture: return "Scripture"
+        case .search: return "Search"
         }
     }
 
@@ -40,16 +48,21 @@ extension AppTab: Identifiable {
         case .explore: return "safari.fill"
         case .messages: return "bubble.left.and.bubble.right.fill"
         case .profile: return "person.crop.circle.fill"
+        case .reels: return "rectangle.stack.fill"
+        case .scripture: return "book.fill"
+        case .search: return "magnifyingglass"
         }
     }
 }
 
 // MARK: - Side panel
 
-/// Full-panel section switcher opened from the top-left brand mark.
+/// Full-panel switcher for the sections that don't fit in the global
+/// bottom bar's five slots (Train, Explore, Profile). Home, Reels,
+/// Scripture, Messages, and Search live in the bar itself now, so they're
+/// not repeated here.
 struct SidePanelView: View {
     @Binding var selection: AppTab
-    let unreadMessages: Int
     let onSelect: (AppTab) -> Void
 
     var body: some View {
@@ -70,7 +83,7 @@ struct SidePanelView: View {
 
             Divider().background(FFTheme.hairline)
 
-            ForEach(AppTab.orderedSections) { section in
+            ForEach(AppTab.overflowSections) { section in
                 sectionRow(section)
             }
 
@@ -94,14 +107,6 @@ struct SidePanelView: View {
                     .font(.body.weight(isSelected ? .semibold : .regular))
                     .foregroundStyle(FFTheme.ink)
                 Spacer()
-                if section == .messages && unreadMessages > 0 {
-                    Text("\(unreadMessages)")
-                        .font(.caption2.weight(.bold))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(FFTheme.accent))
-                        .foregroundStyle(.white)
-                }
             }
             .padding(.horizontal, FFTheme.Space.lg)
             .padding(.vertical, FFTheme.Space.md)
@@ -111,7 +116,7 @@ struct SidePanelView: View {
         }
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(section.title + (section == .messages && unreadMessages > 0 ? ", \(unreadMessages) unread" : ""))
+        .accessibilityLabel(section.title)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 }
@@ -178,43 +183,54 @@ private extension View {
 
 // MARK: - Section shells
 
-/// Home's five real sub-areas: the two feed modes, plus the three
-/// destinations that used to be Home's own toolbar icons (Notifications,
-/// Search) or buried in Profile (Saved).
+/// Home is one of the global bottom bar's five items now, not a section
+/// with its own sub-bar -- its own For You / Following choice lives as an
+/// in-feed toggle (see HomeFeedView's own picker) rather than as bottom-bar
+/// items, so the bar isn't showing two different kinds of "tab" at once.
+/// Saved moved to Profile; Search is its own global-bar item now (both
+/// used to live here as sub-tabs).
 struct HomeSectionShell: View {
     let onTapLogo: () -> Void
-    @State private var subTab = "forYou"
-    @State private var unreadNotifications = 0
-
-    private var items: [FeatureBottomBarItem] {
-        [
-            FeatureBottomBarItem(id: "forYou", title: "For You", systemImage: "sparkles"),
-            FeatureBottomBarItem(id: "following", title: "Following", systemImage: "person.2.fill"),
-            FeatureBottomBarItem(id: "saved", title: "Saved", systemImage: "bookmark.fill"),
-            FeatureBottomBarItem(id: "notifications", title: "Alerts", systemImage: "bell.fill", badge: unreadNotifications),
-            FeatureBottomBarItem(id: "search", title: "Search", systemImage: "magnifyingglass"),
-        ]
-    }
 
     var body: some View {
         NavigationStack {
-            ZStack(alignment: .bottom) {
-                Group {
-                    switch subTab {
-                    case "forYou": HomeFeedView(mode: .forYou)
-                    case "following": HomeFeedView(mode: .following)
-                    case "saved": SavedPostsView()
-                    case "notifications": NotificationsView()
-                    default: SearchView()
-                    }
-                }
-                .reserveFeatureBottomBar()
-                FeatureBottomBar(items: items, selection: $subTab)
-            }
-            .ffRootBrand(onTapLogo: onTapLogo)
+            HomeFeedView()
+                .ffRootBrand(onTapLogo: onTapLogo)
         }
-        .task {
-            unreadNotifications = (try? await APIClient.shared.fetchNotifications().unreadCount) ?? 0
+    }
+}
+
+/// Reels, Scripture, and Search are plain top-level destinations in the
+/// global bottom bar -- no sub-bar of their own, just the screen plus the
+/// logo button for reaching Train/Explore/Profile.
+struct ReelsSectionShell: View {
+    let onTapLogo: () -> Void
+    var body: some View {
+        NavigationStack {
+            ReelsFeedView().ffRootBrand(onTapLogo: onTapLogo)
+        }
+    }
+}
+
+struct ScriptureSectionShell: View {
+    let onTapLogo: () -> Void
+    var body: some View {
+        NavigationStack {
+            ScriptureView().ffRootBrand(onTapLogo: onTapLogo)
+        }
+    }
+}
+
+/// Its own dedicated NavigationStack, not a sub-tab nested inside another
+/// screen's switch -- `.searchable()` binds most reliably to a
+/// NavigationStack's own root content, and search living as a conditionally
+/// swapped-in case inside Home's (and Explore's) ZStack was the likely
+/// cause of it working unreliably before this became a top-level tab.
+struct SearchSectionShell: View {
+    let onTapLogo: () -> Void
+    var body: some View {
+        NavigationStack {
+            SearchView().ffRootBrand(onTapLogo: onTapLogo)
         }
     }
 }
@@ -254,36 +270,36 @@ struct TrainSectionShell: View {
     }
 }
 
-/// Explore's five real sub-areas -- Faith & Scripture and Discover's
-/// catalog tiles each get their own screen instead of sharing one long
-/// scroll with Community; Reels and Search, previously catalog tiles
-/// themselves, are common enough to deserve a direct tab.
+/// Explore's own sub-bar -- Faith & Scripture and Discover's catalog tiles
+/// each get their own screen instead of sharing one long scroll with
+/// Community. Reels and Search used to live here too, but both are now
+/// top-level items in the global bottom bar (see ReelsSectionShell /
+/// SearchSectionShell above), so they were dropped from here.
 struct ExploreSectionShell: View {
     let onTapLogo: () -> Void
     @State private var subTab = "community"
 
+    // Reels and Search moved to the global bottom bar as their own
+    // top-level items -- keeping them here too would mean the same
+    // destination reachable two ways at once, so Explore's own bar now
+    // only carries what's genuinely specific to it.
     private let items: [FeatureBottomBarItem] = [
         FeatureBottomBarItem(id: "faith", title: "Faith", systemImage: "book.fill"),
         FeatureBottomBarItem(id: "community", title: "Community", systemImage: "person.3.fill"),
-        FeatureBottomBarItem(id: "reels", title: "Reels", systemImage: "rectangle.stack.fill"),
         FeatureBottomBarItem(id: "discover", title: "Discover", systemImage: "safari.fill"),
-        FeatureBottomBarItem(id: "search", title: "Search", systemImage: "magnifyingglass"),
     ]
 
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
-                // Reels alone skips reserving space for the bar -- it's
-                // full-bleed video, and the bar sits over it translucently
-                // the same way it does in Reels-style apps generally,
-                // rather than shrinking the video to make room.
-                switch subTab {
-                case "faith": ExploreFaithView().reserveFeatureBottomBar()
-                case "community": ExploreCommunityView().reserveFeatureBottomBar()
-                case "reels": ReelsFeedView()
-                case "discover": ExploreDiscoverView().reserveFeatureBottomBar()
-                default: SearchView().reserveFeatureBottomBar()
+                Group {
+                    switch subTab {
+                    case "faith": ExploreFaithView()
+                    case "community": ExploreCommunityView()
+                    default: ExploreDiscoverView()
+                    }
                 }
+                .reserveFeatureBottomBar()
                 FeatureBottomBar(items: items, selection: $subTab)
             }
             .ffRootBrand(onTapLogo: onTapLogo)

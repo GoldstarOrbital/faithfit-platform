@@ -1,24 +1,33 @@
 import SwiftUI
 
-/// The app's root shell. See AppShell.swift for the design this replaced a
-/// plain TabView with: a full side panel (opened from the top-left brand
-/// mark) listing Home/Train/Explore/Messages/Profile, and each of those
-/// showing its own five-item bottom bar for its real sub-areas once you're
-/// inside it.
+/// The app's root shell. See AppShell.swift for the design: a persistent
+/// global bottom bar (Home, Reels, Scripture, Messages, Search) plus a
+/// side panel (opened from the top-left brand mark) for Train, Explore,
+/// and Profile, each of which shows its own sub-bar in place of the
+/// global one while you're inside it. The Bible Answers AI stays reachable
+/// everywhere via a floating button, independent of whichever bar is
+/// currently showing.
 struct RootTabView: View {
     @EnvironmentObject private var session: NativeSession
     @EnvironmentObject private var network: NetworkMonitor
     @EnvironmentObject private var deepLinks: DeepLinkRouter
     @StateObject private var dmStore = DMStore()
     @State private var showSidePanel = false
+    @State private var showAskAI = false
 
     var body: some View {
         VStack(spacing: 0) {
             OfflineBanner()
 
             ZStack(alignment: .leading) {
-                currentSection
-                    .environmentObject(dmStore)
+                ZStack(alignment: .bottom) {
+                    currentSection
+                    if isGlobalBarActive {
+                        FeatureBottomBar(items: globalBarItems, selection: globalBarSelection)
+                    }
+                    askAIButton
+                }
+                .environmentObject(dmStore)
 
                 if showSidePanel {
                     Color.black.opacity(0.25)
@@ -30,7 +39,6 @@ struct RootTabView: View {
 
                     SidePanelView(
                         selection: $deepLinks.selectedTab,
-                        unreadMessages: dmStore.unreadTotal,
                         onSelect: { section in
                             deepLinks.selectedTab = section
                             withAnimation(.easeInOut(duration: 0.2)) { showSidePanel = false }
@@ -48,19 +56,25 @@ struct RootTabView: View {
                 await dmStore.loadInbox()
             }
         }
+        .sheet(isPresented: $showAskAI) {
+            NavigationStack { BibleAnswersView() }
+        }
     }
 
     // Every section stays alive underneath, only one visible at a time --
     // a `switch` here would destroy and recreate whichever shell you leave,
-    // losing its own sub-tab selection and scroll position every time the
-    // side panel is used. This is the same "all alive, toggle visibility"
-    // trick TabView itself uses under the hood.
+    // losing its own sub-tab selection and scroll position every time you
+    // navigate away and back. This is the same "all alive, toggle
+    // visibility" trick TabView itself uses under the hood.
     private var currentSection: some View {
         ZStack {
             section(.home) { HomeSectionShell(onTapLogo: openPanel) }
+            section(.reels) { ReelsSectionShell(onTapLogo: openPanel) }
+            section(.scripture) { ScriptureSectionShell(onTapLogo: openPanel) }
+            section(.messages) { MessagesSectionShell(onTapLogo: openPanel) }
+            section(.search) { SearchSectionShell(onTapLogo: openPanel) }
             section(.workouts) { TrainSectionShell(onTapLogo: openPanel) }
             section(.explore) { ExploreSectionShell(onTapLogo: openPanel) }
-            section(.messages) { MessagesSectionShell(onTapLogo: openPanel) }
             section(.profile) { ProfileSectionShell(onTapLogo: openPanel) }
         }
     }
@@ -72,6 +86,63 @@ struct RootTabView: View {
             .opacity(isActive ? 1 : 0)
             .allowsHitTesting(isActive)
             .accessibilityHidden(!isActive)
+    }
+
+    // MARK: - Global bottom bar
+
+    private var isGlobalBarActive: Bool {
+        AppTab.globalBarSections.contains(deepLinks.selectedTab)
+    }
+
+    private var globalBarItems: [FeatureBottomBarItem] {
+        AppTab.globalBarSections.map { tab in
+            FeatureBottomBarItem(
+                id: tab.title,
+                title: tab.title,
+                systemImage: tab.systemImage,
+                badge: tab == .messages ? dmStore.unreadTotal : 0
+            )
+        }
+    }
+
+    private var globalBarSelection: Binding<String> {
+        Binding(
+            get: { deepLinks.selectedTab.title },
+            set: { newTitle in
+                if let match = AppTab.globalBarSections.first(where: { $0.title == newTitle }) {
+                    deepLinks.selectedTab = match
+                }
+            }
+        )
+    }
+
+    // MARK: - Ask Bible Answers (global)
+
+    private var askAIButton: some View {
+        HStack {
+            Spacer()
+            Button {
+                showAskAI = true
+            } label: {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(FFTheme.cream)
+                    .frame(width: 56, height: 56)
+                    .background(
+                        LinearGradient(colors: [FFTheme.meadow2, FFTheme.meadowDeep], startPoint: .topLeading, endPoint: .bottomTrailing),
+                        in: Circle()
+                    )
+                    .overlay(Circle().strokeBorder(FFTheme.goldBright.opacity(0.5), lineWidth: 1))
+                    .shadow(color: FFTheme.walnut.opacity(0.35), radius: 10, x: 0, y: 4)
+            }
+            .padding(.trailing, FFTheme.Space.md)
+            .accessibilityLabel("Ask Bible Answers")
+            .accessibilityHint("Opens a chat to ask any Bible or faith question, answered with verified Scripture")
+        }
+        // Clears whichever bar is currently showing -- the global bar and
+        // every section's own sub-bar are all about the same height, so one
+        // padding value works for all of them.
+        .padding(.bottom, 70)
     }
 
     private func openPanel() {
@@ -102,7 +173,7 @@ extension View {
                         .clipShape(Circle())
                 }
                 .accessibilityLabel("Open menu")
-                .accessibilityHint("Shows Home, Train, Explore, Messages, and Profile")
+                .accessibilityHint("Shows Train, Explore, and Profile")
             }
         }
     }
