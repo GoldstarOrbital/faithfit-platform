@@ -5997,7 +5997,12 @@ router.post('/verses/:reference/ask', requireAuth, aiLimiter, async (req, res) =
   });
   // Null covers every failure mode, including an answer that cited scripture
   // which does not exist. We say nothing rather than something unverified.
-  if (!answer) return res.status(502).json({ error: 'no_verified_answer' });
+  if (!answer) {
+    return res.status(502).json({
+      error: 'no_verified_answer',
+      hint: 'That answer could not be fully verified against Scripture, so it was not shown. Please try asking again.',
+    });
+  }
   res.json(answer);
 });
 
@@ -6021,7 +6026,12 @@ router.post('/bible/ask', requireAuth, aiLimiter, async (req, res) => {
     versionId: me.bible_version_id,
     question,
   });
-  if (!answer) return res.status(502).json({ error: 'no_verified_answer' });
+  if (!answer) {
+    return res.status(502).json({
+      error: 'no_verified_answer',
+      hint: 'That answer could not be fully verified against Scripture, so it was not shown. Please try asking again.',
+    });
+  }
 
   db.prepare('INSERT INTO bible_answers_history (id, user_id, question, answer, also_json) VALUES (?, ?, ?, ?, ?)')
     .run(randomUUID(), req.session.userId, question, answer.answer, JSON.stringify(answer.also || []));

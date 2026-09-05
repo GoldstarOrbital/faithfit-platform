@@ -190,6 +190,25 @@ function cachePut(key, kind, value, ttlDays) {
   ).run(key, kind, JSON.stringify(value));
 }
 
+function cacheDelete(key) {
+  db.prepare('DELETE FROM gloo_cache WHERE key = ?').run(key);
+}
+
+/**
+ * A completion gets cached the moment it's generated, before any downstream
+ * citation-verification the caller does -- chat() itself has no idea a
+ * grounded, citation-checked caller even exists. Without this, a completion
+ * that happens to cite a reference that fails to resolve would stay cached
+ * and keep failing verification identically for the rest of its TTL (up to
+ * 30 days elsewhere, 14 for Bible Answers): every person asking that exact
+ * question would see "no verified answer" until the cache expired on its
+ * own. A verification-checking caller calls this on failure so the next
+ * attempt regenerates fresh instead of replaying the same bad text.
+ */
+function evictCache(key) {
+  if (key) cacheDelete(key);
+}
+
 // --- Logging ----------------------------------------------------------------
 function logCall(rec) {
   try {
@@ -345,6 +364,11 @@ async function chat(opts) {
       citations: Array.isArray(json.citations) ? json.citations : [],
       usage: json.usage || null,
       cached: false,
+      // Carried through cache hits too (it's part of the cached JSON blob) so
+      // a verification-checking caller can always evictCache(res.key) on
+      // failure, whether this particular call was a fresh generation or a
+      // replay of an earlier one -- see evictCache's own comment.
+      key,
     };
     if (o.cache !== false) cachePut(key, kind, out, o.cacheDays || 30);
     logCall({
@@ -489,7 +513,7 @@ function start() {
 }
 
 module.exports = {
-  start, init, isConfigured, chat, chatJson, peekCache, stats,
+  start, init, isConfigured, chat, chatJson, peekCache, stats, evictCache,
   extractRefs, verifyRefs, normaliseTradition, TRADITIONS,
   _cache: { cacheKey, cacheGet, cachePut },
 };

@@ -353,7 +353,13 @@ async function askAboutVerse(opts) {
   // Check 2: every reference the answer cites must be real.
   const check = await gloo.verifyRefs(res.text, (r) => resolveRef(r, o.versionId),
     { kind: 'verse_companion_refs', userId: o.userId, tradition: res.tradition });
-  if (!check.ok) return null;   // it cited chapter and verse, and none of it was real
+  if (!check.ok) {
+    // Otherwise this exact question would keep citing the same unresolvable
+    // reference and keep failing for the rest of the 14-day cache TTL --
+    // see evictCache's own comment.
+    gloo.evictCache(res.key);
+    return null;   // it cited chapter and verse, and none of it was real
+  }
 
   // A reference that did not resolve is removed from the prose rather than left
   // as a citation the member cannot follow.
@@ -419,7 +425,13 @@ async function askBibleQuestion(opts) {
 
   const check = await gloo.verifyRefs(res.text, (r) => resolveRef(r, o.versionId),
     { kind: 'bible_answers_refs', userId: o.userId, tradition: res.tradition });
-  if (!check.ok) return null;
+  if (!check.ok) {
+    // Otherwise this exact question would keep citing the same unresolvable
+    // reference and keep failing for the rest of the 14-day cache TTL --
+    // see evictCache's own comment.
+    gloo.evictCache(res.key);
+    return null;
+  }
 
   let answer = res.text;
   for (const bad of check.rejected) {
