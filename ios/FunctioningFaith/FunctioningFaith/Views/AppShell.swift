@@ -256,7 +256,7 @@ struct SearchSectionShell: View {
     let isActive: Bool
     var body: some View {
         NavigationStack {
-            SearchView()
+            SearchView(isActive: isActive)
                 .reserveFeatureBottomBar()
                 .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }

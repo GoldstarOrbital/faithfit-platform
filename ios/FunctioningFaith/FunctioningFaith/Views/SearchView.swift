@@ -1,6 +1,12 @@
 import SwiftUI
 
 struct SearchView: View {
+    // Defaults true for the other two call sites (ExploreCatalog's own
+    // pushed "search" catalog tile, and previews), which are ordinary
+    // push/pop navigation with no simultaneous-mounting concern. Only
+    // SearchSectionShell (AppShell.swift) passes the real value.
+    var isActive: Bool = true
+
     @State private var query = ""
     @State private var results: SearchResponse?
     @State private var isSearching = false
@@ -9,28 +15,24 @@ struct SearchView: View {
 
     var body: some View {
         Group {
-            if query.trimmingCharacters(in: .whitespaces).count < 2 {
-                ContentUnavailableView.search
-            } else if isSearching && results == nil {
-                ProgressView()
-            } else if let results, results.total == 0 {
-                ContentUnavailableView.search(text: query)
-            } else if let results {
-                List {
-                    ForEach(results.groups) { group in
-                        Section(group.label) {
-                            ForEach(group.items) { item in
-                                resultRow(item, groupType: group.type)
-                            }
-                        }
-                        .listRowBackground(FFTheme.parchment1)
-                    }
-                }
-                .ffListChrome()
+            // .searchable() integrates with UIKit's UISearchController on
+            // the navigation bar -- the same class of UIKit-bridged chrome
+            // as .toolbar (see AppShell.swift's ffRootBrand(isActive:)),
+            // and RootTabView keeps every section's NavigationStack mounted
+            // at once, toggling only opacity/hit-testing rather than
+            // actually removing the inactive ones. Nine simultaneous
+            // .toolbar installations broke the brand-mark button the same
+            // way; installing this section's search controller while it
+            // isn't the visible tab is the same failure mode applied to
+            // .searchable() instead, and is why the search field could
+            // render but not actually respond to input.
+            if isActive {
+                content.searchable(text: $query, prompt: "People, groups, journeys, scripture…")
+            } else {
+                content
             }
         }
         .navigationTitle("Search")
-        .searchable(text: $query, prompt: "People, groups, journeys, scripture…")
         .onChange(of: query) { _, newValue in
             searchTask?.cancel()
             let trimmed = newValue.trimmingCharacters(in: .whitespaces)
@@ -44,6 +46,29 @@ struct SearchView: View {
         .alert("Search failed", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if query.trimmingCharacters(in: .whitespaces).count < 2 {
+            ContentUnavailableView.search
+        } else if isSearching && results == nil {
+            ProgressView()
+        } else if let results, results.total == 0 {
+            ContentUnavailableView.search(text: query)
+        } else if let results {
+            List {
+                ForEach(results.groups) { group in
+                    Section(group.label) {
+                        ForEach(group.items) { item in
+                            resultRow(item, groupType: group.type)
+                        }
+                    }
+                    .listRowBackground(FFTheme.parchment1)
+                }
+            }
+            .ffListChrome()
+        }
     }
 
     @ViewBuilder
