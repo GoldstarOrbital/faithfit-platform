@@ -236,11 +236,52 @@ function apnsToken() {
   return apnsJwt.value;
 }
 
+/**
+ * Translates the web client's destination URL (built by
+ * notificationDestination() in routes/api.js as a query string this app's
+ * own router reads, e.g. "/?open=dm&thread_id=abc") into the native app's
+ * functioningfaith:// scheme, which DeepLinkRouter.swift's parser expects
+ * as path segments instead (functioningfaith://dm/abc).
+ *
+ * Naively prepending the scheme to the web URL -- what this used to do --
+ * produces functioningfaith://?open=dm&thread_id=abc: no host, no path, so
+ * the native parser's `head` is empty and every single notification of
+ * every type opened Home and nothing else, silently, with no error on
+ * either side to reveal it. Every `open` value notificationDestination can
+ * produce needs a matching case here, or that notification regresses to
+ * the same silent Home fallback.
+ */
 function nativeDestination(url) {
   if (!url) return 'functioningfaith://home';
   if (/^functioningfaith:/i.test(url)) return url;
   if (/^https?:/i.test(url)) return url;
-  return `functioningfaith://${String(url).replace(/^\/+/, '')}`;
+
+  let query;
+  try { query = new URL(String(url), 'functioningfaith://placeholder').searchParams; }
+  catch { return 'functioningfaith://home'; }
+
+  const open = query.get('open');
+  switch (open) {
+    case 'dm': return query.get('thread_id')
+      ? `functioningfaith://dm/${encodeURIComponent(query.get('thread_id'))}` : 'functioningfaith://messages';
+    case 'post': return query.get('post_id')
+      ? `functioningfaith://post/${encodeURIComponent(query.get('post_id'))}` : 'functioningfaith://home';
+    case 'workout': return query.get('workout_id')
+      ? `functioningfaith://workout/${encodeURIComponent(query.get('workout_id'))}` : 'functioningfaith://workouts';
+    case 'group': return query.get('group_id')
+      ? `functioningfaith://group/${encodeURIComponent(query.get('group_id'))}` : 'functioningfaith://explore';
+    case 'verse': return query.get('ref')
+      ? `functioningfaith://verse?ref=${encodeURIComponent(query.get('ref'))}` : 'functioningfaith://scripture';
+    case 'profile': return 'functioningfaith://profile';
+    // journeys, challenges, story, stats have no dedicated native deep-link
+    // case (see DeepLinkRouter.swift) -- Explore is the closest existing
+    // destination rather than the generic Home fallback every other unknown
+    // case gets.
+    case 'journeys': case 'challenges': case 'story': case 'stats':
+      return 'functioningfaith://explore';
+    case 'home': default:
+      return 'functioningfaith://home';
+  }
 }
 
 function apnsRequest(token, payload) {
