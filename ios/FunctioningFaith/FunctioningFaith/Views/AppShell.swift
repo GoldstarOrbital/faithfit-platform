@@ -25,8 +25,10 @@ extension AppTab: Identifiable {
     /// The persistent global bottom bar's five items, in order.
     static let globalBarSections: [AppTab] = [.home, .reels, .scripture, .messages, .search]
     /// Everything else -- reached through the side panel instead, since it
-    /// doesn't fit in the global bar's five slots.
-    static let overflowSections: [AppTab] = [.workouts, .explore, .profile]
+    /// doesn't fit in the global bar's five slots. Settings is deliberately
+    /// last: it's account-level, not a "section" the way Train/Explore/
+    /// Profile are, so it sits at the bottom of the list on its own.
+    static let overflowSections: [AppTab] = [.workouts, .explore, .profile, .settings]
 
     var title: String {
         switch self {
@@ -38,6 +40,7 @@ extension AppTab: Identifiable {
         case .reels: return "Reels"
         case .scripture: return "Scripture"
         case .search: return "Search"
+        case .settings: return "Settings"
         }
     }
 
@@ -51,6 +54,7 @@ extension AppTab: Identifiable {
         case .reels: return "rectangle.stack.fill"
         case .scripture: return "book.fill"
         case .search: return "magnifyingglass"
+        case .settings: return "gearshape.fill"
         }
     }
 }
@@ -340,11 +344,12 @@ struct MessagesSectionShell: View {
     }
 }
 
-/// Profile's five real sub-areas, splitting what used to be one very long
+/// Profile's four real sub-areas, splitting what used to be one very long
 /// Form. Circle, Safety, and Saved were already their own standalone
-/// screens (just reached via NavigationLink before); Account is a small,
-/// self-contained extraction (see ProfileAccountView.swift) of what used to
-/// be the Form's last section.
+/// screens (just reached via NavigationLink before). Account/sign-out used
+/// to live here too as a fifth tab, but it's account-level rather than
+/// something you browse the way Circle/Safety/Saved are -- it now lives at
+/// the bottom of the side panel instead (see SettingsSectionShell below).
 struct ProfileSectionShell: View {
     let onTapLogo: () -> Void
     @State private var subTab = "overview"
@@ -354,7 +359,6 @@ struct ProfileSectionShell: View {
         FeatureBottomBarItem(id: "circle", title: "Circle", systemImage: "person.2.circle.fill"),
         FeatureBottomBarItem(id: "safety", title: "Safety", systemImage: "hand.raised.fill"),
         FeatureBottomBarItem(id: "saved", title: "Saved", systemImage: "bookmark.fill"),
-        FeatureBottomBarItem(id: "account", title: "Account", systemImage: "gearshape.fill"),
     ]
 
     var body: some View {
@@ -365,14 +369,26 @@ struct ProfileSectionShell: View {
                     case "overview": ProfileView()
                     case "circle": CircleView()
                     case "safety": SafetyView()
-                    case "saved": SavedPostsView()
-                    default: ProfileAccountView()
+                    default: SavedPostsView()
                     }
                 }
                 .reserveFeatureBottomBar()
                 FeatureBottomBar(items: items, selection: $subTab)
             }
             .ffRootBrand(onTapLogo: onTapLogo)
+        }
+    }
+}
+
+/// Settings -- previously Profile's fifth bottom-bar tab, moved to the
+/// bottom of the side panel instead: it's where you go to sign out or
+/// delete your account, not a section you browse the way Profile's own
+/// tabs are, so it doesn't belong grouped with them.
+struct SettingsSectionShell: View {
+    let onTapLogo: () -> Void
+    var body: some View {
+        NavigationStack {
+            ProfileAccountView().ffRootBrand(onTapLogo: onTapLogo)
         }
     }
 }

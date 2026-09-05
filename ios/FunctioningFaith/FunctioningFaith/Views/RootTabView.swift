@@ -76,6 +76,7 @@ struct RootTabView: View {
             section(.workouts) { TrainSectionShell(onTapLogo: openPanel) }
             section(.explore) { ExploreSectionShell(onTapLogo: openPanel) }
             section(.profile) { ProfileSectionShell(onTapLogo: openPanel) }
+            section(.settings) { SettingsSectionShell(onTapLogo: openPanel) }
         }
     }
 
