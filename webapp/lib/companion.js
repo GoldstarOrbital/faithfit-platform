@@ -336,30 +336,34 @@ async function askAboutVerse(opts) {
     `because the app will show the real text for any reference you cite. ` +
     `If the question cannot be answered from scripture, say so honestly.`;
 
-  const res = await gloo.chat({
-    kind: 'verse_companion',
-    userId: o.userId,
-    tradition: o.tradition,
-    messages: [{ role: 'user', content: prompt }],
-    maxTokens: 900,
-    // Grounded in our own ingested library when a publisher is configured;
-    // silently a normal completion when it is not.
-    grounded: true,
-    sourcesLimit: 3,
-    cacheDays: 14,
-  });
-  if (!res) return null;
-
-  // Check 2: every reference the answer cites must be real.
-  const check = await gloo.verifyRefs(res.text, (r) => resolveRef(r, o.versionId),
-    { kind: 'verse_companion_refs', userId: o.userId, tradition: res.tradition });
-  if (!check.ok) {
+  // See askBibleQuestion's comment: a bad citation is usually just an
+  // unlucky roll, not a systemic problem, so try once more before giving up.
+  let res, check;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    res = await gloo.chat({
+      kind: 'verse_companion',
+      userId: o.userId,
+      tradition: o.tradition,
+      messages: [{ role: 'user', content: prompt }],
+      maxTokens: 900,
+      // Grounded in our own ingested library when a publisher is configured;
+      // silently a normal completion when it is not.
+      grounded: true,
+      sourcesLimit: 3,
+      cacheDays: 14,
+      cache: attempt === 0,
+    });
+    if (!res) continue;
+    // Check 2: every reference the answer cites must be real.
+    check = await gloo.verifyRefs(res.text, (r) => resolveRef(r, o.versionId),
+      { kind: 'verse_companion_refs', userId: o.userId, tradition: res.tradition });
+    if (check.ok) break;
     // Otherwise this exact question would keep citing the same unresolvable
     // reference and keep failing for the rest of the 14-day cache TTL --
     // see evictCache's own comment.
     gloo.evictCache(res.key);
-    return null;   // it cited chapter and verse, and none of it was real
   }
+  if (!res || !check || !check.ok) return null;   // it cited chapter and verse, and none of it was real
 
   // A reference that did not resolve is removed from the prose rather than left
   // as a citation the member cannot follow.
@@ -411,27 +415,36 @@ async function askBibleQuestion(opts) {
     `real text for any reference you cite. If the question is not really answerable ` +
     `from scripture, say so honestly rather than inventing an answer.`;
 
-  const res = await gloo.chat({
-    kind: 'bible_answers',
-    userId: o.userId,
-    tradition: o.tradition,
-    messages: [{ role: 'user', content: prompt }],
-    maxTokens: 900,
-    grounded: true,
-    sourcesLimit: 3,
-    cacheDays: 14,
-  });
-  if (!res) return null;
-
-  const check = await gloo.verifyRefs(res.text, (r) => resolveRef(r, o.versionId),
-    { kind: 'bible_answers_refs', userId: o.userId, tradition: res.tradition });
-  if (!check.ok) {
+  // A generation that cites an unresolvable reference is not a systemic
+  // problem -- the model itself is nondeterministic, so asking again almost
+  // always produces different (often clean) output. Rather than surface
+  // "no verified answer" to a member on the first bad roll, try a second,
+  // uncached generation before giving up. This roughly squares the failure
+  // rate (a ~15% single-shot failure becomes ~2%) at the cost of one extra
+  // call, only ever paid on the unlucky path.
+  let res, check;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    res = await gloo.chat({
+      kind: 'bible_answers',
+      userId: o.userId,
+      tradition: o.tradition,
+      messages: [{ role: 'user', content: prompt }],
+      maxTokens: 900,
+      grounded: true,
+      sourcesLimit: 3,
+      cacheDays: 14,
+      cache: attempt === 0,
+    });
+    if (!res) continue;
+    check = await gloo.verifyRefs(res.text, (r) => resolveRef(r, o.versionId),
+      { kind: 'bible_answers_refs', userId: o.userId, tradition: res.tradition });
+    if (check.ok) break;
     // Otherwise this exact question would keep citing the same unresolvable
     // reference and keep failing for the rest of the 14-day cache TTL --
     // see evictCache's own comment.
     gloo.evictCache(res.key);
-    return null;
   }
+  if (!res || !check || !check.ok) return null;
 
   let answer = res.text;
   for (const bad of check.rejected) {
