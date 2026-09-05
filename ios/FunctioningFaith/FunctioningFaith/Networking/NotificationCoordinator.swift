@@ -23,21 +23,24 @@ final class NotificationCoordinator: NSObject, UIApplicationDelegate, UNUserNoti
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
-        Task {
-            await requestPermissionIfAnyCategoryAtDefault()
-            await registerForRemoteNotificationsIfAllowed()
-        }
+        // Silent: only re-registers when authorization was already granted in
+        // an earlier session, so this never shows the system permission
+        // prompt. The prompt itself (requestPermissionIfAnyCategoryAtDefault)
+        // waits until a member is signed in -- see RootTabView's .task.
+        Task { await registerForRemoteNotificationsIfAllowed() }
         return true
     }
 
     /// Every notification toggle now defaults to on (Settings still lets a
-    /// member turn any of them off individually) -- but for an existing
-    /// install that never touched one of those toggles, nothing else in the
-    /// app ever triggers the actual system permission prompt, since that
-    /// normally only fires from a Settings toggle's own onChange going from
-    /// off to on. This runs that same request once, at launch, whenever a
-    /// category is still sitting at its untouched default.
-    private func requestPermissionIfAnyCategoryAtDefault() async {
+    /// member turn any of them off individually) -- but for an install that
+    /// never touched one of those toggles, nothing else in the app ever
+    /// triggers the actual system permission prompt, since that normally only
+    /// fires from a Settings toggle's own onChange going from off to on. This
+    /// runs that same request once a member is actually signed in and inside
+    /// the app shell (see RootTabView's .task) -- NEVER from app launch
+    /// directly, which would show the system prompt over the loading/auth
+    /// screen before the person has even signed in.
+    func requestPermissionIfAnyCategoryAtDefault() async {
         let defaults = UserDefaults.standard
         let categoryKeys = NotificationCategory.allCases.map { "notifications.\($0.rawValue)" } + ["notifications.heartRateCalm"]
         guard categoryKeys.contains(where: { defaults.object(forKey: $0) == nil }) else { return }

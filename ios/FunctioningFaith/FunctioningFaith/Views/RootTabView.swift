@@ -54,6 +54,11 @@ struct RootTabView: View {
                 await dmStore.configure(myUserID: id)
                 await dmStore.loadInbox()
             }
+            // Reaching this shell means a member is actually signed in and
+            // using the app -- the earliest point it's contextually sane to
+            // ask about notifications, and never before it (see
+            // NotificationCoordinator.requestPermissionIfAnyCategoryAtDefault).
+            await NotificationCoordinator.shared.requestPermissionIfAnyCategoryAtDefault()
         }
         .sheet(isPresented: $showAskAI) {
             NavigationStack { BibleAnswersView() }
