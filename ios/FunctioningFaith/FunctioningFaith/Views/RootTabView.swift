@@ -46,7 +46,6 @@ struct RootTabView: View {
                     )
                     .frame(maxWidth: 300)
                     .transition(.move(edge: .leading))
-                    .ignoresSafeArea(edges: .vertical)
                 }
             }
         }
