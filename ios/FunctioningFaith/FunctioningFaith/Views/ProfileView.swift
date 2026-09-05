@@ -59,8 +59,6 @@ struct ProfileView: View {
             unitsSection
             notificationsSection
             remindersSection
-            savedPostsSection
-            accountSection
         }
         .ffListChrome()
         .navigationTitle("Profile")
@@ -99,20 +97,6 @@ struct ProfileView: View {
         .alert("Apple Health needs attention", isPresented: Binding(get: { healthKitError != nil }, set: { if !$0 { healthKitError = nil } })) {
             Button("OK", role: .cancel) { healthKitError = nil }
         } message: { Text(healthKitError ?? "") }
-        .confirmationDialog("Delete your Functioning Faith account?", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
-            Button("Delete permanently", role: .destructive) {
-                Task {
-                    do { try await session.deleteAccount() }
-                    catch { deleteError = error.localizedDescription }
-                }
-            }
-            Button("Cancel", role: .cancel) { }
-        } message: {
-            Text("This removes your profile, posts, workouts, messages, connected tokens, and push subscriptions. This cannot be undone.")
-        }
-        .alert("Could not delete account", isPresented: Binding(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })) {
-            Button("OK", role: .cancel) { deleteError = nil }
-        } message: { Text(deleteError ?? "Please try again.") }
         .sheet(isPresented: $showEditProfile) {
             if let profile {
                 EditProfileView(profile: profile) { updated in
@@ -478,10 +462,14 @@ struct ProfileView: View {
         }
     }
 
+    // "Trusted circle" and "Muted, restricted & blocked" used to live here
+    // as NavigationLinks into CircleView/SafetyView -- both are now their
+    // own peer tab in Profile's bottom bar (see AppShell.swift), so keeping
+    // them here too would be the same "reachable two ways at once" problem
+    // Explore had. Follow requests has no peer tab of its own, so it stays.
     @ViewBuilder
     private var safetySection: some View {
         Section("Safety & community") {
-            NavigationLink("Trusted circle") { CircleView() }
             NavigationLink {
                 FollowRequestsView()
             } label: {
@@ -493,7 +481,6 @@ struct ProfileView: View {
                     }
                 }
             }
-            NavigationLink("Muted, restricted & blocked") { SafetyView() }
         }
         .listRowBackground(FFTheme.parchment1)
     }
@@ -614,15 +601,6 @@ struct ProfileView: View {
         .listRowBackground(FFTheme.parchment1)
     }
 
-    private var savedPostsSection: some View {
-        Section {
-            NavigationLink { SavedPostsView() } label: {
-                Label("Saved posts", systemImage: "bookmark")
-            }
-        }
-        .listRowBackground(FFTheme.parchment1)
-    }
-
     private var appearanceSection: some View {
         Section {
             ForEach(FFTheme.AccentTheme.allCases) { theme in
@@ -688,18 +666,6 @@ struct ProfileView: View {
         isSavingUnits = false
     }
 
-    private var accountSection: some View {
-        Section("Account") {
-            Button("Sign out", role: .destructive) {
-                Task { await session.signOut() }
-            }
-            Button("Delete account", role: .destructive) {
-                showingDeleteConfirmation = true
-            }
-        }
-        .listRowBackground(FFTheme.parchment1)
-    }
-
     @ViewBuilder
     private func notificationToggle(_ category: NotificationCategory, isOn: Binding<Bool>) -> some View {
         Toggle(isOn: isOn) {
@@ -721,8 +687,6 @@ struct ProfileView: View {
         }
     }
 
-    @State private var showingDeleteConfirmation = false
-    @State private var deleteError: String?
 }
 
 #Preview { NavigationStack { ProfileView() }.environmentObject(NativeSession()).environmentObject(BiometricLock()) }

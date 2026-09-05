@@ -3,20 +3,21 @@ import SwiftUI
 import UIKit
 #endif
 
-/// Explore hub — mirrors web `renderExplore` / `renderExploreIndex` surface area:
-/// reels, journeys, recruiting, people, challenges, groups, quests, and Discover links
-/// (scripture, breathwork, heart check-in, podcasts, church, news, videos, stats).
+/// Explore's "Community" sub-tab (see AppShell.swift's ExploreSectionShell,
+/// which also has Faith, Reels, Discover, and Search peers) -- the
+/// Community & Movement catalog tiles (Groups, Journeys, Challenges,
+/// Leaderboard, Recruiting), live "People for you" suggestions, and compact
+/// horizontal previews of what's happening in Challenges/Groups/Quests.
 ///
-/// Every navigable destination lives exactly once, in ExploreCatalogGrid's
-/// categorized catalog below. This screen used to also carry a second, full
-/// list of plain NavigationLinks duplicating several of the same
-/// destinations (Scripture, Breathe, Motivation, News, Videos, Podcasts) plus
-/// full inline copies of the Challenges and Groups lists you could already
-/// reach from the catalog -- two competing menus stacked on one screen. What
-/// remains here is the catalog, the live "People for you" suggestions (never
-/// duplicated elsewhere), and compact horizontal previews of what's
-/// happening in Challenges/Groups/Quests, each with a way to see the rest.
-struct ExploreView: View {
+/// This used to be the whole of Explore, with Faith and Discover's tiles
+/// mixed in below it and a second, full list of plain NavigationLinks
+/// duplicating several destinations (Scripture, Breathe, Motivation, News,
+/// Videos, Podcasts) plus full inline copies of the Challenges and Groups
+/// lists you could already reach from the catalog. Splitting Faith/Discover
+/// out into their own tabs, and giving Reels and Search their own tabs too,
+/// is what actually fixed the "everything shown twice" problem -- narrowing
+/// what any one screen tries to be, not just editing the list.
+struct ExploreCommunityView: View {
     @State private var suggestions: [SuggestedUser] = []
     @State private var isLoadingSuggestions = true
     @State private var suggestionsError: String?
@@ -36,9 +37,7 @@ struct ExploreView: View {
     var body: some View {
         List {
             Section {
-                ExploreCatalogGrid()
-            } footer: {
-                Text("Choose any section directly. Returning to Explore always brings you back to this dashboard.")
+                ExploreCatalogGrid(categories: [.community])
             }
             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
             .listRowBackground(Color.clear)
@@ -118,7 +117,7 @@ struct ExploreView: View {
             .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         }
         .ffListChrome()
-        .navigationTitle("Explore")
+        .navigationTitle("Community")
         .task { await loadExplore() }
         .refreshable { await loadExplore(forceRefresh: true) }
         .navigationDestination(item: $openedSuggestion) { id in MemberProfileView(userID: id) }
@@ -262,4 +261,4 @@ struct ExploreView: View {
     }
 }
 
-#Preview { NavigationStack { ExploreView() } }
+#Preview { NavigationStack { ExploreCommunityView() } }

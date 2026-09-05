@@ -81,21 +81,7 @@ struct WorkoutView: View {
             .padding()
         }
         .background(FFTheme.parchment0.ignoresSafeArea())
-        .navigationTitle("Train")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink { StatsView() } label: { Image(systemName: "chart.bar.fill") }
-                    .accessibilityLabel("Stats & goals")
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink { BreathworkView() } label: { Image(systemName: "wind") }
-                    .accessibilityLabel("Breathing exercises")
-            }
-            ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink { HeartCheckInView() } label: { Image(systemName: "heart.text.square") }
-                    .accessibilityLabel("Heart rate check-in")
-            }
-        }
+        .navigationTitle("Log")
         .onReceive(timer) { _ in
             guard isActive else { return }
             elapsed += 1
@@ -342,13 +328,12 @@ struct WorkoutView: View {
 
     private var recentPanel: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("Recent")
-                    .font(.headline)
-                Spacer()
-                NavigationLink("See all") { WorkoutHistoryView() }
-                    .font(.subheadline)
-            }
+            // "See all" used to push WorkoutHistoryView from here; History is
+            // now Train's own peer tab (see AppShell.swift), so this panel
+            // stays a plain glance at the most recent few instead of a
+            // second way to reach the same full list.
+            Text("Recent")
+                .font(.headline)
             ForEach(recent.prefix(8)) { workout in
                 NavigationLink {
                     WorkoutAnalysisView(workoutID: workout.id)

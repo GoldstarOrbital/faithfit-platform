@@ -1,59 +1,44 @@
 import SwiftUI
 
+/// The app's root shell. See AppShell.swift for the design this replaced a
+/// plain TabView with: a full side panel (opened from the top-left brand
+/// mark) listing Home/Train/Explore/Messages/Profile, and each of those
+/// showing its own five-item bottom bar for its real sub-areas once you're
+/// inside it.
 struct RootTabView: View {
     @EnvironmentObject private var session: NativeSession
     @EnvironmentObject private var network: NetworkMonitor
     @EnvironmentObject private var deepLinks: DeepLinkRouter
     @StateObject private var dmStore = DMStore()
-    @State private var explorePath = NavigationPath()
-    @State private var showAskAI = false
+    @State private var showSidePanel = false
 
     var body: some View {
         VStack(spacing: 0) {
             OfflineBanner()
 
-            ZStack(alignment: .bottomTrailing) {
-                TabView(selection: tabSelection) {
-                    NavigationStack { HomeFeedView().ffRootBrand() }
-                        .tabItem { Label("Home", systemImage: "house.fill") }
-                        .tag(AppTab.home)
+            ZStack(alignment: .leading) {
+                currentSection
+                    .environmentObject(dmStore)
 
-                    NavigationStack { WorkoutView().ffRootBrand() }
-                        .tabItem { Label("Train", systemImage: "figure.run") }
-                        .tag(AppTab.workouts)
+                if showSidePanel {
+                    Color.black.opacity(0.25)
+                        .ignoresSafeArea()
+                        .onTapGesture { withAnimation(.easeInOut(duration: 0.2)) { showSidePanel = false } }
+                        .transition(.opacity)
+                        .accessibilityLabel("Close menu")
+                        .accessibilityAddTraits(.isButton)
 
-                    NavigationStack(path: $explorePath) { ExploreView().ffRootBrand() }
-                        .tabItem { Label("Explore", systemImage: "safari.fill") }
-                        .tag(AppTab.explore)
-
-                    NavigationStack { DMInboxView().environmentObject(dmStore).ffRootBrand() }
-                        .tabItem { Label("Messages", systemImage: "bubble.left.and.bubble.right.fill") }
-                        .badge(dmStore.unreadTotal > 0 ? dmStore.unreadTotal : 0)
-                        .tag(AppTab.messages)
-
-                    NavigationStack { ProfileView().ffRootBrand() }
-                        .tabItem { Label("Profile", systemImage: "person.crop.circle.fill") }
-                        .tag(AppTab.profile)
-                }
-                // A single authenticated message store must be available to every
-                // navigation path (home, search, notifications, and the tab). A
-                // view that creates an inbox without this environment object
-                // terminates at runtime as soon as it is opened.
-                .environmentObject(dmStore)
-                .ffCurrentTabBehavior()
-
-                // A persistent, one-tap way to reach the AI companion from
-                // the app's main hub -- "most sites have their AI readily
-                // accessible" was the ask, and Bible Answers otherwise only
-                // lived three taps deep inside Explore's catalog. Scoped to
-                // the Home tab specifically: Home is a plain scrolling List
-                // with no compose bar or full-bleed media fighting for the
-                // same corner (unlike Messages' compose field or Explore's
-                // Reels), so this is the one tab a floating corner button is
-                // safe to overlay everywhere within it, pushed screens
-                // included.
-                if deepLinks.selectedTab == .home {
-                    askAIButton
+                    SidePanelView(
+                        selection: $deepLinks.selectedTab,
+                        unreadMessages: dmStore.unreadTotal,
+                        onSelect: { section in
+                            deepLinks.selectedTab = section
+                            withAnimation(.easeInOut(duration: 0.2)) { showSidePanel = false }
+                        }
+                    )
+                    .frame(maxWidth: 300)
+                    .transition(.move(edge: .leading))
+                    .ignoresSafeArea(edges: .vertical)
                 }
             }
         }
@@ -63,92 +48,63 @@ struct RootTabView: View {
                 await dmStore.loadInbox()
             }
         }
-        .onChange(of: deepLinks.selectedTab) { _, tab in
-            if tab == .explore { resetExplore() }
-        }
-        .sheet(isPresented: $showAskAI) {
-            NavigationStack { BibleAnswersView() }
+    }
+
+    // Every section stays alive underneath, only one visible at a time --
+    // a `switch` here would destroy and recreate whichever shell you leave,
+    // losing its own sub-tab selection and scroll position every time the
+    // side panel is used. This is the same "all alive, toggle visibility"
+    // trick TabView itself uses under the hood.
+    private var currentSection: some View {
+        ZStack {
+            section(.home) { HomeSectionShell(onTapLogo: openPanel) }
+            section(.workouts) { TrainSectionShell(onTapLogo: openPanel) }
+            section(.explore) { ExploreSectionShell(onTapLogo: openPanel) }
+            section(.messages) { MessagesSectionShell(onTapLogo: openPanel) }
+            section(.profile) { ProfileSectionShell(onTapLogo: openPanel) }
         }
     }
 
-    private var askAIButton: some View {
-        Button {
-            showAskAI = true
-        } label: {
-            Image(systemName: "sparkles")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(FFTheme.cream)
-                .frame(width: 56, height: 56)
-                .background(
-                    LinearGradient(colors: [FFTheme.meadow2, FFTheme.meadowDeep], startPoint: .topLeading, endPoint: .bottomTrailing),
-                    in: Circle()
-                )
-                .overlay(Circle().strokeBorder(FFTheme.goldBright.opacity(0.5), lineWidth: 1))
-                .shadow(color: FFTheme.walnut.opacity(0.35), radius: 10, x: 0, y: 4)
-        }
-        .padding(.trailing, FFTheme.Space.md)
-        .padding(.bottom, 70)
-        .accessibilityLabel("Ask Bible Answers")
-        .accessibilityHint("Opens a chat to ask any Bible or faith question, answered with verified Scripture")
+    @ViewBuilder
+    private func section<Content: View>(_ tab: AppTab, @ViewBuilder content: () -> Content) -> some View {
+        let isActive = deepLinks.selectedTab == tab
+        content()
+            .opacity(isActive ? 1 : 0)
+            .allowsHitTesting(isActive)
+            .accessibilityHidden(!isActive)
     }
 
-    private var tabSelection: Binding<AppTab> {
-        Binding(
-            get: { deepLinks.selectedTab },
-            set: { tab in
-                // An Explore tap is always a request for the dashboard. This
-                // prevents a retained NavigationStack from reopening a deep
-                // catalog destination such as Athlete Recruiting.
-                if tab == .explore { resetExplore() }
-                deepLinks.selectedTab = tab
-            }
-        )
+    private func openPanel() {
+        withAnimation(.easeInOut(duration: 0.2)) { showSidePanel = true }
     }
-
-    // Pops to the dashboard root without tearing down the NavigationStack's
-    // identity. The previous approach forced a fresh .id() on the whole
-    // stack on every Explore selection -- that's a full subtree teardown
-    // and rebuild, and it's the reason every catalog tile started resolving
-    // to the same wrong destination (Athlete Recruiting): a
-    // .navigationDestination(for:) registration surviving a forced identity
-    // change is exactly the fragile case that produces stale routing.
-    // Clearing the bound path pops to root without touching identity at all.
-    private func resetExplore() { explorePath = NavigationPath() }
 }
 
-private extension View {
-    /// Keeps the approved mark in the unused leading navigation space on every
-    /// root tab, while allowing pushed screens to keep a normal back button.
-    func ffRootBrand() -> some View {
+extension View {
+    /// Every section shell's own NavigationStack calls this on its root
+    /// screen so the brand mark opens the side panel from anywhere inside
+    /// that section, not just its landing screen.
+    func ffRootBrand(onTapLogo: @escaping () -> Void) -> some View {
         toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Image("BrandMark")
-                    .resizable()
-                    // Measured: the source PNG's opaque content already
-                    // fills ~99% of its canvas (a parchment roundel behind
-                    // the cross monogram, not padding around it) -- an
-                    // earlier fix here assumed padding that isn't there and
-                    // zoomed past real artwork instead. Native 1:1 fill,
-                    // clipped to a circle, is the correct crop. 30pt keeps
-                    // real margin inside a 44pt nav bar instead of nearly
-                    // filling it.
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 30, height: 30)
-                    .clipShape(Circle())
-                    .accessibilityLabel("Functioning Faith")
+                Button(action: onTapLogo) {
+                    Image("BrandMark")
+                        .resizable()
+                        // Measured: the source PNG's opaque content already
+                        // fills ~99% of its canvas (a parchment roundel behind
+                        // the cross monogram, not padding around it) -- an
+                        // earlier fix here assumed padding that isn't there and
+                        // zoomed past real artwork instead. Native 1:1 fill,
+                        // clipped to a circle, is the correct crop. 30pt keeps
+                        // real margin inside a 44pt nav bar instead of nearly
+                        // filling it.
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: 30, height: 30)
+                        .clipShape(Circle())
+                }
+                .accessibilityLabel("Open menu")
+                .accessibilityHint("Shows Home, Train, Explore, Messages, and Profile")
             }
         }
-    }
-
-}
-
-private extension View {
-    @ViewBuilder
-    func ffCurrentTabBehavior() -> some View {
-        // Keep the tab bar stable until the iOS 26 SDK is available on every
-        // supported CI runner. The native API cannot be referenced by older
-        // Xcode toolchains, even inside an availability check.
-        self
     }
 }
 

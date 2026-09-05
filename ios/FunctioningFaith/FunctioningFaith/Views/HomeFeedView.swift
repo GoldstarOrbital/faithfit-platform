@@ -11,10 +11,15 @@ enum HomeFeedMode: String, CaseIterable, Identifiable {
 }
 
 struct HomeFeedView: View {
+    // Owned by whichever sub-tab in Home's bottom bar is selected (see
+    // AppShell.swift's HomeSectionShell) rather than an internal Picker --
+    // this view used to switch its own mode with a segmented control, but
+    // that duplicated the same choice the bottom bar now makes.
+    let mode: HomeFeedMode
+
     @EnvironmentObject private var session: NativeSession
     @EnvironmentObject private var deepLinks: DeepLinkRouter
     @EnvironmentObject private var dmStore: DMStore
-    @State private var feedMode: HomeFeedMode = .forYou
     @State private var posts: [FeedPost] = []
     @State private var isLoading = true
     @State private var isLoadingMore = false
@@ -25,9 +30,6 @@ struct HomeFeedView: View {
     @State private var showComposer = false
     @State private var blockCandidate: (id: UUID, name: String)?
     @State private var showBlockConfirmation = false
-    @State private var showNotifications = false
-    @State private var unreadNotifications = 0
-    @State private var showSearch = false
 
     var body: some View {
         List {
@@ -62,15 +64,6 @@ struct HomeFeedView: View {
                 .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
-            Picker("Feed", selection: $feedMode) {
-                ForEach(HomeFeedMode.allCases) { mode in Text(mode.rawValue).tag(mode) }
-            }
-            .pickerStyle(.segmented)
-            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 8, trailing: 16))
-            .listRowSeparator(.hidden)
-            .listRowBackground(Color.clear)
-            .accessibilityLabel("Feed mode")
-            .accessibilityHint("For You shows posts ranked for your interests. Following shows posts from people you follow, newest first.")
             ForEach(posts) { post in
                 FeedPostRow(
                     post: post,
@@ -105,36 +98,26 @@ struct HomeFeedView: View {
         .ffListChrome()
         .listStyle(.plain)
         .refreshable { await loadFeed() }
-        .navigationTitle("Home")
+        .navigationTitle(mode == .forYou ? "For You" : "Following")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showComposer = true } label: { Image(systemName: "square.and.pencil") }
                     .accessibilityLabel("Create post")
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showNotifications = true } label: {
-                    badgedIcon("bell", count: unreadNotifications)
-                }
-                .accessibilityLabel(unreadNotifications > 0 ? "Notifications, \(unreadNotifications) unread" : "Notifications")
-            }
+            // Notifications and Search moved to Home's own peer tabs (see
+            // AppShell.swift's HomeSectionShell) -- keeping icons for them
+            // here too would be the same destination reachable two ways at
+            // once. Messages stays: it's a different top-level section
+            // entirely, and a one-tap shortcut to it from Home is a normal
+            // cross-section convenience, not a duplicate.
             ToolbarItem(placement: .topBarTrailing) {
                 Button { deepLinks.selectedTab = .messages } label: {
                     badgedIcon("bubble.left.and.bubble.right", count: dmStore.unreadTotal)
                 }
                 .accessibilityLabel(dmStore.unreadTotal > 0 ? "Messages, \(dmStore.unreadTotal) unread" : "Messages")
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Button { showSearch = true } label: { Image(systemName: "magnifyingglass") }
-                    .accessibilityLabel("Search")
-            }
         }
-        .navigationDestination(isPresented: $showNotifications) { NotificationsView() }
-        .navigationDestination(isPresented: $showSearch) { SearchView() }
-        .task {
-            await loadFeed()
-            unreadNotifications = (try? await APIClient.shared.fetchNotifications().unreadCount) ?? 0
-        }
-        .onChange(of: feedMode) { _, _ in Task { await loadFeed() } }
+        .task(id: mode) { await loadFeed() }
         .sheet(isPresented: $showComposer) {
             NavigationStack {
                 PostComposerView {
@@ -174,7 +157,7 @@ struct HomeFeedView: View {
                 FFEmptyStateView(
                     title: "Your feed is ready",
                     systemImage: "person.2",
-                    message: feedMode == .following
+                    message: mode == .following
                         ? "Follow people to see their updates here, newest first."
                         : "Follow people, join a group, or share your first activity to see community updates here."
                 )
@@ -190,7 +173,7 @@ struct HomeFeedView: View {
         defer { isLoading = false }
         feedError = nil
         do {
-            switch feedMode {
+            switch mode {
             case .forYou:
                 // A fixed-size ranked snapshot, not a paginated cursor --
                 // see the server's GET /feed/for-you for why re-ranking a
@@ -219,7 +202,7 @@ struct HomeFeedView: View {
         isLoadingMore = true
         defer { isLoadingMore = false }
         do {
-            let page = try await APIClient.shared.fetchFeedPage(before: cursor, followingOnly: feedMode == .following)
+            let page = try await APIClient.shared.fetchFeedPage(before: cursor, followingOnly: mode == .following)
             guard !Task.isCancelled else { return }
             let existing = Set(posts.map(\.id))
             posts.append(contentsOf: page.posts.filter { !existing.contains($0.id) })
@@ -613,7 +596,7 @@ struct FromExploreRail: View {
 }
 
 #Preview {
-    NavigationStack { HomeFeedView() }
+    NavigationStack { HomeFeedView(mode: .forYou) }
         .environmentObject(NativeSession())
         .environmentObject(DeepLinkRouter())
         .environmentObject(DMStore())

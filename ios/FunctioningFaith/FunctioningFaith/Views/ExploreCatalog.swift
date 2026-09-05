@@ -171,6 +171,13 @@ enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
 /// an app's own directory of itself. Category headers are here purely for
 /// scanning, not for gating.
 struct ExploreCatalogGrid: View {
+    /// Which categories to render, in order. Defaults to all three, but the
+    /// Explore section's Faith / Community / Discover bottom-bar tabs (see
+    /// AppShell.swift) each pass a single category -- the tab's own nav
+    /// title already names the category, so a second in-content header
+    /// saying the same thing is suppressed below rather than duplicated.
+    var categories: [ExploreCatalogItem.Category] = ExploreCatalogItem.Category.allCases
+
     private let columns = [GridItem(.flexible(), spacing: FFTheme.Space.sm), GridItem(.flexible(), spacing: FFTheme.Space.sm)]
     // Each row of two tiles was showing exactly one trailing disclosure
     // chevron for the whole row (List's automatic behavior for any row
@@ -184,7 +191,7 @@ struct ExploreCatalogGrid: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: FFTheme.Space.md) {
-            ForEach(ExploreCatalogItem.Category.allCases) { category in
+            ForEach(categories) { category in
                 categorySection(category)
             }
         }
@@ -197,10 +204,12 @@ struct ExploreCatalogGrid: View {
     private func categorySection(_ category: ExploreCatalogItem.Category) -> some View {
         let items = ExploreCatalogItem.allCases.filter { $0.category == category }
         return VStack(alignment: .leading, spacing: FFTheme.Space.xs) {
-            Text(category.rawValue)
-                .font(FFTheme.section())
-                .foregroundStyle(FFTheme.ink)
-                .accessibilityAddTraits(.isHeader)
+            if categories.count > 1 {
+                Text(category.rawValue)
+                    .font(FFTheme.section())
+                    .foregroundStyle(FFTheme.ink)
+                    .accessibilityAddTraits(.isHeader)
+            }
             LazyVGrid(columns: columns, spacing: FFTheme.Space.sm) {
                 ForEach(items) { item in
                     tile(item)
@@ -245,6 +254,34 @@ struct ExploreCatalogGrid: View {
         .accessibilityLabel(item.name)
         .accessibilityHint(item.blurb)
         .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// Explore's "Faith" sub-tab -- just the Faith & Scripture catalog tiles,
+/// full screen instead of sharing space with Community and Discover's.
+struct ExploreFaithView: View {
+    var body: some View {
+        List {
+            Section { ExploreCatalogGrid(categories: [.faith]) }
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .listRowBackground(Color.clear)
+        }
+        .ffListChrome()
+        .navigationTitle("Faith")
+    }
+}
+
+/// Explore's "Discover" sub-tab -- Videos, Podcasts, Motivation, News,
+/// Find a Church, same treatment as ExploreFaithView above.
+struct ExploreDiscoverView: View {
+    var body: some View {
+        List {
+            Section { ExploreCatalogGrid(categories: [.discover]) }
+                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                .listRowBackground(Color.clear)
+        }
+        .ffListChrome()
+        .navigationTitle("Discover")
     }
 }
 
