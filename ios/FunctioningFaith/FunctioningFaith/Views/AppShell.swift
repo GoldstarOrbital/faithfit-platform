@@ -291,7 +291,9 @@ struct SearchSectionShell: View {
 struct TrainSectionShell: View {
     let onTapLogo: () -> Void
     let isActive: Bool
+    @EnvironmentObject private var deepLinks: DeepLinkRouter
     @State private var subTab = "log"
+    @State private var deepLinkWorkout: DeepLinkWorkoutRef?
     // See HomeSectionShell's path property for why every shell resets its
     // own navigation stack on deactivation.
     @State private var path = NavigationPath()
@@ -320,9 +322,36 @@ struct TrainSectionShell: View {
                 FeatureBottomBar(items: items, selection: $subTab)
             }
             .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
+            .navigationDestination(item: $deepLinkWorkout) { ref in
+                WorkoutAnalysisView(workoutID: ref.id)
+            }
         }
-        .onChange(of: isActive) { _, active in if !active { path = NavigationPath() } }
+        .task { openPendingDeepLinkWorkoutIfNeeded() }
+        .onChange(of: deepLinks.openWorkoutID) { _, _ in openPendingDeepLinkWorkoutIfNeeded() }
+        .onChange(of: isActive) { _, active in
+            if !active {
+                path = NavigationPath()
+                deepLinkWorkout = nil
+            }
+        }
     }
+
+    // functioningfaith://workout/<id> used to just switch to Train and stop
+    // -- DeepLinkRouter didn't even have a published property to hold the
+    // pending id (unlike dm/post/group/verse/athlete, which at least set one
+    // that nothing read). WorkoutAnalysisView fetches its own WorkoutAnalysis
+    // in a .task keyed on workoutID and renders a normal loading state until
+    // it resolves, so pushing it directly with just the id is safe.
+    private func openPendingDeepLinkWorkoutIfNeeded() {
+        guard let id = deepLinks.openWorkoutID else { return }
+        subTab = "log"
+        deepLinkWorkout = DeepLinkWorkoutRef(id: id)
+        deepLinks.openWorkoutID = nil
+    }
+}
+
+private struct DeepLinkWorkoutRef: Identifiable, Hashable {
+    let id: String
 }
 
 /// Explore's own sub-bar -- Faith & Scripture and Discover's catalog tiles

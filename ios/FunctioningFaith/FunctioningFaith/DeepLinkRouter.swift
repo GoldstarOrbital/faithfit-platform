@@ -96,6 +96,7 @@ final class DeepLinkRouter: ObservableObject {
     @Published var openGroupID: String?
     @Published var openVerseReference: String?
     @Published var openAthleteID: String?
+    @Published var openWorkoutID: String?
 
     func handle(_ url: URL) {
         guard let link = DeepLink.parse(url) else { return }
@@ -113,6 +114,7 @@ final class DeepLinkRouter: ObservableObject {
             selectedTab = .search
         case .workouts, .workout:
             selectedTab = .workouts
+            if case .workout(let id) = link { openWorkoutID = id }
         case .explore, .group, .athlete:
             selectedTab = .explore
             if case .group(let id) = link { openGroupID = id }
@@ -141,6 +143,7 @@ final class DeepLinkRouter: ObservableObject {
         openGroupID = nil
         openVerseReference = nil
         openAthleteID = nil
+        openWorkoutID = nil
         pending = nil
     }
 }
