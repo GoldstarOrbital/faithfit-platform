@@ -68,6 +68,11 @@ struct DMInboxView: View {
         }
         .onChange(of: deepLinks.openDMThreadID) { _, _ in openPendingDeepLinkThreadIfNeeded() }
         .onChange(of: store.threads) { _, _ in openPendingDeepLinkThreadIfNeeded() }
+        // The shell's own NavigationPath reset (see AppShell's
+        // MessagesSectionShell) only pops the row-tap, path-based push above
+        // -- this item-based one is a separate mechanism entirely and stays
+        // pushed across tab switches unless cleared here too.
+        .onChange(of: isActive) { _, active in if !active { deepLinkThread = nil } }
         .alert("Could not load messages", isPresented: Binding(
             get: { store.loadError != nil },
             set: { if !$0 { /* clear via reload */ }

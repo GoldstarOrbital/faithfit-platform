@@ -6,6 +6,8 @@ struct ScriptureView: View {
         var id: String { reference }
     }
 
+    var isActive: Bool = true
+
     @EnvironmentObject private var deepLinks: DeepLinkRouter
     @State private var verse: BibleVerse?
     @State private var isLoadingVerse = true
@@ -30,6 +32,11 @@ struct ScriptureView: View {
             openPendingDeepLinkVerseIfNeeded()
         }
         .onChange(of: deepLinks.openVerseReference) { _, _ in openPendingDeepLinkVerseIfNeeded() }
+        // The shell's own NavigationPath reset (see AppShell's
+        // ScriptureSectionShell) only pops NavigationLink-driven pushes --
+        // this item-based push is a separate mechanism entirely and needs
+        // its own reset, same reasoning as DMInboxView's deepLinkThread.
+        .onChange(of: isActive) { _, active in if !active { deepLinkReference = nil } }
         .alert("Something went wrong", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }

@@ -208,13 +208,23 @@ extension View {
 struct HomeSectionShell: View {
     let onTapLogo: () -> Void
     let isActive: Bool
+    // Every section shell keeps its own NavigationPath so it can be popped
+    // to root the moment the section stops being the visible one -- see
+    // this shell struct's own .onChange(of: isActive) below for why: a
+    // pushed screen's .toolbar is just as UIKit-bridged as the shared
+    // brand-mark toolbar ffRootBrand installs (see RootTabView's comment on
+    // that), so leaving e.g. a verse thread pushed on a hidden stack while
+    // another section's own pushed screen is showing put two competing
+    // toolbars live at once, exactly like the original ffRootBrand bug.
+    @State private var path = NavigationPath()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             HomeFeedView(isActive: isActive)
                 .reserveFeatureBottomBar()
                 .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
+        .onChange(of: isActive) { _, active in if !active { path = NavigationPath() } }
     }
 }
 
@@ -227,22 +237,30 @@ struct HomeSectionShell: View {
 struct ReelsSectionShell: View {
     let onTapLogo: () -> Void
     let isActive: Bool
+    // See HomeSectionShell's path property for why every shell resets its
+    // own navigation stack on deactivation.
+    @State private var path = NavigationPath()
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ReelsFeedView(isActive: isActive).ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
+        .onChange(of: isActive) { _, active in if !active { path = NavigationPath() } }
     }
 }
 
 struct ScriptureSectionShell: View {
     let onTapLogo: () -> Void
     let isActive: Bool
+    // See HomeSectionShell's path property for why every shell resets its
+    // own navigation stack on deactivation.
+    @State private var path = NavigationPath()
     var body: some View {
-        NavigationStack {
-            ScriptureView()
+        NavigationStack(path: $path) {
+            ScriptureView(isActive: isActive)
                 .reserveFeatureBottomBar()
                 .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
+        .onChange(of: isActive) { _, active in if !active { path = NavigationPath() } }
     }
 }
 
@@ -254,12 +272,16 @@ struct ScriptureSectionShell: View {
 struct SearchSectionShell: View {
     let onTapLogo: () -> Void
     let isActive: Bool
+    // See HomeSectionShell's path property for why every shell resets its
+    // own navigation stack on deactivation.
+    @State private var path = NavigationPath()
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             SearchView(isActive: isActive)
                 .reserveFeatureBottomBar()
                 .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
+        .onChange(of: isActive) { _, active in if !active { path = NavigationPath() } }
     }
 }
 
@@ -270,6 +292,9 @@ struct TrainSectionShell: View {
     let onTapLogo: () -> Void
     let isActive: Bool
     @State private var subTab = "log"
+    // See HomeSectionShell's path property for why every shell resets its
+    // own navigation stack on deactivation.
+    @State private var path = NavigationPath()
 
     private let items: [FeatureBottomBarItem] = [
         FeatureBottomBarItem(id: "log", title: "Log", systemImage: "figure.run"),
@@ -280,7 +305,7 @@ struct TrainSectionShell: View {
     ]
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ZStack(alignment: .bottom) {
                 Group {
                     switch subTab {
@@ -296,6 +321,7 @@ struct TrainSectionShell: View {
             }
             .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
+        .onChange(of: isActive) { _, active in if !active { path = NavigationPath() } }
     }
 }
 
@@ -310,6 +336,9 @@ struct ExploreSectionShell: View {
     @EnvironmentObject private var deepLinks: DeepLinkRouter
     @State private var subTab = "community"
     @State private var deepLinkGroup: ExploreGroup?
+    // See HomeSectionShell's path property for why every shell resets its
+    // own navigation stack on deactivation.
+    @State private var path = NavigationPath()
 
     // Reels and Search moved to the global bottom bar as their own
     // top-level items -- keeping them here too would mean the same
@@ -322,7 +351,7 @@ struct ExploreSectionShell: View {
     ]
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ZStack(alignment: .bottom) {
                 Group {
                     switch subTab {
@@ -341,6 +370,12 @@ struct ExploreSectionShell: View {
         }
         .task { openPendingDeepLinkGroupIfNeeded() }
         .onChange(of: deepLinks.openGroupID) { _, _ in openPendingDeepLinkGroupIfNeeded() }
+        .onChange(of: isActive) { _, active in
+            if !active {
+                path = NavigationPath()
+                deepLinkGroup = nil
+            }
+        }
     }
 
     // functioningfaith://group/<id> used to just switch to this tab and stop
@@ -366,14 +401,18 @@ struct MessagesSectionShell: View {
     let onTapLogo: () -> Void
     let isActive: Bool
     @EnvironmentObject private var dmStore: DMStore
+    // See HomeSectionShell's path property for why every shell resets its
+    // own navigation stack on deactivation.
+    @State private var path = NavigationPath()
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             DMInboxView(isActive: isActive)
                 .environmentObject(dmStore)
                 .reserveFeatureBottomBar()
                 .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
+        .onChange(of: isActive) { _, active in if !active { path = NavigationPath() } }
     }
 }
 
@@ -387,6 +426,9 @@ struct ProfileSectionShell: View {
     let onTapLogo: () -> Void
     let isActive: Bool
     @State private var subTab = "overview"
+    // See HomeSectionShell's path property for why every shell resets its
+    // own navigation stack on deactivation.
+    @State private var path = NavigationPath()
 
     private let items: [FeatureBottomBarItem] = [
         FeatureBottomBarItem(id: "overview", title: "Overview", systemImage: "person.crop.circle.fill"),
@@ -396,7 +438,7 @@ struct ProfileSectionShell: View {
     ]
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ZStack(alignment: .bottom) {
                 Group {
                     switch subTab {
@@ -411,6 +453,7 @@ struct ProfileSectionShell: View {
             }
             .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
+        .onChange(of: isActive) { _, active in if !active { path = NavigationPath() } }
     }
 }
 
@@ -421,9 +464,13 @@ struct ProfileSectionShell: View {
 struct SettingsSectionShell: View {
     let onTapLogo: () -> Void
     let isActive: Bool
+    // See HomeSectionShell's path property for why every shell resets its
+    // own navigation stack on deactivation.
+    @State private var path = NavigationPath()
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ProfileAccountView().ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
+        .onChange(of: isActive) { _, active in if !active { path = NavigationPath() } }
     }
 }
