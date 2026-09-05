@@ -23,9 +23,18 @@ enum DeepLink: Equatable {
         guard scheme == "functioningfaith" || scheme == "https" || scheme == "http" else { return nil }
 
         var parts = url.pathComponents.filter { $0 != "/" }
-        // functioningfaith://messages → host is the first segment when path is empty
-        if parts.isEmpty, let host = url.host, !host.isEmpty {
-            parts = [host]
+        // For the custom functioningfaith:// scheme, URL parsing treats the
+        // command as the host and only the argument as the path -- e.g.
+        // functioningfaith://dm/<id> parses as host "dm", path ["<id>"], NOT
+        // path ["dm", "<id>"]. Folding host back onto the front of parts
+        // makes "dm" -> parts[0] and "<id>" -> parts[1] again, matching what
+        // every two-segment case below (dm, workout, post, group, athlete)
+        // expects. This must NOT apply to https/http universal links, where
+        // host is a real domain and every path segment already lives in
+        // pathComponents -- folding it in there would put the domain name
+        // where a command word is expected and break every case.
+        if scheme == "functioningfaith", let host = url.host, !host.isEmpty {
+            parts = [host] + parts
         }
 
         guard let head = parts.first?.lowercased() else { return .home }
