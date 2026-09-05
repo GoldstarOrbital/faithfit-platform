@@ -27,7 +27,17 @@ struct SearchView: View {
             // .searchable() instead, and is why the search field could
             // render but not actually respond to input.
             if isActive {
-                content.searchable(text: $query, prompt: "People, groups, journeys, scripture…")
+                // Explicit .always placement: the default .automatic
+                // placement docks the search field into a scrollable List's
+                // own drawer, and needs that scrollable context to know
+                // where to render it. This screen's empty and no-results
+                // states are a static ContentUnavailableView, not a List --
+                // confirmed live in the simulator, .automatic rendered no
+                // search field at all there, field or no field, whether or
+                // not the section was active. .always forces it to render
+                // in the nav bar regardless of what the content below it is.
+                content.searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always),
+                                    prompt: "People, groups, journeys, scripture…")
             } else {
                 content
             }
