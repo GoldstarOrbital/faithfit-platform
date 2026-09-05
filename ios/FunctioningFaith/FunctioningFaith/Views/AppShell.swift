@@ -307,7 +307,9 @@ struct TrainSectionShell: View {
 struct ExploreSectionShell: View {
     let onTapLogo: () -> Void
     let isActive: Bool
+    @EnvironmentObject private var deepLinks: DeepLinkRouter
     @State private var subTab = "community"
+    @State private var deepLinkGroup: ExploreGroup?
 
     // Reels and Search moved to the global bottom bar as their own
     // top-level items -- keeping them here too would mean the same
@@ -333,7 +335,28 @@ struct ExploreSectionShell: View {
                 FeatureBottomBar(items: items, selection: $subTab)
             }
             .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
+            .navigationDestination(item: $deepLinkGroup) { group in
+                GroupDetailView(group: group)
+            }
         }
+        .task { openPendingDeepLinkGroupIfNeeded() }
+        .onChange(of: deepLinks.openGroupID) { _, _ in openPendingDeepLinkGroupIfNeeded() }
+    }
+
+    // functioningfaith://group/<id> used to just switch to this tab and stop
+    // -- nothing ever read DeepLinkRouter.openGroupID. Same fix as
+    // DMInboxView.openDMThreadID and ScriptureView.openVerseReference, but
+    // GroupDetailView needs a full ExploreGroup, not just an id string; it
+    // only actually uses group.id itself (every other field has a
+    // detail?.x ?? group.x fallback -- see fetchGroupDetail in its .task),
+    // so a placeholder with the other fields empty renders its normal
+    // loading state and fills in for real the moment the fetch completes.
+    private func openPendingDeepLinkGroupIfNeeded() {
+        guard let id = deepLinks.openGroupID else { return }
+        subTab = "community"
+        deepLinkGroup = ExploreGroup(id: id, name: "", description: nil, username: nil,
+                                      churchName: nil, locationName: nil, sport: nil, memberCount: 0)
+        deepLinks.openGroupID = nil
     }
 }
 
