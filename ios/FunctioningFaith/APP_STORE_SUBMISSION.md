@@ -245,16 +245,27 @@ Key native capabilities for review:
 • Deep links via functioningfaith:// (messages, workouts, groups, verses)
 
 Test account (if needed):
-  email: [provide a pre-seeded reviewer account]
-  password: [provide]
+  email: [see credentials held outside this public repo]
+  password: [see credentials held outside this public repo]
 
 Production API base: https://faithfit-demo-production.up.railway.app
 (Privacy / Terms / Support linked above)
 
-Please exercise a live workout start/stop and open Messages to confirm E2E decrypt.
+Please exercise a live workout start/stop, and open Messages to see an
+existing conversation. To confirm end-to-end encryption specifically, send a
+new message from this account -- the app generates its encryption keys on
+first use, so only messages sent after that point are E2E-encrypted in transit;
+the pre-seeded welcome conversation predates key generation and is stored as
+plain text server-side, same as it would be for any account that has not yet
+opened Messages.
 ```
 
-Provide a real reviewer test account that has already completed onboarding and has a few posts / a DM thread ready.
+Done -- a real reviewer account exists with two posts and an existing DM
+conversation with a second seeded account ("Faith Community Team"), both
+created directly against the production API. This repo is public, so its
+credentials are not written here -- get them from whoever set up the
+account, or re-register a fresh reviewer account via POST /api/auth/register
+if you need new ones.
 
 ---
 
