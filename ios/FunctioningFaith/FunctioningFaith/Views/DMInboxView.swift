@@ -4,8 +4,10 @@ struct DMInboxView: View {
     @EnvironmentObject private var session: NativeSession
     /// Shared with RootTabView so the tab badge and inbox stay in sync.
     @EnvironmentObject private var store: DMStore
+    @EnvironmentObject private var deepLinks: DeepLinkRouter
     @State private var isLoading = true
     @State private var showNewMessage = false
+    @State private var deepLinkThread: DMThreadPreview?
 
     var body: some View {
         Group {
@@ -46,11 +48,24 @@ struct DMInboxView: View {
             DMConversationView(threadID: thread.threadID, otherUserID: thread.otherUserID, otherName: thread.otherName)
                 .environmentObject(store)
         }
+        // Separate from the row-tap destination above (that one is path-based,
+        // this one item-based) so a deep link or a push notification can open
+        // a specific thread without going through NavigationLink at all --
+        // functioningfaith://dm/<threadID> used to only switch to the
+        // Messages tab and stop there, leaving the actual thread unopened,
+        // because nothing consumed DeepLinkRouter.openDMThreadID.
+        .navigationDestination(item: $deepLinkThread) { thread in
+            DMConversationView(threadID: thread.threadID, otherUserID: thread.otherUserID, otherName: thread.otherName)
+                .environmentObject(store)
+        }
         .task {
             if let id = session.profile?.id { await store.configure(myUserID: id) }
             await store.loadInbox()
             isLoading = false
+            openPendingDeepLinkThreadIfNeeded()
         }
+        .onChange(of: deepLinks.openDMThreadID) { _, _ in openPendingDeepLinkThreadIfNeeded() }
+        .onChange(of: store.threads) { _, _ in openPendingDeepLinkThreadIfNeeded() }
         .alert("Could not load messages", isPresented: Binding(
             get: { store.loadError != nil },
             set: { if !$0 { /* clear via reload */ }
@@ -61,6 +76,17 @@ struct DMInboxView: View {
         } message: {
             Text(store.loadError ?? "")
         }
+    }
+
+    /// Called on load, and again whenever either the pending thread id or the
+    /// inbox itself changes -- a deep link can arrive before the inbox has
+    /// finished its first load, so the id alone isn't enough to act on yet.
+    private func openPendingDeepLinkThreadIfNeeded() {
+        guard let id = deepLinks.openDMThreadID,
+              let thread = store.threads.first(where: { $0.threadID == id })
+        else { return }
+        deepLinkThread = thread
+        deepLinks.openDMThreadID = nil
     }
 }
 

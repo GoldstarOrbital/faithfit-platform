@@ -5,6 +5,8 @@ import SwiftUI
 /// Skill: resume interrupted flows and open the right screen from notifications / shared links.
 enum DeepLink: Equatable {
     case home
+    case reels
+    case search
     case workouts
     case explore
     case messages
@@ -31,6 +33,10 @@ enum DeepLink: Equatable {
         switch head {
         case "home", "feed":
             return .home
+        case "reels", "reel":
+            return .reels
+        case "search":
+            return .search
         case "workouts", "workout":
             if parts.count >= 2 { return .workout(id: parts[1]) }
             return .workouts
@@ -82,6 +88,10 @@ final class DeepLinkRouter: ObservableObject {
         switch link {
         case .home:
             selectedTab = .home
+        case .reels:
+            selectedTab = .reels
+        case .search:
+            selectedTab = .search
         case .workouts, .workout:
             selectedTab = .workouts
         case .explore, .group, .verse, .athlete:
