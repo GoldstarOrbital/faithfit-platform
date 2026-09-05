@@ -125,24 +125,29 @@ struct RootTabView: View {
                 showAskAI = true
             } label: {
                 Image(systemName: "sparkles")
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(FFTheme.cream)
-                    .frame(width: 56, height: 56)
+                    .frame(width: FFTheme.minTapTarget, height: FFTheme.minTapTarget)
                     .background(
                         LinearGradient(colors: [FFTheme.meadow2, FFTheme.meadowDeep], startPoint: .topLeading, endPoint: .bottomTrailing),
                         in: Circle()
                     )
                     .overlay(Circle().strokeBorder(FFTheme.goldBright.opacity(0.5), lineWidth: 1))
-                    .shadow(color: FFTheme.walnut.opacity(0.35), radius: 10, x: 0, y: 4)
+                    .shadow(color: FFTheme.walnut.opacity(0.35), radius: 8, x: 0, y: 3)
             }
             .padding(.trailing, FFTheme.Space.md)
             .accessibilityLabel("Ask Bible Answers")
             .accessibilityHint("Opens a chat to ask any Bible or faith question, answered with verified Scripture")
         }
-        // Clears whichever bar is currently showing -- the global bar and
-        // every section's own sub-bar are all about the same height, so one
-        // padding value works for all of them.
-        .padding(.bottom, 70)
+        // Sits just above whichever bar is showing (bar height is ~78-80pt
+        // including its own safe-area padding) rather than hovering well
+        // above it -- confirmed live that hovering higher (previously
+        // 56pt button at 70pt padding) reached far enough into ordinary
+        // list content to cover a trailing-aligned row button (Explore's
+        // "Follow"). Smaller footprint (44pt, Apple's own minimum tap
+        // target) plus sitting lower cuts how far it intrudes into content
+        // without disappearing into the bar itself.
+        .padding(.bottom, 54)
     }
 
     private func openPanel() {
