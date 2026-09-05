@@ -135,7 +135,9 @@ final class NotificationCoordinator: NSObject, UIApplicationDelegate, UNUserNoti
             content.body += " \(verse.reference) — \(verse.snippet)"
         }
         content.sound = .default
-        content.userInfo = ["ff_url": "functioningfaith://train"]
+        // "workouts", not "train" -- DeepLinkRouter's parser has no "train"
+        // case at all, so this silently went nowhere on tap.
+        content.userInfo = ["ff_url": "functioningfaith://workouts"]
         let request = UNNotificationRequest(identifier: "ff-heart-rate-calm-\(UUID().uuidString)", content: content, trigger: nil)
         try? await UNUserNotificationCenter.current().add(request)
     }
