@@ -156,6 +156,12 @@ struct GroupDetailView: View {
             }
         }
         .ffListChrome()
+        // Pushed from Explore (or now a deep link) -- same fix as
+        // VerseThreadView and DMConversationView: reserveFeatureBottomBar()
+        // doesn't propagate to a pushed destination, so this List's last
+        // rows (the group message compose field included) need it again
+        // here or they end up behind the persistent global bottom bar.
+        .reserveFeatureBottomBar()
         .navigationTitle(group.name)
         .navigationBarTitleDisplayMode(.inline)
         .overlay { if isLoading { ProgressView() } }

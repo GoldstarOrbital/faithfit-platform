@@ -93,6 +93,15 @@ struct DMConversationView: View {
             }
             .padding(10)
         }
+        // Pushed from DMInboxView, which reserves this space on itself --
+        // but that modifier only applies to the exact view it's chained
+        // onto, not to whatever gets pushed on top of it. Without it here,
+        // the compose bar (the last thing in the VStack above) renders at
+        // the true bottom of the screen, directly behind the persistent
+        // global bottom bar that RootTabView draws as a ZStack overlay
+        // above every section's content -- not just missing visually, but
+        // genuinely untappable, since the bar overlay sits in front of it.
+        .reserveFeatureBottomBar()
         .navigationTitle(otherName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

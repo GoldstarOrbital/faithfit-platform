@@ -55,6 +55,13 @@ struct VerseThreadView: View {
                 .listStyle(.plain)
             }
         }
+        // Pushed from Scripture/Home/Search/wherever a verse is tapped --
+        // reserveFeatureBottomBar() only applies to the exact view it's
+        // chained onto (see ScriptureSectionShell in AppShell.swift), not to
+        // whatever gets pushed on top of it, so this List's own last rows
+        // (the ask/compose sections) need it again here or they render
+        // behind the persistent global bottom bar when scrolled to the end.
+        .reserveFeatureBottomBar()
         .navigationTitle(reference)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
