@@ -21,6 +21,16 @@ enum DeepLink: Equatable {
     static func parse(_ url: URL) -> DeepLink? {
         let scheme = url.scheme?.lowercased() ?? ""
         guard scheme == "functioningfaith" || scheme == "https" || scheme == "http" else { return nil }
+        // Same-origin only (RELEASE_CHECKLIST.md's own requirement for this
+        // item): there is no associated-domains entitlement configured, so
+        // iOS never hands this app a Universal Link automatically today --
+        // but .onOpenURL in FunctioningFaithApp.swift will still call this
+        // with whatever URL any caller passes it, so this check is the only
+        // thing standing between "the app's own https links" and "any
+        // https link at all" if that ever changes.
+        if scheme == "https" || scheme == "http" {
+            guard url.host?.lowercased() == AppConfig.apiBaseURL.host?.lowercased() else { return nil }
+        }
 
         var parts = url.pathComponents.filter { $0 != "/" }
         // For the custom functioningfaith:// scheme, URL parsing treats the
