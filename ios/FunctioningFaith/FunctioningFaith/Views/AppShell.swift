@@ -25,10 +25,13 @@ extension AppTab: Identifiable {
     /// The persistent global bottom bar's five items, in order.
     static let globalBarSections: [AppTab] = [.home, .reels, .scripture, .messages, .search]
     /// Everything else -- reached through the side panel instead, since it
-    /// doesn't fit in the global bar's five slots. Settings is deliberately
-    /// last: it's account-level, not a "section" the way Train/Explore/
-    /// Profile are, so it sits at the bottom of the list on its own.
-    static let overflowSections: [AppTab] = [.workouts, .explore, .profile, .settings]
+    /// doesn't fit in the global bar's five slots. Home is listed here too,
+    /// even though it's also in the global bar: users expect the panel
+    /// opened from the brand mark to include a way back to Home, the same
+    /// way the bar itself does. Settings is deliberately last: it's
+    /// account-level, not a "section" the way Train/Explore/Profile are, so
+    /// it sits at the bottom of the list on its own.
+    static let overflowSections: [AppTab] = [.home, .workouts, .explore, .profile, .settings]
 
     var title: String {
         switch self {
@@ -62,9 +65,9 @@ extension AppTab: Identifiable {
 // MARK: - Side panel
 
 /// Full-panel switcher for the sections that don't fit in the global
-/// bottom bar's five slots (Train, Explore, Profile). Home, Reels,
-/// Scripture, Messages, and Search live in the bar itself now, so they're
-/// not repeated here.
+/// bottom bar's five slots (Train, Explore, Profile, Settings), plus Home
+/// as an explicit way back. Reels, Scripture, Messages, and Search live in
+/// the bar itself only -- they're not repeated here.
 struct SidePanelView: View {
     @Binding var selection: AppTab
     let onSelect: (AppTab) -> Void
@@ -204,12 +207,13 @@ extension View {
 /// used to live here as sub-tabs).
 struct HomeSectionShell: View {
     let onTapLogo: () -> Void
+    let isActive: Bool
 
     var body: some View {
         NavigationStack {
             HomeFeedView()
                 .reserveFeatureBottomBar()
-                .ffRootBrand(onTapLogo: onTapLogo)
+                .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
     }
 }
@@ -222,20 +226,22 @@ struct HomeSectionShell: View {
 /// Reels-style apps generally, rather than shrinking the video.
 struct ReelsSectionShell: View {
     let onTapLogo: () -> Void
+    let isActive: Bool
     var body: some View {
         NavigationStack {
-            ReelsFeedView().ffRootBrand(onTapLogo: onTapLogo)
+            ReelsFeedView().ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
     }
 }
 
 struct ScriptureSectionShell: View {
     let onTapLogo: () -> Void
+    let isActive: Bool
     var body: some View {
         NavigationStack {
             ScriptureView()
                 .reserveFeatureBottomBar()
-                .ffRootBrand(onTapLogo: onTapLogo)
+                .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
     }
 }
@@ -247,11 +253,12 @@ struct ScriptureSectionShell: View {
 /// cause of it working unreliably before this became a top-level tab.
 struct SearchSectionShell: View {
     let onTapLogo: () -> Void
+    let isActive: Bool
     var body: some View {
         NavigationStack {
             SearchView()
                 .reserveFeatureBottomBar()
-                .ffRootBrand(onTapLogo: onTapLogo)
+                .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
     }
 }
@@ -261,6 +268,7 @@ struct SearchSectionShell: View {
 /// now they're peers instead of being nested inside it.
 struct TrainSectionShell: View {
     let onTapLogo: () -> Void
+    let isActive: Bool
     @State private var subTab = "log"
 
     private let items: [FeatureBottomBarItem] = [
@@ -286,7 +294,7 @@ struct TrainSectionShell: View {
                 .reserveFeatureBottomBar()
                 FeatureBottomBar(items: items, selection: $subTab)
             }
-            .ffRootBrand(onTapLogo: onTapLogo)
+            .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
     }
 }
@@ -298,6 +306,7 @@ struct TrainSectionShell: View {
 /// SearchSectionShell above), so they were dropped from here.
 struct ExploreSectionShell: View {
     let onTapLogo: () -> Void
+    let isActive: Bool
     @State private var subTab = "community"
 
     // Reels and Search moved to the global bottom bar as their own
@@ -323,7 +332,7 @@ struct ExploreSectionShell: View {
                 .reserveFeatureBottomBar()
                 FeatureBottomBar(items: items, selection: $subTab)
             }
-            .ffRootBrand(onTapLogo: onTapLogo)
+            .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
     }
 }
@@ -332,6 +341,7 @@ struct ExploreSectionShell: View {
 /// top-of-file note on why.
 struct MessagesSectionShell: View {
     let onTapLogo: () -> Void
+    let isActive: Bool
     @EnvironmentObject private var dmStore: DMStore
 
     var body: some View {
@@ -339,7 +349,7 @@ struct MessagesSectionShell: View {
             DMInboxView()
                 .environmentObject(dmStore)
                 .reserveFeatureBottomBar()
-                .ffRootBrand(onTapLogo: onTapLogo)
+                .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
     }
 }
@@ -352,6 +362,7 @@ struct MessagesSectionShell: View {
 /// the bottom of the side panel instead (see SettingsSectionShell below).
 struct ProfileSectionShell: View {
     let onTapLogo: () -> Void
+    let isActive: Bool
     @State private var subTab = "overview"
 
     private let items: [FeatureBottomBarItem] = [
@@ -375,7 +386,7 @@ struct ProfileSectionShell: View {
                 .reserveFeatureBottomBar()
                 FeatureBottomBar(items: items, selection: $subTab)
             }
-            .ffRootBrand(onTapLogo: onTapLogo)
+            .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
     }
 }
@@ -386,9 +397,10 @@ struct ProfileSectionShell: View {
 /// tabs are, so it doesn't belong grouped with them.
 struct SettingsSectionShell: View {
     let onTapLogo: () -> Void
+    let isActive: Bool
     var body: some View {
         NavigationStack {
-            ProfileAccountView().ffRootBrand(onTapLogo: onTapLogo)
+            ProfileAccountView().ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
     }
 }

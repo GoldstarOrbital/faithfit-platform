@@ -68,22 +68,33 @@ struct RootTabView: View {
     // visibility" trick TabView itself uses under the hood.
     private var currentSection: some View {
         ZStack {
-            section(.home) { HomeSectionShell(onTapLogo: openPanel) }
-            section(.reels) { ReelsSectionShell(onTapLogo: openPanel) }
-            section(.scripture) { ScriptureSectionShell(onTapLogo: openPanel) }
-            section(.messages) { MessagesSectionShell(onTapLogo: openPanel) }
-            section(.search) { SearchSectionShell(onTapLogo: openPanel) }
-            section(.workouts) { TrainSectionShell(onTapLogo: openPanel) }
-            section(.explore) { ExploreSectionShell(onTapLogo: openPanel) }
-            section(.profile) { ProfileSectionShell(onTapLogo: openPanel) }
-            section(.settings) { SettingsSectionShell(onTapLogo: openPanel) }
+            section(.home) { HomeSectionShell(onTapLogo: openPanel, isActive: $0) }
+            section(.reels) { ReelsSectionShell(onTapLogo: openPanel, isActive: $0) }
+            section(.scripture) { ScriptureSectionShell(onTapLogo: openPanel, isActive: $0) }
+            section(.messages) { MessagesSectionShell(onTapLogo: openPanel, isActive: $0) }
+            section(.search) { SearchSectionShell(onTapLogo: openPanel, isActive: $0) }
+            section(.workouts) { TrainSectionShell(onTapLogo: openPanel, isActive: $0) }
+            section(.explore) { ExploreSectionShell(onTapLogo: openPanel, isActive: $0) }
+            section(.profile) { ProfileSectionShell(onTapLogo: openPanel, isActive: $0) }
+            section(.settings) { SettingsSectionShell(onTapLogo: openPanel, isActive: $0) }
         }
     }
 
+    // `isActive` is threaded into each shell so it can skip installing its
+    // own toolbar (the brand-mark button) when it isn't the visible one.
+    // Real bug, confirmed live: with all eight NavigationStacks mounted at
+    // once, each with its own `.toolbar`, there were eight competing
+    // top-left buttons simultaneously -- SwiftUI's toolbar/nav-bar chrome
+    // is bridged to UIKit's UINavigationController underneath, and does
+    // NOT reliably respect `.opacity()`/`.allowsHitTesting()` applied to an
+    // ancestor the way ordinary body content does. Ordinary content
+    // (the bottom bar, list rows) toggled correctly the whole time; only
+    // toolbar-hosted buttons were affected, which is exactly why the logo
+    // tap silently did nothing no matter where on it you tapped.
     @ViewBuilder
-    private func section<Content: View>(_ tab: AppTab, @ViewBuilder content: () -> Content) -> some View {
+    private func section<Content: View>(_ tab: AppTab, @ViewBuilder content: (Bool) -> Content) -> some View {
         let isActive = deepLinks.selectedTab == tab
-        content()
+        content(isActive)
             .opacity(isActive ? 1 : 0)
             .allowsHitTesting(isActive)
             .accessibilityHidden(!isActive)
@@ -164,6 +175,14 @@ struct RootTabView: View {
 }
 
 extension View {
+    /// Only the active section installs a toolbar at all -- see
+    /// `RootTabView.section(_:content:)` for why. Every shell wraps its
+    /// root content with this instead of calling `.ffRootBrand` directly.
+    @ViewBuilder
+    func ffRootBrand(isActive: Bool, onTapLogo: @escaping () -> Void) -> some View {
+        if isActive { ffRootBrand(onTapLogo: onTapLogo) } else { self }
+    }
+
     /// Every section shell's own NavigationStack calls this on its root
     /// screen so the brand mark opens the side panel from anywhere inside
     /// that section, not just its landing screen.
