@@ -50,6 +50,8 @@ private func configureReelAudioSession() {
 /// them. Native uploads are already returned with their compact data payload;
 /// catalogue items need only their thumbnail fetched ahead of the player.
 struct ReelsFeedView: View {
+    var isActive: Bool = true
+
     @State private var reels: [Reel] = []
     @State private var churchName: String?
     @State private var isLoading = true
@@ -138,7 +140,7 @@ struct ReelsFeedView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
+        .toolbarIfActive(isActive) {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showComposer = true

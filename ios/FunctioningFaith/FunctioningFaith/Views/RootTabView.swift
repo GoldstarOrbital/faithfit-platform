@@ -213,6 +213,20 @@ extension View {
             }
         }
     }
+
+    /// Same fix as ffRootBrand(isActive:), for any OTHER screen's own
+    /// .toolbar call -- HomeFeedView's compose/notifications buttons,
+    /// DMInboxView's new-message button, VerseThreadView's share button,
+    /// and so on. Each of those views is its own struct with its own
+    /// .toolbar, entirely separate from the shared brand-mark toolbar
+    /// ffRootBrand installs -- fixing ffRootBrand alone left every one of
+    /// these still installing unconditionally, still competing across all
+    /// nine simultaneously-mounted sections, still silently untappable
+    /// while its section wasn't the active one.
+    @ViewBuilder
+    func toolbarIfActive<Content: ToolbarContent>(_ isActive: Bool, @ToolbarContentBuilder content: () -> Content) -> some View {
+        if isActive { self.toolbar { content() } } else { self }
+    }
 }
 
 #Preview {

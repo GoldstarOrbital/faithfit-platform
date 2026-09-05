@@ -11,6 +11,11 @@ enum HomeFeedMode: String, CaseIterable, Identifiable {
 }
 
 struct HomeFeedView: View {
+    // Defaults true for previews and any other call site with no
+    // simultaneous-mounting concern; HomeSectionShell (AppShell.swift)
+    // passes the real value.
+    var isActive: Bool = true
+
     // Home is a single top-level tab again (see AppShell.swift), so its
     // For You / Following choice is back to being this view's own
     // in-feed toggle rather than something owned by a bottom bar.
@@ -107,7 +112,12 @@ struct HomeFeedView: View {
         .listStyle(.plain)
         .refreshable { await loadFeed() }
         .navigationTitle("Home")
-        .toolbar {
+        // See toolbarIfActive's own comment (RootTabView.swift): this
+        // screen's own toolbar buttons need the same isActive gating the
+        // shared brand-mark toolbar already has, or they compete across
+        // all nine simultaneously-mounted sections and silently stop
+        // responding to taps while Home isn't the active tab.
+        .toolbarIfActive(isActive) {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showComposer = true } label: { Image(systemName: "square.and.pencil") }
                     .accessibilityLabel("Create post")

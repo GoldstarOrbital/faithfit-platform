@@ -211,7 +211,7 @@ struct HomeSectionShell: View {
 
     var body: some View {
         NavigationStack {
-            HomeFeedView()
+            HomeFeedView(isActive: isActive)
                 .reserveFeatureBottomBar()
                 .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
@@ -229,7 +229,7 @@ struct ReelsSectionShell: View {
     let isActive: Bool
     var body: some View {
         NavigationStack {
-            ReelsFeedView().ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
+            ReelsFeedView(isActive: isActive).ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
     }
 }
@@ -369,7 +369,7 @@ struct MessagesSectionShell: View {
 
     var body: some View {
         NavigationStack {
-            DMInboxView()
+            DMInboxView(isActive: isActive)
                 .environmentObject(dmStore)
                 .reserveFeatureBottomBar()
                 .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)

@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct DMInboxView: View {
+    var isActive: Bool = true
+
     @EnvironmentObject private var session: NativeSession
     /// Shared with RootTabView so the tab badge and inbox stay in sync.
     @EnvironmentObject private var store: DMStore
@@ -31,7 +33,7 @@ struct DMInboxView: View {
             }
         }
         .navigationTitle("Messages")
-        .toolbar {
+        .toolbarIfActive(isActive) {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showNewMessage = true } label: {
                     Image(systemName: "square.and.pencil")
