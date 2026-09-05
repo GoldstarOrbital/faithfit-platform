@@ -1014,6 +1014,14 @@ struct ExploreGroup: Codable, Identifiable {
     }
 }
 
+// Needed for AppShell.swift's ExploreSectionShell to use it with
+// navigationDestination(item:) (deep-linked group opening) -- same pattern
+// as DMThreadPreview's own Hashable extension in DMInboxView.swift.
+extension ExploreGroup: Hashable {
+    static func == (lhs: ExploreGroup, rhs: ExploreGroup) -> Bool { lhs.id == rhs.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+}
+
 struct StoryViewer: Decodable, Identifiable {
     let userID: String
     let displayName: String
