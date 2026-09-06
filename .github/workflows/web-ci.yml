@@ -55,6 +55,8 @@ jobs:
         run: node scripts/verify-feed-ranking.js
       - name: Verify shell deployment freshness
         run: node scripts/verify-shell-cache.js
+      - name: Verify workout distance validation
+        run: node scripts/verify-workout-distance.js
       - name: Verify private group pulse contract
         run: npm run verify:group-pulse
       - name: Verify public sharing acquisition contract

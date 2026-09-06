@@ -1982,9 +1982,27 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   const avgHr = hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
   const maxHr = hrs.length ? Math.max(...hrs) : null;
   const { gps_distance_km, gps_points, gps_path, partner_user_ids, sport_metrics } = req.body || {};
+  // Every other number this handler accepts is bounded -- sport_metrics has
+  // per-key ceilings below, gps_path drops non-finite coordinates -- but
+  // distance went straight from the request body into the row, and it is the
+  // one that feeds the shared community leaderboard, personal bests, and
+  // stats totals. Unbounded, it tops the leaderboard for everyone
+  // permanently; non-numeric, SQLite stores it as text and the DM
+  // workout-share route later throws on .toFixed(). 1000 km is far beyond
+  // any single session.
+  // Only a number or a numeric string is a distance. Number() alone would
+  // also turn true into 1 and [] into 0, quietly inventing a distance out of
+  // a value that never was one.
+  const submittedDistance = typeof gps_distance_km === 'number'
+    || (typeof gps_distance_km === 'string' && gps_distance_km.trim() !== '')
+    ? Number(gps_distance_km)
+    : NaN;
+  const distanceKm = Number.isFinite(submittedDistance) && submittedDistance > 0 && submittedDistance <= 1000
+    ? +submittedDistance.toFixed(3)
+    : null;
   // Calories: use real GPS distance if we have one (running ~ 60 kcal/km), else fall back to a duration-based estimate.
   const durationMin = (Date.now() - new Date(workout.start_time).getTime()) / 60000;
-  const calories = gps_distance_km > 0 ? Math.round(gps_distance_km * 60) : Math.round(durationMin * 8);
+  const calories = distanceKm ? Math.round(distanceKm * 60) : Math.round(durationMin * 8);
 
   // Persist the real route (array of [lat,lng]) so a shared workout can render its
   // map without the tracker still being open. Cap the stored point count to keep
@@ -2014,7 +2032,7 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
     if (Number.isFinite(value) && value >= 0 && value <= ceiling) metrics[key] = +value.toFixed(2);
   }
   db.prepare("UPDATE workouts SET end_time = datetime('now'), avg_hr = ?, max_hr = ?, calories = ?, distance_km = ?, gps_points = ?, gps_path = ?, duration_sec = ?, elevation_gain_m = ?, live_metrics = ?, effort_score = ?, time_in_zone = ?, peak_zone = ? WHERE id = ?")
-    .run(avgHr, maxHr, calories, gps_distance_km || null, pointCount, pathJson, durationSec,
+    .run(avgHr, maxHr, calories, distanceKm, pointCount, pathJson, durationSec,
          metrics.elevation_gain_m || null, Object.keys(metrics).length ? JSON.stringify(metrics) : null,
          effort.effort_score, effort.time_in_zone ? JSON.stringify(effort.time_in_zone) : null, effort.peak_zone, workout.id);
 
@@ -2037,9 +2055,9 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
       }).catch(() => {});
     }
   } catch { /* a missing verse table must never block the stop response */ }
-  const completedChallenges = applyWorkoutToChallenges(req.session.userId, { distance_km: gps_distance_km || 0, duration_sec: durationSec, type: workout.type });
+  const completedChallenges = applyWorkoutToChallenges(req.session.userId, { distance_km: distanceKm || 0, duration_sec: durationSec, type: workout.type });
   notifyChallengeCompletions(req.session.userId, completedChallenges);
-  notifyJourneyProgress(req.session.userId, applyWorkoutToJourneys(req.session.userId, { distance_km: gps_distance_km || 0, duration_sec: durationSec, type: workout.type }));
+  notifyJourneyProgress(req.session.userId, applyWorkoutToJourneys(req.session.userId, { distance_km: distanceKm || 0, duration_sec: durationSec, type: workout.type }));
   const partners = tagWorkoutPartners(req.session.userId, workout.id, partner_user_ids);
   // Personal bests, read back from the row we just wrote so the record is
   // measured from what was actually stored rather than from the request body.
@@ -2051,7 +2069,7 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   }
 
   res.json({
-    id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr, distance_km: gps_distance_km || null, duration_sec: durationSec,
+    id: workout.id, calories, avg_hr: avgHr, max_hr: maxHr, distance_km: distanceKm, duration_sec: durationSec,
     completed_challenges: completedChallenges.map(c => c.name), partner_tag_errors: partners.errors,
     personal_records: newRecords,
     effort: {
