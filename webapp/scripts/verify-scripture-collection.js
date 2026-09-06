@@ -20,7 +20,14 @@ assert.match(api, /saved_verses: verseSaves\.list\(uid\)/, 'data export must inc
 assert.match(app, /data-verse-save/, 'verse cards need a save action');
 assert.match(app, /function renderSavedVerses\(main\)/, 'Profile needs a saved Scripture collection');
 assert.match(app, /saved-verses-open/, 'Profile must link to the saved Scripture collection');
-assert.match(index, /app\.js\?v=ff-[a-z0-9-]+-1/, 'the app bundle must be versioned');
+// The bundle is versioned by its contents at serve time, not by a label in
+// the file -- see lib/asset-shell.js. This assertion used to pin the old
+// `?v=ff-...-1` label and had been failing unnoticed since that label changed,
+// because this script is not run by CI. verify-shell-cache.js covers the
+// versioning mechanism itself in detail.
+const { versionShell } = require('../lib/asset-shell');
+const servedShell = versionShell(index, asset => fs.readFileSync(path.join(__dirname, '..', 'public', asset.slice(1))));
+assert.match(servedShell, /app\.js\?v=[0-9a-f]{16}/, 'the app bundle must be versioned by its contents');
 assert.match(sw, /functioning-faith-shell-v\d+/, 'the shell cache must be versioned');
 
 console.log('scripture collection checks passed');

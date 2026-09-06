@@ -55,6 +55,14 @@ jobs:
         run: node scripts/verify-feed-ranking.js
       - name: Verify shell deployment freshness
         run: node scripts/verify-shell-cache.js
+      # These three assert against the served shell, so a change to how assets
+      # are versioned breaks them. All three had rotted while none of them ran.
+      - name: Verify offline Scripture
+        run: node scripts/verify-offline-scripture.js
+      - name: Verify saved Scripture collection
+        run: node scripts/verify-scripture-collection.js
+      - name: Verify reel tuning privacy
+        run: node scripts/verify-reel-tuning.js
       - name: Verify search navigation
         run: node scripts/verify-search-navigation.js
       - name: Verify workout distance validation
