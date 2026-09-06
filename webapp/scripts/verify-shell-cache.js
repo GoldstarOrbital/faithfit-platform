@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { versionShell } = require('../lib/asset-shell');
 const listeners = {};
 let offline = false, status = 200, networkCalls = 0, stored = 0;
 const cached = { marker: 'old' };
@@ -18,6 +19,16 @@ vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../public/sw.js'), 'utf
   },
 });
 async function main() {
+  const html = '<script src="/app.js?v=old"></script><link href="/styles.css?v=old"><script src="https://example.test/external.js"></script>';
+  const original = versionShell(html, asset => asset + 'v1');
+  assert.equal(versionShell(html, asset => asset + 'v1'), original);
+  const changed = versionShell(html, asset => asset + (asset === '/app.js' ? 'v2' : 'v1'));
+  assert.notEqual(changed.match(/app.js\?v=[a-f0-9]+/)[0], original.match(/app.js\?v=[a-f0-9]+/)[0]);
+  assert.equal(changed.match(/styles.css\?v=[a-f0-9]+/)[0], original.match(/styles.css\?v=[a-f0-9]+/)[0]);
+  assert.ok(changed.includes('https://example.test/external.js'));
+  // Validate every real shell reference exists as part of the release gate.
+  const publicRoot = path.join(__dirname, '../public');
+  versionShell(fs.readFileSync(path.join(publicRoot, 'index.html'), 'utf8'), asset => fs.readFileSync(path.join(publicRoot, asset.slice(1))));
   function request(path) {
     let result;
     listeners.fetch({ request: { method: 'GET', mode: 'cors', url: `https://example.test${path}` }, respondWith: value => { result = value; } });

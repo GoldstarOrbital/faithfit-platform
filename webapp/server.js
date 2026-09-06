@@ -2,6 +2,11 @@ const express = require('express');
 const compression = require('compression');
 const path = require('path');
 const fs = require('fs');
+const { versionShell } = require('./lib/asset-shell');
+const publicRoot = path.join(__dirname, 'public');
+const versionedShell = versionShell(fs.readFileSync(path.join(publicRoot, 'index.html'), 'utf8'),
+  asset => fs.readFileSync(path.join(publicRoot, asset.slice(1))));
+const sendAppShell = (_req, res) => res.set('Cache-Control', 'no-cache').type('html').send(versionedShell);
 const cookieSession = require('cookie-session');
 const db = require('./lib/db');
 const { seed } = require('./lib/seed');
@@ -225,14 +230,15 @@ app.get('/', (req, res, next) => {
   const uid = req.session && req.session.userId;
   if (uid && admin.isAdmin(uid)) return next();
   return visits.track(req, res, next);
-}, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+}, sendAppShell);
+
+app.get('/index.html', sendAppShell);
 
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath, stat) {
-    // Every cacheable script/style in index.html carries a version query. It
-    // is therefore safe to retain it for a year and avoid re-downloading the
-    // app bundle on every visit. The service worker itself must always update.
-    if (filePath.endsWith('sw.js')) {
+    // Legacy URLs reused version labels. Revalidate executable assets even
+    // without a service worker; ETag still avoids retransferring unchanged files.
+    if (/\.(?:js|css|html)$/i.test(filePath)) {
       res.setHeader('Cache-Control', 'no-cache');
     } else if (res.req && res.req.query && res.req.query.v && /\.(?:js|css|png|svg|woff2?|mp4|ogg)$/i.test(filePath)) {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
