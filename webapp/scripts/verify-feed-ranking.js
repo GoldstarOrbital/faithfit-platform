@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 const { rankPosts } = require('../lib/personalization');
+const vm = require('node:vm');
 
 // Execute the actual production candidate SQL, not a duplicate query.
 const source = fs.readFileSync(path.join(__dirname, '../routes/api.js'), 'utf8');
@@ -42,5 +43,44 @@ db.exec("INSERT INTO dm_blocks VALUES ('author','me')");
 assert.equal(db.prepare(query).all({ me: 'me' }).length, 0, 'reverse blocks must hide candidates');
 db.exec("DELETE FROM dm_blocks; INSERT INTO account_relationship_controls VALUES ('me','author','mute')");
 assert.equal(db.prepare(query).all({ me: 'me' }).length, 0, 'muted authors must stay hidden');
+db.exec('DELETE FROM account_relationship_controls');
+
+const chronological = source.split("router.get('/feed',")[1].split("// ---- \"For You\"")[0];
+const feedSQL = chronological.match(/const posts = db.prepare\(`([\s\S]*?)`\)/)[1];
+const parameters = { me: 'me', following_only: 0, before: '', limit: 20 };
+const legacy = db.prepare(feedSQL).all({ ...parameters, deferred: 0 });
+const compact = db.prepare(feedSQL).all({ ...parameters, deferred: 1 });
+assert.deepEqual(compact.map(p => p.id), legacy.map(p => p.id));
+assert.ok(compact.every(p => p.video_data === null && p.deferred_media_kind === 'video'));
+assert.ok(JSON.stringify(compact).length < JSON.stringify(legacy).length / 10);
+
+// Run the actual visibility helper and media handler against this disposable
+// database. Auth middleware attachment is asserted separately; no live users.
+let handler;
+const auth = () => {};
+vm.runInNewContext(source.slice(source.indexOf('function postVisibleTo('), source.indexOf("router.get('/posts/:id',")), {
+  db,
+  circle: { isInCircle: (owner, member) => !!db.prepare('SELECT 1 FROM circle_members WHERE owner_id=? AND member_id=?').get(owner, member) },
+  dms: { isBlockedEitherWay: (a, b) => !!db.prepare('SELECT 1 FROM dm_blocks WHERE (blocker_id=? AND blocked_id=?) OR (blocker_id=? AND blocked_id=?)').get(a,b,b,a) },
+  requireAuth: auth,
+  validateDataUrlImage: () => ({ ok: true }),
+  router: { get: (route, middleware, callback) => { assert.equal(route, '/posts/:id/media'); assert.equal(middleware, auth); handler = callback; } },
+});
+function mediaRead(id, userId) {
+  const res = { code: 200, headers: {}, set(k,v) { this.headers[k]=v; return this; }, status(code) { this.code=code; return this; }, json(body) { this.body=body; return this; } };
+  handler({ params: { id }, session: { userId } }, res);
+  return res;
+}
+assert.equal(mediaRead('0','me').body.video_data.length, 16384);
+assert.equal(mediaRead('0','me').headers['Cache-Control'], 'private, no-store');
+assert.equal(mediaRead('private','me').code, 404);
+assert.equal(mediaRead('0',null).code, 404);
+assert.equal(mediaRead('private','author').code, 200);
+db.exec("UPDATE posts SET visibility='private' WHERE id='0'");
+assert.equal(mediaRead('0','me').code, 404, 'changing privacy after feed load must deny media');
+db.exec("UPDATE posts SET visibility='followers' WHERE id='0'; INSERT INTO followers VALUES ('me','author')");
+assert.equal(mediaRead('0','me').code, 200);
+db.exec("INSERT INTO dm_blocks VALUES ('author','me')");
+assert.equal(mediaRead('0','me').code, 404, 'blocks must apply at media delivery time');
 db.close();
-console.log('Feed ranking: metadata-only candidate pool, winner hydration, private visibility, blocks and mutes passed.');
+console.log('Feed ranking and deferred media: compact payload, legacy compatibility, visibility changes, ownership, followers, blocks and mutes passed.');

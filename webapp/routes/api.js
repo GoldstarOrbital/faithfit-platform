@@ -1391,6 +1391,7 @@ function shapeFeedPost(p, meId) {
 // ---- feed ----
 router.get('/feed', (req, res) => {
   const meId = req.session.userId || null;
+  const deferred = req.query.media === 'deferred';
   const followingOnly = req.query.scope === 'following' && !!meId;
   const before = String(req.query.before || '').slice(0, 40);
   const limit = Math.max(10, Math.min(30, Number(req.query.limit) || 20));
@@ -1400,7 +1401,11 @@ router.get('/feed', (req, res) => {
     SELECT p.id, p.content, p.created_at, p.user_id author_id, u.display_name author,
            CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS author_has_avatar,
            CASE WHEN EXISTS(SELECT 1 FROM developer_applications da WHERE da.user_id=u.id AND da.status='verified') THEN 1 ELSE 0 END AS author_verified_developer,
-           p.visibility, p.workout_id, p.photo_data, p.photo_category, p.video_data, p.video_category,
+           p.visibility, p.workout_id,
+           CASE WHEN @deferred = 0 THEN p.photo_data END AS photo_data, p.photo_category,
+           CASE WHEN @deferred = 0 THEN p.video_data END AS video_data, p.video_category,
+           CASE WHEN @deferred = 1 AND p.photo_data IS NOT NULL THEN 'photo'
+                WHEN @deferred = 1 AND p.video_data IS NOT NULL THEN 'video' END AS deferred_media_kind,
            p.show_route, p.route_privacy_m, w.gps_path,
            w.type workout_type, w.calories, w.avg_hr, w.start_time, w.end_time, w.distance_km,
            v.reference verse_reference, v.text verse_text, v.youversion_id,
@@ -1428,7 +1433,7 @@ router.get('/feed', (req, res) => {
             WHERE rc.actor_id=@me AND rc.subject_id=p.user_id AND rc.control='mute'))
       AND (@before = '' OR p.created_at < @before)
     ORDER BY p.created_at DESC LIMIT @limit
-  `).all({ me: meId, following_only: followingOnly ? 1 : 0, before, limit });
+  `).all({ me: meId, following_only: followingOnly ? 1 : 0, before, limit, deferred: deferred ? 1 : 0 });
 
   const withSocial = posts.map(p => shapeFeedPost(p, meId));
   res.json({ posts: withSocial, next_cursor: withSocial.length === limit ? withSocial[withSocial.length - 1].created_at : null });
@@ -1452,6 +1457,7 @@ router.get('/feed', (req, res) => {
 // actually did.
 router.get('/feed/for-you', requireAuth, (req, res) => {
   const meId = req.session.userId;
+  const deferred = req.query.media === 'deferred';
   const limit = Math.max(4, Math.min(20, Number(req.query.limit) || 12));
 
   const candidates = db.prepare(`
@@ -1459,6 +1465,8 @@ router.get('/feed/for-you', requireAuth, (req, res) => {
            CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS author_has_avatar,
            CASE WHEN EXISTS(SELECT 1 FROM developer_applications da WHERE da.user_id=u.id AND da.status='verified') THEN 1 ELSE 0 END AS author_verified_developer,
            p.visibility, p.workout_id, p.photo_category, p.video_category,
+           CASE WHEN p.photo_data IS NOT NULL THEN 'photo'
+                WHEN p.video_data IS NOT NULL THEN 'video' END AS deferred_media_kind,
            p.show_route, p.route_privacy_m,
            w.type workout_type, w.calories, w.avg_hr, w.start_time, w.end_time, w.distance_km,
            v.reference verse_reference, v.text verse_text, v.youversion_id,
@@ -1511,7 +1519,14 @@ router.get('/feed/for-you', requireAuth, (req, res) => {
     FROM posts p LEFT JOIN workouts w ON w.id = p.workout_id WHERE p.id = ?
   `);
   const top = ranked.slice(0, limit).map((p) => {
-    Object.assign(p, mediaForPost.get(p.id));
+    if (deferred) {
+      // Routes are small relative to media and still pass publishedRoute's
+      // redaction. Never send the raw GPS trace in the media response.
+      p.gps_path = db.prepare('SELECT gps_path FROM workouts WHERE id = ?').get(p.workout_id)?.gps_path;
+    } else {
+      Object.assign(p, mediaForPost.get(p.id));
+      delete p.deferred_media_kind;
+    }
     delete p._score_like_count;
     delete p._score_is_followed;
     delete p._score;
@@ -1574,6 +1589,15 @@ function postVisibleTo(post, viewerId) {
     (post.visibility === 'circle' && circle.isInCircle(post.user_id, viewerId));
   return audience && !dms.isBlockedEitherWay(viewerId, post.user_id);
 }
+
+router.get('/posts/:id/media', requireAuth, (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  const post = db.prepare('SELECT id, user_id, visibility FROM posts WHERE id = ?').get(req.params.id);
+  if (!postVisibleTo(post, req.session.userId)) return res.status(404).json({ error: 'post_not_found' });
+  const media = db.prepare('SELECT photo_data, video_data FROM posts WHERE id = ?').get(post.id);
+  if (media.photo_data && !validateDataUrlImage(media.photo_data).ok) media.photo_data = null;
+  res.json(media);
+});
 
 router.get('/posts/:id', requireAuth, (req, res) => {
   const me = req.session.userId;

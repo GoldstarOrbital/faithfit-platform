@@ -59,6 +59,7 @@ struct FeedPost: Codable, Identifiable {
     var likedByMe: Bool = false
     var savedByMe: Bool = false
     var commentCount: Int = 0
+    var deferredMediaKind: String? = nil
 
     init(
         id: UUID,

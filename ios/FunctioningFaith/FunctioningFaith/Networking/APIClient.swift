@@ -71,7 +71,7 @@ final class APIClient {
         if useMock { return FeedPage(posts: MockData.feed, nextCursor: nil) }
         // The production feed is a cursor-paginated envelope. Keep the cursor
         // on the client so native scrolling never reloads already-rendered rows.
-        var path = "/api/feed?limit=20"
+        var path = "/api/feed?limit=20&media=deferred"
         if followingOnly { path += "&scope=following" }
         if let before, let encoded = before.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
             path += "&before=\(encoded)"
@@ -85,7 +85,7 @@ final class APIClient {
     /// chronological feed above, so there's no "load more" for this one.
     func fetchForYouFeed() async throws -> [FeedPost] {
         if useMock { return MockData.feed }
-        let response: ForYouResponse = try await request("/api/feed/for-you")
+        let response: ForYouResponse = try await request("/api/feed/for-you?media=deferred")
         return response.posts.map(\.model)
     }
 
@@ -97,6 +97,10 @@ final class APIClient {
         if useMock { return MockData.feed[0] }
         let response: FeedDTO = try await request("/api/posts/\(id.uuidString.lowercased())")
         return response.model
+    }
+
+    func fetchPostMedia(id: UUID) async throws -> PostMediaResponse {
+        try await request("/api/posts/\(id.uuidString.lowercased())/media")
     }
 
     func fetchMemberProfile(userID: UUID) async throws -> MemberProfileResponse {
@@ -2215,18 +2219,29 @@ struct FeedPage {
     let nextCursor: String?
 }
 
+struct PostMediaResponse: Decodable {
+    let photoData: String?
+    let videoData: String?
+    enum CodingKeys: String, CodingKey {
+        case photoData = "photo_data", videoData = "video_data"
+    }
+}
+
 private struct FeedDTO: Decodable {
+    let deferred_media_kind: String?
     let id: UUID; let authorID: UUID?; let content: String?; let author: String; let authorHasAvatar: Bool?; let createdAt: String
     let workoutID: UUID?; let workoutType: String?; let startTime: String?; let endTime: String?
     let calories: Int?; let avgHR: Int?; let verseReference: String?; let verseText: String?; let youVersionID: String?
     let likeCount: Int?; let likedByMe: Bool?; let savedByMe: Bool?; let commentCount: Int?
     let photoData: String?; let photoCategory: String?; let videoData: String?; let videoCategory: String?; let visibility: String?
 
-    enum CodingKeys: String, CodingKey { case id; case authorID = "author_id"; case content, author; case authorHasAvatar = "author_has_avatar"; case visibility; case createdAt = "created_at"; case workoutID = "workout_id"; case workoutType = "workout_type"; case startTime = "start_time"; case endTime = "end_time"; case calories; case avgHR = "avg_hr"; case verseReference = "verse_reference"; case verseText = "verse_text"; case youVersionID = "youversion_id"; case likeCount = "like_count"; case likedByMe = "liked_by_me"; case savedByMe = "saved_by_me"; case commentCount = "comment_count"; case photoData = "photo_data"; case photoCategory = "photo_category"; case videoData = "video_data"; case videoCategory = "video_category" }
+    enum CodingKeys: String, CodingKey { case deferred_media_kind; case id; case authorID = "author_id"; case content, author; case authorHasAvatar = "author_has_avatar"; case visibility; case createdAt = "created_at"; case workoutID = "workout_id"; case workoutType = "workout_type"; case startTime = "start_time"; case endTime = "end_time"; case calories; case avgHR = "avg_hr"; case verseReference = "verse_reference"; case verseText = "verse_text"; case youVersionID = "youversion_id"; case likeCount = "like_count"; case likedByMe = "liked_by_me"; case savedByMe = "saved_by_me"; case commentCount = "comment_count"; case photoData = "photo_data"; case photoCategory = "photo_category"; case videoData = "video_data"; case videoCategory = "video_category" }
     var model: FeedPost {
         let workout = workoutType.map { WorkoutSummary(id: workoutID ?? UUID(), type: $0, startTime: DateParser.parse(startTime) ?? .now, endTime: DateParser.parse(endTime), calories: calories, avgHR: avgHR) }
         let verse = verseReference.map { VerseSnippet(id: youVersionID ?? $0, reference: $0, snippet: verseText ?? "", deepLink: "https://www.bible.com/bible?query=\($0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0)") }
-        return FeedPost(id: id, authorID: authorID, authorName: author, authorHasAvatar: authorHasAvatar ?? false, content: content ?? "", workout: workout, verse: verse, createdAt: DateParser.parse(createdAt) ?? .now, photoData: photoData, photoCategory: photoCategory, videoData: videoData, videoCategory: videoCategory, visibility: visibility ?? "private", likeCount: likeCount ?? 0, likedByMe: likedByMe ?? false, savedByMe: savedByMe ?? false, commentCount: commentCount ?? 0)
+        var post = FeedPost(id: id, authorID: authorID, authorName: author, authorHasAvatar: authorHasAvatar ?? false, content: content ?? "", workout: workout, verse: verse, createdAt: DateParser.parse(createdAt) ?? .now, photoData: photoData, photoCategory: photoCategory, videoData: videoData, videoCategory: videoCategory, visibility: visibility ?? "private", likeCount: likeCount ?? 0, likedByMe: likedByMe ?? false, savedByMe: savedByMe ?? false, commentCount: commentCount ?? 0)
+        post.deferredMediaKind = deferred_media_kind
+        return post
     }
 }
 

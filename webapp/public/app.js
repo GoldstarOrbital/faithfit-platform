@@ -791,10 +791,50 @@ function wireComposer(root) {
   };
 }
 
+let feedMediaObserver;
+function hydrateDeferredFeedMedia(root) {
+  if (feedMediaObserver) feedMediaObserver.disconnect();
+  async function load(box) {
+    if (!box.isConnected || box.dataset.loading) return;
+    box.dataset.loading = '1';
+    const button = box.querySelector('button');
+    button.disabled = true; button.textContent = 'Loading attachment…';
+    try {
+      const media = await api(`/posts/${encodeURIComponent(box.dataset.deferredPost)}/media`);
+      if (!box.isConnected) return;
+      const video = box.dataset.mediaKind === 'video';
+      const src = video ? media.video_data : media.photo_data;
+      if (typeof src !== 'string' || !/^data:(image\/(png|jpeg|webp|gif)|video\/(mp4|quicktime|webm));base64,/.test(src)) throw new Error('Attachment unavailable');
+      const element = document.createElement(video ? 'video' : 'img');
+      element.src = src;
+      element.style.cssText = 'width:100%;border-radius:10px;margin-top:8px;display:block';
+      if (video) { element.controls = true; element.playsInline = true; element.preload = 'none'; }
+      else element.alt = 'Community post photo';
+      box.replaceChildren(element);
+    } catch {
+      if (box.isConnected) { button.disabled = false; button.textContent = 'Could not load attachment — retry'; }
+    } finally { delete box.dataset.loading; }
+  }
+  if ('IntersectionObserver' in window) {
+    feedMediaObserver = new IntersectionObserver(entries => {
+      for (const entry of entries) if (entry.isIntersecting) {
+        feedMediaObserver.unobserve(entry.target);
+        load(entry.target);
+      }
+    }, { rootMargin: '150px' });
+  }
+  root.querySelectorAll('[data-deferred-post]').forEach(box => {
+    box.querySelector('button').onclick = () => load(box);
+    if (box.dataset.mediaKind === 'photo') {
+      if (feedMediaObserver) feedMediaObserver.observe(box); else load(box);
+    }
+  });
+}
+
 async function renderHome(main) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
   const cacheMatchesScope = state.homeCache && state.homeCache.scope === state.feedScope;
-  const critical = cacheMatchesScope && state.homeCache.posts ? [state.homeCache, state.homeCache.users] : await Promise.all([api(`/feed?scope=${encodeURIComponent(state.feedScope)}&limit=20`), api('/users')]);
+  const critical = cacheMatchesScope && state.homeCache.posts ? [state.homeCache, state.homeCache.users] : await Promise.all([api(`/feed?scope=${encodeURIComponent(state.feedScope)}&limit=20&media=deferred`), api('/users')]);
   const feedData = critical[0];
   const posts = Array.isArray(feedData) ? feedData : (feedData.posts || []);
   const users = critical[1];
@@ -1061,6 +1101,7 @@ async function renderHome(main) {
         </div>` : ''}
       ${p.photo_data ? `<div class="post-photo"><img src="${escapeHtml(p.photo_data)}" alt="${escapeHtml(p.photo_category || 'photo')}" style="width:100%;border-radius:10px;margin-top:8px;display:block" /><div class="muted" style="font-size:0.72rem;margin-top:4px">${{nature:'🌿 Nature',animal:'🐾 Animal',group:'👥 Group of people'}[p.photo_category] || ''}</div></div>` : ''}
       ${p.video_data ? `<div class="post-photo"><video src="${escapeHtml(p.video_data)}" controls preload="none" playsinline style="width:100%;border-radius:10px;margin-top:8px;display:block;background:#000"></video><div class="muted" style="font-size:0.72rem;margin-top:4px">${{workout:'🏃 Workout',nature:'🌿 Nature',animal:'🐾 Animal',group:'👥 Group of people'}[p.video_category] || ''}</div></div>` : ''}
+      ${p.deferred_media_kind ? `<div class="post-photo" data-deferred-post="${escapeHtml(p.id)}" data-media-kind="${escapeHtml(p.deferred_media_kind)}"><button class="ghost" type="button" style="width:100%;min-height:120px">${p.deferred_media_kind === 'video' ? '▶ Load video' : 'Load photo'}</button></div>` : ''}
       ${p.verse_reference ? `<div class="verse-card verse-tappable" data-verse-ref="${escapeHtml(p.verse_reference)}"><div class="verse-ref">${escapeHtml(p.verse_reference)}</div><div class="verse-text">${escapeHtml(p.verse_text || '')}</div><div class="verse-convo" data-convo-for="${escapeHtml(p.verse_reference)}">💬 Start the conversation</div></div>` : ''}
       <div class="action-row">
         <button class="action-btn ${p.liked_by_me ? 'liked' : ''}" data-like="${p.id}">${p.liked_by_me ? '❤️' : '🤍'} <span class="n">${p.like_count}</span> kudos</button>
@@ -1087,13 +1128,14 @@ async function renderHome(main) {
   }
 
   hydrateAvatars(postsEl);
+  hydrateDeferredFeedMedia(postsEl);
   const moreEl = main.querySelector('#feed-more');
   if (moreEl && state.homeCache.nextCursor) {
     moreEl.innerHTML = '<button class="ghost feed-more-btn" type="button">Load more from the community</button>';
     moreEl.querySelector('button').onclick = async () => {
       const button = moreEl.querySelector('button'); button.disabled = true; button.textContent = 'Loading…';
       try {
-        const page = await api(`/feed?scope=${encodeURIComponent(state.feedScope)}&limit=20&before=${encodeURIComponent(state.homeCache.nextCursor)}`);
+        const page = await api(`/feed?scope=${encodeURIComponent(state.feedScope)}&limit=20&media=deferred&before=${encodeURIComponent(state.homeCache.nextCursor)}`);
         state.homeCache.posts = state.homeCache.posts.concat(page.posts || []);
         state.homeCache.nextCursor = page.next_cursor || null;
         renderHome(main);

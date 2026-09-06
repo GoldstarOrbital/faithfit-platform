@@ -386,6 +386,9 @@ struct FeedPostRow: View {
                 FeedVideoView(dataURL: dataURL)
                     .accessibilityLabel(post.videoCategory.map { "Post video: \($0)" } ?? "Post video")
             }
+            if let kind = post.deferredMediaKind {
+                DeferredPostMediaView(postID: post.id, kind: kind)
+            }
 
             HStack(spacing: 18) {
                 Button(action: onLike) {
@@ -439,6 +442,57 @@ struct FeedPostRow: View {
 /// where several videos autoplaying at once would be both jarring and
 /// wasteful. Same decode shape as ReelPlayerView's modal player -- MP4/MOV
 /// only, WebM has no AVFoundation decoder on iOS.
+private struct DeferredPostMediaView: View {
+    let postID: UUID
+    let kind: String
+    @State private var media: PostMediaResponse?
+    @State private var loading = false
+    @State private var error: String?
+
+    var body: some View {
+        Group {
+            if let media {
+                if let video = media.videoData {
+                    FeedVideoView(dataURL: video)
+                } else if let photo = media.photoData, let image = ImageUpload.decode(photo) {
+                    Image(uiImage: image).resizable().scaledToFit()
+                        .accessibilityLabel("Post photo")
+                } else {
+                    Text("This attachment is no longer available.").foregroundStyle(.secondary)
+                }
+            } else if loading {
+                ProgressView("Loading attachment…")
+            } else {
+                Button {
+                    Task { await load() }
+                } label: {
+                    Label(error ?? (kind == "video" ? "Load video" : "Load photo"),
+                          systemImage: kind == "video" ? "play.circle" : "photo")
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 190, maxHeight: 360)
+        .background(FFTheme.parchment1)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .task(id: postID) { if kind == "photo" { await load() } }
+    }
+
+    private func load() async {
+        guard !loading, media == nil else { return }
+        loading = true
+        defer { loading = false }
+        do {
+            let fetched = try await APIClient.shared.fetchPostMedia(id: postID)
+            guard !Task.isCancelled else { return }
+            media = fetched
+        } catch {
+            guard !Task.isCancelled else { return }
+            self.error = "Couldn’t load attachment. Tap to retry."
+        }
+    }
+}
+
 internal struct FeedVideoView: View {
     let dataURL: String
     @State private var player: AVPlayer?
