@@ -63,8 +63,8 @@ struct CircleView: View {
         do {
             async let m = APIClient.shared.fetchCircle()
             async let c = APIClient.shared.fetchCircleCandidates()
-            let (memberResult, candidateResult) = try await (m, c)
-            members = memberResult; candidates = candidateResult
+            let (circleResult, candidateResult) = try await (m, c)
+            members = circleResult.members; maxSize = circleResult.max; candidates = candidateResult
         } catch { errorMessage = error.localizedDescription }
         isLoading = false
     }

@@ -1374,10 +1374,10 @@ final class APIClient {
             : try await request(path, method: "DELETE")
     }
 
-    func fetchCircle() async throws -> [CircleMember] {
-        if useMock { return [] }
+    func fetchCircle() async throws -> (members: [CircleMember], max: Int) {
+        if useMock { return ([], 150) }
         let r: CircleResponse = try await request("/api/circle")
-        return r.members
+        return (r.members, r.max)
     }
 
     func fetchCircleCandidates() async throws -> [CircleCandidate] {
