@@ -6978,7 +6978,7 @@ const SEARCH_ICONS = {
   scripture:  '<path d="M4 5.5A2.5 2.5 0 016.5 3H19v15H6.5A2.5 2.5 0 004 20.5z"/><path d="M12 7v6M9.5 9.5h5"/>',
 };
 
-function openSearch() {
+function openSearch({ messageMode = false } = {}) {
   const main = document.getElementById('main');
   document.querySelectorAll('nav button').forEach(b => b.style.display = 'none');
   main.innerHTML = `
@@ -6988,17 +6988,24 @@ function openSearch() {
     <div class="search-field">
       <svg class="search-field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.6-3.6"/></svg>
       <input class="input" id="search-input" type="search" autocomplete="off"
-             placeholder="Search people, routes, verses…" />
+             placeholder="${messageMode ? 'Find someone to message…' : 'Search people, routes, verses…'}" aria-label="${messageMode ? 'Find someone to message' : 'Search'}" />
     </div>
     <div id="search-results"><div class="muted search-hint">Search across everything: a person, a route, a challenge, a group, a video, or a verse — try a name, or a phrase like “run with endurance”.</div></div>
   `;
   document.getElementById('search-back').onclick = () => {
+    clearTimeout(searchTimer);
+    if (messageMode) return renderInbox();
     document.querySelectorAll('nav button').forEach(b => b.style.display = '');
     render();
   };
   const input = document.getElementById('search-input');
+  const results = document.getElementById('search-results');
+  results.dataset.messageMode = messageMode ? '1' : '0';
+  if (messageMode) results.textContent = 'Search a name or username, then choose a person to open a conversation.';
   input.oninput = () => {
     clearTimeout(searchTimer);
+    // Invalidate immediately, including during the debounce delay.
+    results.searchRequest = (results.searchRequest || 0) + 1;
     // Wait for a pause in typing rather than querying on every keystroke.
     searchTimer = setTimeout(() => runSearch(input.value), 220);
   };
@@ -7008,6 +7015,10 @@ function openSearch() {
 async function runSearch(q) {
   const box = document.getElementById('search-results');
   if (!box) return;
+  const request = (box.searchRequest || 0) + 1;
+  box.searchRequest = request;
+  const isCurrent = () => box.isConnected && box.searchRequest === request;
+  const messageMode = box.dataset.messageMode === '1';
   const term = String(q || '').trim();
   if (term.length < 2) {
     box.innerHTML = '<div class="muted search-hint">Keep typing — two characters or more.</div>';
@@ -7015,7 +7026,14 @@ async function runSearch(q) {
   }
   let data;
   try { data = await api('/search?q=' + encodeURIComponent(term)); }
-  catch { box.innerHTML = '<div class="muted search-hint">Could not search just now.</div>'; return; }
+  catch { if (isCurrent()) box.innerHTML = '<div class="muted search-hint">Could not search just now. Try typing again.</div>'; return; }
+  if (!isCurrent()) return;
+  if (messageMode) {
+    data.groups = (data.groups || []).filter(g => g.type === 'people').map(g => ({
+      ...g, items: g.items.filter(person => String(person.id).toLowerCase() !== String(state.me?.user?.id).toLowerCase())
+    }));
+    data.total = data.groups.reduce((total, group) => total + group.items.length, 0);
+  }
 
   if (!data.total) {
     box.innerHTML = '<div class="muted search-hint">Nothing matched “' + escapeHtml(term) + '”.</div>';
@@ -7033,7 +7051,7 @@ async function runSearch(q) {
     + '</div>').join('');
 
   box.querySelectorAll('.search-row').forEach(row => {
-    row.onclick = () => openSearchResult(row.dataset.type, row.dataset.id);
+    row.onclick = () => messageMode ? openDmWith(row.dataset.id) : openSearchResult(row.dataset.type, row.dataset.id);
   });
 }
 
@@ -7467,18 +7485,19 @@ async function renderInbox() {
   stopDmPoll();
   const main = document.getElementById('main');
   document.querySelectorAll('nav button').forEach(b => b.style.display = 'none');
-  main.innerHTML = '<div class="search-head"><button class="ghost back-btn" id="dm-back">← Back</button></div>'
+  main.innerHTML = '<div class="search-head"><button class="ghost back-btn" id="dm-back">← Back</button><button class="primary" id="dm-new" type="button">New message</button></div>'
     + '<h2 style="margin-top:0">Messages</h2><div id="dm-list" class="muted">Loading…</div>';
   document.getElementById('dm-back').onclick = () => {
     document.querySelectorAll('nav button').forEach(b => b.style.display = '');
     render();
   };
 
+  const box = document.getElementById('dm-list');
+  document.getElementById('dm-new').onclick = () => openSearch({ messageMode: true });
   let data;
   try { data = await api('/dms'); }
-  catch { document.getElementById('dm-list').textContent = 'Could not load your messages.'; return; }
-
-  const box = document.getElementById('dm-list');
+  catch { if (box.isConnected) box.textContent = 'Could not load your messages. Go back and try again.'; return; }
+  if (!box.isConnected) return;
   if (!data.threads.length) {
     box.innerHTML = '<div class="muted search-hint">No conversations yet. Open someone\u2019s profile and tap Message to start one.</div>';
     return;
