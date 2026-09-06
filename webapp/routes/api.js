@@ -101,6 +101,10 @@ const ACTIVITY_SET = new Set(ACTIVITY_TYPES.map(a => a.type));
 // second-guess anyone's actual session.
 const MAX_WORKOUT_DISTANCE_KM = 1000;
 const MAX_WORKOUT_CALORIES = 50000;
+// duration_min is a ranked leaderboard metric too, so a submitted duration
+// needs a ceiling for the same reason distance does. 48h clears any real
+// single session, multi-day ultras included.
+const MAX_WORKOUT_DURATION_SEC = 48 * 3600;
 
 /// A distance is only a number or a numeric string. Number() on its own would
 /// also turn true into 1 and [] into 0, inventing a distance from a value that
@@ -2164,7 +2168,10 @@ router.post('/workouts/manual', requireAuth, (req, res) => {
   if ((Number(avg_hr) > 0 || (Array.isArray(hr_samples) && hr_samples.length)) && !hasActiveConsent(uid, 'biometric_ingest')) {
     return res.status(403).json({ error: 'biometric_consent_required' });
   }
-  const durSec = Math.max(0, Math.round((Number(duration_min) || 0) * 60));
+  // Clamped at both ends: unbounded, this both tops the duration leaderboard
+  // and back-dates start_time by the same amount, since start is derived from
+  // it a few lines down.
+  const durSec = Math.min(MAX_WORKOUT_DURATION_SEC, Math.max(0, Math.round((Number(duration_min) || 0) * 60)));
   if (durSec === 0 && !(Number(distance_km) > 0)) return res.status(400).json({ error: 'need_duration_or_distance' });
   // Typed straight into a form by the member, with no GPS trace to argue
   // with -- the easiest of all the ways into the leaderboard's distance

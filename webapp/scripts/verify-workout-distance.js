@@ -73,4 +73,14 @@ for (const local of ['distanceKm', 'dist']) {
   assert.match(source, assigned, `${local} must be assigned from the helper`);
 }
 
+// duration_min is a ranked leaderboard metric too (LEADERBOARD_METRICS), and
+// manual entry is the one route that takes it from the client rather than
+// measuring it. Unbounded it also back-dates start_time, which is derived
+// from it.
+const manual = source.split("router.post('/workouts/manual'")[1].split('router.')[0];
+assert.match(manual, /Math\.min\(MAX_WORKOUT_DURATION_SEC,/, 'manual duration is clamped at the top');
+assert.match(manual, /const cal = rawCal > 0 && rawCal <= MAX_WORKOUT_CALORIES/, 'manual calories are bounded');
+assert.match(source, /LEADERBOARD_METRICS = new Set\(\['distance_km', 'duration_min', 'workouts'\]\)/,
+  'if the ranked metrics change, revisit which submitted numbers need ceilings');
+
 console.log('Workout distance: real distances kept, out-of-range and non-numeric rejected, shared surfaces read the validated value.');
