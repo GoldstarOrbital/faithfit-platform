@@ -137,6 +137,20 @@ struct HomeFeedView: View {
             }
         }
         .navigationDestination(isPresented: $showNotifications) { NotificationsView() }
+        // HomeSectionShell resets its own `path` to pop any path-based push
+        // (verse threads, etc.) the moment this section stops being active,
+        // but Notifications is pushed via a separate isPresented: binding
+        // that path reset does not reliably clear -- SwiftUI doesn't
+        // guarantee syncing an isPresented boolean back to false just
+        // because an ancestor NavigationStack's bound path was emptied out
+        // from outside. That used to be low-stakes (nothing inside
+        // Notifications could leave Home), but now that tapping a
+        // notification can switch to a completely different tab (see
+        // DeepLink.fromNotificationURL), leaving Home while Notifications is
+        // open is the common case, not the rare one -- so this can no
+        // longer rely on an unconfirmed side effect of the shell's own
+        // reset. Clear it explicitly instead.
+        .onChange(of: isActive) { _, active in if !active { showNotifications = false } }
         .task(id: mode) { await loadFeed() }
         .task {
             unreadNotifications = (try? await APIClient.shared.fetchNotifications().unreadCount) ?? 0
