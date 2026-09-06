@@ -1,16 +1,10 @@
 import SwiftUI
 
-/// Local Identifiable wrapper so `.navigationDestination(item:)` has
-/// something conforming without adding a global `String: Identifiable`
-/// conformance to the whole module (a broader, riskier change than this
-/// screen needs).
-private struct ThreadDestination: Identifiable, Hashable { let id: String }
-
 struct NotificationsView: View {
+    @EnvironmentObject private var deepLinks: DeepLinkRouter
     @State private var notifications: [NotificationItem] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
-    @State private var openThread: ThreadDestination?
 
     var body: some View {
         Group {
@@ -37,14 +31,6 @@ struct NotificationsView: View {
                 }
             }
         }
-        .navigationDestination(item: $openThread) { _ in
-            // thread_id alone doesn't carry the other person's name or id --
-            // DMConversationView needs both. Fall back to opening the inbox;
-            // full deep-linking into a specific thread from a notification
-            // is worth revisiting once there's a lightweight "resolve thread"
-            // endpoint, rather than guessing at names here.
-            DMInboxView()
-        }
         .task { await load() }
         .alert("Could not load notifications", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
@@ -58,6 +44,16 @@ struct NotificationsView: View {
         isLoading = false
     }
 
+    // Every notification already carries a `url` (see fetchNotifications /
+    // GET /api/notifications) but nothing here ever read it except a DM
+    // special case that didn't even use it -- it just opened the generic
+    // inbox, since a bare thread_id has no name/user id for DMConversationView
+    // to open directly. Every OTHER type (post, group, verse, workout,
+    // follow, badge, challenge, streak...) did nothing at all beyond marking
+    // read. DeepLink.fromNotificationURL + DeepLinkRouter.apply reuses the
+    // exact same routing this session already wired up for dm/post/group/
+    // verse/athlete/workout deep links, including DM now opening the actual
+    // thread instead of just the inbox.
     private func open(_ item: NotificationItem) async {
         if !item.isRead {
             try? await APIClient.shared.markNotificationRead(id: item.id)
@@ -65,7 +61,8 @@ struct NotificationsView: View {
                 notifications[idx] = NotificationItem(id: item.id, type: item.type, payload: item.payload, deliveredAt: item.deliveredAt, read: 1, url: item.url)
             }
         }
-        if item.type == "dm" { openThread = ThreadDestination(id: "inbox") }
+        guard let raw = item.url, let link = DeepLink.fromNotificationURL(raw) else { return }
+        deepLinks.apply(link)
     }
 
     private func markAllRead() async {
@@ -103,4 +100,4 @@ private struct NotificationRow: View {
     }
 }
 
-#Preview { NavigationStack { NotificationsView() } }
+#Preview { NavigationStack { NotificationsView() }.environmentObject(DeepLinkRouter()) }

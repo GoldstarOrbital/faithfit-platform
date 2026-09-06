@@ -85,6 +85,31 @@ enum DeepLink: Equatable {
             return nil
         }
     }
+
+    /// The in-app notification list (GET /api/notifications) hands back each
+    /// item's `url` in the SAME web-relative-path format push payloads start
+    /// from (`/?open=post&post_id=<id>`, etc, built by notificationDestination()
+    /// in webapp/routes/api.js) -- that endpoint is shared with the web
+    /// client, which consumes that exact format itself (see app.js's
+    /// notificationUrl/openNotificationDestination), so it can't be converted
+    /// to functioningfaith:// server-side without breaking web. This mirrors
+    /// webapp/lib/push.js's nativeDestination(url) on the native side instead,
+    /// mapping straight to a DeepLink rather than round-tripping through a
+    /// constructed URL string.
+    static func fromNotificationURL(_ raw: String) -> DeepLink? {
+        guard let query = URLComponents(string: raw)?.queryItems else { return .home }
+        func value(_ name: String) -> String? { query.first(where: { $0.name == name })?.value }
+        switch value("open") {
+        case "dm": return value("thread_id").map { DeepLink.dm(threadID: $0) } ?? .messages
+        case "post": return value("post_id").map { DeepLink.post(id: $0) } ?? .home
+        case "workout": return value("workout_id").map { DeepLink.workout(id: $0) } ?? .workouts
+        case "group": return value("group_id").map { DeepLink.group(id: $0) } ?? .explore
+        case "verse": return value("ref").map { DeepLink.verse(reference: $0) } ?? .explore
+        case "profile": return .profile
+        case "journeys", "challenges", "story", "stats": return .explore
+        default: return .home
+        }
+    }
 }
 
 @MainActor
