@@ -1520,7 +1520,27 @@ final class APIClient {
             let message = details?.hint ?? details?.error?.replacingOccurrences(of: "_", with: " ").capitalized
             throw APIError.requestFailed(http.statusCode, message)
         }
-        return try decoder.decode(T.self, from: data)
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            // A 2xx response whose JSON shape doesn't match what this call
+            // site expects (a server/client contract drift, or a mistake in
+            // a Decodable struct here) used to throw the raw DecodingError
+            // straight out of this function. Every call site's own
+            // `catch { errorMessage = error.localizedDescription }` then
+            // showed that verbatim -- DecodingError's default description is
+            // Swift/Foundation debugging text ("The data couldn't be read
+            // because it is missing.", or worse), not something a member
+            // reading an alert can act on, and it names no failed feature.
+            // RELEASE_CHECKLIST.md's "Failed request shows actionable error"
+            // covers exactly this. Reuse the existing, already-actionable
+            // .invalidResponse message; keep the real error out of Release
+            // builds' UI but still visible to a developer via the console.
+            #if DEBUG
+            print("Decode failed for \(T.self) at \(path): \(error)")
+            #endif
+            throw APIError.invalidResponse
+        }
     }
 }
 
