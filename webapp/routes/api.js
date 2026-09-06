@@ -111,7 +111,12 @@ const MAX_WORKOUT_DURATION_SEC = 48 * 3600;
 /// never was one.
 function validWorkoutDistanceKm(value) {
   const n = typeof value === 'number' || (typeof value === 'string' && value.trim() !== '') ? Number(value) : NaN;
-  return Number.isFinite(n) && n > 0 && n <= MAX_WORKOUT_DISTANCE_KM ? +n.toFixed(3) : null;
+  if (!Number.isFinite(n) || n <= 0 || n > MAX_WORKOUT_DISTANCE_KM) return null;
+  // Round before deciding it is a distance: anything under half a metre comes
+  // back as 0 from toFixed(3), and everywhere else in this API "no distance"
+  // is null, not zero.
+  const km = +n.toFixed(3);
+  return km > 0 ? km : null;
 }
 
 const router = express.Router();

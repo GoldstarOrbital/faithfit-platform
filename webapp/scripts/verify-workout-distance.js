@@ -30,7 +30,10 @@ const distanceFor = (value) =>
 // Real distances survive, rounded to metres.
 assert.equal(distanceFor(5), 5);
 assert.equal(distanceFor(42.195), 42.195);
-assert.equal(distanceFor(0.0001234), 0);
+// Under half a metre rounds to zero, and zero is not a distance -- "none" is
+// null everywhere else in this API, so it must not become a 0 km workout.
+assert.equal(distanceFor(0.0001234), null);
+assert.equal(distanceFor(0.001), 0.001, 'a metre is still a real, if tiny, distance');
 assert.equal(distanceFor(1000), 1000, 'the ceiling itself is a legitimate distance');
 
 // A numeric string is what an HTTP body most often actually carries.
