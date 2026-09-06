@@ -233,7 +233,16 @@ struct HomeFeedView: View {
         feedGeneration = generation
         nextCursor = nil
         isLoadingMore = false
-        isLoading = true
+        // Show the last feed this member saw while the live one loads, so Home
+        // opens on content instead of a spinner. The fetch below still runs and
+        // still wins; this only decides what is on screen until it lands. If
+        // there is nothing stored, this is a no-op and the spinner shows
+        // exactly as before.
+        if posts.isEmpty, let userID = session.profile?.id,
+           let cached = FeedCache.load(userID: userID, mode: requestedMode.rawValue) {
+            posts = cached
+        }
+        isLoading = posts.isEmpty
         defer { if feedGeneration == generation { isLoading = false } }
         feedError = nil
         do {
@@ -246,10 +255,12 @@ struct HomeFeedView: View {
                 guard !Task.isCancelled, feedGeneration == generation, mode == requestedMode else { return }
                 posts = fetched
                 nextCursor = nil
+                if let userID = session.profile?.id { FeedCache.save(fetched, userID: userID, mode: requestedMode.rawValue) }
             case .following:
                 let page = try await APIClient.shared.fetchFeedPage(followingOnly: true)
                 guard !Task.isCancelled, feedGeneration == generation, mode == requestedMode else { return }
                 posts = page.posts
+                if let userID = session.profile?.id { FeedCache.save(page.posts, userID: userID, mode: requestedMode.rawValue) }
                 nextCursor = page.nextCursor
             }
         } catch {

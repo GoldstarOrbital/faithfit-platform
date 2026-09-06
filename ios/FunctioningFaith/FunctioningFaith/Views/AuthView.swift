@@ -59,6 +59,10 @@ final class NativeSession: ObservableObject {
         profile = nil
         requiresAccountSetup = false
         APIClient.shared.clearResponseCache()
+        // The stored feed is member content on disk, so it goes for the same
+        // reason the response cache does: whoever signs in next on this device
+        // must not inherit it.
+        FeedCache.clearAll()
     }
 
     func deleteAccount() async throws {
@@ -66,6 +70,7 @@ final class NativeSession: ObservableObject {
         profile = nil
         requiresAccountSetup = false
         APIClient.shared.clearResponseCache()
+        FeedCache.clearAll()
     }
 }
 
