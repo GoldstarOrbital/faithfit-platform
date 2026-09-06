@@ -57,6 +57,8 @@ jobs:
         run: node scripts/verify-shell-cache.js
       - name: Verify workout distance validation
         run: node scripts/verify-workout-distance.js
+      - name: Verify blocking severs the relationship
+        run: node scripts/verify-block-severs-relationship.js
       - name: Verify private group pulse contract
         run: npm run verify:group-pulse
       - name: Verify public sharing acquisition contract

@@ -302,6 +302,19 @@ function send(me, threadId, body, options = {}) {
 function block(me, otherId) {
   if (!otherId || otherId === me) return { error: 'invalid_recipient' };
   db.prepare('INSERT OR IGNORE INTO dm_blocks (blocker_id, blocked_id) VALUES (?, ?)').run(me, otherId);
+  // A block row alone only gated what each of them could READ. The
+  // relationship itself survived it: they stayed in each other's follower
+  // counts, a pending follow request kept sitting in the blocker's list with
+  // the blocked person's name on it, and circle membership -- which is a
+  // subset of followers and gates the most sensitive posts in the app --
+  // outlived the block entirely. Sever it in both directions, the same
+  // cleanup account deletion already does for the same tables.
+  db.prepare('DELETE FROM followers WHERE (follower_id = ? AND followee_id = ?) OR (follower_id = ? AND followee_id = ?)')
+    .run(me, otherId, otherId, me);
+  db.prepare('DELETE FROM follow_requests WHERE (requester_id = ? AND target_id = ?) OR (requester_id = ? AND target_id = ?)')
+    .run(me, otherId, otherId, me);
+  db.prepare('DELETE FROM circle_members WHERE (owner_id = ? AND member_id = ?) OR (owner_id = ? AND member_id = ?)')
+    .run(me, otherId, otherId, me);
   return { ok: true, blocked: true };
 }
 

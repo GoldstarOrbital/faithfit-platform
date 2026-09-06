@@ -2764,6 +2764,14 @@ router.post('/users/:id/follow', requireAuth, (req, res) => {
   if (target === me) return res.status(400).json({ error: 'cannot_follow_self' });
   const exists = db.prepare('SELECT 1 FROM users WHERE id = ?').get(target);
   if (!exists) return res.status(404).json({ error: 'user_not_found' });
+  // Every read path already treats a blocked pair as if the other person does
+  // not exist (see the profile route's own 404 above). Following was the hole:
+  // a blocked member could still press Follow, land in the follower tier that
+  // gates followers-only posts, and -- either way, public or private -- put
+  // their display name straight into the notification list of the person who
+  // blocked them. Same 404 as everywhere else, so this cannot be used to probe
+  // whether someone blocked you.
+  if (dms.isBlockedEitherWay(me, target)) return res.status(404).json({ error: 'user_not_found' });
 
   const already = db.prepare('SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?').get(me, target);
   const pending = db.prepare('SELECT 1 FROM follow_requests WHERE requester_id = ? AND target_id = ?').get(me, target);
