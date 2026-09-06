@@ -3463,6 +3463,13 @@ router.post('/groups/:id/pulse/:checkinId/encourage', requireAuth, requireCommun
     .get(req.params.checkinId, req.params.id);
   if (!checkin) return res.status(404).json({ error: 'not_found' });
   if (checkin.user_id === req.session.userId) return res.status(400).json({ error: 'cannot_encourage_self' });
+  // Sharing a group does not undo a block. This is a directed interaction that
+  // notifies one person by the sender's display name, so it takes the same
+  // guard story reactions and replies already use -- otherwise a shared group
+  // is a way back into the notifications of someone who blocked you. Group
+  // messages deliberately keep no such check: those are a broadcast to
+  // everyone, and one block should not silence the room.
+  if (dms.isBlockedEitherWay(req.session.userId, checkin.user_id)) return res.status(404).json({ error: 'not_found' });
   const added = db.prepare('INSERT OR IGNORE INTO group_pulse_encouragements(checkin_id,user_id) VALUES(?,?)')
     .run(checkin.id, req.session.userId).changes === 1;
   if (added) notify(checkin.user_id, 'group_pulse', `${displayName(req.session.userId)} encouraged your group check-in.`,
@@ -3554,7 +3561,11 @@ router.post('/events/:id/rsvp', requireAuth, (req, res) => {
       ON CONFLICT(event_id, user_id) DO UPDATE SET status = excluded.status
     `).run(event.id, req.session.userId, status);
     // Let the organiser know someone's coming (only on a real change, not a re-click).
-    if (event.creator_id !== req.session.userId && (!had || had.status !== status)) {
+    // RSVP itself stands -- an event in a group both belong to is a shared
+    // space -- but the organiser does not get a notification naming someone
+    // they blocked. Same line the pulse encourage and reflection notices draw.
+    if (event.creator_id !== req.session.userId && (!had || had.status !== status)
+        && !dms.isBlockedEitherWay(req.session.userId, event.creator_id)) {
       const verb = status === 'going' ? 'is going to' : 'is interested in';
       notify(event.creator_id, 'event_rsvp', `${displayName(req.session.userId)} ${verb} "${event.title}"`, { event_id: event.id, group_id: event.group_id });
     }
@@ -5531,9 +5542,17 @@ function reflectionRows(threadId, meId) {
            (SELECT COUNT(*) FROM verse_reflection_likes l WHERE l.reflection_id = r.id) AS like_count
     FROM verse_reflections r
     JOIN users u ON u.id = r.user_id
-    WHERE r.thread_id = ?
+    WHERE r.thread_id = @thread
+      -- The feed and post comments both drop authors on either side of a
+      -- block; verse threads were the one social surface that did not, so a
+      -- blocked member's reflections still showed up for the person who
+      -- blocked them. With no signed-in reader @me is null, no dm_blocks row
+      -- matches, and the thread reads exactly as it did before.
+      AND NOT EXISTS (SELECT 1 FROM dm_blocks b
+        WHERE (b.blocker_id = @me AND b.blocked_id = r.user_id)
+           OR (b.blocker_id = r.user_id AND b.blocked_id = @me))
     ORDER BY r.created_at ASC
-  `).all(threadId);
+  `).all({ thread: threadId, me: meId ?? null });
   // Same fix as GET /users/:id -- this CASE WHEN column comes back from
   // SQLite as a 0/1 integer, and the native client's Bool fields only decode
   // a literal true/false.
@@ -6178,18 +6197,28 @@ router.post('/verses/threads/:id/reflections', requireAuth, (req, res) => {
   const me = req.session.userId;
   const who = displayName(me);
   const snippet = content.slice(0, 60);
+  // A verse thread is a shared space, so the reflection itself still posts --
+  // one member should not be able to shut another out of scripture discussion.
+  // The notification is the part that must not cross a block: it carries the
+  // sender's display name and 60 characters of their own text straight into
+  // the notification list of someone who blocked them.
   const notified = new Set([me]);
+  const blocked = (userId) => dms.isBlockedEitherWay(me, userId);
 
   if (parentId) {
     const parentAuthor = db.prepare('SELECT user_id FROM verse_reflections WHERE id = ?').get(parentId);
     if (parentAuthor && !notified.has(parentAuthor.user_id)) {
       notified.add(parentAuthor.user_id);
-      notify(parentAuthor.user_id, 'reflection', `${who} replied on ${thread.reference}: "${snippet}"`, { reference: thread.reference, thread_id: thread.id });
+      if (!blocked(parentAuthor.user_id)) {
+        notify(parentAuthor.user_id, 'reflection', `${who} replied on ${thread.reference}: "${snippet}"`, { reference: thread.reference, thread_id: thread.id });
+      }
     }
   }
   if (!notified.has(thread.opened_by)) {
     notified.add(thread.opened_by);
-    notify(thread.opened_by, 'reflection', `${who} reflected on ${thread.reference}: "${snippet}"`, { reference: thread.reference, thread_id: thread.id });
+    if (!blocked(thread.opened_by)) {
+      notify(thread.opened_by, 'reflection', `${who} reflected on ${thread.reference}: "${snippet}"`, { reference: thread.reference, thread_id: thread.id });
+    }
   }
 
   const created = db.prepare(`
@@ -6204,6 +6233,12 @@ router.post('/verses/reflections/:id/like', requireAuth, (req, res) => {
   const reflection = db.prepare('SELECT id, user_id, thread_id FROM verse_reflections WHERE id = ?').get(req.params.id);
   if (!reflection) return res.status(404).json({ error: 'reflection_not_found' });
   const uid = req.session.userId;
+  // Mirroring /posts/:id/like properly means mirroring its block check too:
+  // that route gates on postVisibleTo, which refuses a blocked pair. Liking is
+  // a directed interaction on one person's own words, and it notifies them by
+  // name. The thread read now hides these reflections from a blocked pair, but
+  // this endpoint still takes an id directly.
+  if (dms.isBlockedEitherWay(uid, reflection.user_id)) return res.status(404).json({ error: 'reflection_not_found' });
   const existing = db.prepare('SELECT 1 FROM verse_reflection_likes WHERE reflection_id = ? AND user_id = ?').get(reflection.id, uid);
   if (existing) {
     db.prepare('DELETE FROM verse_reflection_likes WHERE reflection_id = ? AND user_id = ?').run(reflection.id, uid);

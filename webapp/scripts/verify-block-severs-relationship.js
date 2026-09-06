@@ -71,10 +71,50 @@ assert.deepEqual(dms.block(A, A), { error: 'invalid_recipient' });
 assert.deepEqual(dms.block(A, null), { error: 'invalid_recipient' });
 assert.equal(between('followers', A, B), 2, 'a rejected block deletes nothing');
 
+const source = fs.readFileSync(path.join(__dirname, '../routes/api.js'), 'utf8');
+
+// Verse threads were the one social surface with no block handling at all --
+// the feed and post comments both drop authors on either side of a block.
+// Runs the real reflectionRows SQL, not a copy.
+const reflectionSql = source
+  .split('function reflectionRows')[1]
+  .match(/db\.prepare\(`([\s\S]*?)`\)/)[1];
+db.exec("DELETE FROM verse_reflections; DELETE FROM users; DELETE FROM dm_blocks;");
+const addUser = db.prepare('INSERT INTO users (id, display_name, email) VALUES (?,?,?)');
+for (const [id, name] of [[A, 'Blocker'], [B, 'Blocked'], ['third', 'Third']]) addUser.run(id, name, `${id}@test.invalid`);
+db.prepare('INSERT INTO verse_reflections (id, thread_id, user_id, content) VALUES (?,?,?,?),(?,?,?,?)')
+  .run('r-a', 't1', A, 'mine', 'r-b', 't1', B, 'theirs');
+const reflections = (me) => db.prepare(reflectionSql).all({ thread: 't1', me }).map(r => r.user_id);
+
+assert.deepEqual(reflections(A).sort(), [A, B].sort(), 'both visible before any block');
+dms.block(A, B);
+assert.deepEqual(reflections(A), [A], 'the blocked member\'s reflection is hidden from the blocker');
+assert.deepEqual(reflections(B), [B], 'and the blocker\'s is hidden from them, both directions');
+assert.deepEqual(reflections('third').sort(), [A, B].sort(), 'an uninvolved reader still sees the whole thread');
+assert.deepEqual(reflections(null).sort(), [A, B].sort(), 'a signed-out reader is unaffected');
+
+// The reflection itself still posts across a block -- a shared scripture
+// thread is not one member's to close -- but the notification, which carries
+// the sender's name and their own text, must not cross it.
+const reflect = source.split("router.post('/verses/threads/:id/reflections'")[1].split('router.')[0];
+assert.match(reflect, /const blocked = \(userId\) => dms\.isBlockedEitherWay\(me, userId\)/, 'reflection notices check blocking');
+assert.equal((reflect.match(/if \(!blocked\(/g) || []).length, 2,
+  'both the parent-author and thread-opener notices are guarded');
+assert.match(source.split("router.post('/verses/reflections/:id/like'")[1].split('router.')[0],
+  /if \(dms\.isBlockedEitherWay\(uid, reflection\.user_id\)\) return res\.status\(404\)/,
+  'liking a reflection refuses a blocked pair, the way /posts/:id/like does');
+
+// Directed interactions that notify one person by name, inside a shared space.
+assert.match(source.split("router.post('/groups/:id/pulse/:checkinId/encourage'")[1].split('router.')[0],
+  /if \(dms\.isBlockedEitherWay\(req\.session\.userId, checkin\.user_id\)\)/,
+  'group pulse encouragement does not cross a block');
+assert.match(source.split("router.post('/events/:id/rsvp'")[1].split('router.')[0],
+  /&& !dms\.isBlockedEitherWay\(req\.session\.userId, event\.creator_id\)/,
+  'an RSVP does not notify an organiser who blocked the member');
+
 // Following is the one write path that could put a blocked name back in front
 // of the blocker. It must refuse, with the same 404 every other blocked read
 // gives, so it cannot be used to probe whether someone blocked you.
-const source = fs.readFileSync(path.join(__dirname, '../routes/api.js'), 'utf8');
 const follow = source.split("router.post('/users/:id/follow'")[1].split('router.')[0];
 assert.match(follow, /if \(dms\.isBlockedEitherWay\(me, target\)\) return res\.status\(404\)/,
   'the follow route must refuse a blocked pair');
