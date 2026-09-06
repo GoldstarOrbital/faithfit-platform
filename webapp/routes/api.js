@@ -93,6 +93,23 @@ const ACTIVITY_TYPES = [
 ];
 const ACTIVITY_SET = new Set(ACTIVITY_TYPES.map(a => a.type));
 
+// Ceilings for the workout numbers a client can submit, shared by every route
+// that writes them (the manual stop handler and each connector import). These
+// are absurd upper bounds meant only to stop a single request from corrupting
+// a shared surface -- distance_km feeds the community leaderboard, stats
+// totals, personal bests, and challenge and journey progress -- not to
+// second-guess anyone's actual session.
+const MAX_WORKOUT_DISTANCE_KM = 1000;
+const MAX_WORKOUT_CALORIES = 50000;
+
+/// A distance is only a number or a numeric string. Number() on its own would
+/// also turn true into 1 and [] into 0, inventing a distance from a value that
+/// never was one.
+function validWorkoutDistanceKm(value) {
+  const n = typeof value === 'number' || (typeof value === 'string' && value.trim() !== '') ? Number(value) : NaN;
+  return Number.isFinite(n) && n > 0 && n <= MAX_WORKOUT_DISTANCE_KM ? +n.toFixed(3) : null;
+}
+
 const router = express.Router();
 const postRateWindow = new Map();
 const webhookTestWindow = new Map();
@@ -914,10 +931,13 @@ router.post('/connectors/apple-health/sync', requireAuth, (req, res) => {
     const rawType = w?.activityType || w?.activity_type;
     const type = ACTIVITY_SET.has(rawType) ? rawType : 'Workout'; // never trust an arbitrary client-supplied type string into a column other code assumes is from ACTIVITY_TYPES
     const durationSec = Math.max(0, Math.round((Date.parse(endTime) - Date.parse(startTime)) / 1000));
-    const calories = Number.isFinite(Number(w?.calories)) && Number(w.calories) >= 0 ? Math.round(Number(w.calories)) : null;
+    const rawCalories = Number(w?.calories);
+    const calories = Number.isFinite(rawCalories) && rawCalories >= 0 && rawCalories <= MAX_WORKOUT_CALORIES ? Math.round(rawCalories) : null;
     const avgHr = Number.isFinite(Number(w?.avgHeartRate ?? w?.avg_heart_rate)) ? Math.round(Number(w.avgHeartRate ?? w.avg_heart_rate)) : null;
-    const distanceKm = Number.isFinite(Number(w?.distanceMeters ?? w?.distance_meters)) && Number(w.distanceMeters ?? w.distance_meters) > 0
-      ? +(Number(w.distanceMeters ?? w.distance_meters) / 1000).toFixed(2) : null;
+    // Same ceiling as the manual stop handler: this writes the same
+    // leaderboard-feeding column, so an import must not be the way around it.
+    const rawMeters = w?.distanceMeters ?? w?.distance_meters;
+    const distanceKm = validWorkoutDistanceKm(Number.isFinite(Number(rawMeters)) ? Number(rawMeters) / 1000 : NaN);
 
     const workoutId = randomUUID();
     db.prepare(`INSERT INTO workouts (id, user_id, type, start_time, end_time, calories, avg_hr, distance_km, duration_sec, note, source)
@@ -966,7 +986,7 @@ async function syncStravaForUser(userId) {
     const start = new Date(a.start_date).toISOString();
     const durationSec = Math.round(a.elapsed_time || a.moving_time || 0);
     const end = new Date(new Date(start).getTime() + durationSec * 1000).toISOString();
-    const distanceKm = a.distance ? +(a.distance / 1000).toFixed(2) : null;
+    const distanceKm = validWorkoutDistanceKm(Number.isFinite(Number(a.distance)) ? Number(a.distance) / 1000 : NaN);
     const calories = a.calories || (distanceKm ? Math.round(distanceKm * 60) : Math.round((durationSec / 60) * 8));
     const path = a.map?.summary_polyline ? strava.decodePolyline(a.map.summary_polyline) : null;
 
@@ -1113,7 +1133,7 @@ async function syncWearableForUser(userId, provider) {
     if (!a.externalId || db.prepare('SELECT 1 FROM imported_activities WHERE provider=? AND external_id=?').get(provider, a.externalId)) continue;
     const durationSec = Math.max(0, a.durationSec || 0); const end = new Date(a.start.getTime() + durationSec * 1000).toISOString();
     const workoutId = randomUUID();
-    db.prepare(`INSERT INTO workouts (id,user_id,type,start_time,end_time,calories,avg_hr,max_hr,distance_km,duration_sec,note,source) VALUES (?,?,?,?,?,?,?,?,?,?,? ,?)`).run(workoutId,userId,a.type,a.start.toISOString(),end,a.calories,a.avgHr,a.maxHr,a.distanceKm,durationSec,a.note,provider);
+    db.prepare(`INSERT INTO workouts (id,user_id,type,start_time,end_time,calories,avg_hr,max_hr,distance_km,duration_sec,note,source) VALUES (?,?,?,?,?,?,?,?,?,?,? ,?)`).run(workoutId,userId,a.type,a.start.toISOString(),end,a.calories,a.avgHr,a.maxHr,validWorkoutDistanceKm(a.distanceKm),durationSec,a.note,provider);
     db.prepare('INSERT INTO imported_activities (id,user_id,provider,external_id,workout_id) VALUES (?,?,?,?,?)').run(randomUUID(),userId,provider,a.externalId,workoutId);
     publish('workout.completed',{user_id:userId,workout_id:workoutId,calories:a.calories||0,avg_hr:a.avgHr||null}); imported++;
   }
@@ -1990,16 +2010,7 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   // permanently; non-numeric, SQLite stores it as text and the DM
   // workout-share route later throws on .toFixed(). 1000 km is far beyond
   // any single session.
-  // Only a number or a numeric string is a distance. Number() alone would
-  // also turn true into 1 and [] into 0, quietly inventing a distance out of
-  // a value that never was one.
-  const submittedDistance = typeof gps_distance_km === 'number'
-    || (typeof gps_distance_km === 'string' && gps_distance_km.trim() !== '')
-    ? Number(gps_distance_km)
-    : NaN;
-  const distanceKm = Number.isFinite(submittedDistance) && submittedDistance > 0 && submittedDistance <= 1000
-    ? +submittedDistance.toFixed(3)
-    : null;
+  const distanceKm = validWorkoutDistanceKm(gps_distance_km);
   // Calories: use real GPS distance if we have one (running ~ 60 kcal/km), else fall back to a duration-based estimate.
   const durationMin = (Date.now() - new Date(workout.start_time).getTime()) / 60000;
   const calories = distanceKm ? Math.round(distanceKm * 60) : Math.round(durationMin * 8);
@@ -2155,8 +2166,14 @@ router.post('/workouts/manual', requireAuth, (req, res) => {
   }
   const durSec = Math.max(0, Math.round((Number(duration_min) || 0) * 60));
   if (durSec === 0 && !(Number(distance_km) > 0)) return res.status(400).json({ error: 'need_duration_or_distance' });
-  const dist = Number(distance_km) > 0 ? Number(distance_km) : null;
-  const cal = Number(calories) > 0 ? Math.round(Number(calories)) : (dist ? Math.round(dist * 60) : Math.round((durSec / 60) * 8));
+  // Typed straight into a form by the member, with no GPS trace to argue
+  // with -- the easiest of all the ways into the leaderboard's distance
+  // column, so it takes the same ceiling as every other one.
+  const dist = validWorkoutDistanceKm(distance_km);
+  const rawCal = Number(calories);
+  const cal = rawCal > 0 && rawCal <= MAX_WORKOUT_CALORIES
+    ? Math.round(rawCal)
+    : (dist ? Math.round(dist * 60) : Math.round((durSec / 60) * 8));
   const when = date && !isNaN(new Date(date)) ? new Date(date).toISOString() : new Date().toISOString();
   const start = new Date(new Date(when).getTime() - durSec * 1000).toISOString();
   const id = randomUUID();

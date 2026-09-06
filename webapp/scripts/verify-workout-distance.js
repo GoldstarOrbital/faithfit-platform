@@ -21,11 +21,11 @@ const source = fs.readFileSync(path.join(__dirname, '../routes/api.js'), 'utf8')
 const handler = source.split("router.post('/workouts/:id/stop'")[1];
 assert.ok(handler, 'could not find the workout stop handler');
 
-const validation = handler.match(/const submittedDistance = [\s\S]*?: null;/);
-assert.ok(validation, 'could not find the distance validation in the stop handler');
+const helper = source.match(/const MAX_WORKOUT_DISTANCE_KM = [\s\S]*?\nfunction validWorkoutDistanceKm[\s\S]*?\n}/);
+assert.ok(helper, 'could not find validWorkoutDistanceKm');
 
-const distanceFor = (gps_distance_km) =>
-  vm.runInNewContext(`${validation[0]}; distanceKm;`, { gps_distance_km });
+const distanceFor = (value) =>
+  vm.runInNewContext(`${helper[0]}; validWorkoutDistanceKm(value);`, { value });
 
 // Real distances survive, rounded to metres.
 assert.equal(distanceFor(5), 5);
@@ -48,8 +48,29 @@ for (const bad of [0, -1, -9999, 1000.001, 1e9, Infinity, -Infinity, NaN,
 const stop = handler.split('res.json(')[0];
 assert.ok(!/gps_distance_km\s*\|\|/.test(stop),
   'the raw request value must never be used directly -- use the validated distanceKm');
+assert.match(stop, /const distanceKm = validWorkoutDistanceKm\(gps_distance_km\)/, 'the stop handler validates');
 assert.match(stop, /\.run\(avgHr, maxHr, calories, distanceKm,/, 'the row stores the validated distance');
 assert.match(stop, /applyWorkoutToChallenges\([^)]*distance_km: distanceKm/, 'challenges use the validated distance');
 assert.match(stop, /applyWorkoutToJourneys\([^)]*distance_km: distanceKm/, 'journeys use the validated distance');
+
+// An import or a manual entry must not be the way around the ceiling the stop
+// handler enforces. Every INSERT that writes distance_km must reach it through
+// the helper, so a newly added path that skips it fails here rather than
+// silently becoming the next open door. Inserts with no distance_km column
+// (starting a workout, the step-only Google Health import) are not counted.
+const writesDistance = [...source.matchAll(/INSERT INTO workouts\s*\(([^)]*)\)/g)]
+  .filter(m => /\bdistance_km\b/.test(m[1]));
+assert.equal(writesDistance.length, 4, 'expected exactly the four distance-writing workout inserts');
+
+// The value bound to distance_km in each of those must be helper-derived: a
+// call, or a local the handler assigned from one.
+const callSites = [...source.matchAll(/validWorkoutDistanceKm\(/g)].length - 1; // minus the definition
+assert.equal(callSites, 5,
+  'four distance-writing inserts plus the stop handler each validate exactly once');
+
+for (const local of ['distanceKm', 'dist']) {
+  const assigned = new RegExp(`const ${local} = validWorkoutDistanceKm\\(`);
+  assert.match(source, assigned, `${local} must be assigned from the helper`);
+}
 
 console.log('Workout distance: real distances kept, out-of-range and non-numeric rejected, shared surfaces read the validated value.');
