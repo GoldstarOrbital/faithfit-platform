@@ -263,6 +263,20 @@ function cachePrivate(seconds) {
   return (req, res, next) => { res.set('Cache-Control', `private, max-age=${seconds}`); next(); };
 }
 
+// Verified public-domain Scripture, derived only from bible_verses -- no
+// session, nothing member-specific, and the text does not change. Held long
+// enough that a chapter already read opens instantly and still opens with no
+// connection at all, which is the point: Scripture is the one thing in this
+// app that should never be unavailable.
+//
+// Called from inside a handler, never as middleware, and only after the row
+// lookup succeeds. A chapter outside the ingested subset answers 404, and
+// caching that would keep answering 404 long after the chapter is ingested.
+const SCRIPTURE_MAX_AGE = 7 * 24 * 60 * 60;
+function cacheScripture(res, seconds = SCRIPTURE_MAX_AGE) {
+  res.set('Cache-Control', `public, max-age=${seconds}, stale-while-revalidate=${seconds}`);
+}
+
 // Credential stuffing and signup spam both look the same at this layer: a lot
 // of attempts, fast, from one place. 20 attempts / 15 min per IP is well
 // above any real person mistyping a password, and blocks the cost a flood of
@@ -4636,6 +4650,7 @@ router.get('/bible/passage/:book/:chapter', (req, res) => {
   const rows = db.prepare('SELECT book, chapter, verse, text, translation FROM bible_verses WHERE book = ? AND chapter = ? ORDER BY verse')
     .all(book, Number(chapter));
   if (!rows.length) return res.status(404).json({ error: 'not_found', hint: 'This chapter is not yet in our verified library.' });
+  cacheScripture(res);
   res.json({ book, chapter: Number(chapter), translation: rows[0].translation, verses: rows });
 });
 
@@ -4663,6 +4678,11 @@ router.get('/bible/search', (req, res) => {
     LIMIT ? OFFSET ?
   `).all(ftsQuery, limit, offset);
 
+  // Deterministic for a given query and page, over text that does not change.
+  // An hour rather than a week for the same reason as coverage: new ingestion
+  // should show up in results reasonably soon. /bible/random is deliberately
+  // left uncached below -- caching it would stop it being random.
+  cacheScripture(res, 3600);
   res.json({ query: q, page, limit, total, count: rows.length, results: rows });
 });
 
@@ -4675,6 +4695,9 @@ router.get('/bible/random', (req, res) => {
 router.get('/bible/coverage', (req, res) => {
   const rows = db.prepare('SELECT book, translation, MIN(chapter) min_ch, MAX(chapter) max_ch, COUNT(DISTINCT chapter) chapters, COUNT(*) verse_count FROM bible_verses GROUP BY book, translation ORDER BY book').all();
   const total = db.prepare('SELECT COUNT(*) c FROM bible_verses').get().c;
+  // An hour, not a week: unlike a chapter's text, this list grows as more of
+  // the canon is ingested, and a stale index hides chapters that now exist.
+  cacheScripture(res, 3600);
   res.json({ note: 'Verified public-domain subset (KJV/WEB via bible-api.com), not the full canon.', total_verses: total, books: rows.length, coverage: rows });
 });
 
