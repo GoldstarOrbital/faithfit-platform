@@ -3,6 +3,7 @@
 
 const assert = require('assert');
 const fs = require('fs');
+const vm = require('node:vm');
 const path = require('path');
 const read = (...parts) => fs.readFileSync(path.join(__dirname, '..', ...parts), 'utf8');
 const app = read('public', 'app.js');
@@ -62,4 +63,42 @@ for (const route of ["router.get('/verses/saved'", "router.get('/bible/ask/histo
   assert.ok(!body.includes('cacheScripture'), `${route} is member-scoped and must not be publicly cacheable`);
 }
 
-console.log(JSON.stringify({ private_offline_scripture: true, account_scoped: true, cache_busted: true, scripture_readable_offline: true }));
+// Per-chapter caching only ever gives offline access to chapters already
+// opened online. /bible/offline is what makes Scripture work with no
+// connection at all, so its shape is worth pinning: the whole thing is only
+// affordable because the response does not repeat the book, chapter, verse
+// and translation on all 31k rows.
+{
+  const os = require('os');
+  process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-bible-'));
+  const db = require('../lib/db');
+  db.exec('CREATE TABLE IF NOT EXISTS bible_verses (book TEXT, chapter INTEGER, verse INTEGER, text TEXT, translation TEXT)');
+  db.exec("DELETE FROM bible_verses");
+  const add = db.prepare('INSERT INTO bible_verses (book, chapter, verse, text, translation) VALUES (?,?,?,?,?)');
+  add.run('John', 3, 15, 'that whoever believes may have eternal life.', 'WEB');
+  add.run('John', 3, 16, 'For God so loved the world', 'WEB');
+  add.run('Genesis', 1, 1, 'In the beginning', 'WEB');
+
+  const build = api.match(/let offlineBibleCache = null;[\s\S]*?\n}\n/);
+  assert.ok(build, 'could not find the offline Bible builder');
+  const offlineBible = vm.runInNewContext(`${build[0]}; offlineBible;`, { db, JSON, createHash: require('crypto').createHash });
+
+  const first = offlineBible();
+  const body = JSON.parse(first.body);
+  assert.equal(body.verses, 3, 'every ingested verse ships');
+  assert.equal(body.books.John['3'][15], 'For God so loved the world', 'verse N lands at index N-1');
+  assert.equal(body.books.Genesis['1'][0], 'In the beginning');
+  assert.equal(body.translations.John, 'WEB', 'translation is carried once per book, not per verse');
+  assert.ok(!first.body.includes('"chapter"'), 'the shape must not repeat chapter on every row');
+
+  assert.equal(offlineBible(), first, 'built once and kept -- rebuilding 31k rows per request is the expensive way to serve a file that never changes');
+  assert.match(first.etag, /^"[0-9a-f]{24}"$/, 'a strong ETag, so a returning device revalidates into a 304');
+
+  const route = api.split("router.get('/bible/offline'")[1].split('router.')[0];
+  assert.match(route, /if \(req\.headers\['if-none-match'\] === etag\) return res\.status\(304\)\.end\(\);/,
+    'a device that already has it must not pull another megabyte');
+  assert.ok(route.includes('cacheScripture(res)'), 'the offline Bible is cached like the rest of Scripture');
+  try { fs.rmSync(process.env.DATA_DIR, { recursive: true, force: true }); } catch {}
+}
+
+console.log(JSON.stringify({ private_offline_scripture: true, account_scoped: true, cache_busted: true, scripture_readable_offline: true, whole_bible_offline: true }));

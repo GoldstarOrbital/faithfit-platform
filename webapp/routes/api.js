@@ -1,5 +1,5 @@
 const express = require('express');
-const { randomUUID } = require('crypto');
+const { randomUUID, createHash } = require('crypto');
 const db = require('../lib/db');
 const { publish, subscribe } = require('../lib/events');
 const { runPipeline } = require('../lib/pipeline');
@@ -4690,6 +4690,46 @@ router.get('/bible/random', (req, res) => {
   const row = db.prepare('SELECT book, chapter, verse, text, translation FROM bible_verses ORDER BY RANDOM() LIMIT 1').get();
   if (!row) return res.status(404).json({ error: 'no_verses_loaded' });
   res.json(row);
+});
+
+// The whole ingested Bible in one response, so Scripture works with no
+// connection at all -- not merely the chapters a member happened to open while
+// online, which is all per-chapter caching can ever give.
+//
+// It is affordable: 31,202 verses is 3.9MB of JSON and about 1.2MB over the
+// wire once compression has it, fetched once and then served from cache. The
+// text is public domain and identical for everyone, so there is nothing
+// member-specific to leak and no reason for each device to rebuild it.
+//
+// Built on first request and kept, rather than at boot: most requests never
+// want it, and rebuilding 31k rows per request would be the expensive way to
+// serve a file that never changes between deploys.
+let offlineBibleCache = null;
+function offlineBible() {
+  if (offlineBibleCache) return offlineBibleCache;
+  const rows = db.prepare('SELECT book, chapter, verse, text, translation FROM bible_verses ORDER BY book, chapter, verse').all();
+  // Chapters as plain arrays of text, indexed by verse number. Repeating the
+  // book, chapter, verse and translation on every row costs about 1.5MB for
+  // information the shape already carries.
+  const books = {};
+  const translations = {};
+  for (const row of rows) {
+    ((books[row.book] ||= {})[row.chapter] ||= [])[row.verse - 1] = row.text;
+    translations[row.book] = row.translation;
+  }
+  const body = JSON.stringify({ verses: rows.length, translations, books });
+  offlineBibleCache = { body, etag: `"${createHash('sha256').update(body).digest('hex').slice(0, 24)}"` };
+  return offlineBibleCache;
+}
+
+router.get('/bible/offline', (req, res) => {
+  const { body, etag } = offlineBible();
+  res.set('ETag', etag);
+  cacheScripture(res);
+  // Unchanged between deploys, so a returning device revalidates into a 304
+  // instead of pulling another megabyte.
+  if (req.headers['if-none-match'] === etag) return res.status(304).end();
+  res.type('application/json').send(body);
 });
 
 router.get('/bible/coverage', (req, res) => {
