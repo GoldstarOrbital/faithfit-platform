@@ -1,18 +1,18 @@
 /**
  * Service worker — push plus a small, versioned shell cache. Navigation is
- * network-first so deployments arrive immediately; versioned assets are
- * cache-first so repeat visits do not redownload the app bundle.
+ * network-first so deployments arrive immediately; assets revalidate against
+ * HTTP cache validators, with an offline shell fallback.
  */
 'use strict';
 
-const SHELL_CACHE = 'functioning-faith-shell-v43';
+const SHELL_CACHE = 'functioning-faith-shell-v44';
 const SHELL = [
   '/',
   '/styles.css?v=ff-googlehealth-1',
   '/sensors.js?v=rider-v1',
   '/journey3d.js?v=rider-v1',
   '/e2e-crypto.js?v=v2',
-  '/app.js?v=ff-googlehealth-1',
+  '/app.js?v=ff-launch-20260905',
   '/journey-live.js?v=rider-v1',
   '/easter-eggs.js?v=ff-polish-20',
   '/intro-sound.js?v=ff-polish-20',
@@ -58,13 +58,15 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Only explicitly versioned assets are cache-first. Unversioned files keep
-  // the browser's normal behavior and can never trap a newly deployed build.
+  // Version labels have historically been reused across deploys. Revalidate
+  // with ETag/Last-Modified instead of serving a CacheStorage entry forever.
+  // Unchanged files still use HTTP 304; offline visits retain the cached shell.
   if (!url.searchParams.has('v')) return;
-  event.respondWith(caches.match(request).then(cached => cached || fetch(request).then(response => {
+  event.respondWith(fetch(request, { cache: 'no-cache' }).then(response => {
+    if (!response.ok) return caches.match(request).then(cached => cached || response);
     store(response);
     return response;
-  })));
+  }).catch(() => caches.match(request).then(cached => cached || Response.error())));
 });
 
 self.addEventListener('push', (event) => {

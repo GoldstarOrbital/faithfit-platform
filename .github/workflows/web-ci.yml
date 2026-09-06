@@ -53,6 +53,8 @@ jobs:
         run: npm run verify:native-auth
       - name: Verify feed ranking and privacy
         run: node scripts/verify-feed-ranking.js
+      - name: Verify shell deployment freshness
+        run: node scripts/verify-shell-cache.js
       - name: Verify private group pulse contract
         run: npm run verify:group-pulse
       - name: Verify public sharing acquisition contract
