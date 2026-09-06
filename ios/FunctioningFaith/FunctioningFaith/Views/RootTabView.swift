@@ -60,6 +60,13 @@ struct RootTabView: View {
             // NotificationCoordinator.requestPermissionIfAnyCategoryAtDefault).
             await NotificationCoordinator.shared.requestPermissionIfAnyCategoryAtDefault()
         }
+        // Fetch the Bible once so Scripture reads with no connection, not just
+        // the chapters that happened to be opened online. Detached and at
+        // background priority because nothing on screen is waiting for it, and
+        // it must not compete with the first screens for the network. It
+        // returns immediately once the Bible is on disk, so this is a no-op on
+        // every launch after the first.
+        .task { await Task.detached(priority: .background) { await OfflineBible.shared.downloadIfNeeded() }.value }
         .sheet(isPresented: $showAskAI) {
             NavigationStack { BibleAnswersView() }
         }

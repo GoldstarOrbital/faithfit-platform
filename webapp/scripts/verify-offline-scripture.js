@@ -78,6 +78,12 @@ for (const route of ["router.get('/verses/saved'", "router.get('/bible/ask/histo
   add.run('John', 3, 15, 'that whoever believes may have eternal life.', 'WEB');
   add.run('John', 3, 16, 'For God so loved the world', 'WEB');
   add.run('Genesis', 1, 1, 'In the beginning', 'WEB');
+  // A real gap: WEB follows the critical text, so Acts 8:37 does not exist.
+  // Indexing by verse-1 leaves a hole, and JSON.stringify emits holes as null.
+  // A typed client decoding a list of strings refuses null and loses the whole
+  // Bible over one absent verse, so the response must never contain one.
+  add.run('Acts', 8, 36, 'What is stopping me from being baptized?', 'WEB');
+  add.run('Acts', 8, 38, 'He commanded the chariot to stand still.', 'WEB');
 
   const build = api.match(/let offlineBibleCache = null;[\s\S]*?\n}\n/);
   assert.ok(build, 'could not find the offline Bible builder');
@@ -85,7 +91,25 @@ for (const route of ["router.get('/verses/saved'", "router.get('/bible/ask/histo
 
   const first = offlineBible();
   const body = JSON.parse(first.body);
-  assert.equal(body.verses, 3, 'every ingested verse ships');
+  assert.equal(body.verses, 5, 'every ingested verse ships');
+
+  // Checked structurally, not as a substring: Scripture itself contains the
+  // letters "null" (Hebrews 7:18, "an annulling of a former commandment"), so
+  // searching the raw body for it reports a problem that is not there.
+  const nulls = [];
+  for (const [book, chapters] of Object.entries(body.books)) {
+    for (const [chapter, verses] of Object.entries(chapters)) {
+      verses.forEach((text, index) => {
+        if (typeof text !== 'string') nulls.push(`${book} ${chapter}:${index + 1}`);
+      });
+    }
+  }
+  assert.deepEqual(nulls, [],
+    'a gap in verse numbering must not serialise as null -- a typed client would refuse the whole Bible over one absent verse');
+  assert.deepEqual(body.books.Acts['8'], ['', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+    '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
+    'What is stopping me from being baptized?', '', 'He commanded the chariot to stand still.'],
+    'the absent verse is an empty string, and the surrounding verses keep their real numbers');
   assert.equal(body.books.John['3'][15], 'For God so loved the world', 'verse N lands at index N-1');
   assert.equal(body.books.Genesis['1'][0], 'In the beginning');
   assert.equal(body.translations.John, 'WEB', 'translation is carried once per book, not per verse');

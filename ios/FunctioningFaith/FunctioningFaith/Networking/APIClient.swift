@@ -884,7 +884,17 @@ final class APIClient {
         guard let encoded = book.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
             throw APIError.invalidResponse
         }
-        return try await request("/api/bible/passage/\(encoded)/\(chapter)")
+        do {
+            return try await request("/api/bible/passage/\(encoded)/\(chapter)")
+        } catch {
+            // Network first, always: a correction to the text still reaches
+            // members, and a stale local copy can never quietly shadow the
+            // live one. The downloaded Bible only answers when the request
+            // could not, which is the case this exists for -- reading
+            // Scripture with no connection.
+            if let offline = await OfflineBible.shared.passage(book: book, chapter: chapter) { return offline }
+            throw error
+        }
     }
 
     func searchBible(query: String, page: Int = 1, limit: Int = 25) async throws -> BibleSearchResponse {

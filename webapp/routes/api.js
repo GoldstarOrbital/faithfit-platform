@@ -4717,6 +4717,18 @@ function offlineBible() {
     ((books[row.book] ||= {})[row.chapter] ||= [])[row.verse - 1] = row.text;
     translations[row.book] = row.translation;
   }
+  // Verse numbering has real gaps: WEB follows the critical text, so Acts
+  // 8:37, Acts 15:34, Acts 24:7 and Luke 17:36 have no verse here. Indexing by
+  // verse-1 leaves those as array holes, which JSON.stringify emits as null --
+  // and a null in a list of strings is exactly the kind of thing a typed client
+  // refuses to decode, taking the whole Bible down with it rather than one
+  // verse. Empty string instead, for clients to skip the way the per-chapter
+  // endpoint simply omits the row.
+  for (const chapters of Object.values(books)) {
+    for (const [chapter, verses] of Object.entries(chapters)) {
+      chapters[chapter] = Array.from(verses, text => text ?? '');
+    }
+  }
   const body = JSON.stringify({ verses: rows.length, translations, books });
   offlineBibleCache = { body, etag: `"${createHash('sha256').update(body).digest('hex').slice(0, 24)}"` };
   return offlineBibleCache;
