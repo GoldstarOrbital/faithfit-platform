@@ -56,7 +56,7 @@ const memberProfile = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 
 assert.match(memberProfile, /fetchAvatarData\(userID: userID\)/, 'member profiles must load the stored avatar');
 assert.match(memberProfile, /Label\("Message", systemImage: "paperplane\.fill"\)/, 'member profiles must open a direct-message action');
 assert.match(memberProfile, /momentsSection\(profile\.posts\)/, 'member profiles must show the API-approved public post grid');
-assert.match(reels, /ScrollView\s*\{\s*LazyVStack/s, 'Reels must have a dedicated vertical scrolling feed');
+assert.match(reels, /ScrollView(?:\(\.vertical\))?\s*\{\s*LazyVStack/s, 'Reels must have a dedicated vertical scrolling feed');
 assert.match(api, /router\.get\('\/posts\/:id', requireAuth/, 'post-backed Reels need a protected single-post lookup');
 assert.match(api, /postVisibleTo\(post, me\)/, 'single-post lookup must apply the feed and comment privacy rule');
 assert.match(client, /func fetchPost\(id: UUID\) async throws -> FeedPost/, 'native Reels need a typed post lookup for comments');
@@ -69,9 +69,11 @@ assert.match(client, /func setConsent\(scope: String, granted: Bool\)/, 'native 
 assert.match(profile, /await APIClient\.shared\.fetchPrivacySettings\(\)/, 'profile must restore saved privacy choices');
 assert.match(workout, /guard biometricIngestEnabled, heartRate > 0, let workoutID/, 'biometric uploads must remain explicit opt-in');
 assert.match(workout, /Date\(\)\.timeIntervalSince\(lastBiometricUpload\) >= 60/, 'biometric uploads must be rate limited');
-assert.match(rootTabs, /@State private var exploreRootID = UUID\(\)/, 'Explore needs a resettable root identity');
-assert.match(rootTabs, /\.id\(exploreRootID\)/, 'Explore must rebuild when returning from a detail');
-assert.match(rootTabs, /if tab == \.explore \{ resetExplore\(\) \}/, 'entering Explore must clear retained detail navigation');
+const appShell = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'AppShell.swift');
+const exploreShell = appShell.split('struct ExploreSectionShell')[1]?.split('\nstruct ')[0];
+assert.ok(exploreShell, 'Explore needs a dedicated section shell');
+assert.match(exploreShell, /NavigationStack\(path: \$path\)/, 'Explore must own its navigation path');
+assert.match(exploreShell, /onChange\(of: isActive\)[\s\S]*if !active \{\s*path = NavigationPath\(\)/, 'leaving Explore must clear retained detail navigation');
 assert.match(journeys, /JourneyRouteCard\(journey: journey\)/, 'Journeys need direct, rich route cards instead of inert rows');
 assert.match(journeyVisual, /figure\.run\.circle\.fill/, 'Journey map needs a member position marker');
 assert.match(liveActivity, /Activity<WorkoutLiveActivityAttributes>/, 'active workouts need a real ActivityKit Live Activity');

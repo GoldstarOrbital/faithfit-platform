@@ -194,11 +194,14 @@ struct ReelsFeedView: View {
     }
 
     private func react(_ reel: Reel, kind: String) {
-        guard let idx = reels.firstIndex(where: { $0.id == reel.id }) else { return }
         Task {
             do {
                 let result = try await APIClient.shared.reactToReel(videoID: reel.videoID, kind: kind)
-                guard !Task.isCancelled else { return }
+                // The feed may refresh or the member may hide this reel while
+                // the network request is in flight. Never retain an array index
+                // across an await: it can target a different reel or crash.
+                guard !Task.isCancelled,
+                      let idx = reels.firstIndex(where: { $0.id == reel.id }) else { return }
                 if kind == "like" { reels[idx] = reels[idx].withLike(active: result.active, count: result.count) }
                 else { reels[idx] = reels[idx].withSave(active: result.active, count: result.count) }
                 #if canImport(UIKit)
@@ -264,7 +267,7 @@ private extension Reel {
         Reel(videoID: videoID, title: title, description: description, thumbnailURL: thumbnailURL,
              channelTitle: channelTitle, category: category, provider: provider, sourceURL: sourceURL,
              sourceKind: sourceKind, videoData: videoData, verseReference: verseReference, verseText: verseText,
-             churchName: churchName, likeCount: likeCount, saveCount: saveCount, likedByMe: active, savedByMe: savedByMe)
+             churchName: churchName, likeCount: count, saveCount: saveCount, likedByMe: active, savedByMe: savedByMe)
     }
     func withSave(active: Bool, count: Int) -> Reel {
         Reel(videoID: videoID, title: title, description: description, thumbnailURL: thumbnailURL,

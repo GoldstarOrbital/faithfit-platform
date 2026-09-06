@@ -22,7 +22,9 @@ function makeGrant(userId, method = 'google') {
 }
 
 async function waitForServer() {
-  for (let attempt = 0; attempt < 40; attempt++) {
+  // A fresh isolated DB imports the entire Bible before listening. Allow
+  // slower Windows/CI disks to finish without misreporting an auth failure.
+  for (let attempt = 0; attempt < 300; attempt++) {
     try {
       const response = await fetch(`http://127.0.0.1:${port}/health`);
       if (response.ok) return;

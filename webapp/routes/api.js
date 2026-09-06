@@ -1458,8 +1458,8 @@ router.get('/feed/for-you', requireAuth, (req, res) => {
     SELECT p.id, p.content, p.created_at, p.user_id author_id, u.display_name author,
            CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS author_has_avatar,
            CASE WHEN EXISTS(SELECT 1 FROM developer_applications da WHERE da.user_id=u.id AND da.status='verified') THEN 1 ELSE 0 END AS author_verified_developer,
-           p.visibility, p.workout_id, p.photo_data, p.photo_category, p.video_data, p.video_category,
-           p.show_route, p.route_privacy_m, w.gps_path,
+           p.visibility, p.workout_id, p.photo_category, p.video_category,
+           p.show_route, p.route_privacy_m,
            w.type workout_type, w.calories, w.avg_hr, w.start_time, w.end_time, w.distance_km,
            v.reference verse_reference, v.text verse_text, v.youversion_id,
            (SELECT COUNT(*) FROM post_comments pc WHERE pc.post_id = p.id) AS comment_count,
@@ -1503,7 +1503,15 @@ router.get('/feed/for-you', requireAuth, (req, res) => {
   const ranked = personalization.rankPosts(candidates, {
     myWorkoutTypes, engagesWithScripture, priorAuthors, now: Date.now(),
   });
+  // Ranking uses metadata only. Do not materialize up to 200 base64 videos,
+  // photos and GPS traces on the Node event loop just to discard most of them.
+  // Hydrate only already-authorized winners; keep the client response unchanged.
+  const mediaForPost = db.prepare(`
+    SELECT p.photo_data, p.video_data, w.gps_path
+    FROM posts p LEFT JOIN workouts w ON w.id = p.workout_id WHERE p.id = ?
+  `);
   const top = ranked.slice(0, limit).map((p) => {
+    Object.assign(p, mediaForPost.get(p.id));
     delete p._score_like_count;
     delete p._score_is_followed;
     delete p._score;

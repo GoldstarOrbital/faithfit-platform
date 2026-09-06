@@ -27,6 +27,7 @@ struct HomeFeedView: View {
     @State private var isLoading = true
     @State private var isLoadingMore = false
     @State private var nextCursor: String?
+    @State private var feedGeneration = UUID()
     @State private var feedError: String?
     @State private var actionError: String?
     @State private var selectedPost: FeedPost?
@@ -213,46 +214,54 @@ struct HomeFeedView: View {
     }
 
     private func loadFeed() async {
+        let generation = UUID()
+        let requestedMode = mode
+        feedGeneration = generation
+        nextCursor = nil
+        isLoadingMore = false
         isLoading = true
-        defer { isLoading = false }
+        defer { if feedGeneration == generation { isLoading = false } }
         feedError = nil
         do {
-            switch mode {
+            switch requestedMode {
             case .forYou:
                 // A fixed-size ranked snapshot, not a paginated cursor --
                 // see the server's GET /feed/for-you for why re-ranking a
                 // paginated list isn't safe. No "load more" for this mode.
-                posts = try await APIClient.shared.fetchForYouFeed()
+                let fetched = try await APIClient.shared.fetchForYouFeed()
+                guard !Task.isCancelled, feedGeneration == generation, mode == requestedMode else { return }
+                posts = fetched
                 nextCursor = nil
             case .following:
                 let page = try await APIClient.shared.fetchFeedPage(followingOnly: true)
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, feedGeneration == generation, mode == requestedMode else { return }
                 posts = page.posts
                 nextCursor = page.nextCursor
             }
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, feedGeneration == generation, mode == requestedMode else { return }
             feedError = error.localizedDescription
         }
     }
 
     private func loadNextPageIfNeeded(_ post: FeedPost) {
-        guard post.id == posts.last?.id, nextCursor != nil, !isLoadingMore else { return }
+        guard post.id == posts.last?.id, nextCursor != nil, !isLoading, !isLoadingMore else { return }
         Task { await loadMore() }
     }
 
     private func loadMore() async {
-        guard let cursor = nextCursor, !isLoadingMore else { return }
+        guard let cursor = nextCursor, !isLoading, !isLoadingMore, mode == .following else { return }
+        let generation = feedGeneration
         isLoadingMore = true
-        defer { isLoadingMore = false }
+        defer { if feedGeneration == generation { isLoadingMore = false } }
         do {
-            let page = try await APIClient.shared.fetchFeedPage(before: cursor, followingOnly: mode == .following)
-            guard !Task.isCancelled else { return }
+            let page = try await APIClient.shared.fetchFeedPage(before: cursor, followingOnly: true)
+            guard !Task.isCancelled, feedGeneration == generation, mode == .following else { return }
             let existing = Set(posts.map(\.id))
             posts.append(contentsOf: page.posts.filter { !existing.contains($0.id) })
             nextCursor = page.nextCursor
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, feedGeneration == generation, mode == .following else { return }
             actionError = "Couldn’t load more posts. Pull down to try again."
         }
     }

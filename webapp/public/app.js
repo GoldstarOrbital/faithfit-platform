@@ -839,7 +839,7 @@ async function renderHome(main) {
           return `<button class="home-explore-tile" data-home-tab="explore" data-home-explore="journeys">
             <span class="home-explore-tile-icon">🗺️</span>
             <span class="home-explore-tile-label">${escapeHtml(j.name || 'Journeys')}</span>
-            <span class="home-explore-tile-sub">${j.progress_km ? `${j.progress_km} / ${j.total_km} km` : `${j.total_km} km · ${escapeHtml(j.world || '')}`}</span>
+            <span class="home-explore-tile-sub">${j.progress_km ? `${fmtKm(j.progress_km)} / ${fmtKm(j.total_km)} km` : `${fmtKm(j.total_km)} km · ${escapeHtml(j.world || '')}`}</span>
           </button>`;
         })() : ''}
         ${homeReels?.videos?.slice(0, 2).map(v => `
