@@ -2,11 +2,16 @@ const express = require('express');
 const compression = require('compression');
 const path = require('path');
 const fs = require('fs');
-const { versionShell } = require('./lib/asset-shell');
+const { versionShell, shellAssets, versionServiceWorker, FINGERPRINT } = require('./lib/asset-shell');
 const publicRoot = path.join(__dirname, 'public');
 const versionedShell = versionShell(fs.readFileSync(path.join(publicRoot, 'index.html'), 'utf8'),
   asset => fs.readFileSync(path.join(publicRoot, asset.slice(1))));
 const sendAppShell = (_req, res) => res.set('Cache-Control', 'no-cache').type('html').send(versionedShell);
+// The worker precaches by exact URL, so it is versioned from the same computed
+// list the shell requests. Hand-maintaining that list stopped being possible
+// the moment versions became content hashes.
+const versionedServiceWorker = versionServiceWorker(
+  fs.readFileSync(path.join(publicRoot, 'sw.js'), 'utf8'), shellAssets(versionedShell));
 const cookieSession = require('cookie-session');
 const db = require('./lib/db');
 const { seed } = require('./lib/seed');
@@ -234,13 +239,25 @@ app.get('/', (req, res, next) => {
 
 app.get('/index.html', sendAppShell);
 
+// Must precede express.static, which would otherwise serve the on-disk file
+// with its stale hand-written SHELL list.
+app.get('/sw.js', (_req, res) => {
+  res.set('Cache-Control', 'no-cache').type('application/javascript').send(versionedServiceWorker);
+});
+
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath, stat) {
-    // Legacy URLs reused version labels. Revalidate executable assets even
-    // without a service worker; ETag still avoids retransferring unchanged files.
-    if (/\.(?:js|css|html)$/i.test(filePath)) {
+    const version = res.req && res.req.query && res.req.query.v;
+    // A content hash changes whenever the bytes do, so the URL can never
+    // outlive its contents -- that is what makes a year safe here, and it is
+    // precisely what the old hand-written labels could not promise, since they
+    // were reused across deploys and stranded visitors on old JavaScript.
+    // Anything still carrying one of those labels keeps revalidating.
+    if (FINGERPRINT.test(String(version || '')) && /\.(?:js|css|png|svg|woff2?|mp4|ogg)$/i.test(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    } else if (/\.(?:js|css|html)$/i.test(filePath)) {
       res.setHeader('Cache-Control', 'no-cache');
-    } else if (res.req && res.req.query && res.req.query.v && /\.(?:js|css|png|svg|woff2?|mp4|ogg)$/i.test(filePath)) {
+    } else if (version && /\.(?:png|svg|woff2?|mp4|ogg)$/i.test(filePath)) {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     }
   },

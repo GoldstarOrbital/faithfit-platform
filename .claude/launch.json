@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "webapp",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start"],
+      "cwd": "webapp",
+      "port": 3000
+    }
+  ]
+}
