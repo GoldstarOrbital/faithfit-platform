@@ -16,6 +16,8 @@ struct MemberProfileView: View {
     @State private var errorMessage: String?
     @State private var expandedPost: MemberProfilePost?
     @State private var mutuals: MutualFollowersResponse?
+    @State private var isSafetyActionWorking = false
+    @State private var showBlockConfirm = false
 
     var body: some View {
         Group {
@@ -151,8 +153,67 @@ struct MemberProfileView: View {
                     else { Label("Message", systemImage: "paperplane.fill").frame(maxWidth: .infinity) }
                 }
                 .buttonStyle(.ffGhost).disabled(isOpeningMessage || profile.isBlocked)
+                safetyMenu(profile)
             }
         }
+    }
+
+    // The server has sent is_muted/is_restricted (and enforced both --
+    // muting filters the feed, restricting blocks DM open/send) since it
+    // shipped the equivalent web UI (webapp/public/app.js's profile-mute/
+    // profile-restrict handlers); this was the only client with no way to
+    // actually turn either one on, only to undo one that was somehow already
+    // set (SafetyView). Block was in the same position -- reachable from a
+    // post's overflow menu or a DM conversation's toolbar, but not from the
+    // profile itself, unlike web's three-button row.
+    private func safetyMenu(_ profile: MemberProfileResponse) -> some View {
+        Menu {
+            Button(profile.isMuted ? "Unmute" : "Mute") { Task { await setSafety(control: "mute", on: !profile.isMuted) } }
+            Button(profile.isRestricted ? "Un-restrict" : "Restrict") { Task { await setSafety(control: "restrict", on: !profile.isRestricted) } }
+            if profile.isBlocked {
+                Button("Unblock") { Task { await toggleBlock(blocking: false) } }
+            } else {
+                Button("Block", role: .destructive) { showBlockConfirm = true }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.title3)
+                .frame(width: 44, height: 44)
+        }
+        .disabled(isSafetyActionWorking)
+        .confirmationDialog(
+            "Block \(profile.user.displayName)?",
+            isPresented: $showBlockConfirm, titleVisibility: .visible
+        ) {
+            Button("Block", role: .destructive) { Task { await toggleBlock(blocking: true) } }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Neither of you will be able to message the other, and their posts and workouts will no longer appear to you.")
+        }
+    }
+
+    private func setSafety(control: String, on: Bool) async {
+        isSafetyActionWorking = true
+        defer { isSafetyActionWorking = false }
+        do {
+            // .uuidString is uppercase on Apple platforms; the server's ids
+            // are lowercase and this lookup is a case-sensitive SQLite `=`
+            // (see fetchMemberProfile's identical .lowercased() a few lines
+            // up, and stopWorkout's comment on the same issue) -- passing it
+            // unlowered here would 404 on every single call.
+            try await APIClient.shared.setRelationshipControl(userID: userID.uuidString.lowercased(), control: control, on: on)
+            await load()
+        } catch { errorMessage = error.localizedDescription }
+    }
+
+    private func toggleBlock(blocking: Bool) async {
+        isSafetyActionWorking = true
+        defer { isSafetyActionWorking = false }
+        do {
+            if blocking { try await APIClient.shared.blockUser(id: userID) }
+            else { try await APIClient.shared.unblockUser(id: userID) }
+            await load()
+        } catch { errorMessage = error.localizedDescription }
     }
 
     private func verseCard(reference: String, text: String?) -> some View {

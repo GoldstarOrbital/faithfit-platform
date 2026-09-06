@@ -245,6 +245,13 @@ struct MemberProfileResponse: Decodable {
     let isMe: Bool
     let isFollowing: Bool
     let isBlocked: Bool
+    // The server has sent these since it shipped mute/restrict's web
+    // initiation UI (see webapp/public/app.js's profile-mute/profile-restrict
+    // handlers) -- decoding them now lets MemberProfileView offer the same
+    // two safety tools natively instead of only being able to undo them
+    // (SafetyView) once they'd somehow already been set from the web.
+    let isMuted: Bool
+    let isRestricted: Bool
     let followRequested: Bool
 
     enum CodingKeys: String, CodingKey {
@@ -252,6 +259,8 @@ struct MemberProfileResponse: Decodable {
         case isMe = "is_me"
         case isFollowing = "is_following"
         case isBlocked = "is_blocked"
+        case isMuted = "is_muted"
+        case isRestricted = "is_restricted"
         case followRequested = "follow_requested"
     }
 }

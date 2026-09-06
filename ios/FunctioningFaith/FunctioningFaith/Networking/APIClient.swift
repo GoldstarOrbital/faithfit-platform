@@ -104,7 +104,7 @@ final class APIClient {
             return MemberProfileResponse(
                 user: MemberProfile(id: userID, displayName: "Member", bioVerseRef: "Philippians 4:13", bioVerseText: "I can do all this through him who gives me strength.", bioLinkURL: nil, bioLinkLabel: nil, verifiedDeveloper: false, hasAvatar: false),
                 stats: MemberProfileStats(workouts: 0, posts: 0, followers: 0, following: 0), posts: [], isMe: false,
-                isFollowing: false, isBlocked: false, followRequested: false
+                isFollowing: false, isBlocked: false, isMuted: false, isRestricted: false, followRequested: false
             )
         }
         return try await request("/api/users/\(userID.uuidString.lowercased())")
