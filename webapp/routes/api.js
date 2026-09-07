@@ -2089,6 +2089,35 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
       }).catch(() => {});
     }
   } catch { /* a missing verse table must never block the stop response */ }
+  // A finished workout becomes a post, with a verse matched to the activity,
+  // so training shows up in the feed instead of only in the member's own
+  // history. Nothing else in the app creates a post -- until now the composer
+  // was the only way anything reached the feed at all.
+  //
+  // Runs after the response and never blocks it: the verse match can call out
+  // to Gloo, and a member should not wait on that to finish their run. A
+  // failure anywhere here leaves the workout stopped and simply unposted.
+  if (req.body?.share_to_feed !== false && (durationSec >= 60 || distanceKm)) {
+    setImmediate(async () => {
+      try {
+        // The member's own default audience, so this cannot publish more
+        // widely than they have already chosen -- which for every under-18
+        // account is private, since registration and OAuth setup both force
+        // that.
+        const audience = db.prepare('SELECT default_visibility FROM users WHERE id = ?').get(req.session.userId)?.default_visibility || 'public';
+        const summary = distanceKm
+          ? `Finished a ${distanceKm} km ${workout.type.toLowerCase()}.`
+          : `Finished a ${Math.round(durationSec / 60)} minute ${workout.type.toLowerCase()}.`;
+        const scripture = await matchedScriptureForPost(req.session.userId, summary, workout.id, null);
+        if (!scripture) return;
+        db.prepare(`INSERT INTO posts (id,user_id,content,workout_id,verse_id,visibility,verse_match_source,verse_match_reason)
+                    VALUES (?,?,?,?,?,?,?,?)`)
+          .run(randomUUID(), req.session.userId, summary, workout.id, scripture.verse.id,
+               VISIBILITIES.includes(audience) ? audience : 'public', scripture.source, scripture.reason);
+      } catch { /* an unposted workout is still a recorded workout */ }
+    });
+  }
+
   const completedChallenges = applyWorkoutToChallenges(req.session.userId, { distance_km: distanceKm || 0, duration_sec: durationSec, type: workout.type });
   notifyChallengeCompletions(req.session.userId, completedChallenges);
   notifyJourneyProgress(req.session.userId, applyWorkoutToJourneys(req.session.userId, { distance_km: distanceKm || 0, duration_sec: durationSec, type: workout.type }));

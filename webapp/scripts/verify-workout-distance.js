@@ -76,6 +76,22 @@ for (const local of ['distanceKm', 'dist']) {
   assert.match(source, assigned, `${local} must be assigned from the helper`);
 }
 
+// A finished workout now posts to the feed. That is the app publishing on a
+// member's behalf, so the audience rule is the part worth pinning.
+{
+  const post = handler.split('const completedChallenges')[0];
+  assert.match(post, /const audience = db\.prepare\('SELECT default_visibility FROM users WHERE id = \?'\)/,
+    "an auto-post must use the member's own default audience -- it must never publish more widely than they chose");
+  assert.match(post, /VISIBILITIES\.includes\(audience\) \? audience : 'public'/, 'and only ever a known visibility');
+  assert.match(post, /req\.body\?\.share_to_feed !== false/, 'a member must be able to decline');
+  assert.match(post, /durationSec >= 60 \|\| distanceKm/,
+    'a few seconds of accidental tracking is not a workout worth posting');
+  assert.match(post, /setImmediate\(async/,
+    'the verse match can call out to Gloo -- nobody should wait on that to finish their run');
+  assert.match(post, /catch \{ \/\* an unposted workout is still a recorded workout \*\/ \}/,
+    'a failure to post must never lose the workout');
+}
+
 // duration_min is a ranked leaderboard metric too (LEADERBOARD_METRICS), and
 // manual entry is the one route that takes it from the client rather than
 // measuring it. Unbounded it also back-dates start_time, which is derived

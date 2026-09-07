@@ -85,6 +85,18 @@ struct ReelsFeedView: View {
     }
 
     var body: some View {
+        // The picker sits above the feed in its own strip rather than floating
+        // over the video. Overlaid, it covered the top of whatever was playing
+        // and read as part of the video instead of as the control that chooses
+        // which feed you are watching.
+        VStack(spacing: 0) {
+            if !reels.isEmpty { originalsToggle }
+            reelsBody
+        }
+    }
+
+    @ViewBuilder
+    private var reelsBody: some View {
         Group {
             if isLoading && reels.isEmpty {
                 FFLoadingView(message: "Loading Reels…")
@@ -96,8 +108,9 @@ struct ReelsFeedView: View {
                 // Still needs the toggle -- otherwise switching to Originals
                 // when there aren't any yet strands the member with no way
                 // back to All Reels short of leaving the tab.
+                // The toggle is in the strip above now, so switching to
+                // Originals when there are none still leaves a way back.
                 FFEmptyStateView(title: "No Originals yet", systemImage: "play.rectangle", message: "Videos uploaded directly to Functioning Faith show up here.", actionTitle: "Create a Reel", action: { showComposer = true })
-                    .overlay(alignment: .top) { originalsToggle }
             } else {
                 // A one-video-per-screen, edge-to-edge paged feed -- not a
                 // scrollable list of preview cards. Each page fills the
@@ -129,14 +142,6 @@ struct ReelsFeedView: View {
                 .ignoresSafeArea(edges: .bottom)
                 .background(Color.black)
                 .refreshable { await load() }
-                // Floats over the edge-to-edge video rather than reserving
-                // its own strip -- the feed stays truly full-bleed, matching
-                // the TikTok-style "Following / For You" tab placement this
-                // is modeled on, sitting above where each page's own
-                // profile/channel line is overlaid near the bottom.
-                .overlay(alignment: .top) {
-                    originalsToggle
-                }
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -173,7 +178,10 @@ struct ReelsFeedView: View {
         .padding(.horizontal, FFTheme.Space.md)
         .padding(.top, FFTheme.Space.sm)
         .padding(.bottom, FFTheme.Space.xs)
-        .background(.black.opacity(0.35))
+        // Solid, not translucent: the 35% black was there to sit legibly on
+        // top of moving video. In its own strip it reads as part of the Reels
+        // surface, which is black.
+        .background(Color.black)
     }
 
     private func load() async {
