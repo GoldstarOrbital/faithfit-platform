@@ -105,11 +105,9 @@ struct ReelsFeedView: View {
             } else if reels.isEmpty {
                 FFEmptyStateView(title: "No Reels right now", systemImage: "play.rectangle", message: "Check back soon — or publish a short encouragement of your own.", actionTitle: "Create a Reel", action: { showComposer = true })
             } else if visibleReels.isEmpty {
-                // Still needs the toggle -- otherwise switching to Originals
-                // when there aren't any yet strands the member with no way
-                // back to All Reels short of leaving the tab.
                 // The toggle is in the strip above now, so switching to
-                // Originals when there are none still leaves a way back.
+                // Originals when there are none still leaves a way back to
+                // All Reels without leaving the tab.
                 FFEmptyStateView(title: "No Originals yet", systemImage: "play.rectangle", message: "Videos uploaded directly to Functioning Faith show up here.", actionTitle: "Create a Reel", action: { showComposer = true })
             } else {
                 // A one-video-per-screen, edge-to-edge paged feed -- not a
@@ -141,7 +139,7 @@ struct ReelsFeedView: View {
                 .scrollIndicators(.hidden)
                 .ignoresSafeArea(edges: .bottom)
                 .background(Color.black)
-                .refreshable { await load() }
+                .refreshable { await load(forceRefresh: true) }
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -184,11 +182,14 @@ struct ReelsFeedView: View {
         .background(Color.black)
     }
 
-    private func load() async {
+    /// `forceRefresh` for a pull to refresh: the server marks reels
+    /// `private, max-age=15`, so without it the gesture can hand back exactly
+    /// the reels the member just swiped past and asked to get away from.
+    private func load(forceRefresh: Bool = false) async {
         isLoading = true
         errorMessage = nil
         do {
-            let response = try await APIClient.shared.fetchReels()
+            let response = try await APIClient.shared.fetchReels(forceRefresh: forceRefresh)
             guard !Task.isCancelled else { return }
             reels = response.videos
             churchName = response.churchName

@@ -67,7 +67,12 @@ final class APIClient {
         return page.posts
     }
 
-    func fetchFeedPage(before: String? = nil, followingOnly: Bool = false) async throws -> FeedPage {
+    /// `forceRefresh` skips the browser-style HTTP cache. The server marks the
+    /// feed `private, max-age=15`, which is right for an ordinary tab visit and
+    /// wrong immediately after the member changed the feed themselves: a reload
+    /// inside that window is answered from the copy taken *before* their own
+    /// post existed, so their post appears to have vanished.
+    func fetchFeedPage(before: String? = nil, followingOnly: Bool = false, forceRefresh: Bool = false) async throws -> FeedPage {
         if useMock { return FeedPage(posts: MockData.feed, nextCursor: nil) }
         // The production feed is a cursor-paginated envelope. Keep the cursor
         // on the client so native scrolling never reloads already-rendered rows.
@@ -76,16 +81,16 @@ final class APIClient {
         if let before, let encoded = before.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) {
             path += "&before=\(encoded)"
         }
-        let response: FeedResponse = try await request(path)
+        let response: FeedResponse = try await request(path, forceRefresh: forceRefresh)
         return FeedPage(posts: response.posts.map(\.model), nextCursor: response.nextCursor)
     }
 
     /// A small, ranked, non-paginated snapshot (see the server's GET
     /// /feed/for-you) -- deliberately not cursor-paginated like the
     /// chronological feed above, so there's no "load more" for this one.
-    func fetchForYouFeed() async throws -> [FeedPost] {
+    func fetchForYouFeed(forceRefresh: Bool = false) async throws -> [FeedPost] {
         if useMock { return MockData.feed }
-        let response: ForYouResponse = try await request("/api/feed/for-you?media=deferred")
+        let response: ForYouResponse = try await request("/api/feed/for-you?media=deferred", forceRefresh: forceRefresh)
         return response.posts.map(\.model)
     }
 
@@ -711,8 +716,11 @@ final class APIClient {
 
     // MARK: - Reels
 
-    func fetchReels() async throws -> ReelsFeedResponse {
-        try await request("/api/reels")
+    /// Reels is in the server's short-lived cache list too, so a pull to
+    /// refresh needs the same bypass the feed does -- otherwise the gesture
+    /// returns the same reels the member just swiped past.
+    func fetchReels(forceRefresh: Bool = false) async throws -> ReelsFeedResponse {
+        try await request("/api/reels", forceRefresh: forceRefresh)
     }
 
     /// Only meaningful for catalogue videos (source_kind channel/seed/query

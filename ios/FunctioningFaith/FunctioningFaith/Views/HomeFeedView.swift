@@ -112,7 +112,7 @@ struct HomeFeedView: View {
         }
         .ffListChrome()
         .listStyle(.plain)
-        .refreshable { await loadFeed() }
+        .refreshable { await loadFeed(forceRefresh: true) }
         .navigationTitle("Home")
         // See toolbarIfActive's own comment (RootTabView.swift): this
         // screen's own toolbar buttons need the same isActive gating the
@@ -161,7 +161,7 @@ struct HomeFeedView: View {
             NavigationStack {
                 PostComposerView {
                     showComposer = false
-                    Task { await loadFeed() }
+                    Task { await loadFeed(forceRefresh: true) }
                 }
             }
         }
@@ -191,7 +191,9 @@ struct HomeFeedView: View {
             if isLoading && posts.isEmpty {
                 FFLoadingView(message: "Loading your community…")
             } else if let feedError, posts.isEmpty {
-                FFErrorStateView(message: feedError, onRetry: { Task { await loadFeed() } })
+                // Retrying after a failure is an explicit ask for fresh data, the
+                // same as pulling to refresh -- not a reason to hand back a cached copy.
+                FFErrorStateView(message: feedError, onRetry: { Task { await loadFeed(forceRefresh: true) } })
             } else if !isLoading && posts.isEmpty {
                 FFEmptyStateView(
                     title: "Your feed is ready",
@@ -227,7 +229,12 @@ struct HomeFeedView: View {
         }
     }
 
-    private func loadFeed() async {
+    /// `forceRefresh` is for the cases where the member just changed the feed
+    /// themselves -- composing a post, pulling to refresh. The server's
+    /// 15-second feed cache is right for an ordinary tab visit and wrong here:
+    /// answered from it, a reload returns the feed as it was *before* their own
+    /// post existed, and the post looks like it failed to publish.
+    private func loadFeed(forceRefresh: Bool = false) async {
         let generation = UUID()
         let requestedMode = mode
         feedGeneration = generation
@@ -251,13 +258,13 @@ struct HomeFeedView: View {
                 // A fixed-size ranked snapshot, not a paginated cursor --
                 // see the server's GET /feed/for-you for why re-ranking a
                 // paginated list isn't safe. No "load more" for this mode.
-                let fetched = try await APIClient.shared.fetchForYouFeed()
+                let fetched = try await APIClient.shared.fetchForYouFeed(forceRefresh: forceRefresh)
                 guard !Task.isCancelled, feedGeneration == generation, mode == requestedMode else { return }
                 posts = fetched
                 nextCursor = nil
                 if let userID = session.profile?.id { FeedCache.save(fetched, userID: userID, mode: requestedMode.rawValue) }
             case .following:
-                let page = try await APIClient.shared.fetchFeedPage(followingOnly: true)
+                let page = try await APIClient.shared.fetchFeedPage(followingOnly: true, forceRefresh: forceRefresh)
                 guard !Task.isCancelled, feedGeneration == generation, mode == requestedMode else { return }
                 posts = page.posts
                 if let userID = session.profile?.id { FeedCache.save(page.posts, userID: userID, mode: requestedMode.rawValue) }
