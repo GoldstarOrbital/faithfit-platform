@@ -6348,6 +6348,27 @@ router.post('/verses/threads/:id/reflections', requireAuth, (req, res) => {
   db.prepare('INSERT INTO verse_reflections (id, thread_id, user_id, parent_id, content) VALUES (?, ?, ?, ?, ?)')
     .run(id, thread.id, req.session.userId, parentId, content);
 
+  // A verse conversation reaches the feed the first time someone actually
+  // says something in it, so Scripture discussion is discoverable rather than
+  // only findable by opening the verse. Once per thread, not once per
+  // reflection: posting every reply would bury the feed under a single
+  // conversation.
+  try {
+    const isFirst = db.prepare('SELECT COUNT(*) c FROM verse_reflections WHERE thread_id = ?').get(thread.id).c === 1;
+    if (isFirst) {
+      const verseRow = db.prepare('SELECT id, book, chapter, verse, text, translation FROM bible_verses WHERE book = ? AND chapter = ? AND verse = ?')
+        .get(thread.book, thread.chapter, thread.verse);
+      if (verseRow) {
+        const audience = db.prepare('SELECT default_visibility FROM users WHERE id = ?').get(req.session.userId)?.default_visibility || 'public';
+        db.prepare(`INSERT INTO posts (id,user_id,content,verse_id,visibility,verse_match_source,verse_match_reason)
+                    VALUES (?,?,?,?,?,?,?)`)
+          .run(randomUUID(), req.session.userId, content.slice(0, 280),
+               mirrorVerse(verseRow).id, VISIBILITIES.includes(audience) ? audience : 'public',
+               'member', `Reflection on ${thread.reference}.`);
+      }
+    }
+  } catch { /* an unposted reflection is still a reflection */ }
+
   const me = req.session.userId;
   const who = displayName(me);
   const snippet = content.slice(0, 60);

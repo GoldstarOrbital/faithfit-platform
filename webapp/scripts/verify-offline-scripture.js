@@ -63,6 +63,21 @@ for (const route of ["router.get('/verses/saved'", "router.get('/bible/ask/histo
   assert.ok(!body.includes('cacheScripture'), `${route} is member-scoped and must not be publicly cacheable`);
 }
 
+// A verse conversation reaches the feed the first time someone says something
+// in it, so Scripture discussion is discoverable rather than only findable by
+// opening the verse. Verified end to end against a running server: a
+// reflection on Philippians 4:13 appeared in the feed carrying that verse, and
+// a second reflection on the same thread added no further post.
+{
+  const reflect = api.split("router.post('/verses/threads/:id/reflections'")[1].split('router.')[0];
+  assert.match(reflect, /SELECT COUNT\(\*\) c FROM verse_reflections WHERE thread_id = \?'\)\.get\(thread\.id\)\.c === 1/,
+    'once per thread, not once per reflection -- posting every reply would bury the feed under one conversation');
+  assert.match(reflect, /const audience = db\.prepare\('SELECT default_visibility FROM users WHERE id = \?'\)/,
+    "a reflection must reach the feed at the member's own audience, never wider");
+  assert.match(reflect, /catch \{ \/\* an unposted reflection is still a reflection \*\/ \}/,
+    'failing to post must never lose what someone wrote');
+}
+
 // Per-chapter caching only ever gives offline access to chapters already
 // opened online. /bible/offline is what makes Scripture work with no
 // connection at all, so its shape is worth pinning: the whole thing is only
