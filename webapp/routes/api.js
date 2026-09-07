@@ -4957,6 +4957,47 @@ router.get('/reels/saved', requireAuth, (req, res) => {
   res.json({ videos: rows.map(v => ({ ...v, like_count: 0, save_count: 1, liked_by_me: false, saved_by_me: true })) });
 });
 
+// A church's videos, kept just long enough that opening Reels never waits on
+// YouTube or on scraping a church website. Keyed by church, not by member, so
+// a congregation shares one refresh rather than each member triggering their
+// own. Sermons appear weekly, so half an hour is already far fresher than the
+// content changes.
+const CHURCH_VIDEO_TTL_MS = 30 * 60 * 1000;
+const churchVideoCache = new Map();
+
+function churchVideosFor(church) {
+  const key = church.osm_id;
+  const entry = churchVideoCache.get(key);
+  const fresh = entry && Date.now() - entry.at < CHURCH_VIDEO_TTL_MS;
+  // Refresh in the background whenever it is stale, and never await it: the
+  // caller returns whatever is already known, including nothing at all on a
+  // cold cache.
+  if (!fresh && !entry?.refreshing) {
+    const pending = entry || { at: 0, videos: [] };
+    pending.refreshing = true;
+    churchVideoCache.set(key, pending);
+    refreshChurchVideos(church).then(videos => {
+      churchVideoCache.set(key, { at: Date.now(), videos, refreshing: false });
+    }).catch(() => {
+      // Keep whatever was already cached and try again after the TTL, rather
+      // than hammering a church website that is down.
+      churchVideoCache.set(key, { at: Date.now(), videos: pending.videos, refreshing: false });
+    });
+  }
+  return entry?.videos || [];
+}
+
+async function refreshChurchVideos(church) {
+  const videos = [];
+  if (church?.youtube_channel_id && youtube.isConfigured()) {
+    try { for (const v of await youtube.fetchRecentUploads(church.youtube_channel_id, 12)) videos.push({ video_id: v.videoId, title: v.title, description: v.description || '', thumbnail_url: v.thumbnailUrl, channel_title: church.youtube_channel_title || church.name, published_at: v.publishedAt, category: 'church', church_name: church.name, provider: 'youtube', source_url: `https://www.youtube.com/watch?v=${encodeURIComponent(v.videoId)}`, source_kind: 'church' }); } catch (err) { console.error('[reels/church] youtube fetch failed:', err.message); }
+  }
+  if (!videos.length && church?.website_url) {
+    try { for (const v of (await fetchChurchWebsiteEmbeds(church.website_url)).slice(0, 12)) videos.push({ video_id: v.videoId, title: `${church.name} · Church video`, thumbnail_url: null, channel_title: church.name, published_at: null, category: 'church', church_name: church.name, provider: v.provider, source_url: v.url || null, source_kind: 'church' }); } catch (err) { console.error('[reels/church] website fetch failed:', err.message); }
+  }
+  return videos;
+}
+
 // The single social short-form feed. It combines library Shorts, the member's
 // church videos, and Gloo's grounded curation of those church candidates. Gloo
 // never invents a video ID here: it may only rank IDs we supplied.
@@ -4973,12 +5014,16 @@ router.get('/reels', requireAuth, aiLimiter, async (req, res) => {
   const churchVideos = [];
   const me = db.prepare('SELECT church_osm_id, church_name FROM users WHERE id = ?').get(req.session.userId);
   const church = me?.church_osm_id ? db.prepare('SELECT * FROM churches WHERE osm_id = ?').get(me.church_osm_id) : null;
-  if (church?.youtube_channel_id && youtube.isConfigured()) {
-    try { for (const v of await youtube.fetchRecentUploads(church.youtube_channel_id, 12)) churchVideos.push({ video_id: v.videoId, title: v.title, description: v.description || '', thumbnail_url: v.thumbnailUrl, channel_title: church.youtube_channel_title || church.name, published_at: v.publishedAt, category: 'church', church_name: church.name, provider: 'youtube', source_url: `https://www.youtube.com/watch?v=${encodeURIComponent(v.videoId)}`, source_kind: 'church' }); } catch (err) { console.error('[reels/church] youtube fetch failed:', err.message); }
-  }
-  if (!churchVideos.length && church?.website_url) {
-    try { for (const v of (await fetchChurchWebsiteEmbeds(church.website_url)).slice(0, 12)) churchVideos.push({ video_id: v.videoId, title: `${church.name} · Church video`, thumbnail_url: null, channel_title: church.name, published_at: null, category: 'church', church_name: church.name, provider: v.provider, source_url: v.url || null, source_kind: 'church' }); } catch (err) { console.error('[reels/church] website fetch failed:', err.message); }
-  }
+  // Church videos used to be fetched inline on every single Reels open: a
+  // YouTube API call, and failing that an HTTP fetch and HTML scrape of the
+  // church's own website. Both are third-party round trips on the critical
+  // path of opening a tab, so a slow church site made Reels slow for that
+  // member, every time. A church posts a sermon weekly at most, so this is
+  // served from a short-lived cache and refreshed in the background instead.
+  // A cold cache returns the library feed immediately and picks up the church
+  // videos on the next open, which is the right trade: Reels that open now
+  // beats Reels that open complete.
+  if (church) churchVideos.push(...churchVideosFor(church));
   let curatedChurch = churchVideos; let chosenBy = 'fallback';
   if (churchVideos.length && gloo.isConfigured()) {
     const candidateText = churchVideos.map(v => `${v.video_id} | ${v.title || ''} | ${v.description || ''}`).join('\n').slice(0, 9000);

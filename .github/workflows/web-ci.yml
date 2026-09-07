@@ -67,6 +67,8 @@ jobs:
         run: node scripts/verify-search-navigation.js
       - name: Verify workout distance validation
         run: node scripts/verify-workout-distance.js
+      - name: Verify Reels opens without third-party calls
+        run: node scripts/verify-reels-latency.js
       - name: Verify blocking severs the relationship
         run: node scripts/verify-block-severs-relationship.js
       - name: Verify private group pulse contract

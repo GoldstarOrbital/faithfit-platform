@@ -85,7 +85,11 @@ for (const route of ["router.get('/verses/saved'", "router.get('/bible/ask/histo
   add.run('Acts', 8, 36, 'What is stopping me from being baptized?', 'WEB');
   add.run('Acts', 8, 38, 'He commanded the chariot to stand still.', 'WEB');
 
-  const build = api.match(/let offlineBibleCache = null;[\s\S]*?\n}\n/);
+  // \r?\n: this repo checks out with CRLF on Windows, and a pattern anchored
+  // on a bare \n stops matching there, which reads as "the builder is gone"
+  // rather than "the test cannot see it". CI is Linux, so this fails only for
+  // whoever runs it locally -- the worst place for a test to be wrong.
+  const build = api.match(/let offlineBibleCache = null;[\s\S]*?\r?\n}\r?\n/);
   assert.ok(build, 'could not find the offline Bible builder');
   const offlineBible = vm.runInNewContext(`${build[0]}; offlineBible;`, { db, JSON, createHash: require('crypto').createHash });
 
