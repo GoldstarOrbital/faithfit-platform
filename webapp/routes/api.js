@@ -2445,6 +2445,9 @@ router.get('/stories', requireAuth, (req, res) => {
        AND NOT EXISTS (SELECT 1 FROM dm_blocks b
                        WHERE (b.blocker_id = @me AND b.blocked_id = s.user_id)
                           OR (b.blocker_id = s.user_id AND b.blocked_id = @me))
+       AND NOT EXISTS (
+            SELECT 1 FROM account_relationship_controls rc
+            WHERE rc.actor_id = @me AND rc.subject_id = s.user_id AND rc.control = 'mute')
      ORDER BY s.created_at DESC LIMIT 80
   `).all({ me });
   // Same fix as GET /users/:id -- these CASE WHEN / EXISTS columns come

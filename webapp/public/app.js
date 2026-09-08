@@ -1376,7 +1376,7 @@ async function renderUserProfile(userId) {
       <button class="ghost" id="profile-restrict">${data.is_restricted ? 'Un-restrict' : 'Restrict'}</button>
       <button class="ghost" id="profile-block">${data.is_blocked ? 'Unblock member' : 'Block member'}</button>
       <button class="ghost" id="profile-report">Report member</button>
-      <div class="muted profile-safety-note">Mute hides their posts from your feed but keeps the follow. Restrict also stops them opening or sending you messages. Neither is ever shown to them — only blocking is obvious.</div>
+      <div class="muted profile-safety-note">Mute hides their posts and stories from your feed but keeps the follow. Restrict also stops them opening or sending you messages. Neither is ever shown to them — only blocking is obvious.</div>
     </div>` : ''}
     <div id="profile-posts">${data.posts.length ? '' : '<p class="muted">No posts to show yet.</p>'}</div>
   `;
@@ -3362,7 +3362,7 @@ async function renderProfile(main) {
     const UNDO = { mute: ['/mute', 'DELETE', 'Unmute'], restrict: ['/restrict', 'DELETE', 'Un-restrict'], block: ['/block', 'DELETE', 'Unblock'] };
     const paintRelationships = () => api('/me/relationships').then(r => {
       const groups = [
-        ['Muted', r.muted, 'Their posts are hidden from your feed. They are not told.'],
+        ['Muted', r.muted, 'Their posts and stories are hidden from your feed. They are not told.'],
         ['Restricted', r.restricted, 'They cannot open or send you messages. They are not told.'],
         ['Blocked', r.blocked, 'You are hidden from each other entirely.'],
       ].filter(([, list]) => list && list.length);

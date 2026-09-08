@@ -71,6 +71,8 @@ jobs:
         run: node scripts/verify-reels-latency.js
       - name: Verify blocking severs the relationship
         run: node scripts/verify-block-severs-relationship.js
+      - name: Verify muted stories stay hidden
+        run: node scripts/verify-story-mutes.js
       - name: Verify private group pulse contract
         run: npm run verify:group-pulse
       - name: Verify public sharing acquisition contract
