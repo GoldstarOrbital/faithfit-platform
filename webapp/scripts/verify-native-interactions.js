@@ -70,7 +70,7 @@ assert.match(profile, /await APIClient\.shared\.fetchPrivacySettings\(\)/, 'prof
 assert.match(workout, /guard biometricIngestEnabled, heartRate > 0, let workoutID/, 'biometric uploads must remain explicit opt-in');
 assert.match(workout, /Date\(\)\.timeIntervalSince\(lastBiometricUpload\) >= 60/, 'biometric uploads must be rate limited');
 const appShell = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'AppShell.swift');
-const exploreShell = appShell.split('struct ExploreSectionShell')[1]?.split('\nstruct ')[0];
+const exploreShell = appShell.split('struct ExploreSectionShell')[1]?.split(/\r?\nstruct /)[0];
 assert.ok(exploreShell, 'Explore needs a dedicated section shell');
 assert.match(exploreShell, /NavigationStack\(path: \$path\)/, 'Explore must own its navigation path');
 assert.match(exploreShell, /onChange\(of: isActive\)[\s\S]*if !active \{\s*path = NavigationPath\(\)/, 'leaving Explore must clear retained detail navigation');
