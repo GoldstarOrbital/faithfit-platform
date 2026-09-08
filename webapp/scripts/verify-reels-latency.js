@@ -67,6 +67,10 @@ async function main() {
   assert.ok(!handler.includes('await fetchChurchWebsiteEmbeds'),
     'the church website scrape must not be back on the request path');
   assert.match(handler, /churchVideosFor\(church\)/, 'church videos come from the cache');
+  assert.ok(!handler.includes('await gloo.chatJson'),
+    'Gloo church curation must not sit on the request path (peekCache + background only)');
+  assert.match(handler, /gloo\.peekCache\(opts\)/, 'a warm Gloo cache is read synchronously');
+  assert.match(handler, /gloo\.chatJson\(opts\)\.catch/, 'a Gloo miss fills the cache in the background');
 
   console.log('Reels latency: a cold cache opens immediately, concurrent opens share one refresh, and no third-party call sits on the request path.');
 }

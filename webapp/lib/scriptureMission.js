@@ -93,7 +93,7 @@ function recentRefs(userId, limit) {
 }
 
 const FALLBACK_COACHING = 'Take a short movement break, notice your breath, and let this verse ' +
-  'shape what comes next — not a performance test, but a practice of presence.';
+  'shape what comes next â€” not a performance test, but a practice of presence.';
 
 /**
  * The AI-personalized coaching line, generated at most once per calendar day
@@ -162,21 +162,30 @@ function dailyInsight(userId, pool, shape) {
 async function next(userId) {
   init();
 
-  const me = db.prepare('SELECT tradition, bible_version_id FROM users WHERE id = ?').get(userId) || {};
+  // Local verified library only. Passing a preferred translation used to put a
+  // YouVersion round trip on Home's critical path for anyone with a preferred
+  // translation â€” the same class of bug Reels had with church scrapes. This
+  // card's pool is authored for the local WEB text; the member's translation
+  // still applies when they open the verse in Bible / YouVersion.
   const shape = daily.weekShape(userId);
   const pool = POOLS[shape.pool] || POOLS.starting;
   const seen = recentRefs(userId, 12);
   const candidates = pool.refs.filter(r => !seen.includes(r));
   const pickFrom = shuffled(candidates.length ? candidates : pool.refs);
 
+  // Sync local lookup only â€” a preferred-translation resolve still falls through to
+  // YouVersion on a local miss, which would put a third-party call back on
+  // Home. Skip unresolvable refs and try the next authored candidate.
+  let lookupLocal = null;
+  try { lookupLocal = require('./journeys').lookupScriptureText; } catch { /* optional */ }
   let picked = null;
   for (const ref of pickFrom) {
-    const hit = await companion.resolveRef(ref, me.bible_version_id);
-    if (hit) { picked = { reference: hit.reference, text: hit.text }; break; }
+    const text = typeof lookupLocal === 'function' ? lookupLocal(ref) : null;
+    if (text) { picked = { reference: ref, text }; break; }
   }
   if (!picked) return null;
 
-  const coaching = await dailyInsight(userId, pool, shape);
+  const coaching = dailyInsight(userId, pool, shape);
 
   const row = { id: randomUUID(), user_id: userId, headline: pool.headline, reference: picked.reference, text: picked.text, coaching };
   db.prepare(`INSERT INTO scripture_mission_log (id, user_id, headline, reference, text, coaching)

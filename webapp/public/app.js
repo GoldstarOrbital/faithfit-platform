@@ -24,6 +24,10 @@ let gpsStartedAt = null, gpsTicker = null;
 // held in a client-side stale cache, and POST/DELETE mutations are untouched.
 const _apiInFlight = new Map();
 
+// Home's Scripture in Motion — own fast path (/scripture/mission),
+// not gated on the secondary Promise.all pack.
+let _homeMissionPromise = null;
+
 async function api(path, opts = {}) {
   const method = (opts.method || 'GET').toUpperCase();
   if (method === 'GET') {
@@ -134,6 +138,7 @@ async function loadMe() {
     }
   }
   else if (typeof notifPollTimer !== 'undefined' && notifPollTimer) { clearInterval(notifPollTimer); notifPollTimer = null; }
+  ensureBibleAnswersUI();
 }
 
 const TAB_LABELS = { home: 'Home', workout: 'Train', stats: 'Stats', explore: 'Explore', profile: 'Profile' };
@@ -851,13 +856,42 @@ function hydrateDeferredFeedMedia(root) {
 async function renderHome(main, forceRefresh = false) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
   const cacheMatchesScope = !forceRefresh && state.homeCache && state.homeCache.scope === state.feedScope;
+  // Prefer a cached mission for instant paint. Otherwise start /scripture/mission
+  // in parallel with the critical feed — never await it before first feed paint,
+  // and never wait on the nine-call secondary pack for this card.
+  const hadMissionCache = !forceRefresh && state.homeCache && state.homeCache.missionFetched;
+  const cachedMission = hadMissionCache ? state.homeCache.mission : null;
+  if (forceRefresh) _homeMissionPromise = null;
+  if (!hadMissionCache && !_homeMissionPromise) {
+    _homeMissionPromise = api('/scripture/mission').then(data => {
+      // 503 / soft failures return a non-ok payload without throw — omit the card.
+      if (!data || !data.reference || !data.text) return null;
+      return {
+        headline: data.headline || null,
+        reference: data.reference,
+        text: data.text,
+        coaching: data.coaching || null,
+      };
+    }).catch(() => null);
+  }
+  // If the mission resolves while feed is loading, capture it for first paint
+  // (including a settled null / 503 so we do not refetch on every re-render).
+  let missionEarly = hadMissionCache ? cachedMission : null;
+  let missionKnown = hadMissionCache;
+  if (_homeMissionPromise) _homeMissionPromise.then(m => { missionEarly = m; missionKnown = true; });
   const critical = cacheMatchesScope && state.homeCache.posts ? [state.homeCache, state.homeCache.users] : await Promise.all([api(`/feed?scope=${encodeURIComponent(state.feedScope)}&limit=20&media=deferred${forceRefresh ? `&refresh=${Date.now()}` : ''}`), api('/users')]);
   const feedData = critical[0];
   const posts = Array.isArray(feedData) ? feedData : (feedData.posts || []);
   const users = critical[1];
   const secondary = state.homeCache && state.homeCache.secondary;
   const [suggested, rec, devo, churchVideos, homeReels, homeJourneys, homeMotivation, friendsWorkouts, homeStories] = secondary || [[], null, null, null, [], [], null, [], []];
-  if (!cacheMatchesScope) state.homeCache = { posts, users, nextCursor: Array.isArray(feedData) ? null : feedData.next_cursor, secondary: null, scope: state.feedScope };
+  const mission = missionEarly;
+  const carryMission = forceRefresh ? null : missionEarly;
+  const carryFetched = forceRefresh ? false : missionKnown;
+  if (!cacheMatchesScope) state.homeCache = { posts, users, nextCursor: Array.isArray(feedData) ? null : feedData.next_cursor, secondary: null, scope: state.feedScope, mission: carryMission, missionFetched: carryFetched };
+  else {
+    if (carryFetched) { state.homeCache.mission = carryMission; state.homeCache.missionFetched = true; }
+  }
   const firstName = escapeHtml((state.me && state.me.user && state.me.user.display_name || 'friend').split(' ')[0]);
   main.innerHTML = `
     <section class="home-hero">
@@ -873,13 +907,13 @@ async function renderHome(main, forceRefresh = false) {
       <button class="home-action" data-home-tab="explore" data-home-explore="journeys"><span>↗</span><b>Explore routes</b><small>Ride Bible &amp; fantasy worlds</small></button>
     </div>
     ${storiesRailHtml(homeStories, myUserId())}
-    ${rec && rec.verse ? `
+    ${mission && mission.reference && mission.text ? `
     <div class="card glass mission-card">
       <div class="mission-kicker"><span>✦ SCRIPTURE IN MOTION</span><span class="mission-live">TODAY</span></div>
-      <h2>Move with ${escapeHtml(rec.theme || 'purpose')}</h2>
-      <div class="mission-verse"><div class="verse-ref">${escapeHtml(rec.verse.reference)}</div><div class="verse-text">${escapeHtml(rec.verse.text)}</div></div>
-      <p class="mission-prompt">Take a short movement break, notice your breath, and let this verse shape the next mile—not as a performance test, but as a practice of presence.</p>
-      <div class="mission-actions"><button class="primary" data-home-tab="workout">Begin the mission</button><a class="ghost mission-read" href="https://www.bible.com/search/bible?query=${encodeURIComponent(rec.verse.reference)}" target="_blank" rel="noopener">Read in Bible ↗</a></div>
+      <h2>${escapeHtml(mission.headline || 'Move with purpose')}</h2>
+      <div class="mission-verse"><div class="verse-ref">${escapeHtml(mission.reference)}</div><div class="verse-text">${escapeHtml(mission.text)}</div></div>
+      <p class="mission-prompt">${escapeHtml(mission.coaching || 'Take a short movement break, notice your breath, and let this verse shape the next mile—not as a performance test, but as a practice of presence.')}</p>
+      <div class="mission-actions"><button class="primary" data-home-tab="workout">Begin the mission</button><a class="ghost mission-read" href="https://www.bible.com/search/bible?query=${encodeURIComponent(mission.reference)}" target="_blank" rel="noopener">Read in Bible ↗</a></div>
       <div class="mission-grounding">Functioning Faith coaching is generated from your activity context; Scripture text is always shown from the verified library.</div>
     </div>` : ''}
     ${(homeReels?.videos?.length || homeJourneys?.length || homeMotivation) ? `
@@ -914,6 +948,11 @@ async function renderHome(main, forceRefresh = false) {
           <span class="home-explore-tile-label">Scripture</span>
           <span class="home-explore-tile-sub">Search & discuss a verse</span>
         </button>
+      <button class="home-explore-tile" type="button" id="home-ba-open" data-ba-home="1">
+        <span class="home-explore-tile-icon">✝</span>
+        <span class="home-explore-tile-label">Bible Answers</span>
+        <span class="home-explore-tile-sub">Ask — verified Scripture only</span>
+      </button>
       </div>
     </div>` : ''}
     ${friendsWorkouts && friendsWorkouts.length ? `
@@ -1012,6 +1051,7 @@ async function renderHome(main, forceRefresh = false) {
     setTab(btn.dataset.homeTab);
   });
   main.querySelectorAll('.home-explore-tile[data-user]').forEach(btn => btn.onclick = () => renderUserProfile(btn.dataset.user));
+  main.querySelectorAll('[data-ba-home]').forEach(btn => btn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); openBibleAnswers(); });
   wireComposer(main);
   // Follow requests only exist for non-public accounts, so most members will
   // never see this block at all.
@@ -1338,6 +1378,22 @@ async function renderHome(main, forceRefresh = false) {
       cache.secondary = data;
       if (state.tab === 'home' && document.getElementById('main') === main) renderHome(main);
     });
+  }
+  // Fill Scripture in Motion when the dedicated endpoint lands — independent of
+  // the secondary pack above. Soft-omit on failure / 503.
+  if (!state.homeCache.missionFetched && _homeMissionPromise) {
+    const cache = state.homeCache;
+    const pending = _homeMissionPromise;
+    pending.then(m => {
+      if (pending === _homeMissionPromise) _homeMissionPromise = null;
+      if (state.homeCache !== cache) return;
+      if (cache.missionFetched) return;
+      cache.mission = m;
+      cache.missionFetched = true;
+      if (m && state.tab === 'home' && document.getElementById('main') === main) renderHome(main);
+    });
+  } else if (state.homeCache.missionFetched) {
+    _homeMissionPromise = null;
   }
 }
 
@@ -1679,6 +1735,8 @@ const EXPLORE_SECTIONS = [
     icon: '<rect x="9" y="3" width="6" height="10" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3M9 21h6"/>' },
   { key: 'scripture',   name: 'Scripture',   blurb: 'Search the Bible and join the conversation on a verse.',
     icon: '<path d="M4 5.5A2.5 2.5 0 016.5 3H19v15H6.5A2.5 2.5 0 004 20.5z"/><path d="M12 7v6M9.5 9.5h5"/>' },
+  { key: 'bibleAnswers', name: 'Bible Answers', blurb: 'Ask any Bible or faith question — answers cite only verified Scripture.',
+    icon: '<path d="M4 5.5A2.5 2.5 0 016.5 3H19v15H6.5A2.5 2.5 0 004 20.5z"/><path d="M12 7v6M9.5 9.5h5"/><circle cx="18.5" cy="18.5" r="3.2"/><path d="M18.5 17v3M17 18.5h3"/>' },
   { key: 'groups',      name: 'Groups',      blurb: 'Your churches and clubs, their chat and meetups.',
     icon: '<circle cx="9" cy="8" r="3"/><path d="M3 19c0-3.2 2.8-5 6-5s6 1.8 6 5"/><path d="M16 6.2a3 3 0 010 5.6M17 14.2c2.4.5 4 2.2 4 4.8"/>' },
   { key: 'leaderboard', name: 'Leaderboard', blurb: 'Where you stand this week.',
@@ -1939,6 +1997,15 @@ async function renderExplore(main) {
           </div>
         </a>
       `).join('') : `<div class="muted">Headlines loading — check back shortly.</div>`);
+  } else if (state.exploreTab === 'bibleAnswers') {
+    body.innerHTML = `<div class="card glass ba-explore-card">
+      <div class="ba-kicker">Verified Scripture</div>
+      <h2 style="margin:6px 0 8px">Bible Answers</h2>
+      <p class="muted">Ask any Bible or faith question. Every cited reference is checked against the verified library — verse text is never invented.</p>
+      <button type="button" class="primary" id="ba-explore-open" style="width:100%;margin-top:10px">Open Bible Answers</button>
+    </div>`;
+    document.getElementById('ba-explore-open').onclick = () => openBibleAnswers();
+    openBibleAnswers();
   } else if (state.exploreTab === 'recruiting') {
     await renderRecruitingTab(body);
   }
@@ -5495,6 +5562,7 @@ async function openNotificationDestination(url) {
   if (kind === 'story') { state.tab = 'home'; state.homeCache = null; return render(); }
   if (kind === 'challenges') { state.tab = 'explore'; state.exploreTab = 'challenges'; return render(); }
   if (kind === 'recruiting') { state.tab = 'explore'; state.exploreTab = 'recruiting'; return render(); }
+  if (kind === 'bible-answers' || kind === 'bibleAnswers') { ensureBibleAnswersUI(); openBibleAnswers(); return; }
   if (kind === 'profile' && p.get('user_id')) return renderUserProfile(p.get('user_id'));
   if (kind === 'profile') { state.tab = 'profile'; return render(); }
   if (kind === 'stats') { state.tab = 'stats'; return render(); }
@@ -8063,3 +8131,345 @@ async function wireTranslationSwitcher(reference) {
     }
   };
 }
+
+// ---------------------------------------------------------------------------
+// Bible Answers — floating polished chat (web)
+// Sidebar = this member's memory (GET /bible/ask/history). Main pane = active
+// local thread or welcoming home. New chat clears the active thread locally;
+// memory stays in the sidebar. Scripture text always arrives via the existing
+// companion/Gloo verifyRefs path (POST /bible/ask) — never invented client-side.
+// ---------------------------------------------------------------------------
+const BA_STARTERS = [
+  'What does the Bible say about anxiety?',
+  'Who was Nehemiah?',
+  'How can I forgive someone who hurt me?',
+  'What is the fruit of the Spirit?',
+];
+
+const bibleAnswersState = {
+  history: [],
+  active: [],
+  suggestions: [],
+  asking: false,
+  open: false,
+  sidebarOpen: false,
+  selectedKey: null,
+  historyLoaded: false,
+};
+
+function baExchangeKey(item) {
+  return String(item.question || '') + '\u0000' + String(item.answer || '');
+}
+
+function ensureBibleAnswersUI() {
+  let launcher = document.getElementById('ba-launcher');
+  let panel = document.getElementById('ba-panel');
+  if (!state.me) {
+    if (launcher) launcher.hidden = true;
+    if (panel) { panel.hidden = true; bibleAnswersState.open = false; }
+    return;
+  }
+  if (!launcher) {
+    launcher = document.createElement('button');
+    launcher.id = 'ba-launcher';
+    launcher.type = 'button';
+    launcher.className = 'ba-launcher';
+    launcher.setAttribute('aria-label', 'Open Bible Answers');
+    launcher.innerHTML = '<span class="ba-launcher-glow" aria-hidden="true"></span>'
+      + '<svg class="ba-launcher-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M4 5.5A2.5 2.5 0 016.5 3H19v15H6.5A2.5 2.5 0 004 20.5z"/>'
+      + '<path d="M12 7v6M9.5 9.5h5"/>'
+      + '<path d="M16.5 17.5c1.8 0 3.5 1 3.5 2.8v.7H14v-.7c0-1.8 1.3-2.8 2.5-2.8z"/>'
+      + '</svg>'
+      + '<span class="ba-launcher-label">Bible Answers</span>';
+    document.body.appendChild(launcher);
+    launcher.addEventListener('click', () => openBibleAnswers());
+  }
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'ba-panel';
+    panel.className = 'ba-panel';
+    panel.hidden = true;
+    panel.setAttribute('role', 'dialog');
+    panel.setAttribute('aria-modal', 'true');
+    panel.setAttribute('aria-label', 'Bible Answers');
+    panel.innerHTML = ''
+      + '<div class="ba-backdrop" data-ba-close="1"></div>'
+      + '<div class="ba-shell">'
+      + '  <aside class="ba-sidebar" id="ba-sidebar" aria-label="Conversation memory">'
+      + '    <div class="ba-sidebar-head">'
+      + '      <div class="ba-sidebar-title">Memory</div>'
+      + '      <button type="button" class="ba-new-chat" id="ba-new-chat" title="Start a new chat">New chat</button>'
+      + '    </div>'
+      + '    <div class="ba-sidebar-list" id="ba-sidebar-list"><p class="ba-sidebar-empty muted">Past questions will appear here.</p></div>'
+      + '  </aside>'
+      + '  <section class="ba-main">'
+      + '    <header class="ba-head">'
+      + '      <button type="button" class="ba-icon-btn ba-sidebar-toggle" id="ba-sidebar-toggle" aria-label="Toggle memory sidebar">'
+      + '        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M4 12h10M4 17h16"/></svg>'
+      + '      </button>'
+      + '      <div class="ba-head-text">'
+      + '        <div class="ba-kicker">Functioning Faith</div>'
+      + '        <h2 class="ba-title">Bible Answers</h2>'
+      + '      </div>'
+      + '      <button type="button" class="ba-icon-btn" id="ba-home" aria-label="Bible Answers home" title="Home">'
+      + '        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 11l8-6 8 6"/><path d="M6 10v9h12v-9"/></svg>'
+      + '      </button>'
+      + '      <button type="button" class="ba-icon-btn" id="ba-close" aria-label="Close Bible Answers" data-ba-close="1">'
+      + '        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg>'
+      + '      </button>'
+      + '    </header>'
+      + '    <div class="ba-thread" id="ba-thread"></div>'
+      + '    <div class="ba-suggestions" id="ba-suggestions" hidden></div>'
+      + '    <form class="ba-compose" id="ba-compose">'
+      + '      <label class="visually-hidden" for="ba-input">Ask about Scripture or the faith</label>'
+      + '      <textarea id="ba-input" class="ba-input" maxlength="500" rows="1" placeholder="Ask about Scripture or the faith…"></textarea>'
+      + '      <button type="submit" class="ba-send" id="ba-send" aria-label="Ask">Ask</button>'
+      + '    </form>'
+      + '    <p class="ba-guard muted">Verse text always comes from the verified library — never invented.</p>'
+      + '  </section>'
+      + '</div>';
+    document.body.appendChild(panel);
+    panel.addEventListener('click', (e) => {
+      if (e.target && e.target.closest && e.target.closest('[data-ba-close]')) closeBibleAnswers();
+    });
+    document.getElementById('ba-sidebar-toggle').onclick = () => {
+      bibleAnswersState.sidebarOpen = !bibleAnswersState.sidebarOpen;
+      panel.classList.toggle('ba-sidebar-open', bibleAnswersState.sidebarOpen);
+    };
+    document.getElementById('ba-new-chat').onclick = () => baStartNewChat();
+    document.getElementById('ba-home').onclick = () => baStartNewChat();
+    document.getElementById('ba-compose').onsubmit = (e) => {
+      e.preventDefault();
+      baAsk(document.getElementById('ba-input').value);
+    };
+    const input = document.getElementById('ba-input');
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        baAsk(input.value);
+      }
+    });
+  }
+  launcher.hidden = false;
+}
+
+function openBibleAnswers(opts) {
+  ensureBibleAnswersUI();
+  const panel = document.getElementById('ba-panel');
+  const launcher = document.getElementById('ba-launcher');
+  if (!panel || !state.me) return;
+  bibleAnswersState.open = true;
+  panel.hidden = false;
+  panel.classList.toggle('ba-sidebar-open', !!bibleAnswersState.sidebarOpen);
+  if (launcher) launcher.setAttribute('aria-expanded', 'true');
+  const notif = document.getElementById('notif-panel');
+  if (notif) notif.style.display = 'none';
+  baRenderThread();
+  baRenderSidebar();
+  baLoadMemory();
+  if (opts && opts.question) baAsk(opts.question);
+  else {
+    const input = document.getElementById('ba-input');
+    if (input) setTimeout(() => input.focus(), 50);
+  }
+}
+
+function closeBibleAnswers() {
+  const panel = document.getElementById('ba-panel');
+  const launcher = document.getElementById('ba-launcher');
+  bibleAnswersState.open = false;
+  bibleAnswersState.sidebarOpen = false;
+  if (panel) {
+    panel.hidden = true;
+    panel.classList.remove('ba-sidebar-open');
+  }
+  if (launcher) launcher.setAttribute('aria-expanded', 'false');
+}
+
+function baStartNewChat() {
+  bibleAnswersState.active = [];
+  bibleAnswersState.selectedKey = null;
+  bibleAnswersState.sidebarOpen = false;
+  const panel = document.getElementById('ba-panel');
+  if (panel) panel.classList.remove('ba-sidebar-open');
+  baRenderSidebar();
+  baRenderThread();
+  const input = document.getElementById('ba-input');
+  if (input) { input.value = ''; input.focus(); }
+}
+
+async function baLoadMemory() {
+  try {
+    const data = await api('/bible/ask/history');
+    bibleAnswersState.history = Array.isArray(data && data.history) ? data.history : [];
+  } catch {
+    // Keep whatever we already have; empty memory is fine for a fresh member.
+  }
+  bibleAnswersState.historyLoaded = true;
+  baRenderSidebar();
+  if (!bibleAnswersState.active.length) {
+    try {
+      const sug = await api('/bible/ask/suggestions');
+      bibleAnswersState.suggestions = Array.isArray(sug && sug.suggestions) ? sug.suggestions : [];
+    } catch { bibleAnswersState.suggestions = []; }
+    baRenderThread();
+  }
+}
+
+function baRenderSidebar() {
+  const list = document.getElementById('ba-sidebar-list');
+  if (!list) return;
+  const rows = bibleAnswersState.history.slice().reverse();
+  if (!rows.length) {
+    list.innerHTML = '<p class="ba-sidebar-empty muted">Past questions will appear here.</p>';
+    return;
+  }
+  list.innerHTML = rows.map((item, idx) => {
+    const key = baExchangeKey(item);
+    const active = key === bibleAnswersState.selectedKey ? ' active' : '';
+    const preview = escapeHtml((item.question || '').slice(0, 72));
+    return '<button type="button" class="ba-memory-item' + active + '" data-ba-memory="' + idx + '">'
+      + '<span class="ba-memory-q">' + preview + ((item.question || '').length > 72 ? '…' : '') + '</span>'
+      + '<span class="ba-memory-hint muted">Reopen</span>'
+      + '</button>';
+  }).join('');
+  list.querySelectorAll('[data-ba-memory]').forEach((btn) => {
+    btn.onclick = () => {
+      const item = rows[Number(btn.dataset.baMemory)];
+      if (!item) return;
+      bibleAnswersState.active = [item];
+      bibleAnswersState.selectedKey = baExchangeKey(item);
+      bibleAnswersState.sidebarOpen = false;
+      const panel = document.getElementById('ba-panel');
+      if (panel) panel.classList.remove('ba-sidebar-open');
+      baRenderSidebar();
+      baRenderThread();
+    };
+  });
+}
+
+function baRenderThread() {
+  const thread = document.getElementById('ba-thread');
+  const sugBox = document.getElementById('ba-suggestions');
+  if (!thread) return;
+  if (!bibleAnswersState.active.length) {
+    const prompts = (bibleAnswersState.suggestions && bibleAnswersState.suggestions.length)
+      ? bibleAnswersState.suggestions
+      : BA_STARTERS;
+    thread.innerHTML = ''
+      + '<div class="ba-home">'
+      + '  <div class="ba-home-mark" aria-hidden="true">✝</div>'
+      + '  <h3>Ask about Scripture or the faith</h3>'
+      + '  <p>Not about one verse in particular — ask anything. Every reference cited is verified against the real library before it is shown, never invented.</p>'
+      + '  <div class="ba-starters">'
+      + prompts.map((p) => '<button type="button" class="ba-starter" data-ba-starter="' + escapeHtml(p) + '">'
+          + '<span>' + escapeHtml(p) + '</span><span class="ba-starter-go" aria-hidden="true">↗</span></button>').join('')
+      + '  </div>'
+      + '</div>';
+    thread.querySelectorAll('[data-ba-starter]').forEach((btn) => {
+      btn.onclick = () => baAsk(btn.dataset.baStarter);
+    });
+    if (sugBox) { sugBox.hidden = true; sugBox.innerHTML = ''; }
+    return;
+  }
+
+  thread.innerHTML = bibleAnswersState.active.map((item) => {
+    const also = Array.isArray(item.also) ? item.also : [];
+    return ''
+      + '<div class="ba-exchange">'
+      + '  <div class="ba-bubble ba-bubble-q">' + escapeHtml(item.question || '') + '</div>'
+      + '  <div class="ba-bubble ba-bubble-a">'
+      + '    <p>' + escapeHtml(item.answer || '') + '</p>'
+      + also.map((a) => ''
+          + '<button type="button" class="ba-cite" data-ba-ref="' + escapeHtml(a.reference || '') + '">'
+          + '<div class="verse-ref">' + escapeHtml(a.reference || '') + '</div>'
+          + '<div class="verse-text">' + escapeHtml(a.text || '') + '</div>'
+          + '</button>').join('')
+      + '    <div class="ba-meta muted">Verified Scripture · text from the library, not the model</div>'
+      + '  </div>'
+      + '</div>';
+  }).join('');
+  if (bibleAnswersState.asking) {
+    thread.innerHTML += ''
+      + '<div class="ba-exchange">'
+      + '  <div class="ba-bubble ba-bubble-q">' + escapeHtml(bibleAnswersState.pendingQuestion || '…') + '</div>'
+      + '  <div class="ba-bubble ba-bubble-a ba-pending"><span class="ba-thinking"></span> Searching Scripture…</div>'
+      + '</div>';
+  }
+  thread.querySelectorAll('[data-ba-ref]').forEach((btn) => {
+    btn.onclick = () => {
+      const ref = btn.dataset.baRef;
+      if (!ref) return;
+      closeBibleAnswers();
+      renderVerseThread(ref);
+    };
+  });
+  thread.scrollTop = thread.scrollHeight;
+  if (sugBox) {
+    if (bibleAnswersState.suggestions && bibleAnswersState.suggestions.length && !bibleAnswersState.asking) {
+      sugBox.hidden = false;
+      sugBox.innerHTML = '<div class="ba-sug-label">Suggested for you</div><div class="ba-sug-row">'
+        + bibleAnswersState.suggestions.map((s) => '<button type="button" class="ba-sug" data-ba-sug="' + escapeHtml(s) + '">' + escapeHtml(s) + '</button>').join('')
+        + '</div>';
+      sugBox.querySelectorAll('[data-ba-sug]').forEach((b) => { b.onclick = () => baAsk(b.dataset.baSug); });
+    } else {
+      sugBox.hidden = true;
+      sugBox.innerHTML = '';
+    }
+  }
+}
+
+async function baAsk(raw) {
+  const question = String(raw || '').trim();
+  if (!question || bibleAnswersState.asking) return;
+  if (!(await aiAvailable())) {
+    showToast && showToast('Bible Answers is unavailable right now.');
+    return;
+  }
+  const input = document.getElementById('ba-input');
+  if (input) input.value = '';
+  bibleAnswersState.asking = true;
+  bibleAnswersState.pendingQuestion = question;
+  bibleAnswersState.selectedKey = null;
+  baRenderThread();
+  const send = document.getElementById('ba-send');
+  if (send) send.disabled = true;
+  let res;
+  try {
+    res = await api('/bible/ask', { method: 'POST', body: { question } });
+  } catch {
+    res = { error: 'unreachable' };
+  }
+  bibleAnswersState.asking = false;
+  bibleAnswersState.pendingQuestion = null;
+  if (send) send.disabled = false;
+
+  if (!res || res.error) {
+    const hint = (res && res.error === 'no_verified_answer')
+      ? (res.hint || 'That answer could not be fully verified against Scripture, so it was not shown. Please try asking again.')
+      : 'Bible Answers is unavailable right now.';
+    if (typeof showToast === 'function') showToast(hint);
+    else alert(hint);
+    if (input) input.value = question;
+    baRenderThread();
+    return;
+  }
+
+  const item = {
+    question: res.question || question,
+    answer: res.answer || '',
+    also: Array.isArray(res.also) ? res.also : [],
+  };
+  bibleAnswersState.active.push(item);
+  bibleAnswersState.selectedKey = baExchangeKey(item);
+  bibleAnswersState.history = bibleAnswersState.history.concat([item]);
+  baRenderSidebar();
+  baRenderThread();
+  try {
+    const sug = await api('/bible/ask/suggestions');
+    bibleAnswersState.suggestions = Array.isArray(sug && sug.suggestions) ? sug.suggestions : [];
+    baRenderThread();
+  } catch { /* suggestions are a nicety */ }
+}
+

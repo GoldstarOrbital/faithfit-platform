@@ -4296,7 +4296,7 @@ router.get('/motivation', requireAuth, async (req, res) => {
 // Home's "Scripture in Motion" card -- a fresh pick every call, meant to feel
 // new each time a member returns to Home (see scriptureMission.js), not the
 // live per-moment verse a tracked workout uses.
-router.get('/scripture/mission', requireAuth, aiLimiter, async (req, res) => {
+router.get('/scripture/mission', requireAuth, async (req, res) => {
   try {
     const mission = await scriptureMission.next(req.session.userId);
     if (!mission) return res.status(503).json({ error: 'mission_unavailable' });
@@ -5042,17 +5042,36 @@ router.get('/reels', requireAuth, aiLimiter, async (req, res) => {
   // beats Reels that open complete.
   if (church) churchVideos.push(...churchVideosFor(church));
   let curatedChurch = churchVideos; let chosenBy = 'fallback';
+  // Church scrape/YouTube already left the request path; Gloo ranking must not
+  // put a live AI round trip back on it. A cache HIT is a local DB read; a miss
+  // serves the unranked church list now and fills the cache in the background
+  // so the next open is curated — same pattern as Scripture in Motion coaching.
   if (churchVideos.length && gloo.isConfigured()) {
     const candidateText = churchVideos.map(v => `${v.video_id} | ${v.title || ''} | ${v.description || ''}`).join('\n').slice(0, 9000);
-    const out = await gloo.chatJson({ kind: 'church_reels_curation', userId: req.session.userId, cacheDays: 1, maxTokens: 500, messages: [
+    const opts = { kind: 'church_reels_curation', userId: req.session.userId, cacheDays: 1, maxTokens: 500, messages: [
       { role: 'system', content: 'You curate a safe Christian fitness social feed. Return JSON only: {"video_ids":[{"id":"existing id","reason":"short reason"}]}. Keep every candidate appropriate for a church and family audience. You may only use IDs present in the candidate list.' },
       { role: 'user', content: `Select up to 12 church videos for a mixed short-form feed. Prefer encouraging, youth-safe, faith-and-life content. Candidates:\n${candidateText}` },
-    ] });
-    const allowed = new Map(churchVideos.map(v => [v.video_id, v]));
-    const picks = Array.isArray(out?.json?.video_ids) ? out.json.video_ids : [];
-    const ranked = picks.map(p => allowed.get(String(p.id))).filter(Boolean);
-    if (ranked.length) { curatedChurch = ranked; chosenBy = 'gloo'; }
+    ] };
+    const applyCurated = (out) => {
+      const allowed = new Map(churchVideos.map(v => [v.video_id, v]));
+      const picks = Array.isArray(out?.json?.video_ids) ? out.json.video_ids : [];
+      const ranked = picks.map(p => allowed.get(String(p.id))).filter(Boolean);
+      if (ranked.length) { curatedChurch = ranked; chosenBy = 'gloo'; }
+    };
+    const cached = gloo.peekCache(opts);
+    if (cached && cached.text) {
+      let body = String(cached.text).trim();
+      const fenced = /^\`\`\`(?:json)?\s*([\s\S]*?)\s*\`\`\`$/i.exec(body);
+      if (fenced) body = fenced[1].trim();
+      try {
+        const parsed = JSON.parse(body);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) applyCurated({ json: parsed });
+      } catch { /* unranked church list is fine until a good cache lands */ }
+    } else {
+      gloo.chatJson(opts).catch(() => {});
+    }
   }
+
   // The curated catalogue -- Goggins and the fight films, Lewis and Tolkien,
   // Walnut Grove and Highway to Heaven -- comes through the reels algorithm,
   // which handles freshness, the category mix, and what this member has already

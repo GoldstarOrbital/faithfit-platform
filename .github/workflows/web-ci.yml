@@ -69,6 +69,12 @@ jobs:
         run: node scripts/verify-workout-distance.js
       - name: Verify Reels opens without third-party calls
         run: node scripts/verify-reels-latency.js
+      - name: Verify Scripture in Motion stays local-fast
+        run: node scripts/verify-scripture-mission-latency.js
+      - name: Verify Home Scripture in Motion fast path
+        run: node scripts/verify-home-scripture-mission.js
+      - name: Verify Bible Answers floating chat shell
+        run: node scripts/verify-bible-answers.js
       - name: Verify blocking severs the relationship
         run: node scripts/verify-block-severs-relationship.js
       - name: Verify muted stories stay hidden
