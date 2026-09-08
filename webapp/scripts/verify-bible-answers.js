@@ -72,6 +72,22 @@ need(css, 'var(--walnut-1)', 'walnut brand token');
 need(css, 'var(--meadow', 'meadow brand token');
 need(css, 'var(--hearth', 'hearth brand token');
 
+
+// Home SIM fast path must remain (do not regress while polishing BA)
+need(app, '_homeMissionPromise', 'Home Scripture in Motion fast path');
+need(app, "/scripture/mission", 'SIM endpoint wiring');
+
+// Floating launcher mounts on body (avoids sticky header / tabbar stacking traps)
+need(app, 'document.body.appendChild(launcher)', 'launcher appended to body');
+need(app, 'document.body.appendChild(panel)', 'panel appended to body');
+need(app, 'ensureBibleAnswersUI();', 'ensureBibleAnswersUI visibility sync');
+
+// Brand tokens (parchment / walnut / meadow / hearth)
+need(css, '--parch-2: #fdf8ea', 'parchment #FDF8EA');
+need(css, '--walnut-1: #2b1e12', 'walnut #2B1E12');
+need(css, '--meadow: #6f8f43', 'meadow #6F8F43');
+need(css, '--hearth: #d99a3f', 'hearth #D99A3F');
+
 console.log(JSON.stringify({
   ok: true,
   floating_launcher: true,
@@ -79,4 +95,6 @@ console.log(JSON.stringify({
   new_chat_home_reset: true,
   verified_library_guardrails: true,
   explore_entry: true,
+  sim_fast_path_preserved: true,
+  brand_tokens: true,
 }, null, 2));

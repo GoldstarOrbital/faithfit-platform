@@ -8424,7 +8424,7 @@ async function baAsk(raw) {
   const question = String(raw || '').trim();
   if (!question || bibleAnswersState.asking) return;
   if (!(await aiAvailable())) {
-    showToast && showToast('Bible Answers is unavailable right now.');
+    if (typeof showToast === 'function') showToast('Bible Answers is unavailable right now.');
     return;
   }
   const input = document.getElementById('ba-input');

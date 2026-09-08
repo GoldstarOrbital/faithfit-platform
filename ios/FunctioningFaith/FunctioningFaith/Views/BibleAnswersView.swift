@@ -27,6 +27,9 @@ struct BibleAnswersView: View {
     @State private var sharingAnswer: BibleAnswer?
     @State private var suggestions: [String] = []
     @State private var hasLoadedHistory = false
+    /// Full GET /bible/ask/history memory — survives local New chat clears.
+    @State private var memory: [BibleAnswer] = []
+    @State private var showMemory = false
     @FocusState private var inputFocused: Bool
 
     private let starterPrompts = [
@@ -56,6 +59,54 @@ struct BibleAnswersView: View {
         }
         .navigationTitle("Bible Answers")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    showMemory = true
+                } label: {
+                    Label("Memory", systemImage: "clock.arrow.circlepath")
+                }
+                .disabled(memory.isEmpty)
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("New chat") {
+                    history = []
+                    question = ""
+                    pendingQuestion = nil
+                    errorMessage = nil
+                }
+                .disabled(history.isEmpty && pendingQuestion == nil)
+            }
+        }
+        .sheet(isPresented: $showMemory) {
+            NavigationStack {
+                List(memory) { item in
+                    Button {
+                        history = [item]
+                        showMemory = false
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.question)
+                                .font(FFTheme.serif(14))
+                                .foregroundStyle(FFTheme.ink)
+                                .lineLimit(2)
+                            Text("Reopen")
+                                .font(.caption)
+                                .foregroundStyle(FFTheme.muted)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                .navigationTitle("Memory")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Close") { showMemory = false }
+                    }
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
         .navigationDestination(item: $openedReference) { ref in VerseThreadView(reference: ref.reference) }
         .sheet(item: $sharingAnswer) { answer in
             SharePickerSheet(content: .bibleAnswer(question: answer.question, answer: answer.answer))
@@ -70,7 +121,9 @@ struct BibleAnswersView: View {
             // to the empty state's generic starter prompts.
             async let loadedHistory = try? APIClient.shared.fetchBibleAnswerHistory()
             async let loadedSuggestions = try? APIClient.shared.fetchBibleAnswerSuggestions()
-            history = await loadedHistory ?? []
+            memory = await loadedHistory ?? []
+            // Match web: land on welcoming home; memory stays available via toolbar.
+            history = []
             suggestions = await loadedSuggestions ?? []
             hasLoadedHistory = true
         }
@@ -301,6 +354,7 @@ struct BibleAnswersView: View {
         do {
             let answer = try await APIClient.shared.askBibleQuestion(trimmed)
             history.append(answer)
+            memory.append(answer)
             // Best-effort refresh so suggestions reflect what was just
             // asked rather than going stale after the first question.
             suggestions = (try? await APIClient.shared.fetchBibleAnswerSuggestions()) ?? suggestions
