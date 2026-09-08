@@ -314,6 +314,9 @@ async function restVerse(opts) {
  * of it. Any further reference it brings in is resolved and returned alongside,
  * and one that cannot be resolved is dropped from the answer.
  */
+// Short-lived, bounded cache of fully verified answers, isolated by member,
+// translation and tradition. Provider failures are never cached here.
+const verifiedVerseAnswers = new Map();
 async function askAboutVerse(opts) {
   const o = opts || {};
   if (!gloo.isConfigured()) return null;
@@ -322,6 +325,10 @@ async function askAboutVerse(opts) {
   const question = String(o.question || '').trim();
   if (!reference || !question) return null;
   if (question.length > 500) return null;
+  const answerKey = JSON.stringify([o.userId || null, o.tradition || null, o.versionId || null, reference, question]);
+  const cachedAnswer = verifiedVerseAnswers.get(answerKey);
+  if (cachedAnswer && cachedAnswer.until > Date.now()) return {...cachedAnswer.answer, cached:true};
+  verifiedVerseAnswers.delete(answerKey);
 
   const base = await resolveRef(reference, o.versionId);
   if (!base) return null;      // we will not discuss a verse we cannot quote
@@ -351,7 +358,9 @@ async function askAboutVerse(opts) {
       grounded: true,
       sourcesLimit: 3,
       cacheDays: 14,
-      cache: attempt === 0,
+      // Invalid answers are evicted below; a successful retry should be
+      // cached too, rather than repeating inference on the next tap.
+      cache: true,
     });
     if (!res) continue;
     // Check 2: every reference the answer cites must be real.
@@ -372,7 +381,7 @@ async function askAboutVerse(opts) {
     answer = answer.split(bad).join('that passage');
   }
 
-  return {
+  const verifiedAnswer = {
     reference: base.reference,
     text: base.text,
     answer: answer.trim(),
@@ -383,6 +392,9 @@ async function askAboutVerse(opts) {
     model: res.model || null,
     cached: !!res.cached,
   };
+  verifiedVerseAnswers.set(answerKey, {until:Date.now() + 15 * 60 * 1000, answer:verifiedAnswer});
+  while (verifiedVerseAnswers.size > 128) verifiedVerseAnswers.delete(verifiedVerseAnswers.keys().next().value);
+  return verifiedAnswer;
 }
 
 /**

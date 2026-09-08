@@ -1383,7 +1383,7 @@ async function renderHome(main, forceRefresh = false) {
       api('/recommendations').catch(() => null),
       api('/devotionals/today').catch(() => null),
       api('/church/videos').catch(() => null),
-      api('/reels').catch(() => null),
+      api('/reels?media=deferred').catch(() => null),
       api('/journeys').catch(() => []),
       api('/motivation').catch(() => null),
       api('/feed/friends-workouts?limit=5').then(r => r.workouts || []).catch(() => []),
@@ -2394,6 +2394,8 @@ function openReelDiscussion(postId) {
 // Standalone short-form feed: Reels is intentionally separate from Videos so
 // it behaves like a scrollable social surface, not another category shelf.
 async function renderReelsTab(body) {
+  const generation = Symbol('reels');
+  body.reelGeneration = generation;
   body.innerHTML = `<div class="reels-hero"><div class="video-kicker">FUNCTIONING FAITH REELS</div><h2>Small moments. Big encouragement.</h2><p>One mixed feed for faith, movement, meals, family, and your church. Swipe up for the next moment.</p>
     <div class="reels-feed-note">Shorts + food + church content · fresh when you actually watch</div>
     <button class="reel-create-btn" id="reel-create-open">＋ Create a Reel</button>
@@ -2406,16 +2408,16 @@ async function renderReelsTab(body) {
   if (state.reelsView === 'saved') {
     try { payload = await api('/reels/saved'); } catch { payload.videos = []; }
   } else {
-    try { payload = await api('/reels'); } catch { try { payload.videos = await api('/videos?category=reels'); } catch { payload.videos = []; } }
+    try { payload = await api('/reels?media=deferred'); } catch { try { payload.videos = await api('/videos?category=reels'); } catch { payload.videos = []; } }
   }
   // The API order is meaningful: approved Functioning Faith originals lead,
   // followed by church/official/catalog content. Do not randomize it in the
   // browser; discovery diversity belongs inside the server ranking tiers.
   let videos = payload.videos || [];
   const seen = new Set();
-  videos = videos.filter(v => v.video_id && !seen.has(v.video_id))
-    .map(v => { seen.add(v.video_id); return v; });
+  videos = videos.filter(v => v.video_id && !seen.has(v.video_id) && (seen.add(v.video_id), true));
   const list = document.getElementById('reels-list');
+  if (!body.isConnected || body.reelGeneration !== generation || !list || !body.contains(list)) return;
   if (!videos.length) { list.innerHTML = `<div class="card glass"><p class="muted">${state.reelsView === 'saved' ? 'Your saved Reels will appear here. Tap 🔖 on anything you want to come back to.' : 'No reels in this filter yet. Fresh videos will appear here as the library refreshes.'}</p></div>`; return; }
   const labels = { food: 'Food + fitness', kids: 'Kids + family', fitness: 'Faith + movement', christian: 'Scripture + formation', motivational: 'Purpose + perseverance', veggietales: 'Kids + family', nickbare: 'Training + discipline', thechosen: 'The Chosen', church: 'Your church', instagram: 'Instagram · external', tiktok: 'TikTok · external', youtube: 'YouTube · external' };
   const sourceLabel = v => v.source_kind === 'functioning_faith' ? 'Functioning Faith original'
@@ -2423,13 +2425,13 @@ async function renderReelsTab(body) {
       : v.source_kind === 'channel' ? 'Official channel' : 'Curated for this community';
   list.innerHTML = videos.map(v => `<article class="reel-card" data-reel-card="${escapeHtml(v.video_id)}" data-reel-provider="${escapeHtml(v.provider || 'youtube')}" data-reel-source-url="${escapeHtml(v.source_url || '')}" data-reel-track-impression="${['channel', 'seed', 'query'].includes(v.source_kind) ? 'true' : 'false'}">
     <div class="reel-frame video-thumb-wrap" data-reel-frame="${escapeHtml(v.video_id)}">${v.provider === 'functioning_faith'
-      ? `<video src="${escapeHtml(v.video_data || '')}" muted loop playsinline preload="metadata" aria-label="${escapeHtml(v.title || 'Functioning Faith reel')}"></video>${reelSoundButton(reelsSoundOn())}`
+      ? `<video ${v.video_data ? `src="${escapeHtml(v.video_data)}"` : ''} muted loop playsinline preload="metadata" aria-label="${escapeHtml(v.title || 'Functioning Faith reel')}"></video>${reelSoundButton(reelsSoundOn())}`
       : `<img loading="lazy" src="${escapeHtml(v.thumbnail_url || ((v.provider || 'youtube') === 'youtube' ? `https://i.ytimg.com/vi/${encodeURIComponent(v.video_id)}/hqdefault.jpg` : ''))}" alt="${escapeHtml(v.title || 'Functioning Faith reel')}" /><span class="reel-play">▶</span>${reelSoundButton(reelsSoundOn())}`}</div>
     <div class="reel-actions" aria-label="Reel actions">${reelActionButton('like', v.liked_by_me, v.like_count)}${reelActionButton('save', v.saved_by_me, v.save_count)}${v.source_kind === 'functioning_faith' ? `<button type="button" class="reel-action" data-reel-discuss="${escapeHtml(v.video_id)}" aria-label="Discuss this Reel"><span class="reel-action-icon">💬</span><span>Discuss</span></button>` : ''}${reelShareButton()}${state.reelsView === 'for_you' ? '<button type="button" class="reel-action reel-not-interested" data-reel-not-interested aria-label="Show fewer Reels like this"><span class="reel-action-icon">×</span><span>Not for me</span></button>' : ''}</div>
     <div class="reel-overlay"><div class="reel-meta"><span class="video-audience">${escapeHtml(labels[v.category] || 'Faith + movement')}</span><span class="reel-source">${escapeHtml(sourceLabel(v))}</span></div><div class="reel-title">${escapeHtml(v.title || 'Short encouragement')}</div><div class="muted">${escapeHtml(v.channel_title || '')}</div>${v.verse_reference ? `<button type="button" class="reel-scripture" data-reel-verse-ref="${escapeHtml(v.verse_reference)}">Open ${escapeHtml(v.verse_reference)} <span aria-hidden="true">→</span></button>` : ''}${v.source_url && ['instagram','tiktok'].includes(v.provider) ? `<a class="reel-external-link" href="${escapeHtml(v.source_url)}" target="_blank" rel="noopener noreferrer">Open original on ${escapeHtml(v.provider)}</a>` : ''}</div>
   </article>`).join('');
   let activeCard = null;
-  const activate = card => {
+  const activate = async card => {
     if (activeCard && activeCard !== card) {
       activeCard.classList.remove('is-active');
       const oldFrame = activeCard.querySelector('[data-reel-frame]');
@@ -2445,7 +2447,29 @@ async function renderReelsTab(body) {
     const frame = card.querySelector('[data-reel-frame]');
     if (card.dataset.reelProvider === 'functioning_faith') {
       const ownVideo = frame.querySelector('video');
-      if (ownVideo) { ownVideo.muted = !reelsSoundOn(); ownVideo.play().catch(() => {}); }
+      if (!ownVideo) return;
+      if (!ownVideo.getAttribute('src')) {
+        if (frame.dataset.loading === 'true') return;
+        frame.dataset.loading = 'true';
+        frame.setAttribute('aria-busy', 'true');
+        try {
+          const media = await api(`/posts/${encodeURIComponent(card.dataset.reelCard)}/media`, {throwOnError:true});
+          if (!card.isConnected || body.reelGeneration !== generation) return;
+          if (!/^data:video\/(mp4|quicktime|webm);base64,/i.test(media.video_data || '')) throw new Error('Video unavailable');
+          ownVideo.src = media.video_data;
+          frame.querySelector('[data-reel-retry]')?.remove();
+        } catch {
+          if (card.isConnected && !frame.querySelector('[data-reel-retry]')) {
+            const retry = document.createElement('button');
+            retry.dataset.reelRetry = 'true'; retry.className = 'reel-play';
+            retry.textContent = 'Retry video';
+            retry.onclick = event => { event.stopPropagation(); activate(card); };
+            frame.appendChild(retry);
+          }
+          return;
+        } finally { frame.dataset.loading = 'false'; frame.setAttribute('aria-busy','false'); }
+      }
+      if (activeCard === card) { ownVideo.muted = !reelsSoundOn(); ownVideo.play().catch(() => {}); }
       return;
     }
     if (frame.querySelector('iframe')) return;
@@ -6366,7 +6390,7 @@ async function aiAvailable() {
 async function wireCompanion(reference) {
   const box = document.getElementById('companion');
   if (!box) return;
-  if (!(await aiAvailable())) return;      // stays hidden -- no broken empty shell
+  if (!(await aiAvailable()) || !box.isConnected) return;
   box.hidden = false;
 
   // One-tap Explain: most people do not have a specific question yet.
@@ -6390,10 +6414,11 @@ async function wireCompanion(reference) {
     let res;
     try {
       res = await api(`/verses/${encodeURIComponent(reference)}/ask`,
-                      { method: 'POST', body: { question } });
+                      { method: 'POST', body: { question }, timeoutMs: 90000 });
     } catch {
       res = { error: 'unreachable' };
     }
+    if (!out.isConnected) return;
     setBusy(false);
 
     if (!res || res.error) {

@@ -2377,6 +2377,8 @@ nav.tabbar button.active .icon svg { filter:drop-shadow(0 0 5px rgba(255,255,255
   overflow: hidden;
 }
 .ba-sidebar {
+  position: relative;
+  isolation: isolate;
   background:
     linear-gradient(180deg, rgba(43,30,18,0.96), rgba(58,42,26,0.98));
   color: var(--parch-2);
@@ -2384,6 +2386,15 @@ nav.tabbar button.active .icon svg { filter:drop-shadow(0 0 5px rgba(255,255,255
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+.ba-sidebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(rgba(201,162,74,.10), rgba(201,162,74,.10)) 60% 65% / 24px 280px no-repeat,
+              linear-gradient(rgba(201,162,74,.10), rgba(201,162,74,.10)) 60% 56% / 150px 24px no-repeat;
 }
 .ba-sidebar-head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;

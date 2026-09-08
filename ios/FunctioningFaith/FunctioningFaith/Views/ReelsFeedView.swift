@@ -53,6 +53,7 @@ struct ReelsFeedView: View {
     var isActive: Bool = true
 
     @State private var reels: [Reel] = []
+    @State private var loadGeneration = UUID()
     @State private var churchName: String?
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -186,17 +187,20 @@ struct ReelsFeedView: View {
     /// `private, max-age=15`, so without it the gesture can hand back exactly
     /// the reels the member just swiped past and asked to get away from.
     private func load(forceRefresh: Bool = false) async {
-        isLoading = true
+        let generation = UUID()
+        loadGeneration = generation
+        isLoading = reels.isEmpty
+        defer { if loadGeneration == generation { isLoading = false } }
         errorMessage = nil
         do {
             let response = try await APIClient.shared.fetchReels(forceRefresh: forceRefresh)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, loadGeneration == generation else { return }
             reels = response.videos
             churchName = response.churchName
             impressedVideoIDs.removeAll()
             prefetch(after: -1)
         } catch {
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, loadGeneration == generation else { return }
             errorMessage = error.localizedDescription
         }
         isLoading = false
@@ -307,6 +311,9 @@ private struct ReelPage: View {
     let onNotInterested: () -> Void
 
     @State private var showVerseThread = false
+    @State private var loadedVideo: String?
+    @State private var mediaError = false
+    @State private var mediaRetry = 0
 
     // Matches the webapp's own labels/sourceLabel exactly (renderReelsTab in
     // public/app.js) -- the two feeds should read as the same product.
@@ -327,7 +334,7 @@ private struct ReelPage: View {
         }
     }
 
-    private var isNativeInline: Bool { reel.provider == "functioning_faith" && reel.videoData != nil }
+    private var isNativeInline: Bool { reel.provider == "functioning_faith" }
     // A YouTube reel autoplays inline too, exactly like a native upload,
     // instead of tapping into a modal that stops the feed's own scrolling --
     // the modal only remains for reels with neither a native payload nor a
@@ -338,8 +345,13 @@ private struct ReelPage: View {
     var body: some View {
         ZStack {
             Color.black
-            if isNativeInline, let dataURL = reel.videoData {
+            if isNativeInline, let dataURL = reel.videoData ?? loadedVideo {
                 InlineReelPlayer(dataURL: dataURL, isActive: isCurrent)
+            } else if isNativeInline && isCurrent {
+                if mediaError {
+                    Button("Could not load video. Tap to retry") { mediaRetry += 1 }
+                        .foregroundStyle(.white).buttonStyle(.borderless)
+                } else { ProgressView("Preparing video…").tint(.white).foregroundStyle(.white) }
             } else if isYouTubeInline && isCurrent {
                 InlineYouTubeReelPlayer(videoID: reel.videoID)
             } else if let thumb = reel.thumbnailURL, let url = URL(string: thumb) {
@@ -439,6 +451,17 @@ private struct ReelPage: View {
             }
         }
         .clipped()
+        .task(id: "\(isCurrent)-\(mediaRetry)") {
+            guard isCurrent, isNativeInline, reel.videoData == nil, loadedVideo == nil,
+                  let id = UUID(uuidString: reel.videoID) else { return }
+            mediaError = false
+            do {
+                let media = try await APIClient.shared.fetchPostMedia(id: id)
+                guard !Task.isCancelled else { return }
+                loadedVideo = media.videoData
+                mediaError = loadedVideo == nil
+            } catch { if !Task.isCancelled { mediaError = true } }
+        }
         .navigationDestination(isPresented: $showVerseThread) {
             if let ref = reel.verseReference { VerseThreadView(reference: ref) }
         }

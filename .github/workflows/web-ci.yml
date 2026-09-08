@@ -52,7 +52,9 @@ jobs:
       - name: Verify native authentication contract
         run: npm run verify:native-auth
       - name: Verify feed ranking and privacy
-        run: node scripts/verify-feed-ranking.js
+        run: |
+          node scripts/verify-feed-ranking.js
+          node scripts/verify-verse-companion-cache.js
       - name: Verify shell deployment freshness
         run: node scripts/verify-shell-cache.js
       # These three assert against the served shell, so a change to how assets

@@ -5109,14 +5109,18 @@ router.get('/reels', requireAuth, aiLimiter, async (req, res) => {
     SELECT p.id AS video_id, p.content AS title, p.content AS description,
            NULL AS thumbnail_url, u.display_name AS channel_title,
            p.created_at AS published_at, p.video_category AS category,
-           'functioning_faith' AS provider, p.video_data, 'functioning_faith' AS source_kind,
+           'functioning_faith' AS provider, CASE WHEN @deferred=0 THEN p.video_data END AS video_data, 'functioning_faith' AS source_kind,
            v.reference AS verse_reference, v.text AS verse_text
       FROM posts p
       JOIN users u ON u.id = p.user_id
       LEFT JOIN scripture_verses v ON v.id = p.verse_id
      WHERE p.visibility = 'public' AND p.video_data IS NOT NULL
        AND p.video_category IN ('workout','nature','animal','group')
-  `).all();
+       AND NOT EXISTS (SELECT 1 FROM dm_blocks b WHERE
+         (b.blocker_id=@me AND b.blocked_id=p.user_id) OR (b.blocker_id=p.user_id AND b.blocked_id=@me))
+       AND NOT EXISTS (SELECT 1 FROM account_relationship_controls rc
+         WHERE rc.actor_id=@me AND rc.subject_id=p.user_id AND rc.control='mute')
+  `).all({me:req.session.userId,deferred:req.query.media === 'deferred' ? 1 : 0});
 
   // Every Original still belongs here (see above -- no cap), but a fixed
   // created_at DESC order meant this member saw the exact same clips in the

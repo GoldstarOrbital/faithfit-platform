@@ -97,7 +97,20 @@ struct SidePanelView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(FFTheme.parchment0.ignoresSafeArea())
+        .background {
+            ZStack {
+                FFTheme.parchment0.ignoresSafeArea()
+                GeometryReader { geometry in
+                    ZStack(alignment: .top) {
+                        RoundedRectangle(cornerRadius: 9).frame(width: 30, height: 300)
+                        RoundedRectangle(cornerRadius: 9).frame(width: 170, height: 30).offset(y: 76)
+                    }
+                    .foregroundStyle(FFTheme.meadow.opacity(0.09))
+                    .position(x: geometry.size.width * 0.6, y: geometry.size.height * 0.68)
+                }
+                .allowsHitTesting(false).accessibilityHidden(true)
+            }
+        }
     }
 
     private func sectionRow(_ section: AppTab) -> some View {

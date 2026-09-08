@@ -50,7 +50,9 @@ final class APIClient {
         configuration.requestCachePolicy = .useProtocolCachePolicy
         configuration.urlCache = URLCache(memoryCapacity: 16 * 1024 * 1024, diskCapacity: 64 * 1024 * 1024, diskPath: "functioning-faith-api")
         configuration.timeoutIntervalForRequest = 20
-        configuration.timeoutIntervalForResource = 45
+        // Ordinary requests still time out after 20 seconds. Allow explicitly
+        // longer AI verification and video uploads to use their own budgets.
+        configuration.timeoutIntervalForResource = 120
         configuration.waitsForConnectivity = true
         session = URLSession(configuration: configuration)
         decoder = JSONDecoder()
@@ -727,7 +729,7 @@ final class APIClient {
     /// refresh needs the same bypass the feed does -- otherwise the gesture
     /// returns the same reels the member just swiped past.
     func fetchReels(forceRefresh: Bool = false) async throws -> ReelsFeedResponse {
-        try await request("/api/reels", forceRefresh: forceRefresh)
+        try await request("/api/reels?media=deferred", forceRefresh: forceRefresh)
     }
 
     /// Only meaningful for catalogue videos (source_kind channel/seed/query
@@ -1093,7 +1095,7 @@ final class APIClient {
         guard let encoded = reference.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
             throw APIError.invalidResponse
         }
-        return try await request("/api/verses/\(encoded)/ask", method: "POST", body: AskVerseBody(question: question))
+        return try await request("/api/verses/\(encoded)/ask", method: "POST", body: AskVerseBody(question: question), timeoutInterval: 90)
     }
 
     // MARK: - Podcasts
