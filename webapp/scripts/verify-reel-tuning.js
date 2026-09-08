@@ -17,6 +17,8 @@ assert.match(reels, /NOT EXISTS \(SELECT 1 FROM reel_hides h/, 'catalogue feed m
 assert.match(api, /router\.post\('\/reels\/:videoId\/not-interested'/, 'the API needs a private not-interested route');
 assert.match(api, /INSERT OR IGNORE INTO reel_hides/, 'not-interested requests must be idempotent');
 assert.match(api, /videos = videos\.filter\(video => !hiddenIds\.has/, 'mixed feeds must also remove private hidden clips');
+assert.doesNotMatch(api, /item\.save_count = Number\(row\.count\)/, 'main feed must not expose aggregate reel save counts');
+assert.match(api, /row\.kind === 'save'\)\s*\{\s*item\.saved_by_me = !!row\.mine;\s*\}/, 'main feed must still include whether the member saved a reel');
 assert.match(api, /'reel_impressions', 'reel_reactions', 'reel_hides'/, 'account deletion must remove private Reel preferences');
 assert.match(app, /data-reel-not-interested/, 'the member needs a visible not-interested control');
 assert.match(app, /\/not-interested/, 'the UI must persist not-interested choices');

@@ -2249,10 +2249,11 @@ async function renderMemberList(main, userId, kind, displayName) {
     btn.textContent = result.following ? 'Following' : 'Follow'; btn.classList.toggle('following', result.following);
   });
 }
-function reelActionButton(kind, active, count) {
+function reelActionButton(kind, active) {
   const icon = kind === 'like' ? '♥' : '🔖';
   const label = kind === 'like' ? (active ? 'Unlike reel' : 'Like reel') : (active ? 'Remove reel from saves' : 'Save reel');
-  return `<button type="button" class="reel-action ${active ? 'is-active' : ''}" data-reel-action="${kind}" aria-pressed="${active ? 'true' : 'false'}" aria-label="${label}"><span class="reel-action-icon">${icon}</span><span data-reel-count>${Number(count) || 0}</span></button>`;
+  const text = kind === 'like' ? (active ? 'Liked' : 'Like') : (active ? 'Saved' : 'Save');
+  return `<button type="button" class="reel-action ${active ? 'is-active' : ''}" data-reel-action="${kind}" aria-pressed="${active ? 'true' : 'false'}" aria-label="${label}"><span class="reel-action-icon">${icon}</span><span data-reel-label>${text}</span></button>`;
 }
 function reelShareButton() {
   return '<button type="button" class="reel-action" data-reel-action="share" aria-label="Share reel"><span class="reel-action-icon">↗</span><span>Share</span></button>';
@@ -2343,7 +2344,7 @@ async function renderReelsTab(body) {
     <div class="reel-frame video-thumb-wrap" data-reel-frame="${escapeHtml(v.video_id)}">${v.provider === 'functioning_faith'
       ? `<video src="${escapeHtml(v.video_data || '')}" muted loop playsinline preload="metadata" aria-label="${escapeHtml(v.title || 'Functioning Faith reel')}"></video>${reelSoundButton(reelsSoundOn())}`
       : `<img loading="lazy" src="${escapeHtml(v.thumbnail_url || ((v.provider || 'youtube') === 'youtube' ? `https://i.ytimg.com/vi/${encodeURIComponent(v.video_id)}/hqdefault.jpg` : ''))}" alt="${escapeHtml(v.title || 'Functioning Faith reel')}" /><span class="reel-play">▶</span>${reelSoundButton(reelsSoundOn())}`}</div>
-    <div class="reel-actions" aria-label="Reel actions">${reelActionButton('like', v.liked_by_me, v.like_count)}${reelActionButton('save', v.saved_by_me, v.save_count)}${v.source_kind === 'functioning_faith' ? `<button type="button" class="reel-action" data-reel-discuss="${escapeHtml(v.video_id)}" aria-label="Discuss this Reel"><span class="reel-action-icon">💬</span><span>Discuss</span></button>` : ''}${reelShareButton()}${state.reelsView === 'for_you' ? '<button type="button" class="reel-action reel-not-interested" data-reel-not-interested aria-label="Show fewer Reels like this"><span class="reel-action-icon">×</span><span>Not for me</span></button>' : ''}</div>
+    <div class="reel-actions" aria-label="Reel actions">${reelActionButton('like', v.liked_by_me)}${reelActionButton('save', v.saved_by_me)}${v.source_kind === 'functioning_faith' ? `<button type="button" class="reel-action" data-reel-discuss="${escapeHtml(v.video_id)}" aria-label="Discuss this Reel"><span class="reel-action-icon">💬</span><span>Discuss</span></button>` : ''}${reelShareButton()}${state.reelsView === 'for_you' ? '<button type="button" class="reel-action reel-not-interested" data-reel-not-interested aria-label="Show fewer Reels like this"><span class="reel-action-icon">×</span><span>Not for me</span></button>' : ''}</div>
     <div class="reel-overlay"><div class="reel-meta"><span class="video-audience">${escapeHtml(labels[v.category] || 'Faith + movement')}</span><span class="reel-source">${escapeHtml(sourceLabel(v))}</span></div><div class="reel-title">${escapeHtml(v.title || 'Short encouragement')}</div><div class="muted">${escapeHtml(v.channel_title || '')}</div>${v.verse_reference ? `<button type="button" class="reel-scripture" data-reel-verse-ref="${escapeHtml(v.verse_reference)}">Open ${escapeHtml(v.verse_reference)} <span aria-hidden="true">→</span></button>` : ''}${v.source_url && ['instagram','tiktok'].includes(v.provider) ? `<a class="reel-external-link" href="${escapeHtml(v.source_url)}" target="_blank" rel="noopener noreferrer">Open original on ${escapeHtml(v.provider)}</a>` : ''}</div>
   </article>`).join('');
   let activeCard = null;
@@ -2425,8 +2426,10 @@ async function renderReelsTab(body) {
           action.setAttribute('aria-label', kind === 'like'
             ? (result.active ? 'Unlike reel' : 'Like reel')
             : (result.active ? 'Remove reel from saves' : 'Save reel'));
-          const count = action.querySelector('[data-reel-count]');
-          if (count) count.textContent = result.count;
+          const text = action.querySelector('[data-reel-label]');
+          if (text) text.textContent = kind === 'like'
+            ? (result.active ? 'Liked' : 'Like')
+            : (result.active ? 'Saved' : 'Save');
         }).catch(() => {});
       }
       return;
