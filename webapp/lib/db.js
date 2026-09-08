@@ -191,6 +191,9 @@ CREATE TABLE IF NOT EXISTS user_quests (
 CREATE TABLE IF NOT EXISTS notifications (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
+  -- Who caused it, when another member did. See the migration at the end of
+  -- this file for why this exists.
+  actor_id TEXT,
   type TEXT,
   payload TEXT,
   delivered_at TEXT DEFAULT (datetime('now')),
@@ -1023,5 +1026,21 @@ CREATE INDEX IF NOT EXISTS idx_notifications_user_delivered ON notifications(use
 -- Workout history and stats, newest first.
 CREATE INDEX IF NOT EXISTS idx_workouts_user_start ON workouts(user_id, start_time DESC);
 `);
+
+// --- migration: record who caused a notification (additive, safe no-op) ---
+// Notification payloads embed the actor's display name directly in their
+// message text ("Alice started following you"), and nothing recorded which
+// member that was. So deleting an account removed the notifications that
+// member received and left every notification about them intact in other
+// people's feeds -- their profile gone, their name still there. That
+// contradicts what the deletion dialog promises, and account deletion is
+// something App Store review actually tests. This column is what makes those
+// rows findable.
+const notificationCols = db.prepare('PRAGMA table_info(notifications)').all().map(c => c.name);
+if (!notificationCols.includes('actor_id')) db.exec('ALTER TABLE notifications ADD COLUMN actor_id TEXT');
+// After the migration, never inside the schema block above: on a database that
+// predates the column, an index declared there runs before the ALTER and fails
+// the whole startup.
+db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_actor ON notifications(actor_id)');
 
 module.exports = db;

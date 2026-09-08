@@ -215,8 +215,12 @@ function notify(userId, type, message, extra) {
   const details = extra || {};
   const destination = isSafeInternalNotificationUrl(details.url) ? details.url : notificationDestination(type, details);
   const payload = { message, ...details, url: destination };
-  db.prepare('INSERT INTO notifications (id, user_id, type, payload) VALUES (?, ?, ?, ?)')
-    .run(randomUUID(), userId, type, JSON.stringify(payload));
+  // `message` is composed by the caller and routinely names the member who
+  // caused this ("Alice gave you kudos"). Recording who that was is what lets
+  // account deletion remove these; without it the name outlives the account in
+  // everyone else's notifications. Callers that name someone pass actor_id.
+  db.prepare('INSERT INTO notifications (id, user_id, type, payload, actor_id) VALUES (?, ?, ?, ?, ?)')
+    .run(randomUUID(), userId, type, JSON.stringify(payload), details.actor_id || null);
   // Push respects the member's explicit social/reminder category choice. It is
   // fire-and-forget so a browser push outage never delays the app action.
   push.send(userId, notificationPushCategory(type), { title: 'Functioning Faith', body: message, url: destination, tag: `${type}:${details.post_id || details.thread_id || details.event_id || details.invite_id || 'notification'}` }).catch(() => {});
@@ -1620,7 +1624,7 @@ router.post('/workouts/:id/kudos', requireAuth, (req, res) => {
   `).get({ id: req.params.id, me });
   if (!row) return res.status(404).json({ error: 'workout_not_found' });
   const result = workoutKudos.toggle(row.id, me);
-  if (result.given) notify(row.user_id, 'workout_kudos', `${displayName(me)} gave you kudos for your workout.`, { workout_id: row.id, url: '/?open=home' });
+  if (result.given) notify(row.user_id, 'workout_kudos', `${displayName(me)} gave you kudos for your workout.`, { workout_id: row.id, url: '/?open=home', actor_id: me });
   res.json({ ...result });
 });
 
@@ -1690,7 +1694,7 @@ router.post('/posts/:id/like', requireAuth, (req, res) => {
     db.prepare('INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)').run(req.params.id, req.session.userId);
     // Tell the author someone cheered them on — but never notify yourself.
     if (post && post.user_id !== req.session.userId) {
-      notify(post.user_id, 'kudos', `${displayName(req.session.userId)} gave you kudos`, { post_id: req.params.id });
+      notify(post.user_id, 'kudos', `${displayName(req.session.userId)} gave you kudos`, { post_id: req.params.id, actor_id: req.session.userId });
     }
   }
   const likeCount = db.prepare('SELECT COUNT(*) c FROM post_likes WHERE post_id = ?').get(req.params.id).c;
@@ -1744,7 +1748,7 @@ router.post('/posts/:id/comments', requireAuth, requireCommunityAccess, (req, re
 
   const snippet = content.slice(0, 60);
   if (post && post.user_id !== req.session.userId) {
-    notify(post.user_id, 'comment', `${displayName(req.session.userId)} commented: "${snippet}"`, { post_id: req.params.id });
+    notify(post.user_id, 'comment', `${displayName(req.session.userId)} commented: "${snippet}"`, { post_id: req.params.id, actor_id: req.session.userId });
   }
   // A direct @mention is the more specific signal, so those people get the
   // mention notification and are excluded from the generic "also replied"
@@ -1757,7 +1761,7 @@ router.post('/posts/:id/comments', requireAuth, requireCommunityAccess, (req, re
   `).all(req.params.id, req.session.userId, post ? post.user_id : '');
   for (const o of others) {
     if (mentionedIds.has(o.user_id)) continue;
-    notify(o.user_id, 'comment', `${displayName(req.session.userId)} also replied: "${snippet}"`, { post_id: req.params.id });
+    notify(o.user_id, 'comment', `${displayName(req.session.userId)} also replied: "${snippet}"`, { post_id: req.params.id, actor_id: req.session.userId });
   }
   res.json(comment);
 });
@@ -1819,7 +1823,7 @@ router.post('/comments/:id/like', requireAuth, (req, res) => {
   if (existing) db.prepare('DELETE FROM comment_likes WHERE comment_id = ? AND user_id = ?').run(comment.id, me);
   else {
     db.prepare('INSERT INTO comment_likes (comment_id, user_id) VALUES (?, ?)').run(comment.id, me);
-    if (comment.user_id !== me) notify(comment.user_id, 'comment_like', `${displayName(me)} liked your comment`, { post_id: comment.post_id });
+    if (comment.user_id !== me) notify(comment.user_id, 'comment_like', `${displayName(me)} liked your comment`, { post_id: comment.post_id, actor_id: me });
   }
   const count = db.prepare('SELECT COUNT(*) AS count FROM comment_likes WHERE comment_id = ?').get(comment.id).count;
   res.json({ liked: !existing, like_count: Number(count) });
@@ -2548,7 +2552,7 @@ router.post('/stories/:id/reaction', requireAuth, (req, res) => {
     db.prepare(`INSERT INTO story_reactions (story_id, user_id, emoji) VALUES (?, ?, ?)
                 ON CONFLICT(story_id, user_id) DO UPDATE SET emoji = excluded.emoji, created_at = datetime('now')`)
       .run(story.id, req.session.userId, emoji);
-    if (story.user_id !== req.session.userId) notify(story.user_id, 'story_reaction', `${displayName(req.session.userId)} reacted ${emoji} to your moment`, { story_id: story.id });
+    if (story.user_id !== req.session.userId) notify(story.user_id, 'story_reaction', `${displayName(req.session.userId)} reacted ${emoji} to your moment`, { story_id: story.id, actor_id: req.session.userId });
   }
   const count = db.prepare('SELECT COUNT(*) AS count FROM story_reactions WHERE story_id = ?').get(story.id).count;
   const active = current?.emoji === emoji ? null : emoji;
@@ -2571,7 +2575,7 @@ router.post('/stories/:id/reply', requireAuth, requireCommunityAccess, (req, res
   const excerpt = String(story.content || (story.photo_data ? 'A photo moment' : 'A moment')).slice(0, 120);
   const sent = dms.send(me, opened.thread.id, body, { kind: 'story_reply', metadata: { story_id: story.id, story_excerpt: excerpt } });
   if (sent.error) return res.status(sent.error === 'blocked' ? 403 : 400).json(sent);
-  notify(story.user_id, 'dm', `${displayName(me)} replied to your moment.`, { thread_id: opened.thread.id, story_id: story.id });
+  notify(story.user_id, 'dm', `${displayName(me)} replied to your moment.`, { thread_id: opened.thread.id, story_id: story.id, actor_id: me });
   res.status(201).json({ thread_id: opened.thread.id, message: sent.message });
 });
 
@@ -2697,7 +2701,7 @@ function notifyMentions(text, authorId, payload, silent = false) {
   const out = [];
   for (const person of found) {
     if (dms.isBlockedEitherWay(authorId, person.user_id)) continue;
-    notify(person.user_id, 'mention', `${name} mentioned you`, payload);
+    notify(person.user_id, 'mention', `${name} mentioned you`, { ...payload, actor_id: authorId });
     out.push(person);
   }
   return out;
@@ -2959,7 +2963,7 @@ router.post('/follow-requests/:requesterId/:decision(accept|decline)', requireAu
   db.prepare('DELETE FROM follow_requests WHERE requester_id = ? AND target_id = ?').run(requester, me);
   if (req.params.decision === 'accept') {
     db.prepare('INSERT OR IGNORE INTO followers (follower_id, followee_id) VALUES (?, ?)').run(requester, me);
-    notify(requester, 'follow_accepted', `${displayName(me)} accepted your follow request`, { user_id: me });
+    notify(requester, 'follow_accepted', `${displayName(me)} accepted your follow request`, { user_id: me, actor_id: me });
     publish('user.followed', { follower_id: requester, followee_id: me });
   }
   // A decline is silent -- telling someone they were turned down invites the
@@ -3551,7 +3555,7 @@ router.post('/groups/:id/pulse/:checkinId/encourage', requireAuth, requireCommun
   const added = db.prepare('INSERT OR IGNORE INTO group_pulse_encouragements(checkin_id,user_id) VALUES(?,?)')
     .run(checkin.id, req.session.userId).changes === 1;
   if (added) notify(checkin.user_id, 'group_pulse', `${displayName(req.session.userId)} encouraged your group check-in.`,
-    { group_id: req.params.id, checkin_id: checkin.id });
+    { group_id: req.params.id, checkin_id: checkin.id, actor_id: req.session.userId });
   const count = db.prepare('SELECT COUNT(*) c FROM group_pulse_encouragements WHERE checkin_id=?').get(checkin.id).c;
   res.json({ encouraged: true, encouragement_count: count });
 });
@@ -3645,7 +3649,7 @@ router.post('/events/:id/rsvp', requireAuth, (req, res) => {
     if (event.creator_id !== req.session.userId && (!had || had.status !== status)
         && !dms.isBlockedEitherWay(req.session.userId, event.creator_id)) {
       const verb = status === 'going' ? 'is going to' : 'is interested in';
-      notify(event.creator_id, 'event_rsvp', `${displayName(req.session.userId)} ${verb} "${event.title}"`, { event_id: event.id, group_id: event.group_id });
+      notify(event.creator_id, 'event_rsvp', `${displayName(req.session.userId)} ${verb} "${event.title}"`, { event_id: event.id, group_id: event.group_id, actor_id: req.session.userId });
     }
   } else {
     db.prepare('DELETE FROM event_rsvps WHERE event_id = ? AND user_id = ?').run(event.id, req.session.userId);
@@ -4066,6 +4070,12 @@ router.delete('/me', requireAuth, (req, res) => {
     for (const item of db.prepare('SELECT id FROM developer_enforcement_cases WHERE user_id=?').all(uid)) db.prepare('DELETE FROM church_notification_outbox WHERE enforcement_case_id=?').run(item.id);
     db.prepare('UPDATE churches SET submitted_by=NULL WHERE submitted_by=?').run(uid);
     db.prepare('DELETE FROM account_relationship_controls WHERE actor_id=? OR subject_id=?').run(uid,uid);
+    // Notifications *about* this member, not only the ones they received.
+    // Their payloads embed the member's display name in the message text
+    // ("Alice gave you kudos"), so without this their profile disappears while
+    // their name stays in everyone else's notification list -- which is not
+    // what the deletion dialog promises.
+    db.prepare('DELETE FROM notifications WHERE actor_id=?').run(uid);
     // Both directions: the circles they curated, and everyone else's circles
     // they were a member of.
     db.prepare('DELETE FROM circle_members WHERE owner_id=? OR member_id=?').run(uid,uid);
@@ -6444,14 +6454,14 @@ router.post('/verses/threads/:id/reflections', requireAuth, (req, res) => {
     if (parentAuthor && !notified.has(parentAuthor.user_id)) {
       notified.add(parentAuthor.user_id);
       if (!blocked(parentAuthor.user_id)) {
-        notify(parentAuthor.user_id, 'reflection', `${who} replied on ${thread.reference}: "${snippet}"`, { reference: thread.reference, thread_id: thread.id });
+        notify(parentAuthor.user_id, 'reflection', `${who} replied on ${thread.reference}: "${snippet}"`, { reference: thread.reference, thread_id: thread.id, actor_id: me });
       }
     }
   }
   if (!notified.has(thread.opened_by)) {
     notified.add(thread.opened_by);
     if (!blocked(thread.opened_by)) {
-      notify(thread.opened_by, 'reflection', `${who} reflected on ${thread.reference}: "${snippet}"`, { reference: thread.reference, thread_id: thread.id });
+      notify(thread.opened_by, 'reflection', `${who} reflected on ${thread.reference}: "${snippet}"`, { reference: thread.reference, thread_id: thread.id, actor_id: me });
     }
   }
 
@@ -6480,7 +6490,7 @@ router.post('/verses/reflections/:id/like', requireAuth, (req, res) => {
     db.prepare('INSERT INTO verse_reflection_likes (reflection_id, user_id) VALUES (?, ?)').run(reflection.id, uid);
     if (reflection.user_id !== uid) {
       const thread = db.prepare('SELECT reference FROM verse_threads WHERE id = ?').get(reflection.thread_id);
-      notify(reflection.user_id, 'reflection', `${displayName(uid)} appreciated your reflection on ${thread ? thread.reference : 'a verse'}`, { reference: thread && thread.reference });
+      notify(reflection.user_id, 'reflection', `${displayName(uid)} appreciated your reflection on ${thread ? thread.reference : 'a verse'}`, { reference: thread && thread.reference, actor_id: uid });
     }
   }
   const likeCount = db.prepare('SELECT COUNT(*) c FROM verse_reflection_likes WHERE reflection_id = ?').get(reflection.id).c;
@@ -7147,7 +7157,7 @@ router.post('/dms/:threadId', requireAuth, requireCommunityAccess, (req, res) =>
     return res.status(code).json(r);
   }
   if(!accountSecurity.hasRelationship(r.recipient_id,req.session.userId,'mute')) notify(r.recipient_id, 'dm', `${displayName(req.session.userId)} sent you a message.`,
-    { thread_id: req.params.threadId });
+    { actor_id: req.session.userId, thread_id: req.params.threadId });
   res.status(201).json({ message: r.message, link_warning:warning });
 });
 
@@ -7164,7 +7174,7 @@ router.post('/dms/:threadId/verse', requireAuth, async (req, res) => {
     replyToId: req.body && req.body.reply_to_id,
   });
   if (sent.error) return res.status(sent.error === 'blocked' ? 403 : 400).json(sent);
-  notify(sent.recipient_id, 'dm', `${displayName(req.session.userId)} shared ${reference} with you.`, { thread_id: req.params.threadId });
+  notify(sent.recipient_id, 'dm', `${displayName(req.session.userId)} shared ${reference} with you.`, { thread_id: req.params.threadId, actor_id: req.session.userId });
   res.status(201).json({ message: sent.message, verse: { reference, text: row.text }, share_url: shareUrl });
 });
 
@@ -7196,7 +7206,7 @@ router.post('/dms/:threadId/reel', requireAuth, (req, res) => {
     replyToId: req.body && req.body.reply_to_id,
   });
   if (sent.error) return res.status(sent.error === 'blocked' ? 403 : 400).json(sent);
-  notify(sent.recipient_id, 'dm', `${displayName(req.session.userId)} shared a reel with you.`, { thread_id: req.params.threadId });
+  notify(sent.recipient_id, 'dm', `${displayName(req.session.userId)} shared a reel with you.`, { actor_id: req.session.userId, thread_id: req.params.threadId });
   res.status(201).json({ message: sent.message });
 });
 
@@ -7223,7 +7233,7 @@ router.post('/dms/:threadId/workout', requireAuth, (req, res) => {
     replyToId: req.body && req.body.reply_to_id,
   });
   if (sent.error) return res.status(sent.error === 'blocked' ? 403 : 400).json(sent);
-  notify(sent.recipient_id, 'dm', `${displayName(req.session.userId)} shared a workout with you.`, { thread_id: req.params.threadId });
+  notify(sent.recipient_id, 'dm', `${displayName(req.session.userId)} shared a workout with you.`, { actor_id: req.session.userId, thread_id: req.params.threadId });
   res.status(201).json({ message: sent.message });
 });
 
@@ -7245,7 +7255,7 @@ router.post('/dms/:threadId/bible-answer', requireAuth, (req, res) => {
     replyToId: req.body && req.body.reply_to_id,
   });
   if (sent.error) return res.status(sent.error === 'blocked' ? 403 : 400).json(sent);
-  notify(sent.recipient_id, 'dm', `${displayName(req.session.userId)} shared a Bible Answers response with you.`, { thread_id: req.params.threadId });
+  notify(sent.recipient_id, 'dm', `${displayName(req.session.userId)} shared a Bible Answers response with you.`, { actor_id: req.session.userId, thread_id: req.params.threadId });
   res.status(201).json({ message: sent.message });
 });
 
@@ -7300,7 +7310,7 @@ router.post('/workout-invites', requireAuth, (req, res) => {
     kind: 'workout_invite', metadata: { invite_id: invite.id, ...invite },
   });
   if (sent.error) return res.status(403).json(sent);
-  notify(recipientId, 'workout_invite', `${displayName(senderId)} invited you to a ${type.toLowerCase()} workout.`, {
+  notify(recipientId, 'workout_invite', `${displayName(senderId)} invited you to a ${type.toLowerCase()} workout.`, { actor_id: senderId,
     invite_id: invite.id, thread_id: opened.thread.id,
   });
   res.status(201).json({ invite, thread_id: opened.thread.id });
@@ -7326,7 +7336,7 @@ router.post('/workout-invites/:id/respond', requireAuth, (req, res) => {
       kind: 'workout_invite_response', metadata: { invite_id: invite.id, status },
     });
   }
-  notify(invite.sender_id, 'workout_invite_response', `${displayName(req.session.userId)} ${accepted ? 'accepted' : 'declined'} your workout invite.`, { invite_id: invite.id, status });
+  notify(invite.sender_id, 'workout_invite_response', `${displayName(req.session.userId)} ${accepted ? 'accepted' : 'declined'} your workout invite.`, { actor_id: req.session.userId, invite_id: invite.id, status });
   res.json({ ok: true, status });
 });
 

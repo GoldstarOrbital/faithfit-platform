@@ -59,6 +59,8 @@ jobs:
         run: node scripts/verify-shell-cache.js
       - name: Verify hot query paths use indexes
         run: node scripts/verify-query-plans.js
+      - name: Verify deletion removes a member's name everywhere
+        run: node scripts/verify-deletion-removes-name.js
       # These three assert against the served shell, so a change to how assets
       # are versioned breaks them. All three had rotted while none of them ran.
       - name: Verify offline Scripture
