@@ -990,6 +990,38 @@ CREATE TABLE IF NOT EXISTS saved_routes (
   distance_km REAL,
   created_at TEXT DEFAULT (datetime('now'))
 );
+
+-- Indexes on the oldest and busiest tables. Everything above this point
+-- acquired indexes as it was built; posts, likes, comments, followers,
+-- notifications and workouts predate that habit and had none at all, so the
+-- feed was planned as SCAN posts + USE TEMP B-TREE FOR ORDER BY -- every feed
+-- load reading every post ever written and sorting them in memory -- and the
+-- unread badge on every Home load was a full scan of notifications. Free at
+-- ten posts, and the whole app at a hundred thousand.
+--
+-- Only the access paths that are not already covered by an implicit index.
+-- post_likes is PRIMARY KEY (post_id, user_id) and followers is
+-- PRIMARY KEY (follower_id, followee_id), so lookups leading with those
+-- columns are already served; what is missing in each case is the reverse
+-- direction.
+
+-- The feed: ordered by recency, and paginated by a created_at cursor.
+CREATE INDEX IF NOT EXISTS idx_posts_created ON posts(created_at DESC);
+-- A member's own posts, on their profile.
+CREATE INDEX IF NOT EXISTS idx_posts_user_created ON posts(user_id, created_at DESC);
+-- Comments for a post, oldest first, as the thread renders them.
+CREATE INDEX IF NOT EXISTS idx_post_comments_post ON post_comments(post_id, created_at);
+-- "What has this member liked", the direction the primary key cannot serve.
+CREATE INDEX IF NOT EXISTS idx_post_likes_user ON post_likes(user_id);
+-- "Who follows this member" -- the reverse of the primary key, used by the
+-- follower list and by every followers-only visibility check.
+CREATE INDEX IF NOT EXISTS idx_followers_followee ON followers(followee_id);
+-- The unread badge, which runs on every Home load.
+CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, read);
+-- The notification list itself, newest first.
+CREATE INDEX IF NOT EXISTS idx_notifications_user_delivered ON notifications(user_id, delivered_at DESC);
+-- Workout history and stats, newest first.
+CREATE INDEX IF NOT EXISTS idx_workouts_user_start ON workouts(user_id, start_time DESC);
 `);
 
 module.exports = db;

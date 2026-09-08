@@ -1,0 +1,82 @@
+﻿<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Bible Answers — UI proof (static)</title>
+<link rel="stylesheet" href="/styles.css?v=ff-bible-answers-1" />
+<style>
+  body { margin: 0; min-height: 100vh; }
+  .proof-note {
+    max-width: 720px; margin: 16px auto; padding: 12px 14px;
+    background: var(--parch-2); border: 1px solid var(--hairline); border-radius: 12px;
+    font-size: 0.85rem; color: var(--ink-soft);
+  }
+  /* Force panel visible for static proof */
+  #ba-panel { display: grid !important; place-items: end center; pointer-events: auto; }
+  #ba-panel[hidden] { display: grid !important; }
+  .ba-backdrop { pointer-events: none; opacity: 0.35; }
+</style>
+</head>
+<body>
+<p class="proof-note">Static HTML proof of Bible Answers floating launcher + sidebar/home/chat chrome. Not a live session — markup/CSS only.</p>
+
+<button id="ba-launcher" class="ba-launcher" type="button" aria-label="Open Bible Answers" aria-expanded="true">
+  <span class="ba-launcher-glow" aria-hidden="true"></span>
+  <svg class="ba-launcher-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M4 5.5A2.5 2.5 0 016.5 3H19v15H6.5A2.5 2.5 0 004 20.5z"/>
+    <path d="M12 7v6M9.5 9.5h5"/>
+  </svg>
+  <span class="ba-launcher-label">Bible Answers</span>
+</button>
+
+<div id="ba-panel" class="ba-panel ba-sidebar-open" role="dialog" aria-modal="true" aria-label="Bible Answers">
+  <div class="ba-backdrop"></div>
+  <div class="ba-shell">
+    <aside class="ba-sidebar" id="ba-sidebar" aria-label="Conversation memory">
+      <div class="ba-sidebar-head">
+        <div class="ba-sidebar-title">Memory</div>
+        <button type="button" class="ba-new-chat" id="ba-new-chat">New chat</button>
+      </div>
+      <div class="ba-sidebar-list" id="ba-sidebar-list">
+        <button type="button" class="ba-memory-item active">
+          <span class="ba-memory-q">What does the Bible say about anxiety?</span>
+          <span class="ba-memory-hint muted">Reopen</span>
+        </button>
+        <button type="button" class="ba-memory-item">
+          <span class="ba-memory-q">Who was Nehemiah?</span>
+          <span class="ba-memory-hint muted">Reopen</span>
+        </button>
+      </div>
+    </aside>
+    <section class="ba-main">
+      <header class="ba-head">
+        <button type="button" class="ba-icon-btn ba-sidebar-toggle" aria-label="Toggle memory sidebar">☰</button>
+        <div class="ba-head-text">
+          <div class="ba-kicker">Functioning Faith</div>
+          <h2 class="ba-title">Bible Answers</h2>
+        </div>
+        <button type="button" class="ba-icon-btn" id="ba-home" aria-label="Bible Answers home">⌂</button>
+        <button type="button" class="ba-icon-btn" id="ba-close" aria-label="Close">✕</button>
+      </header>
+      <div class="ba-thread" id="ba-thread">
+        <div class="ba-home">
+          <div class="ba-home-mark" aria-hidden="true">✝</div>
+          <h3>Ask about Scripture or the faith</h3>
+          <p>Not about one verse in particular — ask anything. Every reference cited is verified against the real library before it is shown, never invented.</p>
+          <div class="ba-starters">
+            <button type="button" class="ba-starter"><span>What does the Bible say about anxiety?</span><span class="ba-starter-go">↗</span></button>
+            <button type="button" class="ba-starter"><span>Who was Nehemiah?</span><span class="ba-starter-go">↗</span></button>
+          </div>
+        </div>
+      </div>
+      <form class="ba-compose" id="ba-compose" onsubmit="return false">
+        <textarea id="ba-input" class="ba-input" rows="1" placeholder="Ask about Scripture or the faith…"></textarea>
+        <button type="submit" class="ba-send" id="ba-send">Ask</button>
+      </form>
+      <p class="ba-guard muted">Verse text always comes from the verified library — never invented.</p>
+    </section>
+  </div>
+</div>
+</body>
+</html>

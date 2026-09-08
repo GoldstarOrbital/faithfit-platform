@@ -57,6 +57,8 @@ jobs:
           node scripts/verify-verse-companion-cache.js
       - name: Verify shell deployment freshness
         run: node scripts/verify-shell-cache.js
+      - name: Verify hot query paths use indexes
+        run: node scripts/verify-query-plans.js
       # These three assert against the served shell, so a change to how assets
       # are versioned breaks them. All three had rotted while none of them ran.
       - name: Verify offline Scripture
