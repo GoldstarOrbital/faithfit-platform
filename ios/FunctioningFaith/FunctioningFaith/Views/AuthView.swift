@@ -22,6 +22,9 @@ final class NativeSession: ObservableObject {
                 self.profile = nil
                 self.requiresAccountSetup = false
                 APIClient.shared.clearResponseCache()
+                // Same privacy rule as signOut/deleteAccount: feed rows on disk are
+                // member content and must not survive a silent session expiry.
+                FeedCache.clearAll()
             }
         }
     }
@@ -45,6 +48,8 @@ final class NativeSession: ObservableObject {
             requiresAccountSetup = state.accountSetupRequired
         } catch APIError.notSignedIn {
             profile = nil
+            APIClient.shared.clearResponseCache()
+            FeedCache.clearAll()
         } catch {
             if let state = try? await APIClient.shared.fetchSessionState() {
                 profile = state.profile
