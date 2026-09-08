@@ -67,6 +67,7 @@ struct SafetyView: View {
             } else {
                 try await APIClient.shared.setRelationshipControl(userID: user.userID, control: control, on: false)
             }
+            NotificationCenter.default.post(name: .relationshipControlsChanged, object: nil)
             await load()
         } catch { errorMessage = error.localizedDescription }
         workingID = nil

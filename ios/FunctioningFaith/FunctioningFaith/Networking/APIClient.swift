@@ -6,6 +6,9 @@ extension Notification.Name {
     /// which observes this to sign the app out cleanly instead of leaving
     /// scattered widgets each showing their own "please sign in" error.
     static let apiSessionExpired = Notification.Name("apiSessionExpired")
+    /// Posted when mute / restrict / block changes so always-mounted surfaces
+    /// (Home stories rail, feed) can drop stale rings without a remount.
+    static let relationshipControlsChanged = Notification.Name("relationshipControlsChanged")
 }
 
 enum APIError: LocalizedError {
