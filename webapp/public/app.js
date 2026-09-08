@@ -6366,17 +6366,26 @@ async function aiAvailable() {
 async function wireCompanion(reference) {
   const box = document.getElementById('companion');
   if (!box) return;
-  if (!(await aiAvailable())) return;      // stays hidden
+  if (!(await aiAvailable())) return;      // stays hidden -- no broken empty shell
   box.hidden = false;
 
+  // One-tap Explain: most people do not have a specific question yet.
+  const DEFAULT_EXPLAIN = 'Explain what this verse means and its context.';
   const input = document.getElementById('companion-q');
   const btn = document.getElementById('companion-ask');
+  const explainBtn = document.getElementById('companion-explain');
   const out = document.getElementById('companion-out');
+  if (!out) return;
 
-  const ask = async () => {
-    const question = input.value.trim();
+  const setBusy = (busy) => {
+    if (btn) btn.disabled = busy;
+    if (explainBtn) explainBtn.disabled = busy;
+  };
+
+  const ask = async (rawQuestion) => {
+    const question = String(rawQuestion || '').trim();
     if (!question) return;
-    btn.disabled = true;
+    setBusy(true);
     out.innerHTML = `<div class="companion-answer muted">Thinking&hellip;</div>`;
     let res;
     try {
@@ -6385,7 +6394,7 @@ async function wireCompanion(reference) {
     } catch {
       res = { error: 'unreachable' };
     }
-    btn.disabled = false;
+    setBusy(false);
 
     if (!res || res.error) {
       out.innerHTML = `<div class="companion-answer muted">` +
@@ -6395,27 +6404,41 @@ async function wireCompanion(reference) {
       return;
     }
 
+    const answerText = String(res.answer || '').trim();
+    if (!answerText) {
+      out.innerHTML = `<div class="companion-answer muted">` +
+        'No answer came back that could be checked against real scripture, so nothing is shown.</div>';
+      return;
+    }
+
+    // Only render citations that include real verified verse text from the
+    // server (YouVersion/Gloo). Never invent or fill empty verse wording.
+    const also = (Array.isArray(res.also) ? res.also : []).filter(
+      (a) => a && String(a.reference || '').trim() && String(a.text || '').trim()
+    );
+
     out.innerHTML = `
       <div class="companion-answer">
         <div class="companion-q">${escapeHtml(question)}</div>
-        <p>${escapeHtml(res.answer)}</p>
-        ${(res.also || []).map(a => `
+        <p>${escapeHtml(answerText)}</p>
+        ${also.map(a => `
           <div class="companion-ref">
             <div class="verse-ref">${escapeHtml(a.reference)}</div>
             <div class="verse-text">${escapeHtml(a.text)}</div>
           </div>`).join('')}
         <div class="muted companion-meta">
           ${res.tradition ? escapeHtml(String(res.tradition).replace(/_/g, ' ')) + ' &middot; ' : ''}
-          verse text from YouVersion${res.also && res.also.length
-            ? ' &middot; ' + res.also.length + ' cross-reference' + (res.also.length > 1 ? 's' : '') + ' verified'
+          verse text from YouVersion${also.length
+            ? ' &middot; ' + also.length + ' cross-reference' + (also.length > 1 ? 's' : '') + ' verified'
             : ''}
         </div>
       </div>`;
-    input.value = '';
+    if (input && question === String(input.value || '').trim()) input.value = '';
   };
 
-  btn.onclick = ask;
-  input.onkeydown = (e) => { if (e.key === 'Enter') ask(); };
+  if (explainBtn) explainBtn.onclick = () => ask(DEFAULT_EXPLAIN);
+  if (btn) btn.onclick = () => ask(input && input.value);
+  if (input) input.onkeydown = (e) => { if (e.key === 'Enter') ask(input.value); };
 }
 
 async function renderVerseThread(reference) {
@@ -6488,8 +6511,11 @@ async function renderVerseThread(reference) {
              is shown to the asker only; it never posts into the conversation. -->
         <div class="companion" id="companion" hidden>
           <div class="companion-row">
+            <button type="button" id="companion-explain" class="companion-explain">Explain this verse</button>
+          </div>
+          <div class="companion-row">
             <input type="text" id="companion-q" maxlength="500"
-                   placeholder="Ask about this verse&hellip;" />
+                   placeholder="Or ask your own question&hellip;" />
             <button id="companion-ask">Ask</button>
           </div>
           <div class="muted companion-hint">

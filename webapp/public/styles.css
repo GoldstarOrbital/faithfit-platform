@@ -1843,6 +1843,8 @@ header.topbar .brand { gap: 0; }
 }
 .companion-row { display: flex; gap: 8px; }
 .companion-row input { flex: 1; min-width: 0; }
+.companion-explain { width: 100%; }
+
 .companion-hint { font-size: .72rem; margin-top: 6px; line-height: 1.35; }
 
 .companion-answer {

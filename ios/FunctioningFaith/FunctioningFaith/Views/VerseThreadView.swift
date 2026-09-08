@@ -28,6 +28,8 @@ struct VerseThreadView: View {
     @State private var askQuestion = ""
     @State private var askHistory: [VerseAskAnswer] = []
     @State private var isAsking = false
+    /// One-tap Explain uses this when the member has not typed a question yet.
+    private let defaultQuestion = "Explain what this verse means and its context."
 
     private var totalReflectionCount: Int {
         reflections.reduce(0) { $0 + 1 + $1.replies.count }
@@ -81,10 +83,18 @@ struct VerseThreadView: View {
     private var verseSection: some View {
         if let verse {
             Section {
-                Text(verse.text)
-                    .font(FFTheme.serif(20))
-                    .lineSpacing(5)
-                    .padding(.vertical, 4)
+                // Never invent verse text: empty means unavailable, not filler.
+                if verse.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("Verse text isn\u{2019}t available right now.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 4)
+                } else {
+                    Text(verse.text)
+                        .font(FFTheme.serif(20))
+                        .lineSpacing(5)
+                        .padding(.vertical, 4)
+                }
                 if let translation = verse.translation {
                     Text(translation).font(.caption).foregroundStyle(.secondary)
                 }
@@ -98,20 +108,36 @@ struct VerseThreadView: View {
     // Explore's general "Bible Answers" Q&A. Always visible, not gated
     // behind the discussion toggle: reading and asking are the primary
     // actions here, discussing is secondary.
+    //
+    // One-tap Explain uses a default prompt so members do not have to
+    // compose a question first; free-text Ask stays for anything specific.
+    // Citation rows only render when the server returned real verified text
+    // (YouVersion/Gloo) -- never invent verse wording client-side.
     private var askSection: some View {
         Section {
-            TextField("e.g. \"What does this mean for me today?\"", text: $askQuestion, axis: .vertical)
+            Button("Explain this verse") {
+                Task { await askAboutThisVerse(using: defaultQuestion) }
+            }
+            .buttonStyle(.ffPrimary)
+            .disabled(isAsking)
+            TextField("Or ask your own question", text: $askQuestion, axis: .vertical)
                 .lineLimit(1...3)
-            Button("Explain this verse") { Task { await askAboutThisVerse() } }
-                .buttonStyle(.ffPrimary)
-                .disabled(askQuestion.trimmingCharacters(in: .whitespaces).isEmpty || isAsking)
+            Button("Ask") {
+                Task { await askAboutThisVerse(using: askQuestion) }
+            }
+            .disabled(askQuestion.trimmingCharacters(in: .whitespaces).isEmpty || isAsking)
             if isAsking {
                 ProgressView().frame(maxWidth: .infinity)
             }
             ForEach(Array(askHistory.enumerated().reversed()), id: \.offset) { _, item in
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(item.answer).font(FFTheme.serif(15)).foregroundStyle(FFTheme.ink)
-                    ForEach(item.also) { cited in
+                    if !item.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        Text(item.answer).font(FFTheme.serif(15)).foregroundStyle(FFTheme.ink)
+                    }
+                    ForEach(item.also.filter {
+                        !$0.reference.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    }) { cited in
                         VStack(alignment: .leading, spacing: 2) {
                             Text(cited.reference).font(.caption.weight(.semibold)).foregroundStyle(FFTheme.scripture)
                             Text(cited.text).font(.caption).foregroundStyle(.secondary).lineLimit(2)
@@ -247,15 +273,23 @@ struct VerseThreadView: View {
         isLoading = false
     }
 
-    private func askAboutThisVerse() async {
-        let trimmed = askQuestion.trimmingCharacters(in: .whitespaces)
+    private func askAboutThisVerse(using raw: String) async {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         isAsking = true
         errorMessage = nil
         do {
             let answer = try await APIClient.shared.askAboutVerse(reference: reference, question: trimmed)
-            askHistory.append(answer)
-            askQuestion = ""
+            // Skip empty answers so we never paint a blank companion card.
+            if answer.answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                errorMessage = "No answer came back that could be checked against real scripture, so nothing is shown."
+            } else {
+                askHistory.append(answer)
+                // Only clear the free-text field when that is what was asked.
+                if trimmed == askQuestion.trimmingCharacters(in: .whitespacesAndNewlines) {
+                    askQuestion = ""
+                }
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
