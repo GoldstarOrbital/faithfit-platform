@@ -25,6 +25,7 @@ final class NativeSession: ObservableObject {
                 // Same privacy rule as signOut/deleteAccount: feed rows on disk are
                 // member content and must not survive a silent session expiry.
                 FeedCache.clearAll()
+                MissionCache.clearAll()
             }
         }
     }
@@ -50,6 +51,7 @@ final class NativeSession: ObservableObject {
             profile = nil
             APIClient.shared.clearResponseCache()
             FeedCache.clearAll()
+            MissionCache.clearAll()
         } catch {
             if let state = try? await APIClient.shared.fetchSessionState() {
                 profile = state.profile
@@ -68,6 +70,7 @@ final class NativeSession: ObservableObject {
         // reason the response cache does: whoever signs in next on this device
         // must not inherit it.
         FeedCache.clearAll()
+        MissionCache.clearAll()
     }
 
     func deleteAccount() async throws {
@@ -76,6 +79,7 @@ final class NativeSession: ObservableObject {
         requiresAccountSetup = false
         APIClient.shared.clearResponseCache()
         FeedCache.clearAll()
+        MissionCache.clearAll()
     }
 }
 
