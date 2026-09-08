@@ -202,6 +202,7 @@ struct MemberProfileView: View {
             // up, and stopWorkout's comment on the same issue) -- passing it
             // unlowered here would 404 on every single call.
             try await APIClient.shared.setRelationshipControl(userID: userID.uuidString.lowercased(), control: control, on: on)
+            NotificationCenter.default.post(name: .relationshipControlsChanged, object: nil)
             await load()
         } catch { errorMessage = error.localizedDescription }
     }
@@ -212,6 +213,7 @@ struct MemberProfileView: View {
         do {
             if blocking { try await APIClient.shared.blockUser(id: userID) }
             else { try await APIClient.shared.unblockUser(id: userID) }
+            NotificationCenter.default.post(name: .relationshipControlsChanged, object: nil)
             await load()
         } catch { errorMessage = error.localizedDescription }
     }
