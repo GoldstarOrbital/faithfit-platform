@@ -110,5 +110,33 @@ db.exec("UPDATE posts SET visibility='followers' WHERE id='0'; INSERT INTO follo
 assert.equal(mediaRead('0','me').code, 200);
 db.exec("INSERT INTO dm_blocks VALUES ('author','me')");
 assert.equal(mediaRead('0','me').code, 404, 'blocks must apply at media delivery time');
+// Exercise route opt-in against the real owner check and endpoint trimming.
+db.exec('ALTER TABLE workouts ADD COLUMN user_id TEXT');
+const gps = Array.from({length:11}, (_,i) => [44 + i * .002, -123]);
+db.prepare('INSERT INTO workouts(id,user_id,gps_path) VALUES(?,?,?)').run('route-workout','author',JSON.stringify(gps));
+db.prepare('INSERT INTO posts(id,user_id,workout_id,visibility) VALUES(?,?,?,?)').run('route-post','author','route-workout','private');
+let routeHandler;
+const routeContext = {db,requireAuth:auth,router:{patch:(url,middleware,callback)=>{assert.equal(middleware,auth);routeHandler=callback;}}};
+vm.createContext(routeContext);
+vm.runInContext(source.slice(source.indexOf('function haversineMetres('),source.indexOf('function storyVisible(')),routeContext);
+vm.runInContext(source.slice(source.indexOf("router.patch('/posts/:id/route'"),source.indexOf("router.patch('/posts/:id/visibility'")),routeContext);
+function setRoute(userId, enabled) {
+  const res = {code:200,status(c){this.code=c;return this;},set(){return this;},json(body){this.body=body;return this;}};
+  routeHandler({session:{userId},params:{id:'route-post'},body:{show_route:enabled}},res);
+  return res;
+}
+assert.equal(setRoute('me',true).code,404,'other members cannot publish your route');
+assert.equal(setRoute('author','true').code,400,'sharing requires explicit boolean consent');
+assert.equal(setRoute('author',true).code,200);
+const published = db.prepare('SELECT * FROM posts WHERE id=?').get('route-post');
+assert.equal(published.visibility,'private','route changes must never widen audience');
+assert.equal(published.route_privacy_m,300);
+const trimmed = routeContext.publishedRoute({...published,gps_path:JSON.stringify(gps)});
+assert.ok(trimmed.length < gps.length && trimmed.length >= 2);
+assert.notDeepEqual(trimmed[0],gps[0]);
+assert.equal(setRoute('author',false).code,200);
+assert.equal(db.prepare('SELECT show_route FROM posts WHERE id=?').get('route-post').show_route,0);
+db.prepare('UPDATE workouts SET gps_path=NULL WHERE id=?').run('route-workout');
+assert.equal(setRoute('author',true).code,400);
 db.close();
 console.log('Feed ranking and deferred media: compact payload, legacy compatibility, visibility changes, ownership, followers, blocks and mutes passed.');

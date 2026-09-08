@@ -848,10 +848,10 @@ function hydrateDeferredFeedMedia(root) {
   });
 }
 
-async function renderHome(main) {
+async function renderHome(main, forceRefresh = false) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
-  const cacheMatchesScope = state.homeCache && state.homeCache.scope === state.feedScope;
-  const critical = cacheMatchesScope && state.homeCache.posts ? [state.homeCache, state.homeCache.users] : await Promise.all([api(`/feed?scope=${encodeURIComponent(state.feedScope)}&limit=20&media=deferred`), api('/users')]);
+  const cacheMatchesScope = !forceRefresh && state.homeCache && state.homeCache.scope === state.feedScope;
+  const critical = cacheMatchesScope && state.homeCache.posts ? [state.homeCache, state.homeCache.users] : await Promise.all([api(`/feed?scope=${encodeURIComponent(state.feedScope)}&limit=20&media=deferred${forceRefresh ? `&refresh=${Date.now()}` : ''}`), api('/users')]);
   const feedData = critical[0];
   const posts = Array.isArray(feedData) ? feedData : (feedData.posts || []);
   const users = critical[1];
@@ -1111,6 +1111,7 @@ async function renderHome(main) {
       <div class="muted" style="font-size:.75rem;font-weight:700;margin:8px 0">${({workout:'WORKOUT',reel:'REEL',scripture:'SCRIPTURE & REFLECTION',post:'COMMUNITY POST'})[p.content_kind] || 'COMMUNITY POST'}</div>
       ${p.workout_type ? `
         <h3>${escapeHtml(p.workout_type)}</h3>
+        ${isMine ? `<button class="ghost" type="button" data-route-sharing="${escapeHtml(p.id)}">${p.route ? 'Hide GPS route' : 'Share GPS route'}</button>` : ''}
         ${p.route ? `<div class="route-banner" data-feed-route="${escapeHtml(p.id)}">${realRouteSvg(p.route)}<button class="badge-overlay" type="button" data-open-feed-route="${escapeHtml(p.id)}">Explore route map</button></div>` : '<p class="muted">No shared GPS route</p>'}
         <div class="stat-row">
           <div class="stat"><div class="v">${p.distance_km != null ? fmtKm(p.distance_km) : '—'}</div><div class="l">km</div></div>
@@ -1151,6 +1152,18 @@ async function renderHome(main) {
   postsEl.querySelectorAll('[data-open-feed-route]').forEach(button => button.onclick = () => {
     const post = posts.find(p => p.id === button.dataset.openFeedRoute);
     if (post?.route) activateFeedRoute(button.closest('[data-feed-route]'), post.route);
+  });
+  postsEl.querySelectorAll('[data-route-sharing]').forEach(button => button.onclick = async () => {
+    const post = posts.find(p => p.id === button.dataset.routeSharing);
+    if (!post || !confirm('Share or hide your route for this post’s existing audience? Shared routes hide 300 metres at both ends, which reduces exposure but cannot guarantee anonymity.')) return;
+    button.disabled = true;
+    try {
+      const result = await api(`/posts/${encodeURIComponent(post.id)}/route`, {method:'PATCH',body:{show_route:!post.route}});
+      if (result.error) throw new Error(result.hint || 'Could not update route sharing.');
+      state.homeCache = null;
+      // Explicit change: bypass the short private feed cache.
+      await renderHome(main, true);
+    } catch (error) { showToast(error.message || 'Please retry.', true); button.disabled = false; }
   });
   hydrateDeferredFeedMedia(postsEl);
   const moreEl = main.querySelector('#feed-more');

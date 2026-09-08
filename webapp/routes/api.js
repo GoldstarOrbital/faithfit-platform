@@ -1522,9 +1522,8 @@ router.get('/feed/for-you', requireAuth, (req, res) => {
     JOIN users u ON u.id = p.user_id
     LEFT JOIN workouts w ON w.id = p.workout_id
     LEFT JOIN scripture_verses v ON v.id = p.verse_id
-    WHERE p.user_id != @me
-      AND (
-        p.visibility = 'public'
+    WHERE (
+        p.user_id = @me OR p.visibility = 'public'
         OR (p.visibility = 'followers' AND EXISTS (
               SELECT 1 FROM followers f WHERE f.followee_id = p.user_id AND f.follower_id = @me))
         OR (p.visibility = 'circle' AND EXISTS (
@@ -2750,6 +2749,19 @@ router.post('/posts/:id/report', requireAuth, (req, res) => {
 });
 
 // Change a post's visibility after the fact (author only).
+router.patch('/posts/:id/route', requireAuth, (req, res) => {
+  if (typeof req.body?.show_route !== 'boolean') return res.status(400).json({ error: 'invalid_route_choice' });
+  const post = db.prepare(`SELECT p.user_id, p.workout_id, w.gps_path
+    FROM posts p LEFT JOIN workouts w ON w.id=p.workout_id AND w.user_id=p.user_id
+    WHERE p.id=?`).get(req.params.id);
+  if (!post || post.user_id !== req.session.userId) return res.status(404).json({ error: 'not_found' });
+  if (req.body.show_route && !publishedRoute({show_route:1,gps_path:post.gps_path,route_privacy_m:300})) {
+    return res.status(400).json({ error:'no_shareable_route', hint:'No recorded route remains after hiding 300 metres at both ends.' });
+  }
+  db.prepare('UPDATE posts SET show_route=?, route_privacy_m=300 WHERE id=?').run(req.body.show_route ? 1 : 0, req.params.id);
+  res.set('Cache-Control', 'private, no-store').json({ok:true});
+});
+
 router.patch('/posts/:id/visibility', requireAuth, (req, res) => {
   const { visibility } = req.body || {};
   if (!VISIBILITIES.includes(visibility)) return res.status(400).json({ error: 'invalid_visibility' });

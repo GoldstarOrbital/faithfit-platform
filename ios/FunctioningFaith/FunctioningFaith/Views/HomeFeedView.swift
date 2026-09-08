@@ -92,7 +92,8 @@ struct HomeFeedView: View {
                         blockCandidate = (authorID, post.authorName)
                         showBlockConfirmation = true
                     },
-                    onDelete: post.authorID == session.profile?.id ? { delete(post) } : nil
+                    onDelete: post.authorID == session.profile?.id ? { delete(post) } : nil,
+                    onRouteChanged: { Task { await loadFeed(forceRefresh: true) } }
                 )
                     .onAppear { loadNextPageIfNeeded(post) }
                     .swipeActions(edge: .trailing) {
@@ -371,6 +372,10 @@ struct FeedPostRow: View {
     // no sense against yourself, and delete makes no sense against anyone
     // else's post.
     var onDelete: (() -> Void)? = nil
+    var onRouteChanged: (() -> Void)? = nil
+    @State private var confirmRouteSharing = false
+    @State private var routeSaving = false
+    @State private var routeError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -403,6 +408,10 @@ struct FeedPostRow: View {
 
             if let workout = post.workout {
                 WorkoutCard(workout: workout)
+                if onDelete != nil {
+                    Button(workout.route == nil ? "Share GPS route" : "Hide GPS route") { confirmRouteSharing = true }
+                        .buttonStyle(.borderless).disabled(routeSaving)
+                }
             }
 
             if let verse = post.verse {
@@ -459,6 +468,22 @@ struct FeedPostRow: View {
             .accessibilityElement(children: .contain)
         }
         .padding(.vertical, 6)
+        .confirmationDialog("Change route sharing?", isPresented: $confirmRouteSharing, titleVisibility: .visible) {
+            Button(post.workout?.route == nil ? "Share trimmed route" : "Hide route") {
+                routeSaving = true
+                Task {
+                    defer { routeSaving = false }
+                    do {
+                        try await APIClient.shared.setPostRouteSharing(id: post.id, enabled: post.workout?.route == nil)
+                        onRouteChanged?()
+                    } catch { routeError = "Could not update sharing. A recorded route long enough to hide 300 metres at both ends is required. Please retry." }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("Sharing shows this post's audience your route with 300 metres removed from both ends. This reduces location exposure but cannot guarantee anonymity. Your audience does not change.") }
+        .alert("Route sharing", isPresented: Binding(get: { routeError != nil }, set: { if !$0 { routeError = nil } })) {
+            Button("OK", role: .cancel) { routeError = nil }
+        } message: { Text(routeError ?? "") }
         .accessibilityElement(children: .contain)
         .contextMenu {
             if let onDelete {

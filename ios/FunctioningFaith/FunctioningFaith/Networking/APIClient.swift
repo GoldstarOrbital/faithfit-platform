@@ -108,6 +108,10 @@ final class APIClient {
         try await request("/api/posts/\(id.uuidString.lowercased())/media")
     }
 
+    func setPostRouteSharing(id: UUID, enabled: Bool) async throws {
+        let _: UpdateProfileResponse = try await request("/api/posts/\(id.uuidString.lowercased())/route", method: "PATCH", body: ["show_route": enabled])
+    }
+
     func fetchMemberProfile(userID: UUID) async throws -> MemberProfileResponse {
         if useMock {
             return MemberProfileResponse(
