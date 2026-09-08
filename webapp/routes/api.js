@@ -2419,9 +2419,11 @@ function publishedRoute(post) {
 function storyVisible(story, viewerId) {
   if (!story || !viewerId) return false;
   if (story.user_id === viewerId || story.visibility === 'public') return true;
-  return story.visibility === 'followers' && !!db.prepare(
+  if (story.visibility === 'followers' && !!db.prepare(
     'SELECT 1 FROM followers WHERE follower_id = ? AND followee_id = ?'
-  ).get(viewerId, story.user_id);
+  ).get(viewerId, story.user_id)) return true;
+  // Trusted Circle moments: same membership gate as circle posts.
+  return story.visibility === 'circle' && circle.isInCircle(story.user_id, viewerId);
 }
 
 router.get('/stories', requireAuth, (req, res) => {
@@ -2441,7 +2443,9 @@ router.get('/stories', requireAuth, (req, res) => {
       LEFT JOIN story_views sv ON sv.story_id = s.id AND sv.viewer_id = @me
      WHERE s.expires_at > datetime('now')
        AND (s.visibility = 'public' OR s.user_id = @me OR (s.visibility = 'followers' AND EXISTS (
-            SELECT 1 FROM followers f WHERE f.follower_id = @me AND f.followee_id = s.user_id)))
+            SELECT 1 FROM followers f WHERE f.follower_id = @me AND f.followee_id = s.user_id))
+         OR (s.visibility = 'circle' AND EXISTS (
+            SELECT 1 FROM circle_members c WHERE c.owner_id = s.user_id AND c.member_id = @me)))
        AND NOT EXISTS (SELECT 1 FROM dm_blocks b
                        WHERE (b.blocker_id = @me AND b.blocked_id = s.user_id)
                           OR (b.blocker_id = s.user_id AND b.blocked_id = @me))
@@ -2471,7 +2475,11 @@ router.post('/stories', requireAuth, requireCommunityAccess, (req, res) => {
     photoData = photo_data;
   }
   if (!text && !photoData) return res.status(400).json({ error: 'moment_empty', hint: 'Add a short thought or a photo.' });
-  const vis = VISIBILITIES.includes(visibility) ? visibility : 'public';
+  // Same default as posts: the member's own setting. Under-18 registration and
+  // OAuth setup both force default_visibility='private', so Moments never
+  // fall back to a hard-coded public audience for teens.
+  const userDefault = db.prepare('SELECT default_visibility FROM users WHERE id = ?').get(req.session.userId)?.default_visibility || 'public';
+  const vis = VISIBILITIES.includes(visibility) ? visibility : userDefault;
   const id = randomUUID();
   db.prepare(`INSERT INTO stories (id, user_id, content, photo_data, photo_category, visibility, expires_at)
               VALUES (?, ?, ?, ?, ?, ?, datetime('now', '+24 hours'))`)
@@ -4654,6 +4662,12 @@ router.put('/profile', requireAuth, (req, res) => {
 
   if (req.body && req.body.default_visibility !== undefined) {
     if (!VISIBILITIES.includes(req.body.default_visibility)) return res.status(400).json({ error: 'invalid_visibility' });
+    // Match signup/setup teen defaults: under-18 cannot broaden the default
+    // post/moment audience to public (private and followers-safe values remain).
+    const age = accountSecurity.ageFromDob(db.prepare('SELECT date_of_birth FROM users WHERE id=?').get(uid)?.date_of_birth);
+    if (age != null && age < 18 && req.body.default_visibility === 'public') {
+      return res.status(400).json({ error: 'teen_privacy_lock', hint: 'Under-18 accounts cannot default posts to public.' });
+    }
     updates.default_visibility = req.body.default_visibility;
   }
 

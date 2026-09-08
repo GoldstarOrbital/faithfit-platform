@@ -311,6 +311,17 @@ function updatePrivacy(userId, values) {
       next[key] = values[key];
     }
   }
+  // Under-18 cannot broaden to a public profile or everyone-messaging — same
+  // private/followers-safe ceiling as registration and /account/setup.
+  const age = ageFromDob(db.prepare('SELECT date_of_birth FROM users WHERE id=?').get(userId)?.date_of_birth);
+  if (age != null && age < 18) {
+    if (next.profile_visibility === 'public') {
+      throw Object.assign(new Error('Teens cannot make their profile public'), { code: 'teen_privacy_lock' });
+    }
+    if (next.message_permission === 'everyone') {
+      throw Object.assign(new Error('Teens cannot allow messaging from everyone'), { code: 'teen_privacy_lock' });
+    }
+  }
   db.prepare(`UPDATE users SET profile_visibility=?,follower_list_visibility=?,message_permission=?,
     tag_permission=?,comment_permission=? WHERE id=?`).run(next.profile_visibility,next.follower_list_visibility,
       next.message_permission,next.tag_permission,next.comment_permission,userId);
