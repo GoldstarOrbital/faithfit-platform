@@ -29,7 +29,9 @@
     "verify:offline-scripture": "node scripts/verify-offline-scripture.js",
     "verify:story-replies": "node scripts/verify-story-replies.js",
     "verify:story-ownership": "node scripts/verify-story-ownership.js",
-    "verify:native-interactions": "node scripts/verify-native-interactions.js"
+    "verify:native-interactions": "node scripts/verify-native-interactions.js",
+    "verify:reels-off-ailimiter": "node scripts/verify-reels-off-ailimiter.js",
+    "verify:logout-clears-home-cache": "node scripts/verify-logout-clears-home-cache.js"
   },
   "dependencies": {
     "compression": "^1.8.1",
