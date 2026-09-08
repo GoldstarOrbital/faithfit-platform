@@ -2246,6 +2246,10 @@ struct PostMediaResponse: Decodable {
 }
 
 private struct FeedDTO: Decodable {
+    let distance_km: Double?
+    let route: [[Double]]?
+    let duration_sec: Double?
+    let avg_speed_kmh: Double?
     let deferred_media_kind: String?
     let id: UUID; let authorID: UUID?; let content: String?; let author: String; let authorHasAvatar: Bool?; let createdAt: String
     let workoutID: UUID?; let workoutType: String?; let startTime: String?; let endTime: String?
@@ -2253,9 +2257,13 @@ private struct FeedDTO: Decodable {
     let likeCount: Int?; let likedByMe: Bool?; let savedByMe: Bool?; let commentCount: Int?
     let photoData: String?; let photoCategory: String?; let videoData: String?; let videoCategory: String?; let visibility: String?
 
-    enum CodingKeys: String, CodingKey { case deferred_media_kind; case id; case authorID = "author_id"; case content, author; case authorHasAvatar = "author_has_avatar"; case visibility; case createdAt = "created_at"; case workoutID = "workout_id"; case workoutType = "workout_type"; case startTime = "start_time"; case endTime = "end_time"; case calories; case avgHR = "avg_hr"; case verseReference = "verse_reference"; case verseText = "verse_text"; case youVersionID = "youversion_id"; case likeCount = "like_count"; case likedByMe = "liked_by_me"; case savedByMe = "saved_by_me"; case commentCount = "comment_count"; case photoData = "photo_data"; case photoCategory = "photo_category"; case videoData = "video_data"; case videoCategory = "video_category" }
+    enum CodingKeys: String, CodingKey { case distance_km, route, duration_sec, avg_speed_kmh; case deferred_media_kind; case id; case authorID = "author_id"; case content, author; case authorHasAvatar = "author_has_avatar"; case visibility; case createdAt = "created_at"; case workoutID = "workout_id"; case workoutType = "workout_type"; case startTime = "start_time"; case endTime = "end_time"; case calories; case avgHR = "avg_hr"; case verseReference = "verse_reference"; case verseText = "verse_text"; case youVersionID = "youversion_id"; case likeCount = "like_count"; case likedByMe = "liked_by_me"; case savedByMe = "saved_by_me"; case commentCount = "comment_count"; case photoData = "photo_data"; case photoCategory = "photo_category"; case videoData = "video_data"; case videoCategory = "video_category" }
     var model: FeedPost {
-        let workout = workoutType.map { WorkoutSummary(id: workoutID ?? UUID(), type: $0, startTime: DateParser.parse(startTime) ?? .now, endTime: DateParser.parse(endTime), calories: calories, avgHR: avgHR) }
+        var workout = workoutType.map { WorkoutSummary(id: workoutID ?? UUID(), type: $0, startTime: DateParser.parse(startTime) ?? .now, endTime: DateParser.parse(endTime), calories: calories, avgHR: avgHR) }
+        workout?.distanceKm = distance_km
+        workout?.route = route
+        workout?.durationSec = duration_sec
+        workout?.averageSpeedKmh = avg_speed_kmh
         let verse = verseReference.map { VerseSnippet(id: youVersionID ?? $0, reference: $0, snippet: verseText ?? "", deepLink: "https://www.bible.com/bible?query=\($0.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0)") }
         var post = FeedPost(id: id, authorID: authorID, authorName: author, authorHasAvatar: authorHasAvatar ?? false, content: content ?? "", workout: workout, verse: verse, createdAt: DateParser.parse(createdAt) ?? .now, photoData: photoData, photoCategory: photoCategory, videoData: videoData, videoCategory: videoCategory, visibility: visibility ?? "private", likeCount: likeCount ?? 0, likedByMe: likedByMe ?? false, savedByMe: savedByMe ?? false, commentCount: commentCount ?? 0)
         post.deferredMediaKind = deferred_media_kind

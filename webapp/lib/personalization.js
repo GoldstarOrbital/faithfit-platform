@@ -45,4 +45,26 @@ function rankPosts(candidates, opts) {
     .sort((a, b) => b._score - a._score);
 }
 
-module.exports = { rankPosts };
+// Preserve relevance within each type, but do not let one prolific format
+// crowd every other format out. Inputs have already passed visibility checks.
+function feedKind(post) {
+  if (post.workout_type) return 'workout';
+  if (post.deferred_media_kind === 'video' || post.video_data || post.video_category) return 'reel';
+  if (post.photo_category || post.photo_data) return 'post';
+  return post.verse_reference ? 'scripture' : 'post';
+}
+function mixPosts(ranked, limit) {
+  const remaining = [...ranked];
+  const result = [], seen = new Set();
+  while (remaining.length && result.length < limit) {
+    const round = new Set();
+    for (let i = 0; i < remaining.length && result.length < limit;) {
+      const post = remaining[i], kind = feedKind(post);
+      if (seen.has(post.id)) { remaining.splice(i, 1); continue; }
+      if (round.has(kind)) { i++; continue; }
+      result.push(post); seen.add(post.id); round.add(kind); remaining.splice(i, 1);
+    }
+  }
+  return result;
+}
+module.exports = { rankPosts, mixPosts, feedKind };

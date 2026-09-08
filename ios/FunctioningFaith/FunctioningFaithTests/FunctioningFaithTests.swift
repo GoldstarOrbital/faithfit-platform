@@ -2,6 +2,29 @@ import XCTest
 @testable import FunctioningFaith
 
 final class FunctioningFaithTests: XCTestCase {
+    func testWorkoutFeedMetricsAndSharedRouteSurviveCache() throws {
+        var workout = WorkoutSummary(id: UUID(), type: "Run", startTime: .now, endTime: .now, calories: 200, avgHR: 135)
+        workout.distanceKm = 5
+        workout.durationSec = 1800
+        workout.averageSpeedKmh = 10
+        workout.route = [[44.0, -123.0], [44.01, -123.01]]
+        let decoded = try JSONDecoder().decode(WorkoutSummary.self, from: JSONEncoder().encode(workout))
+        XCTAssertEqual(decoded.distanceKm, 5)
+        XCTAssertEqual(decoded.route, workout.route)
+        XCTAssertEqual(decoded.durationSec, 1800)
+        XCTAssertEqual(decoded.averageSpeedKmh, 10)
+    }
+
+    func testLegacyWorkoutCacheDoesNotInventMetrics() throws {
+        let json = """
+        {"id":"00000000-0000-0000-0000-000000000001","type":"Run","startTime":0}
+        """
+        let decoded = try JSONDecoder().decode(WorkoutSummary.self, from: Data(json.utf8))
+        XCTAssertNil(decoded.distanceKm)
+        XCTAssertNil(decoded.route)
+        XCTAssertNil(decoded.averageSpeedKmh)
+    }
+
     func testSocialOnboardingOnlyAppearsForTheNewlyRegisteredAccount() {
         let registered = UUID()
 

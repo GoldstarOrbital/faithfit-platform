@@ -7,6 +7,10 @@ struct WorkoutSummary: Codable, Identifiable {
     let endTime: Date?
     let calories: Int?
     let avgHR: Int?
+    var distanceKm: Double? = nil
+    var route: [[Double]]? = nil
+    var durationSec: Double? = nil
+    var averageSpeedKmh: Double? = nil
 }
 
 struct VerseSnippet: Codable, Identifiable {

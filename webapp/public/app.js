@@ -460,6 +460,23 @@ function renderPasswordReset(token){const main=document.getElementById('main');d
 // it looked like a route and was read as one, but no part of it came from
 // anywhere the author had been. Nothing is drawn now unless there are real
 // coordinates to draw.
+function activateFeedRoute(container, points) {
+  const valid = (points || []).filter(p => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]) && Math.abs(p[0]) <= 90 && Math.abs(p[1]) <= 180).map(p => [p[0], p[1]]);
+  if (valid.length < 2) { showToast('No shared GPS route is available.', true); return; }
+  if (!window.L) { showToast('Map could not load. Check your connection and try again.', true); return; }
+  container.replaceChildren();
+  container.style.height = '300px';
+  container.setAttribute('aria-label', 'Shared workout route. Drag to pan; use buttons to zoom.');
+  const map = L.map(container, { scrollWheelZoom: false });
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 }).addTo(map);
+  const line = L.polyline(valid, { color: '#a16b2a', weight: 5 }).addTo(map);
+  map.fitBounds(line.getBounds(), { padding: [20, 20] });
+  const cleanup = new MutationObserver(() => {
+    if (!container.isConnected) { map.remove(); cleanup.disconnect(); }
+  });
+  cleanup.observe(document.body, { childList: true, subtree: true });
+}
+
 function realRouteSvg(points) {
   if (!Array.isArray(points) || points.length < 2) return '';
   const lats = points.map(p => p[0]), lngs = points.map(p => p[1]);
@@ -1091,11 +1108,14 @@ async function renderHome(main) {
         </select>` : ''}
       </div>
       <div class="post-content">${linkifyText(p.content || '')}</div>
+      <div class="muted" style="font-size:.75rem;font-weight:700;margin:8px 0">${({workout:'WORKOUT',reel:'REEL',scripture:'SCRIPTURE & REFLECTION',post:'COMMUNITY POST'})[p.content_kind] || 'COMMUNITY POST'}</div>
       ${p.workout_type ? `
-        ${p.route ? `<div class="route-banner">${realRouteSvg(p.route)}<span class="badge-overlay">${escapeHtml(p.workout_type)}</span></div>` : ''}
+        <h3>${escapeHtml(p.workout_type)}</h3>
+        ${p.route ? `<div class="route-banner" data-feed-route="${escapeHtml(p.id)}">${realRouteSvg(p.route)}<button class="badge-overlay" type="button" data-open-feed-route="${escapeHtml(p.id)}">Explore route map</button></div>` : '<p class="muted">No shared GPS route</p>'}
         <div class="stat-row">
-          <div class="stat"><div class="v">${p.distance_km ?? '—'}</div><div class="l">km</div></div>
-          <div class="stat"><div class="v">${p.pace_min_per_km ?? '—'}</div><div class="l">min/km</div></div>
+          <div class="stat"><div class="v">${p.distance_km != null ? fmtKm(p.distance_km) : '—'}</div><div class="l">km</div></div>
+          <div class="stat"><div class="v">${p.duration_sec != null ? fmtDuration(p.duration_sec) : '—'}</div><div class="l">duration</div></div>
+          <div class="stat"><div class="v">${p.pace_min_per_km ?? (p.avg_speed_kmh != null ? Number(p.avg_speed_kmh).toFixed(1) : '—')}</div><div class="l">${p.pace_min_per_km != null ? 'min/km' : 'avg km/h'}</div></div>
           <div class="stat"><div class="v">${p.calories ?? '—'}</div><div class="l">kcal</div></div>
           <div class="stat"><div class="v">${p.avg_hr ?? '—'}</div><div class="l">avg hr</div></div>
         </div>` : ''}
@@ -1128,6 +1148,10 @@ async function renderHome(main) {
   }
 
   hydrateAvatars(postsEl);
+  postsEl.querySelectorAll('[data-open-feed-route]').forEach(button => button.onclick = () => {
+    const post = posts.find(p => p.id === button.dataset.openFeedRoute);
+    if (post?.route) activateFeedRoute(button.closest('[data-feed-route]'), post.route);
+  });
   hydrateDeferredFeedMedia(postsEl);
   const moreEl = main.querySelector('#feed-more');
   if (moreEl && state.homeCache.nextCursor) {

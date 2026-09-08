@@ -27,7 +27,8 @@ db.prepare('INSERT INTO posts(id,user_id,content,visibility) VALUES(?,?,?,?)')
 db.close();
 
 async function waitForServer() {
-  for (let attempt = 0; attempt < 40; attempt++) {
+  // A scratch database imports the full Bible before listening.
+  for (let attempt = 0; attempt < 300; attempt++) {
     try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) return; } catch {}
     await new Promise(resolve => setTimeout(resolve, 100));
   }

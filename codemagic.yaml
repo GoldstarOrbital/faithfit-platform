@@ -3,6 +3,11 @@ workflows:
     name: iOS TestFlight release
     max_build_duration: 45
     instance_type: mac_mini_m2
+    # Documentation-only pushes must not consume Apple's daily upload quota.
+    when:
+      changeset:
+        excludes:
+          - '**/*.md'
     # Every main-branch iOS change goes through the signed TestFlight pipeline;
     # no manual archive is used as a substitute for release verification.
     triggering:
@@ -159,6 +164,10 @@ workflows:
     name: iOS simulator verification
     max_build_duration: 30
     instance_type: mac_mini_m2
+    when:
+      changeset:
+        excludes:
+          - '**/*.md'
     triggering:
       events:
         - push
@@ -192,12 +201,15 @@ workflows:
             build
       - name: Run unit tests
         script: |
+          set -euo pipefail
           cd "$CM_BUILD_DIR/$IOS_PROJECT_DIR"
+          python3 scripts/test_select_simulator.py
+          simulator_id=$(python3 scripts/select_simulator.py)
           xcodebuild \
             -project "$XCODE_PROJECT" \
             -scheme "$XCODE_SCHEME" \
             -configuration Debug \
-            -destination 'platform=iOS Simulator,OS=26.4.1,name=iPhone 17 Pro' \
+            -destination "platform=iOS Simulator,id=$simulator_id" \
             CODE_SIGNING_ALLOWED=NO \
             test
     artifacts:

@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import MapKit
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -396,6 +397,10 @@ struct FeedPostRow: View {
                 .font(.system(size: 16))
                 .dynamicTypeSize(.large ... .accessibility3)
 
+            Text(post.workout != nil ? "WORKOUT" : (post.videoCategory != nil || post.deferredMediaKind == "video" ? "REEL" : (post.verse != nil && post.photoCategory == nil ? "SCRIPTURE & REFLECTION" : "COMMUNITY POST")))
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(FFTheme.meadow)
+
             if let workout = post.workout {
                 WorkoutCard(workout: workout)
             }
@@ -567,19 +572,55 @@ internal struct FeedVideoView: View {
 
 struct WorkoutCard: View {
     let workout: WorkoutSummary
+    @State private var expandRoute = false
+    private var coordinates: [CLLocationCoordinate2D] {
+        (workout.route ?? []).compactMap { point in
+            guard point.count >= 2, point[0].isFinite, point[1].isFinite,
+                  abs(point[0]) <= 90, abs(point[1]) <= 180 else { return nil }
+            return CLLocationCoordinate2D(latitude: point[0], longitude: point[1])
+        }
+    }
     var body: some View {
-        HStack {
-            Image(systemName: "figure.run").imageScale(.large)
-            VStack(alignment: .leading) {
-                Text(workout.type).font(.footnote.weight(.semibold))
-                if let cal = workout.calories, let hr = workout.avgHR {
-                    Text("\(cal) kcal · avg HR \(hr)").font(.caption).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 12) {
+            Text(workout.type).font(.headline)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], alignment: .leading, spacing: 12) {
+                if let km = workout.distanceKm, km > 0 { metric(String(format: "%.2f km", km), "Distance") }
+                if let seconds = workout.durationSec, seconds > 0 { metric(String(format: "%.0f min", seconds / 60), "Duration") }
+                if let speed = workout.averageSpeedKmh, speed > 0 {
+                    if ["run", "walk", "hike", "trail run"].contains(workout.type.lowercased()) {
+                        metric(String(format: "%.1f min/km", 60 / speed), "Average pace")
+                    } else { metric(String(format: "%.1f km/h", speed), "Average speed") }
                 }
+                if let cal = workout.calories { metric("\(cal) kcal", "Energy") }
+                if let hr = workout.avgHR { metric("\(hr) bpm", "Average heart rate") }
             }
-            Spacer()
+            if coordinates.count > 1 {
+                Map(interactionModes: []) {
+                    MapPolyline(coordinates: coordinates).stroke(FFTheme.emerald, lineWidth: 4)
+                }
+                .frame(height: 180).clipShape(RoundedRectangle(cornerRadius: 12))
+                Button("Explore route map") { expandRoute = true }
+                    .buttonStyle(.borderless)
+            } else { Text("No shared GPS route").font(.caption).foregroundStyle(.secondary) }
         }
         .padding(10)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .sheet(isPresented: $expandRoute) {
+            NavigationStack {
+                Map {
+                    MapPolyline(coordinates: coordinates).stroke(FFTheme.emerald, lineWidth: 5)
+                }
+                .navigationTitle("\(workout.type) route")
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { expandRoute = false } } }
+                .safeAreaInset(edge: .bottom) { Text("Only the route the author chose to share is shown.").font(.caption).padding().background(.regularMaterial) }
+            }
+        }
+    }
+    private func metric(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading) {
+            Text(value).font(.subheadline.weight(.bold))
+            Text(label).font(.caption).foregroundStyle(.secondary)
+        }
     }
 }
 

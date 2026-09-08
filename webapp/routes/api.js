@@ -1416,8 +1416,7 @@ function shapeFeedPost(p, meId) {
   let pace = null, distanceKm = p.distance_km ?? null;
   if (p.workout_type && p.start_time && p.end_time) {
     const mins = (new Date(p.end_time) - new Date(p.start_time)) / 60000;
-    if (distanceKm == null) distanceKm = +(mins / 6).toFixed(1); // fallback estimate when no real GPS data
-    pace = distanceKm > 0 ? (mins / distanceKm).toFixed(1) : null;
+    pace = distanceKm > 0 && mins > 0 && /^(run|walk|hike|trail run)$/i.test(p.workout_type) ? (mins / distanceKm).toFixed(1) : null;
   }
   const commentCount = Number(p.comment_count || 0);
   delete p.comment_count;
@@ -1426,7 +1425,10 @@ function shapeFeedPost(p, meId) {
   // other social flag here goes through !! first; these two were spread
   // through untouched, which decodes fine to a dynamically-typed client
   // but throws a hard type-mismatch against a native Bool field.
-  return { ...p, author_has_avatar: !!p.author_has_avatar, author_verified_developer: !!p.author_verified_developer,
+  const durationSec = p.end_time && p.start_time ? Math.max(0, (new Date(p.end_time) - new Date(p.start_time)) / 1000) : null;
+  return { ...p, content_kind: personalization.feedKind(p), duration_sec: Number.isFinite(durationSec) ? durationSec : null,
+           avg_speed_kmh: distanceKm > 0 && durationSec > 0 ? distanceKm / (durationSec / 3600) : null,
+           author_has_avatar: !!p.author_has_avatar, author_verified_developer: !!p.author_verified_developer,
            like_count: likeCount, liked_by_me: likedByMe, saved_by_me: savedByMe, comment_count: commentCount,
            distance_km: distanceKm, pace_min_per_km: pace };
 }
@@ -1479,7 +1481,7 @@ router.get('/feed', (req, res) => {
   `).all({ me: meId, following_only: followingOnly ? 1 : 0, before, limit, deferred: deferred ? 1 : 0 });
 
   const withSocial = posts.map(p => shapeFeedPost(p, meId));
-  res.json({ posts: withSocial, next_cursor: withSocial.length === limit ? withSocial[withSocial.length - 1].created_at : null });
+  res.json({ posts: followingOnly ? withSocial : personalization.mixPosts(withSocial, limit), next_cursor: withSocial.length === limit ? withSocial[withSocial.length - 1].created_at : null });
 });
 
 // ---- "For You": a small, ranked, non-paginated set of posts drawn from the
@@ -1561,7 +1563,7 @@ router.get('/feed/for-you', requireAuth, (req, res) => {
     SELECT p.photo_data, p.video_data, w.gps_path
     FROM posts p LEFT JOIN workouts w ON w.id = p.workout_id WHERE p.id = ?
   `);
-  const top = ranked.slice(0, limit).map((p) => {
+  const top = personalization.mixPosts(ranked, limit).map((p) => {
     if (deferred) {
       // Routes are small relative to media and still pass publishedRoute's
       // redaction. Never send the raw GPS trace in the media response.

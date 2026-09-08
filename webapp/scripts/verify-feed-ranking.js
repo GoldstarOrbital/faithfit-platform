@@ -3,11 +3,39 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
-const { rankPosts } = require('../lib/personalization');
+const { rankPosts, mixPosts, feedKind } = require('../lib/personalization');
 const vm = require('node:vm');
 
 // Execute the actual production candidate SQL, not a duplicate query.
 const source = fs.readFileSync(path.join(__dirname, '../routes/api.js'), 'utf8');
+const mixed = mixPosts([
+  { id: 'w1', workout_type: 'Run' }, { id: 'w2', workout_type: 'Run' },
+  { id: 'r1', deferred_media_kind: 'video', verse_reference: 'John 1:1' },
+  { id: 's1', verse_reference: 'John 1:1' }, { id: 'p1', photo_category: 'nature' },
+  { id: 'w1', workout_type: 'Run' },
+], 6);
+assert.deepEqual(mixed.slice(0, 4).map(feedKind), ['workout', 'reel', 'scripture', 'post']);
+assert.equal(new Set(mixed.map(p => p.id)).size, mixed.length);
+assert.equal(mixPosts([], 12).length, 0);
+assert.deepEqual(mixPosts([{id:'only'}], 12), [{id:'only'}]);
+const shapeContext = {
+  db: { prepare: () => ({get: () => ({c: 0})}) },
+  publishedRoute: () => null, validateDataUrlImage: () => ({ok:true}),
+  personalization: {feedKind},
+};
+vm.createContext(shapeContext);
+vm.runInContext(source.slice(source.indexOf('function shapeFeedPost('), source.indexOf('// ---- feed ----')), shapeContext);
+const baseWorkout = {id:'w',workout_type:'Run', start_time:'2026-09-08T12:00:00Z',end_time:'2026-09-08T12:30:00Z'};
+const noGPS = shapeContext.shapeFeedPost({...baseWorkout}, null);
+assert.equal(noGPS.distance_km, null, 'never invent distance');
+assert.equal(noGPS.pace_min_per_km, null);
+assert.equal(noGPS.avg_speed_kmh, null);
+assert.equal(noGPS.duration_sec, 1800);
+const run = shapeContext.shapeFeedPost({...baseWorkout,distance_km:5}, null);
+assert.equal(run.pace_min_per_km, '6.0');
+const ski = shapeContext.shapeFeedPost({...baseWorkout,workout_type:'Ski',distance_km:5}, null);
+assert.equal(ski.pace_min_per_km, null);
+assert.equal(ski.avg_speed_kmh, 10);
 const route = source.split("router.get('/feed/for-you'")[1].split("// A compact, dedicated read")[0];
 const query = route.match(/const candidates = db.prepare\(`([\s\S]*?)`\)/)[1];
 const hydrate = route.match(/const mediaForPost = db.prepare\(`([\s\S]*?)`\)/)[1];
