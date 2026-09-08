@@ -2503,6 +2503,11 @@ router.get('/stories/:id/viewers', requireAuth, (req, res) => {
     ORDER BY sv.viewed_at DESC LIMIT 100`).all(story.id, story.user_id, term);
   const viewCount = db.prepare('SELECT COUNT(*) AS count FROM story_views WHERE story_id = ? AND viewer_id != ?')
     .get(story.id, story.user_id).count;
+  // Same fix as GET /users/:id / GET /stories -- CASE WHEN has_avatar is a
+  // SQLite 0/1 integer; native StoryViewer.hasAvatar only decodes true/false.
+  for (const row of viewers) {
+    row.has_avatar = !!row.has_avatar;
+  }
   res.json({ view_count: Number(viewCount), viewers });
 });
 
