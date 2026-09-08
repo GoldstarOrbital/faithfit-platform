@@ -48,12 +48,14 @@ function isInCircle(ownerId, viewerId) {
 }
 
 function list(ownerId) {
+  // CASE WHEN has_avatar is a SQLite 0/1 integer; native CircleMember.hasAvatar
+  // only decodes JSON true/false (same fix as /users/:id, /circle/candidates).
   return db.prepare(`
     SELECT c.member_id user_id, c.created_at, u.display_name,
            CASE WHEN u.avatar_data IS NOT NULL THEN 1 ELSE 0 END AS has_avatar
     FROM circle_members c JOIN users u ON u.id = c.member_id
     WHERE c.owner_id = ? ORDER BY u.display_name
-  `).all(ownerId);
+  `).all(ownerId).map(row => ({ ...row, has_avatar: !!row.has_avatar }));
 }
 
 function count(ownerId) {

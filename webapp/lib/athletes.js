@@ -501,7 +501,9 @@ function search({ sport, grad_year, q, school_nces_id, limit = 40 } = {}) {
     ORDER BY ap.updated_at DESC LIMIT @limit
   `).all({ ...params, limit: Math.min(Number(limit) || 40, 100) });
 
-  return rows.map(r => ({ ...r, stats: recentStats(r.user_id) }));
+  // publicProfile() already uses !!has_avatar; search must too — native
+  // AthleteSearchResult.hasAvatar is Bool and rejects SQLite 0/1 integers.
+  return rows.map(r => ({ ...r, has_avatar: !!r.has_avatar, stats: recentStats(r.user_id) }));
 }
 
 /** Attaches provenance (manual vs CSV) and coach-confirmation count to each
