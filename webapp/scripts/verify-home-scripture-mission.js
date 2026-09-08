@@ -42,4 +42,20 @@ assert.doesNotMatch(renderHome, /rec && rec\.verse \? `/,
 assert.match(renderHome, /_homeMissionPromise/,
   'in-flight mission promise shares across re-renders while loading');
 
+// Shared-device cache audit: in-memory homeCache must never paint another
+// member's feed/SiM mission after login/demo/MFA/setup-signout without reload.
+assert.match(app, /function clearHomeSessionCache\s*\(/,
+  'homeCache + in-flight mission need an explicit clearHomeSessionCache helper');
+assert.match(app, /state\.homeCache = null;\s*_homeMissionPromise = null/,
+  'clearHomeSessionCache must null homeCache and _homeMissionPromise');
+assert.match(app, /previousId !== nextId \|\| \(state\.homeCache && state\.homeCache\.userId !== nextId\)/,
+  'loadMe must clear Home cache when the signed-in member changes');
+assert.match(app, /#setup-signout[\s\S]{0,220}clearHomeSessionCache\(\)/,
+  'setup-signout must clear homeCache (it does not full-reload)');
+assert.match(renderHome, /homeCache\.userId === homeUserId/,
+  'renderHome must require homeCache.userId to match the signed-in member before reuse');
+assert.match(renderHome, /userId: homeUserId/,
+  'homeCache must store the member id it was built for');
+
 console.log('Home Scripture in Motion: dedicated /scripture/mission fast path, homeCache.mission, independent of secondary pack.');
+console.log('Home cache identity: clearHomeSessionCache on account change; renderHome refuses another member\'s cache.');

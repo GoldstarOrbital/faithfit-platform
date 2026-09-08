@@ -111,6 +111,13 @@ function clearOfflineSavedVerses() {
   if (!key) return;
   try { localStorage.removeItem(key); } catch {}
 }
+// In-memory Home feed + SiM mission are private to the signed-in member.
+// On a shared device, account switches that skip a full reload must not paint
+// the previous person's Home. Null both the cache and any in-flight mission.
+function clearHomeSessionCache() {
+  state.homeCache = null;
+  _homeMissionPromise = null;
+}
 async function loadSavedVerses() {
   try {
     const data = await api('/verses/saved');
@@ -124,7 +131,12 @@ async function loadSavedVerses() {
 }
 
 async function loadMe() {
+  const previousId = state.me && state.me.user && state.me.user.id;
   try { state.me = await api('/me'); } catch { state.me = null; }
+  const nextId = state.me && state.me.user && state.me.user.id;
+  if (previousId !== nextId || (state.homeCache && state.homeCache.userId !== nextId)) {
+    clearHomeSessionCache();
+  }
   if (state.me) {
     startNotifPolling();
     // Fire-and-forget: makes this device reachable for encrypted DMs. Never
@@ -445,7 +457,7 @@ async function renderSignIn() {
 function renderAccountSetup(main) {
   document.querySelectorAll('nav button').forEach(b=>b.style.display='none');
   main.innerHTML=`<div class="card glass"><span class="eyebrow">Account safety</span><h2>One quick step</h2><p class="muted">Confirm your age and review the current community rules before posting, messaging, or joining groups.</p><form id="account-setup-form"><label class="field-label">Date of birth</label><input class="input" type="date" name="date_of_birth" required><label class="terms-check"><input type="checkbox" name="terms_accepted" value="true" required><span>I am at least 13 and agree to the <a href="/terms.html" target="_blank" rel="noopener">Terms and Community Standards</a> and acknowledge the <a href="/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</span></label><p class="form-error" id="setup-error" hidden></p><button class="primary" style="width:100%;margin-top:12px">Continue</button></form><button class="ghost" id="setup-signout" style="width:100%;margin-top:8px">Sign out</button></div>`;
-  main.querySelector('#setup-signout').onclick=async()=>{await api('/auth/logout',{method:'POST'});clearOfflineSavedVerses();state.me=null;renderSignIn();};
+  main.querySelector('#setup-signout').onclick=async()=>{await api('/auth/logout',{method:'POST'});clearOfflineSavedVerses();clearHomeSessionCache();state.me=null;renderSignIn();};
   main.querySelector('#account-setup-form').onsubmit=async e=>{e.preventDefault();const fd=new FormData(e.target);const result=await api('/account/setup',{method:'POST',body:{date_of_birth:fd.get('date_of_birth'),terms_accepted:fd.get('terms_accepted')==='true'}});if(result.error){const el=main.querySelector('#setup-error');el.textContent=result.error==='minimum_age'?'Accounts are currently available to people age 13 and older.':'Please check your date of birth and acceptance.';el.hidden=false;return;}await loadMe();document.querySelectorAll('nav button').forEach(b=>b.style.display='');render();};
 }
 
@@ -855,11 +867,14 @@ function hydrateDeferredFeedMedia(root) {
 
 async function renderHome(main, forceRefresh = false) {
   document.querySelectorAll('nav button').forEach(b => b.style.display = '');
-  const cacheMatchesScope = !forceRefresh && state.homeCache && state.homeCache.scope === state.feedScope;
+  const homeUserId = myUserId();
+  // Refuse another member's in-memory Home (shared device / demo switch / MFA).
+  if (state.homeCache && state.homeCache.userId !== homeUserId) clearHomeSessionCache();
+  const cacheMatchesScope = !forceRefresh && state.homeCache && state.homeCache.userId === homeUserId && state.homeCache.scope === state.feedScope;
   // Prefer a cached mission for instant paint. Otherwise start /scripture/mission
   // in parallel with the critical feed — never await it before first feed paint,
   // and never wait on the nine-call secondary pack for this card.
-  const hadMissionCache = !forceRefresh && state.homeCache && state.homeCache.missionFetched;
+  const hadMissionCache = !forceRefresh && state.homeCache && state.homeCache.userId === homeUserId && state.homeCache.missionFetched;
   const cachedMission = hadMissionCache ? state.homeCache.mission : null;
   if (forceRefresh) _homeMissionPromise = null;
   if (!hadMissionCache && !_homeMissionPromise) {
@@ -888,7 +903,7 @@ async function renderHome(main, forceRefresh = false) {
   const mission = missionEarly;
   const carryMission = forceRefresh ? null : missionEarly;
   const carryFetched = forceRefresh ? false : missionKnown;
-  if (!cacheMatchesScope) state.homeCache = { posts, users, nextCursor: Array.isArray(feedData) ? null : feedData.next_cursor, secondary: null, scope: state.feedScope, mission: carryMission, missionFetched: carryFetched };
+  if (!cacheMatchesScope) state.homeCache = { posts, users, nextCursor: Array.isArray(feedData) ? null : feedData.next_cursor, secondary: null, scope: state.feedScope, userId: homeUserId, mission: carryMission, missionFetched: carryFetched };
   else {
     if (carryFetched) { state.homeCache.mission = carryMission; state.homeCache.missionFetched = true; }
   }
