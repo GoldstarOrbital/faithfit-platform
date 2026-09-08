@@ -814,6 +814,7 @@ struct FromExploreRail: View {
 /// once per day (see webapp's scriptureMission.js). Distinct from the live
 /// per-moment verse a tracked workout itself uses.
 struct ScriptureInMotionCard: View {
+    @EnvironmentObject private var session: NativeSession
     @State private var mission: ScriptureMission?
     // Same chevron risk as the Explore grid and Home's From Explore rail --
     // two destinations reachable from one List row. Plain Buttons + a single
@@ -838,10 +839,9 @@ struct ScriptureInMotionCard: View {
         // .onAppear, not .task -- .task only ever runs once per view
         // identity, but this card should re-roll every time a member
         // returns to Home (a tab switch back, or scrolling it back into
-        // view), not just on the very first load. The existing verse stays
-        // on screen while the new one loads, rather than flashing back to
-        // the skeleton on every return.
-        .onAppear { Task { mission = (try? await APIClient.shared.fetchScriptureMission()) ?? mission } }
+        // view), not just on the very first load. Paint last-known mission
+        // immediately (MissionCache), then let the network fetch win.
+        .onAppear { Task { await loadMission() } }
         .navigationDestination(item: $destination) { destination in
             switch destination {
             case .mission:
@@ -854,7 +854,21 @@ struct ScriptureInMotionCard: View {
         }
     }
 
+    private func loadMission() async {
+        if mission == nil, let userID = session.profile?.id,
+           let cached = MissionCache.load(userID: userID) {
+            mission = cached
+        }
+        if let fetched = try? await APIClient.shared.fetchScriptureMission() {
+            mission = fetched
+            if let userID = session.profile?.id {
+                MissionCache.save(fetched, userID: userID)
+            }
+        }
+    }
+
     private func content(for mission: ScriptureMission) -> some View {
+
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Label("SCRIPTURE IN MOTION", systemImage: "sparkles")
