@@ -4,6 +4,10 @@ import SwiftUI
 /// stories-rail pattern -- an unviewed ring is highlighted, tapping opens
 /// that author's moments in order. "Add a moment" is always the first ring.
 struct StoriesRail: View {
+    /// Home stays mounted under RootTabView; without this the rail only loads
+    /// once via `.task` and muted authors' rings can linger until remount.
+    var isActive: Bool = true
+
     @State private var stories: [Story] = []
     @State private var showComposer = false
     @State private var viewingAuthor: String?
@@ -57,6 +61,12 @@ struct StoriesRail: View {
             .padding(.horizontal)
         }
         .task { await load() }
+        .onChange(of: isActive) { _, active in
+            if active { Task { await load() } }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .relationshipControlsChanged)) { _ in
+            Task { await load() }
+        }
         .sheet(isPresented: $showComposer) {
             NavigationStack { StoryComposerView { Task { await load() } } }
         }
