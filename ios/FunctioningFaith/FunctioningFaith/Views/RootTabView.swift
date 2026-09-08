@@ -59,6 +59,10 @@ struct RootTabView: View {
             // ask about notifications, and never before it (see
             // NotificationCoordinator.requestPermissionIfAnyCategoryAtDefault).
             await NotificationCoordinator.shared.requestPermissionIfAnyCategoryAtDefault()
+            // Warm Scripture in Motion (+ For You feed disk cache) before the
+            // member opens Home, so the SIM card paints from MissionCache on
+            // the first frame instead of a ProgressView.
+            await warmHomeLaunchCaches()
         }
         // Fetch the Bible once so Scripture reads with no connection, not just
         // the chapters that happened to be opened online. Detached and at
@@ -178,6 +182,24 @@ struct RootTabView: View {
         // lower cuts how far it intrudes into content without disappearing
         // into the bar itself.
         .padding(.bottom, 54)
+    }
+
+    /// Prime MissionCache (and refresh FeedCache) as soon as the signed-in
+    /// shell is up, alongside inbox/notification warm. Disk peek is sync so
+    /// Home can paint immediately; the network soft-refresh never blanks a
+    /// card that already has a cached mission.
+    private func warmHomeLaunchCaches() async {
+        guard let userID = session.profile?.id else { return }
+        _ = MissionCache.load(userID: userID)
+        async let warmedMission = try? await APIClient.shared.fetchScriptureMission()
+        async let warmedFeed = try? await APIClient.shared.fetchForYouFeed()
+        let (mission, posts) = await (warmedMission, warmedFeed)
+        if let mission {
+            MissionCache.save(mission, userID: userID)
+        }
+        if let posts {
+            FeedCache.save(posts, userID: userID, mode: HomeFeedMode.forYou.rawValue)
+        }
     }
 
     private func openPanel() {

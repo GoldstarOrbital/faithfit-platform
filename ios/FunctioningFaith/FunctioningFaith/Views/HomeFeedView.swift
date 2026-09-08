@@ -822,48 +822,59 @@ struct ScriptureInMotionCard: View {
     private enum Destination: Hashable { case mission, verse }
     @State private var destination: Destination?
 
+    /// First-frame paint: @State starts nil, so body must read MissionCache
+    /// synchronously. A cache hit never shows the ProgressView spiral.
+    private var painted: ScriptureMission? {
+        if let mission { return mission }
+        guard let userID = session.profile?.id else { return nil }
+        return MissionCache.load(userID: userID)
+    }
+
     var body: some View {
         Group {
-            if let mission {
-                content(for: mission)
+            if let painted {
+                content(for: painted)
             } else {
-                // A silent skeleton, not an error state -- this replaces a
-                // section that was always present, and a failed fetch here
-                // shouldn't put an alarming error on the Home feed.
+                // Cold miss only (first launch / cleared cache). Prefer a calm
+                // static brand shell over a spinning ProgressView — Instagram/
+                // Strava never leave a spiral on the hero slot.
                 RoundedRectangle(cornerRadius: FFTheme.Radius.lg, style: .continuous)
-                    .fill(FFTheme.parchment1)
+                    .fill(LinearGradient(colors: [FFTheme.goldBright.opacity(0.28), FFTheme.meadow2.opacity(0.22), FFTheme.parchment1], startPoint: .topLeading, endPoint: .bottomTrailing))
                     .frame(height: 190)
-                    .overlay(ProgressView())
+                    .overlay(alignment: .leading) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("SCRIPTURE IN MOTION", systemImage: "sparkles")
+                                .font(.caption.weight(.bold)).tracking(1)
+                                .foregroundStyle(FFTheme.inkSoft)
+                            Text("Preparing today's invitation…")
+                                .font(.subheadline)
+                                .foregroundStyle(FFTheme.inkSoft)
+                        }
+                        .padding(16)
+                    }
+                    .accessibilityLabel("Scripture in Motion")
             }
         }
-        // .onAppear, not .task -- .task only ever runs once per view
-        // identity, but this card should re-roll every time a member
-        // returns to Home (a tab switch back, or scrolling it back into
-        // view), not just on the very first load. Paint last-known mission
-        // immediately (MissionCache), then let the network fetch win.
-        .onAppear { Task { await loadMission() } }
+        // .onAppear, not .task -- re-roll every return to Home. Cache already
+        // painted via `painted`; this only lets the network fetch win.
+        .onAppear { Task { await refreshMissionFromNetwork() } }
         .navigationDestination(item: $destination) { destination in
             switch destination {
             case .mission:
-                WorkoutView(initialVerse: mission.map {
+                WorkoutView(initialVerse: painted.map {
                     VerseSnippet(id: $0.reference, reference: $0.reference, snippet: $0.text, deepLink: "")
                 })
             case .verse:
-                VerseThreadView(reference: mission?.reference ?? "")
+                VerseThreadView(reference: painted?.reference ?? "")
             }
         }
     }
 
-    private func loadMission() async {
-        if mission == nil, let userID = session.profile?.id,
-           let cached = MissionCache.load(userID: userID) {
-            mission = cached
-        }
-        if let fetched = try? await APIClient.shared.fetchScriptureMission() {
-            mission = fetched
-            if let userID = session.profile?.id {
-                MissionCache.save(fetched, userID: userID)
-            }
+    private func refreshMissionFromNetwork() async {
+        guard let fetched = try? await APIClient.shared.fetchScriptureMission() else { return }
+        mission = fetched
+        if let userID = session.profile?.id {
+            MissionCache.save(fetched, userID: userID)
         }
     }
 

@@ -65,6 +65,12 @@ struct FunctioningFaithApp: App {
                         session.profile = profile
                         session.requiresAccountSetup = requiresAccountSetup
                         if isNewAccount && !requiresAccountSetup { pendingOnboardingUserID = profile.id.uuidString }
+                        MissionCache.warmFromDisk(userID: profile.id)
+                        Task {
+                            if let fetched = try? await APIClient.shared.fetchScriptureMission() {
+                                MissionCache.save(fetched, userID: profile.id)
+                            }
+                        }
                     }
                 }
             }

@@ -58,6 +58,16 @@ final class NativeSession: ObservableObject {
                 requiresAccountSetup = state.accountSetupRequired
             }
         }
+        // Warm SiM memory from disk before Home mounts, then prefetch the
+        // live mission so the first Home appear often already has a hit.
+        if let userID = profile?.id {
+            MissionCache.warmFromDisk(userID: userID)
+            Task {
+                if let fetched = try? await APIClient.shared.fetchScriptureMission() {
+                    MissionCache.save(fetched, userID: userID)
+                }
+            }
+        }
         isRestoring = false
     }
 
