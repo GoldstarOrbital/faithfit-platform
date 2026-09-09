@@ -5183,7 +5183,7 @@ router.get('/reels', requireAuth, aiLimiter, async (req, res) => {
     for (const row of reactions) {
       const item = reactionMap.get(row.video_id) || { like_count: 0, save_count: 0, liked_by_me: false, saved_by_me: false };
       if (row.kind === 'like') { item.like_count = Number(row.count); item.liked_by_me = !!row.mine; }
-      if (row.kind === 'save') { item.save_count = Number(row.count); item.saved_by_me = !!row.mine; }
+      if (row.kind === 'save') { item.saved_by_me = !!row.mine; }
       reactionMap.set(row.video_id, item);
     }
   }

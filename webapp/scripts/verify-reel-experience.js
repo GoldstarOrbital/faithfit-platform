@@ -16,6 +16,8 @@ assert.match(api, /LEFT JOIN posts p ON p\.id = r\.video_id/, 'saved Functioning
 assert.match(app, /data-reel-track-impression/, 'the client must identify catalogue Reels that can be marked seen');
 assert.match(app, /\/impression/, 'the client must report an actual opened Reel');
 assert.doesNotMatch(app, /const starters = \[/, 'legacy client-side starter videos must not bypass the screened feed');
+assert.doesNotMatch(app, /data-reel-count/, 'reel action rail must not show public vanity counts');
+assert.match(app, /data-reel-label/, 'reel like\/save toggles should show state labels instead of counts');
 assert.match(app, /data-reel-verse-ref/, 'a Scripture-paired Reel needs an open-verse action');
 assert.match(app, /renderVerseThread\(verse\.dataset\.reelVerseRef\)/, 'opening a Reel verse must use the canonical Scripture thread');
 assert.match(css, /\.reel-scripture/, 'the Scripture action needs visible Reel styling');

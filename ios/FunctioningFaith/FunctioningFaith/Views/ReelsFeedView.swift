@@ -427,8 +427,8 @@ private struct ReelPage: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     VStack(spacing: 9) {
-                        actionButton(systemImage: reel.likedByMe ? "heart.fill" : "heart", label: "\(reel.likeCount)", tint: reel.likedByMe ? FFTheme.seal : .white, action: onLike)
-                        actionButton(systemImage: reel.savedByMe ? "bookmark.fill" : "bookmark", label: "\(reel.saveCount)", tint: reel.savedByMe ? FFTheme.goldBright : .white, action: onSave)
+                        actionButton(systemImage: reel.likedByMe ? "heart.fill" : "heart", label: reel.likedByMe ? "Liked" : "Like", tint: reel.likedByMe ? FFTheme.seal : .white, action: onLike)
+                        actionButton(systemImage: reel.savedByMe ? "bookmark.fill" : "bookmark", label: reel.savedByMe ? "Saved" : "Save", tint: reel.savedByMe ? FFTheme.goldBright : .white, action: onSave)
                         if let onComments {
                             actionButton(systemImage: "bubble.left.fill", label: "Reply", tint: .white, action: onComments)
                         }
