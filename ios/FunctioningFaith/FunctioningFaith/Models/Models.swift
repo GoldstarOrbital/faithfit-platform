@@ -43,6 +43,17 @@ struct ScriptureMission: Codable {
     let reference: String
     let text: String
     let coaching: String
+
+    /// The card's structure is product copy, not remote configuration. This
+    /// bundled value gives a calm, complete first frame on a genuinely cold
+    /// launch; the live mission replaces it as soon as the verse request
+    /// returns.
+    static let preloaded = ScriptureMission(
+        headline: "Move with purpose",
+        reference: "Colossians 3:23",
+        text: "Whatever you do, work at it with all your heart, as working for the Lord.",
+        coaching: "Let this next small act of movement be an offering of care."
+    )
 }
 
 struct FeedPost: Codable, Identifiable {
@@ -537,7 +548,7 @@ struct ActivityBreakdownEntry: Decodable, Identifiable {
 // member's own uploaded clip, external Safari for anything else (a
 // church's arbitrary embed page isn't worth building a third player for).
 
-struct Reel: Decodable, Identifiable {
+struct Reel: Codable, Identifiable {
     let videoID: String
     let title: String?
     let description: String?
@@ -568,7 +579,7 @@ struct Reel: Decodable, Identifiable {
     }
 }
 
-struct ReelsFeedResponse: Decodable {
+struct ReelsFeedResponse: Codable {
     let videos: [Reel]
     let churchName: String?
     enum CodingKeys: String, CodingKey { case videos; case churchName = "church_name" }
@@ -2080,4 +2091,3 @@ struct ManualWorkoutResult: Decodable {
         case durationSec = "duration_sec"
     }
 }
-

@@ -101,12 +101,13 @@ struct SidePanelView: View {
             ZStack {
                 FFTheme.parchment0.ignoresSafeArea()
                 GeometryReader { geometry in
-                    ZStack(alignment: .top) {
-                        RoundedRectangle(cornerRadius: 9).frame(width: 30, height: 300)
-                        RoundedRectangle(cornerRadius: 9).frame(width: 170, height: 30).offset(y: 76)
-                    }
-                    .foregroundStyle(FFTheme.meadow.opacity(0.09))
-                    .position(x: geometry.size.width * 0.6, y: geometry.size.height * 0.68)
+                    // A deliberate, recognisable cross rather than two faint
+                    // rectangles that can read as accidental decoration.
+                    CrossMark()
+                        .fill(FFTheme.meadow.opacity(0.12))
+                        .frame(width: 210, height: 330)
+                        .rotationEffect(.degrees(-8))
+                        .position(x: geometry.size.width * 0.64, y: geometry.size.height * 0.66)
                 }
                 .allowsHitTesting(false).accessibilityHidden(true)
             }
@@ -138,6 +139,21 @@ struct SidePanelView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(section.title)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+private struct CrossMark: Shape {
+    func path(in rect: CGRect) -> Path {
+        let stemWidth = rect.width * 0.20
+        let armHeight = rect.height * 0.17
+        let armWidth = rect.width * 0.82
+        let armY = rect.height * 0.28
+        var path = Path()
+        path.addRoundedRect(in: CGRect(x: rect.midX - stemWidth / 2, y: 0,
+                                      width: stemWidth, height: rect.height), cornerSize: CGSize(width: 10, height: 10))
+        path.addRoundedRect(in: CGRect(x: rect.midX - armWidth / 2, y: armY,
+                                      width: armWidth, height: armHeight), cornerSize: CGSize(width: 10, height: 10))
+        return path
     }
 }
 

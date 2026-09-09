@@ -50,6 +50,7 @@ private func configureReelAudioSession() {
 /// them. Native uploads are already returned with their compact data payload;
 /// catalogue items need only their thumbnail fetched ahead of the player.
 struct ReelsFeedView: View {
+    @EnvironmentObject private var session: NativeSession
     var isActive: Bool = true
 
     @State private var reels: [Reel] = []
@@ -80,6 +81,11 @@ struct ReelsFeedView: View {
     // depends entirely on that signal, so most scrolling never registered
     // and the same reels kept resurfacing on every open.
     @State private var impressedVideoIDs: Set<String> = []
+    /// The first two native clips are warmed while the member is still on the
+    /// current card. This stays deliberately memory-only and bounded: video
+    /// bytes are much larger than the disk-backed feed index and should not
+    /// survive sign-out or quietly consume storage.
+    @State private var preloadedVideoData: [String: String] = [:]
 
     private var visibleReels: [Reel] {
         showOriginalsOnly ? reels.filter { $0.provider == "functioning_faith" } : reels
@@ -120,6 +126,7 @@ struct ReelsFeedView: View {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(visibleReels.enumerated()), id: \.element.id) { index, reel in
                             ReelPage(reel: reel, churchName: churchName,
+                                     prefetchedVideoData: preloadedVideoData[reel.videoID],
                                      isCurrent: currentReelID == reel.id,
                                      onPlay: { playingReel = reel },
                                      onLike: { react(reel, kind: "like") },
@@ -189,6 +196,16 @@ struct ReelsFeedView: View {
     private func load(forceRefresh: Bool = false) async {
         let generation = UUID()
         loadGeneration = generation
+        // Paint the previous feed synchronously first. The following request
+        // is a soft refresh, never a reason to make the member wait before
+        // starting their first swipe.
+        if reels.isEmpty, !forceRefresh, let userID = session.profile?.id,
+           let cached = ReelsCache.load(userID: userID) {
+            reels = cached.videos
+            churchName = cached.churchName
+            prefetch(after: -1)
+            warmNativeMedia(after: -1)
+        }
         isLoading = reels.isEmpty
         defer { if loadGeneration == generation { isLoading = false } }
         errorMessage = nil
@@ -197,8 +214,10 @@ struct ReelsFeedView: View {
             guard !Task.isCancelled, loadGeneration == generation else { return }
             reels = response.videos
             churchName = response.churchName
+            if let userID = session.profile?.id { ReelsCache.save(response, userID: userID) }
             impressedVideoIDs.removeAll()
             prefetch(after: -1)
+            warmNativeMedia(after: -1)
         } catch {
             guard !Task.isCancelled, loadGeneration == generation else { return }
             errorMessage = error.localizedDescription
@@ -254,6 +273,22 @@ struct ReelsFeedView: View {
         guard !urls.isEmpty else { return }
         Task { await ReelPrefetcher.shared.prefetch(urls) }
     }
+
+    private func warmNativeMedia(after index: Int) {
+        let candidates = reels.dropFirst(index + 1).filter {
+            $0.provider == "functioning_faith" && $0.videoData == nil && UUID(uuidString: $0.videoID) != nil
+        }.prefix(2)
+        guard !candidates.isEmpty else { return }
+        Task {
+            for reel in candidates {
+                guard let id = UUID(uuidString: reel.videoID), !Task.isCancelled else { return }
+                if let data = await ReelMediaPrefetcher.shared.videoData(for: id) {
+                    guard !Task.isCancelled else { return }
+                    preloadedVideoData[reel.videoID] = data
+                }
+            }
+        }
+    }
 }
 
 private actor ReelPrefetcher {
@@ -272,6 +307,31 @@ private actor ReelPrefetcher {
                 // still makes its normal request when the card becomes visible.
             }
         }
+    }
+}
+
+/// Bounded in-memory cache for only the next native clips. Fetching through
+/// the existing authenticated media endpoint preserves the same authorization
+/// and cancellation behavior as on-demand playback; the byte cap prevents a
+/// single long upload from turning navigation into an accidental download.
+private actor ReelMediaPrefetcher {
+    static let shared = ReelMediaPrefetcher()
+    private var values: [UUID: String] = [:]
+    private var order: [UUID] = []
+    private let maximumItems = 2
+    private let maximumEncodedBytes = 8 * 1024 * 1024
+
+    func videoData(for id: UUID) async -> String? {
+        if let value = values[id] { return value }
+        guard let value = try? await APIClient.shared.fetchPostMedia(id: id).videoData,
+              value.utf8.count <= maximumEncodedBytes else { return nil }
+        values[id] = value
+        order.removeAll { $0 == id }
+        order.append(id)
+        while order.count > maximumItems {
+            values.removeValue(forKey: order.removeFirst())
+        }
+        return value
     }
 }
 
@@ -302,6 +362,7 @@ private extension Reel {
 private struct ReelPage: View {
     let reel: Reel
     let churchName: String?
+    let prefetchedVideoData: String?
     let isCurrent: Bool
     let onPlay: () -> Void
     let onLike: () -> Void
@@ -345,7 +406,7 @@ private struct ReelPage: View {
     var body: some View {
         ZStack {
             Color.black
-            if isNativeInline, let dataURL = reel.videoData ?? loadedVideo {
+            if isNativeInline, let dataURL = reel.videoData ?? prefetchedVideoData ?? loadedVideo {
                 InlineReelPlayer(dataURL: dataURL, isActive: isCurrent)
             } else if isNativeInline && isCurrent {
                 if mediaError {
@@ -452,7 +513,7 @@ private struct ReelPage: View {
         }
         .clipped()
         .task(id: "\(isCurrent)-\(mediaRetry)") {
-            guard isCurrent, isNativeInline, reel.videoData == nil, loadedVideo == nil,
+            guard isCurrent, isNativeInline, reel.videoData == nil, prefetchedVideoData == nil, loadedVideo == nil,
                   let id = UUID(uuidString: reel.videoID) else { return }
             mediaError = false
             do {

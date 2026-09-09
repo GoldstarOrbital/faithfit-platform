@@ -59,7 +59,7 @@ struct RootTabView: View {
             // ask about notifications, and never before it (see
             // NotificationCoordinator.requestPermissionIfAnyCategoryAtDefault).
             await NotificationCoordinator.shared.requestPermissionIfAnyCategoryAtDefault()
-            // Warm Scripture in Motion (+ For You feed disk cache) before the
+            // Warm Scripture in Motion, For You, and Reels before the
             // member opens Home, so the SIM card paints from MissionCache on
             // the first frame instead of a ProgressView.
             await warmHomeLaunchCaches()
@@ -193,13 +193,15 @@ struct RootTabView: View {
         _ = MissionCache.load(userID: userID)
         async let warmedMission = try? await APIClient.shared.fetchScriptureMission()
         async let warmedFeed = try? await APIClient.shared.fetchForYouFeed()
-        let (mission, posts) = await (warmedMission, warmedFeed)
+        async let warmedReels = try? await APIClient.shared.fetchReels()
+        let (mission, posts, reels) = await (warmedMission, warmedFeed, warmedReels)
         if let mission {
             MissionCache.save(mission, userID: userID)
         }
         if let posts {
             FeedCache.save(posts, userID: userID, mode: HomeFeedMode.forYou.rawValue)
         }
+        if let reels { ReelsCache.save(reels, userID: userID) }
     }
 
     private func openPanel() {

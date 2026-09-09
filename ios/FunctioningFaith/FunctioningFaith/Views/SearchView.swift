@@ -12,6 +12,7 @@ struct SearchView: View {
     @State private var isSearching = false
     @State private var errorMessage: String?
     @State private var searchTask: Task<Void, Never>?
+    @State private var searchGeneration = UUID()
 
     var body: some View {
         // .searchable() must NOT be applied inside a conditional branch --
@@ -36,12 +37,14 @@ struct SearchView: View {
             .navigationTitle("Search")
             .onChange(of: query) { _, newValue in
                 searchTask?.cancel()
+                let generation = UUID()
+                searchGeneration = generation
                 let trimmed = newValue.trimmingCharacters(in: .whitespaces)
                 guard trimmed.count >= 2 else { results = nil; return }
                 searchTask = Task {
                     try? await Task.sleep(nanoseconds: 300_000_000) // debounce -- matches the web's own search-as-you-type pacing
                     guard !Task.isCancelled else { return }
-                    await runSearch(trimmed)
+                    await runSearch(trimmed, generation: generation)
                 }
             }
             .alert("Search failed", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
@@ -130,11 +133,17 @@ struct SearchView: View {
         }
     }
 
-    private func runSearch(_ q: String) async {
+    private func runSearch(_ q: String, generation: UUID) async {
         isSearching = true
-        do { results = try await APIClient.shared.search(q) }
-        catch { errorMessage = error.localizedDescription }
-        isSearching = false
+        defer { if searchGeneration == generation { isSearching = false } }
+        do {
+            let response = try await APIClient.shared.search(q)
+            guard !Task.isCancelled, searchGeneration == generation else { return }
+            results = response
+        } catch {
+            guard !Task.isCancelled, searchGeneration == generation else { return }
+            errorMessage = error.localizedDescription
+        }
     }
 }
 

@@ -826,33 +826,14 @@ struct ScriptureInMotionCard: View {
     /// synchronously. A cache hit never shows the ProgressView spiral.
     private var painted: ScriptureMission? {
         if let mission { return mission }
-        guard let userID = session.profile?.id else { return nil }
-        return MissionCache.load(userID: userID)
+        guard let userID = session.profile?.id else { return ScriptureMission.preloaded }
+        return MissionCache.load(userID: userID) ?? ScriptureMission.preloaded
     }
 
     var body: some View {
         Group {
             if let painted {
                 content(for: painted)
-            } else {
-                // Cold miss only (first launch / cleared cache). Prefer a calm
-                // static brand shell over a spinning ProgressView — Instagram/
-                // Strava never leave a spiral on the hero slot.
-                RoundedRectangle(cornerRadius: FFTheme.Radius.lg, style: .continuous)
-                    .fill(LinearGradient(colors: [FFTheme.goldBright.opacity(0.28), FFTheme.meadow2.opacity(0.22), FFTheme.parchment1], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(height: 190)
-                    .overlay(alignment: .leading) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Label("SCRIPTURE IN MOTION", systemImage: "sparkles")
-                                .font(.caption.weight(.bold)).tracking(1)
-                                .foregroundStyle(FFTheme.inkSoft)
-                            Text("Preparing today's invitation…")
-                                .font(.subheadline)
-                                .foregroundStyle(FFTheme.inkSoft)
-                        }
-                        .padding(16)
-                    }
-                    .accessibilityLabel("Scripture in Motion")
             }
         }
         // .onAppear, not .task -- re-roll every return to Home. Cache already
