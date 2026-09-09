@@ -36,6 +36,11 @@ targets:
           done
     settings:
       base:
+        # Keep the signing identity on the actual app target.  A project-level
+        # setting alone can be visually misleading in Xcode's Signing &
+        # Capabilities pane after regeneration.
+        DEVELOPMENT_TEAM: P3999S6HG4
+        CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: com.functioningfaith.app
         # Keep the HealthKit entitlement attached even when the project is
         # regenerated on CI; the entitlement file alone is not enough if a
@@ -69,6 +74,8 @@ targets:
       - path: FunctioningFaith/Shared
     settings:
       base:
+        DEVELOPMENT_TEAM: P3999S6HG4
+        CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: com.functioningfaith.app.widgets
         INFOPLIST_FILE: FunctioningFaithWidgets/Info.plist
         GENERATE_INFOPLIST_FILE: NO
