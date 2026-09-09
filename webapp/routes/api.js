@@ -605,7 +605,12 @@ router.post('/auth/native/apple', authLimiter, async (req, res) => {
     const expectedNonce = require('crypto').createHash('sha256').update(rawNonce).digest('hex');
     const audience = process.env.APPLE_NATIVE_CLIENT_ID || 'com.functioningfaith.app';
     const claims = await oauth.verifyIdToken('apple', identityToken, { nonce: expectedNonce, audience });
-    const userId = resolveOauthUser('apple', claims, req.body?.display_name);
+    // Apple has independently verified this email and the signed native
+    // credential is bound to the device nonce above. When a member first
+    // used email/password and later chooses the same Apple ID, link it to
+    // the existing account rather than returning a dead-end 409 that they
+    // cannot resolve before getting into Profile settings.
+    const userId = resolveOauthUser('apple', claims, req.body?.display_name, { linkVerifiedEmail: true });
     if (accountSecurity.mfaEnabled(userId)) {
       req.session.mfaPending = { userId, method: 'apple', native: false, createdAt: Date.now() };
       return res.status(202).json({ mfa_required: true });
@@ -628,12 +633,20 @@ router.post('/auth/native/apple', authLimiter, async (req, res) => {
   }
 });
 
-function resolveOauthUser(provider, claims, suppliedName) {
+function resolveOauthUser(provider, claims, suppliedName, { linkVerifiedEmail = false } = {}) {
   const email = claims.email ? String(claims.email).trim().toLowerCase() : null;
   const emailVerified = claims.email_verified === true || claims.email_verified === 'true';
   const identity = db.prepare('SELECT user_id FROM user_identities WHERE provider=? AND provider_user_id=?').get(provider, claims.sub);
   if (identity) return identity.user_id;
-  if (email && emailVerified && db.prepare('SELECT 1 FROM users WHERE email=?').get(email)) {
+  const existingUser = email && emailVerified
+    ? db.prepare('SELECT id FROM users WHERE email=?').get(email)
+    : null;
+  if (existingUser && linkVerifiedEmail) {
+    db.prepare('INSERT INTO user_identities (id,user_id,provider,provider_user_id,email,email_verified) VALUES (?,?,?,?,?,?)')
+      .run(randomUUID(), existingUser.id, provider, claims.sub, email, 1);
+    return existingUser.id;
+  }
+  if (existingUser) {
     throw Object.assign(new Error('Existing account must explicitly link this identity.'), { code: 'account_link_required' });
   }
   const userId = randomUUID();
