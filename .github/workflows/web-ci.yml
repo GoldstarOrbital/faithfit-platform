@@ -61,6 +61,16 @@ jobs:
         run: node scripts/verify-query-plans.js
       - name: Verify deletion removes a member's name everywhere
         run: node scripts/verify-deletion-removes-name.js
+      # Adopted from PR #14 (chore/fail-on-old-verify-gates). They were written
+      # red, to document four gaps in main; the code now satisfies them.
+      - name: Verify mute and block silence notifications
+        run: node scripts/verify-comment-notify-mute-block.js
+      - name: Verify restrict is enforced on comments
+        run: node scripts/verify-restrict-on-comments.js
+      - name: Verify blocking filters group messages
+        run: node scripts/verify-group-messages-blocks.js
+      - name: Verify input bounds on partners and search
+        run: node scripts/verify-input-bounds-partners-search.js
       # These three assert against the served shell, so a change to how assets
       # are versioned breaks them. All three had rotted while none of them ran.
       - name: Verify offline Scripture

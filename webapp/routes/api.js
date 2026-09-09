@@ -1692,8 +1692,13 @@ router.post('/posts/:id/like', requireAuth, (req, res) => {
     db.prepare('DELETE FROM post_likes WHERE post_id = ? AND user_id = ?').run(req.params.id, req.session.userId);
   } else {
     db.prepare('INSERT INTO post_likes (post_id, user_id) VALUES (?, ?)').run(req.params.id, req.session.userId);
-    // Tell the author someone cheered them on — but never notify yourself.
-    if (post && post.user_id !== req.session.userId) {
+    // Tell the author someone cheered them on — but never notify yourself, and
+    // never someone who muted or blocked the person cheering. A like is the
+    // cheapest way to put your name in front of someone who asked not to see
+    // it, so this needs the same gate as comments and DMs.
+    if (post && post.user_id !== req.session.userId
+        && !accountSecurity.hasRelationship(post.user_id, req.session.userId, 'mute')
+        && !dms.isBlockedEitherWay(post.user_id, req.session.userId)) {
       notify(post.user_id, 'kudos', `${displayName(req.session.userId)} gave you kudos`, { post_id: req.params.id, actor_id: req.session.userId });
     }
   }
@@ -1740,6 +1745,16 @@ router.post('/posts/:id/comments', requireAuth, requireCommunityAccess, (req, re
   if (post.user_id !== req.session.userId && (permission === 'nobody' || (permission === 'followers' && !follows))) {
     return res.status(403).json({ error: 'comments_closed' });
   }
+  // Restricting someone is meant to stop them reaching you. Until now only
+  // comment_permission was checked here, so a restricted member could still
+  // comment on the post of the person who restricted them -- the same control
+  // that already blocks them from opening or sending a DM (lib/dms.js). The
+  // check has to come before the write, not before the notify, or the comment
+  // lands and is merely silent.
+  if (post.user_id !== req.session.userId
+      && accountSecurity.hasRelationship(post.user_id, req.session.userId, 'restrict')) {
+    return res.status(403).json({ error: 'comments_closed' });
+  }
   const content = String(req.body?.content || '').trim().slice(0, 500);
   if (!content) return res.status(400).json({ error: 'empty_comment' });
   const id = randomUUID();
@@ -1747,7 +1762,13 @@ router.post('/posts/:id/comments', requireAuth, requireCommunityAccess, (req, re
   const comment = db.prepare(`SELECT c.id, c.content, c.created_at, u.display_name author FROM post_comments c JOIN users u ON u.id = c.user_id WHERE c.id = ?`).get(id);
 
   const snippet = content.slice(0, 60);
-  if (post && post.user_id !== req.session.userId) {
+  // Mute promises their posts and workouts stay out of your feed. It did not
+  // stop this: the author still got a notification, and a push, carrying the
+  // muted member's name. DM send has gated on exactly this for a while
+  // (search hasRelationship ... 'mute'); comments never did.
+  if (post && post.user_id !== req.session.userId
+      && !accountSecurity.hasRelationship(post.user_id, req.session.userId, 'mute')
+      && !dms.isBlockedEitherWay(post.user_id, req.session.userId)) {
     notify(post.user_id, 'comment', `${displayName(req.session.userId)} commented: "${snippet}"`, { post_id: req.params.id, actor_id: req.session.userId });
   }
   // A direct @mention is the more specific signal, so those people get the
@@ -1761,6 +1782,10 @@ router.post('/posts/:id/comments', requireAuth, requireCommunityAccess, (req, re
   `).all(req.params.id, req.session.userId, post ? post.user_id : '');
   for (const o of others) {
     if (mentionedIds.has(o.user_id)) continue;
+    // Same gate for the thread broadcast: muting someone must not be undone by
+    // them replying to a conversation you also happen to be in.
+    if (accountSecurity.hasRelationship(o.user_id, req.session.userId, 'mute')) continue;
+    if (dms.isBlockedEitherWay(o.user_id, req.session.userId)) continue;
     notify(o.user_id, 'comment', `${displayName(req.session.userId)} also replied: "${snippet}"`, { post_id: req.params.id, actor_id: req.session.userId });
   }
   res.json(comment);
@@ -1833,11 +1858,18 @@ router.post('/comments/:id/like', requireAuth, (req, res) => {
 // Validates each partner id is a real, distinct user (rejects self-tagging), inserts
 // a pending workout_partners row, and notifies the partner. No XP is awarded here —
 // bonus XP only happens once the partner confirms via /workout-partners/:id/respond.
+// A workout is something you did with the people you were with, so the list is
+// small by nature. Nothing enforced that: the array came straight from the
+// request body and every entry cost several queries and a notification, so a
+// single stop call could fan out arbitrarily far -- a notify storm aimed at
+// whoever the caller listed, at no cost to them.
 function tagWorkoutPartners(taggerId, workoutId, partnerUserIds) {
   if (!Array.isArray(partnerUserIds) || !partnerUserIds.length) return { tagged: [], errors: [] };
   const taggerName = db.prepare('SELECT display_name FROM users WHERE id = ?').get(taggerId)?.display_name || 'Someone';
   const tagged = [], errors = [];
-  for (const rawId of partnerUserIds) {
+  // Capped before the loop, not inside it, so the bound holds on the work done
+  // as well as on the rows written.
+  for (const rawId of partnerUserIds.slice(0, 20)) {
     const partnerId = String(rawId || '').trim();
     if (!partnerId) continue;
     if (partnerId === taggerId) { errors.push({ partner_user_id: partnerId, error: 'cannot_tag_self' }); continue; }
@@ -1865,7 +1897,12 @@ function tagWorkoutPartners(taggerId, workoutId, partnerUserIds) {
 
 // ---- workouts ----
 router.post('/workouts/start', requireAuth, (req, res) => {
-  const { type = 'Run' } = req.body || {};
+  const { type: rawType = 'Run' } = req.body || {};
+  // The same rule the resume path already states a few hundred lines up: never
+  // trust an arbitrary client-supplied type string into a column the rest of
+  // the code assumes came from ACTIVITY_TYPES. Leaderboards, journeys,
+  // challenges and the verse matcher all switch on it.
+  const type = ACTIVITY_SET.has(rawType) ? rawType : 'Workout';
   const id = randomUUID();
   db.prepare('INSERT INTO workouts (id, user_id, type, start_time) VALUES (?, ?, ?, ?)')
     .run(id, req.session.userId, type, new Date().toISOString());
@@ -2575,7 +2612,12 @@ router.post('/stories/:id/reply', requireAuth, requireCommunityAccess, (req, res
   const excerpt = String(story.content || (story.photo_data ? 'A photo moment' : 'A moment')).slice(0, 120);
   const sent = dms.send(me, opened.thread.id, body, { kind: 'story_reply', metadata: { story_id: story.id, story_excerpt: excerpt } });
   if (sent.error) return res.status(sent.error === 'blocked' ? 403 : 400).json(sent);
-  notify(story.user_id, 'dm', `${displayName(me)} replied to your moment.`, { thread_id: opened.thread.id, story_id: story.id, actor_id: me });
+  // The route already refuses a blocked pair above, so this is the mute case:
+  // a muted member replying to your moment should not put their name in your
+  // notifications. Same gate DM send has always had.
+  if (!accountSecurity.hasRelationship(story.user_id, me, 'mute')) {
+    notify(story.user_id, 'dm', `${displayName(me)} replied to your moment.`, { thread_id: opened.thread.id, story_id: story.id, actor_id: me });
+  }
   res.status(201).json({ thread_id: opened.thread.id, message: sent.message });
 });
 
@@ -3565,19 +3607,31 @@ router.get('/groups/:id/messages', requireAuth, (req, res) => {
   if (!group) return res.status(404).json({ error: 'not_found' });
   if (!isGroupMember(group.id, req.session.userId)) return res.status(403).json({ error: 'not_a_member' });
   const { after } = req.query;
+  // Blocking has to hold in shared spaces too. This filtered on membership
+  // alone, so blocking someone you share a group with hid them everywhere
+  // except the one place you both still stood: their group messages kept
+  // arriving, with their name on them. Post comments have filtered dm_blocks
+  // either-way for a while (GET /posts/:id/comments); this is the same clause.
+  // Either direction, because a block is mutual in effect -- neither party
+  // should see the other, regardless of who pressed the button.
+  const BLOCK_FILTER = `AND NOT EXISTS (SELECT 1 FROM dm_blocks b
+                          WHERE (b.blocker_id = @me AND b.blocked_id = m.user_id)
+                             OR (b.blocker_id = m.user_id AND b.blocked_id = @me))`;
   let rows;
   if (after) {
     rows = db.prepare(`
       SELECT m.id, m.content, m.created_at, m.user_id author_id, u.display_name author
       FROM group_messages m JOIN users u ON u.id = m.user_id
-      WHERE m.group_id = ? AND m.created_at > ? ORDER BY m.created_at ASC
-    `).all(group.id, after);
+      WHERE m.group_id = @group AND m.created_at > @after ${BLOCK_FILTER}
+      ORDER BY m.created_at ASC
+    `).all({ group: group.id, after, me: req.session.userId });
   } else {
     rows = db.prepare(`
       SELECT m.id, m.content, m.created_at, m.user_id author_id, u.display_name author
       FROM group_messages m JOIN users u ON u.id = m.user_id
-      WHERE m.group_id = ? ORDER BY m.created_at ASC LIMIT 50
-    `).all(group.id);
+      WHERE m.group_id = @group ${BLOCK_FILTER}
+      ORDER BY m.created_at ASC LIMIT 50
+    `).all({ group: group.id, me: req.session.userId });
   }
   res.json(rows);
 });
@@ -4730,7 +4784,10 @@ router.get('/bible/passage/:book/:chapter', (req, res) => {
 });
 
 router.get('/bible/search', (req, res) => {
-  const q = (req.query.q || '').trim();
+  // Capped before it becomes an FTS query: every word is turned into its own
+  // prefix term below, so a long string is a long disjunction over the whole
+  // Bible index -- length here is multiplied, not linear.
+  const q = String(req.query.q || '').trim().slice(0, 120);
   if (!q) return res.status(400).json({ error: 'missing_query' });
   // Prefix-match each word so partial terms like "streng" still find "strengtheneth".
   const ftsQuery = q.replace(/["*]/g, '').trim().split(/\s+/).map(w => `${w}*`).join(' ');
@@ -6970,7 +7027,10 @@ router.get('/username-available', (req, res) => {
 // podcasts and scripture. Scripture goes through the same verified table as
 // everything else, so a search can never surface a verse we cannot trace.
 router.get('/search', requireAuth, (req, res) => {
-  const raw = String(req.query.q || '').trim();
+  // Capped: q becomes a LIKE pattern run across people, posts, groups,
+  // journeys, challenges, videos, podcasts and scripture, so its length is
+  // multiplied by every table searched. No real query is longer than this.
+  const raw = String(req.query.q || '').trim().slice(0, 120);
   if (raw.length < 2) return res.json({ q: raw, groups: [], total: 0 });
   const like = '%' + raw.replace(/[%_]/g, m => '\\' + m) + '%';
   const limit = Math.min(Number(req.query.limit) || 6, 20);
