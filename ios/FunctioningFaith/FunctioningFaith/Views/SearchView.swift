@@ -15,32 +15,20 @@ struct SearchView: View {
     @State private var searchGeneration = UUID()
 
     var body: some View {
-        // .searchable() must NOT be applied inside a conditional branch --
-        // that was the actual bug, not placement or content type. It was
-        // previously wrapped in `if isActive { content.searchable(...) }
-        // else { content }`, on the theory that it's UIKit-bridged chrome
-        // like .toolbar and needed the same isActive gate (see
-        // AppShell.swift's ffRootBrand(isActive:)). But .toolbar's bug came
-        // from NINE simultaneously-mounted roots each installing their own
-        // competing toolbar; SearchView is the only always-mounted section
-        // root that calls .searchable() at all, so there's no competing
-        // installation for it to guard against in the first place -- and
-        // nesting the modifier inside one arm of an if/else is a known
-        // SwiftUI failure mode that keeps it from ever registering with the
-        // navigation bar, which is exactly why it rendered no field at all
-        // regardless of isActive or placement. AthleteSearchView applies
-        // .searchable() unconditionally on the same kind of conditional
-        // (ProgressView / ContentUnavailableView / List) content and works
-        // reliably -- this now matches that proven pattern exactly.
-        content
-            .searchable(text: $query, prompt: "People, groups, journeys, scripture…")
+        // Keep the field in the screen instead of relying on navigation-bar
+        // search chrome. This root stays mounted with the other tab roots,
+        // where UIKit's `.searchable` attachment can be lost.
+        VStack(spacing: 0) {
+            searchField
+            content
+        }
             .navigationTitle("Search")
             .onChange(of: query) { _, newValue in
                 searchTask?.cancel()
                 let generation = UUID()
                 searchGeneration = generation
                 let trimmed = newValue.trimmingCharacters(in: .whitespaces)
-                guard trimmed.count >= 2 else { results = nil; return }
+                guard trimmed.count >= 2 else { results = nil; isSearching = false; return }
                 searchTask = Task {
                     try? await Task.sleep(nanoseconds: 300_000_000) // debounce -- matches the web's own search-as-you-type pacing
                     guard !Task.isCancelled else { return }
@@ -50,6 +38,46 @@ struct SearchView: View {
             .alert("Search failed", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK", role: .cancel) { errorMessage = nil }
             } message: { Text(errorMessage ?? "") }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: FFTheme.Space.sm) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(FFTheme.inkSoft)
+            TextField("People, groups, journeys, scripture…", text: $query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .onSubmit { searchImmediately() }
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(FFTheme.inkSoft)
+                }
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, FFTheme.Space.md)
+        .padding(.vertical, FFTheme.Space.sm)
+        .background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(FFTheme.hairline, lineWidth: 1)
+        }
+        .padding(.horizontal, FFTheme.Space.lg)
+        .padding(.vertical, FFTheme.Space.sm)
+        .accessibilityIdentifier("home-search-field")
+    }
+
+    private func searchImmediately() {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count >= 2 else { return }
+        searchTask?.cancel()
+        let generation = UUID()
+        searchGeneration = generation
+        searchTask = Task { await runSearch(trimmed, generation: generation) }
     }
 
     @ViewBuilder
