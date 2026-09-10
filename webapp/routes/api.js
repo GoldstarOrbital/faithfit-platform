@@ -2079,7 +2079,7 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   const hrs = samples.map(s => s.heart_rate).filter(Boolean);
   const avgHr = hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
   const maxHr = hrs.length ? Math.max(...hrs) : null;
-  const { gps_distance_km, gps_points, gps_path, partner_user_ids, sport_metrics } = req.body || {};
+  const { gps_distance_km, gps_points, gps_path, partner_user_ids, sport_metrics, active_duration_sec } = req.body || {};
   // Every other number this handler accepts is bounded -- sport_metrics has
   // per-key ceilings below, gps_path drops non-finite coordinates -- but
   // distance went straight from the request body into the row, and it is the
@@ -2090,7 +2090,16 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   // any single session.
   const distanceKm = validWorkoutDistanceKm(gps_distance_km);
   // Calories: use real GPS distance if we have one (running ~ 60 kcal/km), else fall back to a duration-based estimate.
-  const durationMin = (Date.now() - new Date(workout.start_time).getTime()) / 60000;
+  // A paused session remains open on the server so it can survive a temporary
+  // loss of service, but paused wall-clock time is not training time. The
+  // client supplies its monotonic active timer; retain the historical server
+  // wall-clock calculation for older clients and bound the supplied value.
+  const wallDurationSec = Math.max(0, Math.round((Date.now() - new Date(workout.start_time).getTime()) / 1000));
+  const requestedActiveDuration = Number(active_duration_sec);
+  const durationSec = Number.isFinite(requestedActiveDuration) && requestedActiveDuration >= 0 && requestedActiveDuration <= wallDurationSec + 60
+    ? Math.round(requestedActiveDuration)
+    : wallDurationSec;
+  const durationMin = durationSec / 60000;
   const calories = distanceKm ? Math.round(distanceKm * 60) : Math.round(durationMin * 8);
 
   // Persist the real route (array of [lat,lng]) so a shared workout can render its
@@ -2104,8 +2113,6 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   } else if (Number.isInteger(gps_points)) {
     pointCount = gps_points;
   }
-
-  const durationSec = Math.max(0, Math.round((Date.now() - new Date(workout.start_time).getTime()) / 1000));
 
   // --- effort summary: what the body actually did in this session ---
   const maxInfo = effortLib.maxHrInfo(db.prepare('SELECT max_hr, birth_year FROM users WHERE id = ?').get(req.session.userId));
@@ -6369,8 +6376,6 @@ router.get('/ai/status', (req, res) => {
 // is not written into the thread as a reflection. Nobody's thread fills up with
 // machine text, and nothing here is attributable to another member.
 router.post('/verses/:reference/ask', requireAuth, aiLimiter, async (req, res) => {
-  if (!gloo.isConfigured()) return res.status(503).json({ error: 'companion_unavailable' });
-
   const { row, error, hint } = await resolveVerseReferenceFull(req.params.reference);
   if (error) return res.status(400).json({ error, hint });
   const canonical = `${row.book} ${row.chapter}:${row.verse}`;
@@ -6378,6 +6383,15 @@ router.post('/verses/:reference/ask', requireAuth, aiLimiter, async (req, res) =
   const question = String((req.body && req.body.question) || '').trim();
   if (!question) return res.status(400).json({ error: 'empty_question' });
   if (question.length > 500) return res.status(400).json({ error: 'question_too_long' });
+
+  if (!gloo.isConfigured()) {
+    return res.json({
+      reference: canonical,
+      text: row.text,
+      answer: 'Read this verse in its immediate chapter context. Compare the verses before and after it, then bring any remaining question to a trusted pastor or study resource.',
+      also: [],
+    });
+  }
 
   const me = db.prepare('SELECT tradition, bible_version_id FROM users WHERE id = ?')
     .get(req.session.userId) || {};
@@ -6405,11 +6419,25 @@ router.post('/verses/:reference/ask', requireAuth, aiLimiter, async (req, res) =
 // is answering questions like this, not just narrating one passage, hence
 // its own Explore surface rather than living inside a verse thread.
 router.post('/bible/ask', requireAuth, aiLimiter, async (req, res) => {
-  if (!gloo.isConfigured()) return res.status(503).json({ error: 'companion_unavailable' });
-
   const question = String((req.body && req.body.question) || '').trim();
   if (!question) return res.status(400).json({ error: 'empty_question' });
   if (question.length > 500) return res.status(400).json({ error: 'question_too_long' });
+
+  // The companion is an enhancement, not a reason to leave this screen
+  // broken. When it is unavailable, return one verified passage and an
+  // honest study prompt instead of a 503.
+  if (!gloo.isConfigured()) {
+    const term = (question.toLowerCase().match(/[a-z]{4,}/g) || ['love'])[0];
+    const verse = db.prepare('SELECT book, chapter, verse, text FROM bible_verses WHERE lower(text) LIKE ? LIMIT 1').get(`%${term}%`)
+      || db.prepare('SELECT book, chapter, verse, text FROM bible_verses ORDER BY RANDOM() LIMIT 1').get();
+    const also = verse ? [{ reference: `${verse.book} ${verse.chapter}:${verse.verse}`, text: verse.text }] : [];
+    const answer = verse
+      ? 'Here is a verified passage to begin exploring your question. Read it with the surrounding chapter; a fuller guided answer will return when the companion service is available.'
+      : 'Bible Answers is temporarily unavailable. Please try again shortly.';
+    db.prepare('INSERT INTO bible_answers_history (id, user_id, question, answer, also_json) VALUES (?, ?, ?, ?, ?)')
+      .run(randomUUID(), req.session.userId, question, answer, JSON.stringify(also));
+    return res.json({ question, answer, also });
+  }
 
   const me = db.prepare('SELECT tradition, bible_version_id FROM users WHERE id = ?')
     .get(req.session.userId) || {};

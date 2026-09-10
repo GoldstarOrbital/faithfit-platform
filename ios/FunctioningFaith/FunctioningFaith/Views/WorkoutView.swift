@@ -20,12 +20,15 @@ struct WorkoutView: View {
     var initialVerse: VerseSnippet? = nil
 
     @StateObject private var tracker = NativeWorkoutTracker()
+    @ObservedObject private var network = NetworkMonitor.shared
     @ObservedObject private var bluetooth = BluetoothHeartRateManager.shared
     @ObservedObject private var healthKit = HealthKitManager.shared
     @State private var mode: Mode = .live
     @State private var activityTypes: [ActivityTypeItem] = ActivityCatalog.fallback
     @State private var selectedType = "Run"
     @State private var isActive = false
+    @State private var isPaused = false
+    @State private var isOfflineWorkout = false
     @State private var elapsed: TimeInterval = 0
     @State private var heartRate = 0
     @State private var mapPosition: MapCameraPosition = .automatic
@@ -83,7 +86,7 @@ struct WorkoutView: View {
         .background(FFTheme.parchment0.ignoresSafeArea())
         .navigationTitle("Log")
         .onReceive(timer) { _ in
-            guard isActive else { return }
+            guard isActive, !isPaused else { return }
             elapsed += 1
             // ActivityKit updates are intentionally paced; the timer continues
             // live in the widget without waking the extension every second.
@@ -122,6 +125,10 @@ struct WorkoutView: View {
             activityTypes = (try? await APIClient.shared.fetchActivityTypes()) ?? ActivityCatalog.fallback
             recent = (try? await APIClient.shared.fetchWorkouts()) ?? []
             if workoutVerse == nil { workoutVerse = initialVerse }
+            await OfflineWorkoutQueue.shared.flush()
+        }
+        .onChange(of: network.isOnline) { _, online in
+            if online { Task { await OfflineWorkoutQueue.shared.flush() } }
         }
     }
 
@@ -154,10 +161,10 @@ struct WorkoutView: View {
             HStack(spacing: 8) {
                 Label(tracker.statusText, systemImage: tracker.isLocationReady ? "location.fill" : "location")
                 Spacer()
-                Text(isActive ? "LIVE" : "READY")
+                Text(isActive ? (isPaused ? "PAUSED" : "LIVE") : "READY")
                     .font(.caption2.weight(.bold))
                     .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(isActive ? FFTheme.seal : FFTheme.meadow, in: Capsule())
+                    .background(isActive ? (isPaused ? FFTheme.hearth : FFTheme.seal) : FFTheme.meadow, in: Capsule())
                     .foregroundStyle(FFTheme.cream)
             }
             .font(.caption.weight(.semibold))
@@ -231,16 +238,30 @@ struct WorkoutView: View {
                     .background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
 
-            Button(action: toggleWorkout) {
-                Text(isActive ? "Stop" : "Start")
-                    .font(.title2.weight(.semibold))
-                    .frame(width: 120, height: 120)
-                    .background(isActive ? FFTheme.seal : FFTheme.emerald)
-                    .foregroundStyle(.white)
-                    .clipShape(Circle())
+            if isActive {
+                HStack(spacing: 12) {
+                    Button(isPaused ? "Continue" : "Pause") {
+                        isPaused ? resumeWorkout() : pauseWorkout()
+                    }
+                    .buttonStyle(.ffGhost)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    Button("Finish workout") { finishWorkout() }
+                        .buttonStyle(.ffPrimary)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                }
+                .accessibilityElement(children: .contain)
+            } else {
+                Button(action: toggleWorkout) {
+                    Text("Start workout")
+                        .font(.title2.weight(.semibold))
+                        .frame(width: 120, height: 120)
+                        .background(FFTheme.emerald)
+                        .foregroundStyle(.white)
+                        .clipShape(Circle())
+                }
+                .accessibilityLabel("Start workout")
+                .frame(maxWidth: .infinity)
             }
-            .accessibilityLabel(isActive ? "Stop workout" : "Start workout")
-            .frame(maxWidth: .infinity)
         }
         .padding(FFTheme.Space.sm)
         .frame(maxWidth: .infinity)
@@ -383,13 +404,72 @@ struct WorkoutView: View {
     }
 
     private func toggleWorkout() {
+        if isActive { finishWorkout(); return }
+        Task {
+            do {
+                let started = try await APIClient.shared.startWorkout(type: selectedType)
+                await MainActor.run {
+                    workoutID = started.id
+                    workoutStartedAt = started.startTime
+                    elapsed = 0
+                    isPaused = false
+                    isOfflineWorkout = false
+                    heartRate = 0
+                    lastHeartRateRefresh = .distantPast
+                    lastBiometricUpload = .distantPast
+                    lastHeartRateCalmCue = .distantPast
+                    heartRateCalmMessage = nil
+                    workoutVerse = initialVerse
+                    isActive = true
+                    tracker.start()
+                    WorkoutLiveActivityManager.shared.start(sport: selectedType)
+                }
+            } catch {
+                guard !network.isOnline else {
+                    await MainActor.run { errorMessage = error.localizedDescription }
+                    return
+                }
+                await MainActor.run {
+                    workoutID = UUID()
+                    workoutStartedAt = .now
+                    elapsed = 0
+                    isPaused = false
+                    isOfflineWorkout = true
+                    workoutVerse = initialVerse
+                    isActive = true
+                    tracker.start()
+                    WorkoutLiveActivityManager.shared.start(sport: selectedType)
+                }
+            }
+        }
+    }
+
+    private func pauseWorkout() {
+        isPaused = true
+        tracker.stop()
+        Task { await WorkoutLiveActivityManager.shared.update(distanceKm: tracker.distanceKm, speedKmh: nil, heartRate: heartRate > 0 ? heartRate : nil) }
+    }
+
+    private func resumeWorkout() {
+        isPaused = false
+        tracker.resume()
+    }
+
+    private func finishWorkout() {
         if isActive {
             guard let id = workoutID else { return }
             isActive = false
+            isPaused = false
             tracker.stop()
             Task { await WorkoutLiveActivityManager.shared.end() }
             let route = tracker.points
             let distance = tracker.distanceKm
+            if isOfflineWorkout {
+                OfflineWorkoutQueue.shared.enqueue(type: selectedType, durationSec: Int(elapsed.rounded()), distanceKm: distance)
+                isOfflineWorkout = false
+                errorMessage = "Workout saved on this phone and will upload automatically when you reconnect."
+                return
+            }
             Task {
                 do {
                     var sportMetrics: [String: Double] = ["top_speed_kmh": max(tracker.maxSpeedKmh, bluetooth.speedKmh ?? 0),
@@ -398,7 +478,7 @@ struct WorkoutView: View {
                     if let cadence = bluetooth.cadenceRPM { sportMetrics["cadence_rpm"] = Double(cadence) }
                     if let power = bluetooth.cyclingPowerWatts { sportMetrics["power_w"] = Double(power) }
                     if bluetooth.peakPowerWatts > 0 { sportMetrics["peak_power_w"] = Double(bluetooth.peakPowerWatts) }
-                    let completion = try await APIClient.shared.stopWorkout(id: id, gpsPoints: route, gpsDistanceKm: distance, sportMetrics: sportMetrics)
+                    let completion = try await APIClient.shared.stopWorkout(id: id, gpsPoints: route, gpsDistanceKm: distance, activeDurationSec: Int(elapsed.rounded()), sportMetrics: sportMetrics)
                     await fillInVerseIfNeeded()
                     await MainActor.run {
                         completedSportMetrics = sportMetrics
@@ -416,28 +496,6 @@ struct WorkoutView: View {
                 } catch {
                     await MainActor.run { errorMessage = error.localizedDescription }
                 }
-            }
-            return
-        }
-        Task {
-            do {
-                let started = try await APIClient.shared.startWorkout(type: selectedType)
-                await MainActor.run {
-                    workoutID = started.id
-                    workoutStartedAt = started.startTime
-                    elapsed = 0
-                    heartRate = 0
-                    lastHeartRateRefresh = .distantPast
-                    lastBiometricUpload = .distantPast
-                    lastHeartRateCalmCue = .distantPast
-                    heartRateCalmMessage = nil
-                    workoutVerse = initialVerse
-                    isActive = true
-                    tracker.start()
-                    WorkoutLiveActivityManager.shared.start(sport: selectedType)
-                }
-            } catch {
-                await MainActor.run { errorMessage = error.localizedDescription }
             }
         }
     }

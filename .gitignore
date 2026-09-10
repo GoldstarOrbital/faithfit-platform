@@ -5,6 +5,13 @@ node_modules/
 webapp/data/*.db
 webapp/data/*.db-*
 
+# Local Xcode generation and archive output. Signing assets must remain local.
+ios/FunctioningFaith/FunctioningFaith.xcodeproj/
+ios/FunctioningFaith/build/
+*.mobileprovision
+*.p12
+*.cer
+
 # Rendered marketing video and frame exports (~359MB). Build outputs, not
 # source — the scripts that produce them live in tools/ and are tracked.
 # GitHub rejects files over 100MB, and binaries can never be removed from

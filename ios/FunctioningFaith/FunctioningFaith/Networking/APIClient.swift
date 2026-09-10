@@ -334,7 +334,7 @@ final class APIClient {
         return WorkoutSummary(id: response.id, type: type, startTime: .now, endTime: nil, calories: nil, avgHR: nil)
     }
 
-    func stopWorkout(id: UUID, gpsPoints: [[Double]], gpsDistanceKm: Double, sportMetrics: [String: Double] = [:]) async throws -> WorkoutCompletion {
+    func stopWorkout(id: UUID, gpsPoints: [[Double]], gpsDistanceKm: Double, activeDurationSec: Int, sportMetrics: [String: Double] = [:]) async throws -> WorkoutCompletion {
         if useMock {
             return WorkoutCompletion(id: id, calories: TrainingMath.estimatedKcal(elapsed: 0, km: gpsDistanceKm), avgHR: nil, maxHR: nil, distanceKm: gpsDistanceKm, durationSec: 0, encouragement: nil, effort: nil)
         }
@@ -342,7 +342,7 @@ final class APIClient {
         // generated and stored by Node as lowercase strings, and SQLite's `=`
         // comparison is case-sensitive. Keep the wire ID canonical so stopping
         // the exact workout we started cannot become a false 404.
-        return try await request("/api/workouts/\(id.uuidString.lowercased())/stop", method: "POST", body: WorkoutStop(gpsPoints: gpsPoints, gpsDistanceKm: gpsDistanceKm, sportMetrics: sportMetrics))
+        return try await request("/api/workouts/\(id.uuidString.lowercased())/stop", method: "POST", body: WorkoutStop(gpsPoints: gpsPoints, gpsDistanceKm: gpsDistanceKm, activeDurationSec: activeDurationSec, sportMetrics: sportMetrics))
     }
 
     func fetchActivityTypes() async throws -> [ActivityTypeItem] {
@@ -1736,10 +1736,12 @@ private struct GroupPulseBody: Encodable { let kind: String; let note: String; l
 private struct WorkoutStop: Encodable {
     let gpsPoints: [[Double]]
     let gpsDistanceKm: Double
+    let activeDurationSec: Int
     let sportMetrics: [String: Double]
     enum CodingKeys: String, CodingKey {
         case gpsPoints = "gps_path"
         case gpsDistanceKm = "gps_distance_km"
+        case activeDurationSec = "active_duration_sec"
         case sportMetrics = "sport_metrics"
     }
 

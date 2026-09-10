@@ -45,6 +45,16 @@ final class NativeWorkoutTracker: NSObject, ObservableObject, CLLocationManagerD
 
     func stop() { manager.stopUpdatingLocation() }
 
+    /// Temporarily stops GPS collection without discarding the route or the
+    /// accumulated distance. A resumed workout must be one continuous record,
+    /// not a new workout with a silently reset route.
+    func resume() {
+        lastAcceptedLocation = nil
+        currentSpeedKmh = nil
+        guard authorization == .authorizedAlways || authorization == .authorizedWhenInUse else { return }
+        manager.startUpdatingLocation()
+    }
+
     var isLocationReady: Bool {
         lastAcceptedLocation != nil && (lastAccuracyMeters ?? .infinity) <= 50
     }
