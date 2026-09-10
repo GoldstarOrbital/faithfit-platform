@@ -6406,9 +6406,14 @@ router.post('/verses/:reference/ask', requireAuth, aiLimiter, async (req, res) =
   // Null covers every failure mode, including an answer that cited scripture
   // which does not exist. We say nothing rather than something unverified.
   if (!answer) {
-    return res.status(502).json({
-      error: 'no_verified_answer',
-      hint: 'That answer could not be fully verified against Scripture, so it was not shown. Please try asking again.',
+    // Never show unverified model text, but do not leave the member at a
+    // dead-end when the companion times out or cannot verify its response.
+    // `row` is already a verified Scripture-library passage.
+    return res.json({
+      reference: canonical,
+      text: row.text,
+      answer: 'Read this verse in its immediate chapter context. Compare the verses before and after it, then bring any remaining question to a trusted pastor or study resource.',
+      also: [],
     });
   }
   res.json(answer);
@@ -6449,10 +6454,18 @@ router.post('/bible/ask', requireAuth, aiLimiter, async (req, res) => {
     question,
   });
   if (!answer) {
-    return res.status(502).json({
-      error: 'no_verified_answer',
-      hint: 'That answer could not be fully verified against Scripture, so it was not shown. Please try asking again.',
-    });
+    // Keep Bible Answers useful if the configured companion is unavailable
+    // or its output cannot be verified against Scripture.
+    const term = (question.toLowerCase().match(/[a-z]{4,}/g) || ['love'])[0];
+    const verse = db.prepare('SELECT book, chapter, verse, text FROM bible_verses WHERE lower(text) LIKE ? LIMIT 1').get(`%${term}%`)
+      || db.prepare('SELECT book, chapter, verse, text FROM bible_verses ORDER BY RANDOM() LIMIT 1').get();
+    const also = verse ? [{ reference: `${verse.book} ${verse.chapter}:${verse.verse}`, text: verse.text }] : [];
+    const fallbackAnswer = verse
+      ? 'Here is a verified passage to begin exploring your question. Read it with the surrounding chapter; a fuller guided answer will return when the companion service is available.'
+      : 'Bible Answers is temporarily unavailable. Please try again shortly.';
+    db.prepare('INSERT INTO bible_answers_history (id, user_id, question, answer, also_json) VALUES (?, ?, ?, ?, ?)')
+      .run(randomUUID(), req.session.userId, question, fallbackAnswer, JSON.stringify(also));
+    return res.json({ question, answer: fallbackAnswer, also });
   }
 
   db.prepare('INSERT INTO bible_answers_history (id, user_id, question, answer, also_json) VALUES (?, ?, ?, ?, ?)')
