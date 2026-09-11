@@ -13,6 +13,8 @@ struct ProfileView: View {
     @AppStorage("notifications.scripture") private var scriptureNotifications = true
     @AppStorage("notifications.community") private var communityNotifications = true
     @AppStorage("notifications.reminders") private var reminderNotifications = true
+    @AppStorage("notifications.podcasts") private var podcastNotifications = false
+    @AppStorage("notifications.news") private var newsNotifications = false
     @State private var profile: UserProfile?
     @AppStorage("privacy.biometricIngest") private var biometricConsent = false
     @AppStorage("privacy.scripturePersonalization") private var scripturePersonalization = false
@@ -506,6 +508,8 @@ struct ProfileView: View {
             if scriptureNotifications { dailyVerseHourPicker }
             notificationToggle(.community, isOn: $communityNotifications)
             notificationToggle(.reminders, isOn: $reminderNotifications)
+            notificationToggle(.podcasts, isOn: $podcastNotifications)
+            notificationToggle(.news, isOn: $newsNotifications)
             Toggle(isOn: $heartRateCalmNotifications) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Heart-rate calm cue")

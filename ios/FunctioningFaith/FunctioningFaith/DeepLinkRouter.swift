@@ -11,6 +11,8 @@ enum DeepLink: Equatable {
     case explore
     case messages
     case profile
+    case podcasts
+    case news
     case dm(threadID: String)
     case post(id: String)
     case workout(id: String)
@@ -61,6 +63,10 @@ enum DeepLink: Equatable {
             return .workouts
         case "explore":
             return .explore
+        case "podcasts":
+            return .podcasts
+        case "news":
+            return .news
         case "messages", "dms", "dm":
             if parts.count >= 2 { return .dm(threadID: parts[1]) }
             return .messages
@@ -106,6 +112,8 @@ enum DeepLink: Equatable {
         case "group": return value("group_id").map { DeepLink.group(id: $0) } ?? .explore
         case "verse": return value("ref").map { DeepLink.verse(reference: $0) } ?? .explore
         case "profile": return .profile
+        case "podcasts": return .podcasts
+        case "news": return .news
         case "journeys", "challenges", "story", "stats": return .explore
         default: return .home
         }
@@ -122,6 +130,7 @@ final class DeepLinkRouter: ObservableObject {
     @Published var openVerseReference: String?
     @Published var openAthleteID: String?
     @Published var openWorkoutID: String?
+    @Published var openExploreItem: ExploreCatalogItem?
 
     func handle(_ url: URL) {
         guard let link = DeepLink.parse(url) else { return }
@@ -140,10 +149,12 @@ final class DeepLinkRouter: ObservableObject {
         case .workouts, .workout:
             selectedTab = .workouts
             if case .workout(let id) = link { openWorkoutID = id }
-        case .explore, .group, .athlete:
+        case .explore, .group, .athlete, .podcasts, .news:
             selectedTab = .explore
             if case .group(let id) = link { openGroupID = id }
             if case .athlete(let id) = link { openAthleteID = id }
+            if case .podcasts = link { openExploreItem = .podcasts }
+            if case .news = link { openExploreItem = .news }
         case .verse(let ref):
             // Scripture split out into its own global-bar tab after this
             // routing was written (see AppShell.swift) -- a verse belongs
@@ -169,6 +180,7 @@ final class DeepLinkRouter: ObservableObject {
         openVerseReference = nil
         openAthleteID = nil
         openWorkoutID = nil
+        openExploreItem = nil
         pending = nil
     }
 }

@@ -383,6 +383,7 @@ struct ExploreSectionShell: View {
     @State private var subTab = "community"
     @State private var deepLinkGroup: ExploreGroup?
     @State private var deepLinkAthlete: DeepLinkAthleteRef?
+    @State private var deepLinkCatalogItem: ExploreCatalogItem?
     // See HomeSectionShell's path property for why every shell resets its
     // own navigation stack on deactivation.
     @State private var path = NavigationPath()
@@ -417,18 +418,31 @@ struct ExploreSectionShell: View {
             .navigationDestination(item: $deepLinkAthlete) { ref in
                 AthleteProfileDetailView(userID: ref.id, displayName: "")
             }
+            .navigationDestination(item: $deepLinkCatalogItem) { item in
+                item.destination
+            }
         }
         .task { openPendingDeepLinkGroupIfNeeded() }
         .task { openPendingDeepLinkAthleteIfNeeded() }
+        .task { openPendingExploreItemIfNeeded() }
         .onChange(of: deepLinks.openGroupID) { _, _ in openPendingDeepLinkGroupIfNeeded() }
         .onChange(of: deepLinks.openAthleteID) { _, _ in openPendingDeepLinkAthleteIfNeeded() }
+        .onChange(of: deepLinks.openExploreItem) { _, _ in openPendingExploreItemIfNeeded() }
         .onChange(of: isActive) { _, active in
             if !active {
                 path = NavigationPath()
                 deepLinkGroup = nil
                 deepLinkAthlete = nil
+                deepLinkCatalogItem = nil
             }
         }
+    }
+
+    private func openPendingExploreItemIfNeeded() {
+        guard let item = deepLinks.openExploreItem else { return }
+        subTab = "discover"
+        deepLinkCatalogItem = item
+        deepLinks.openExploreItem = nil
     }
 
     // functioningfaith://athlete/<id> (or /user/, /users/) used to just

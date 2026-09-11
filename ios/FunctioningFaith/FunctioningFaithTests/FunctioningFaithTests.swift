@@ -2,6 +2,20 @@ import XCTest
 @testable import FunctioningFaith
 
 final class FunctioningFaithTests: XCTestCase {
+    func testEditorialNotificationsAreExplicitOptIns() {
+        XCTAssertFalse(NotificationCategory.podcasts.defaultEnabled)
+        XCTAssertFalse(NotificationCategory.news.defaultEnabled)
+        XCTAssertEqual(NotificationCategory.podcasts.serverCategories, ["podcasts"])
+        XCTAssertEqual(NotificationCategory.news.serverCategories, ["news"])
+    }
+
+    func testEditorialNotificationDeepLinksReachTheirDestinations() {
+        XCTAssertEqual(DeepLink.parse(URL(string: "functioningfaith://podcasts")!), .podcasts)
+        XCTAssertEqual(DeepLink.parse(URL(string: "functioningfaith://news")!), .news)
+        XCTAssertEqual(DeepLink.fromNotificationURL("/?open=podcasts"), .podcasts)
+        XCTAssertEqual(DeepLink.fromNotificationURL("/?open=news"), .news)
+    }
+
     func testScriptureMissionRemovesModelFormattingArtifacts() {
         let mission = ScriptureMission(
             headline: "Move with purpose",

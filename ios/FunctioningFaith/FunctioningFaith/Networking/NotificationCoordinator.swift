@@ -31,9 +31,10 @@ final class NotificationCoordinator: NSObject, UIApplicationDelegate, UNUserNoti
         return true
     }
 
-    /// Every notification toggle now defaults to on (Settings still lets a
-    /// member turn any of them off individually) -- but for an install that
-    /// never touched one of those toggles, nothing else in the app ever
+    /// Core notification toggles default to on (Profile still lets a member
+    /// turn any of them off individually); editorial alerts default off. For
+    /// an install that never touched one of the enabled-by-default toggles,
+    /// nothing else in the app ever
     /// triggers the actual system permission prompt, since that normally only
     /// fires from a Settings toggle's own onChange going from off to on. This
     /// runs that same request once a member is actually signed in and inside
@@ -42,8 +43,11 @@ final class NotificationCoordinator: NSObject, UIApplicationDelegate, UNUserNoti
     /// screen before the person has even signed in.
     func requestPermissionIfAnyCategoryAtDefault() async {
         let defaults = UserDefaults.standard
-        let categoryKeys = NotificationCategory.allCases.map { "notifications.\($0.rawValue)" } + ["notifications.heartRateCalm"]
-        guard categoryKeys.contains(where: { defaults.object(forKey: $0) == nil }) else { return }
+        let hasUntouchedEnabledCategory = NotificationCategory.allCases.contains { category in
+            let key = "notifications.\(category.rawValue)"
+            return defaults.object(forKey: key) == nil && category.defaultEnabled
+        }
+        guard hasUntouchedEnabledCategory else { return }
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         guard settings.authorizationStatus == .notDetermined else { return }
         _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
@@ -82,7 +86,7 @@ final class NotificationCoordinator: NSObject, UIApplicationDelegate, UNUserNoti
     func syncDeviceToken() async {
         guard let token = UserDefaults.standard.string(forKey: tokenKey), !token.isEmpty else { return }
         let categories = NotificationCategory.allCases
-            .filter { isNotificationCategoryEnabled($0.rawValue) }
+            .filter { isNotificationCategoryEnabled($0) }
             .flatMap(\.serverCategories)
         try? await APIClient.shared.registerNativePushToken(token, categories: categories)
     }
@@ -90,12 +94,13 @@ final class NotificationCoordinator: NSObject, UIApplicationDelegate, UNUserNoti
     /// UserDefaults.bool(forKey:) returns false for a key that was never
     /// written, regardless of the @AppStorage default declared at the call
     /// site -- since every notification toggle now defaults to on, reading
-    /// raw UserDefaults here would silently register zero categories for
-    /// anyone who never opened Settings and touched a toggle.
-    private func isNotificationCategoryEnabled(_ rawValue: String) -> Bool {
+    /// raw UserDefaults here would silently register zero core categories for
+    /// anyone who never opened Profile and touched a toggle. Each category's
+    /// declared default keeps the new editorial choices genuinely opt-in.
+    private func isNotificationCategoryEnabled(_ category: NotificationCategory) -> Bool {
         let defaults = UserDefaults.standard
-        let key = "notifications.\(rawValue)"
-        guard defaults.object(forKey: key) != nil else { return true }
+        let key = "notifications.\(category.rawValue)"
+        guard defaults.object(forKey: key) != nil else { return category.defaultEnabled }
         return defaults.bool(forKey: key)
     }
 
@@ -147,6 +152,8 @@ enum NotificationCategory: String, CaseIterable, Identifiable {
     case scripture
     case community
     case reminders
+    case podcasts
+    case news
 
     var id: String { rawValue }
 
@@ -155,6 +162,8 @@ enum NotificationCategory: String, CaseIterable, Identifiable {
         case .scripture: return "Scripture encouragement"
         case .community: return "Community replies"
         case .reminders: return "Workout reminders"
+        case .podcasts: return "New podcast episodes"
+        case .news: return "Christian news"
         }
     }
 
@@ -163,6 +172,18 @@ enum NotificationCategory: String, CaseIterable, Identifiable {
         case .scripture: return "Receive a timely verse around the workouts you choose to record."
         case .community: return "Know when someone replies, cheers, or invites you."
         case .reminders: return "Get reminders you create for your own rhythm."
+        case .podcasts: return "Hear when a new episode is available from a podcast in Explore."
+        case .news: return "Receive a timely headline from the Christian news feed."
+        }
+    }
+
+    /// Existing encouragement categories retain their established defaults.
+    /// Editorial content is a separate interruption and stays off until the
+    /// member explicitly asks for it in Profile.
+    var defaultEnabled: Bool {
+        switch self {
+        case .scripture, .community, .reminders: return true
+        case .podcasts, .news: return false
         }
     }
 
@@ -177,6 +198,8 @@ enum NotificationCategory: String, CaseIterable, Identifiable {
         case .scripture: return ["daily_verse"]
         case .community: return ["verse_reply", "social"]
         case .reminders: return ["reminders"]
+        case .podcasts: return ["podcasts"]
+        case .news: return ["news"]
         }
     }
 }

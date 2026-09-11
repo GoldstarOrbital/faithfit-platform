@@ -29,7 +29,8 @@
     "verify:offline-scripture": "node scripts/verify-offline-scripture.js",
     "verify:story-replies": "node scripts/verify-story-replies.js",
     "verify:story-ownership": "node scripts/verify-story-ownership.js",
-    "verify:native-interactions": "node scripts/verify-native-interactions.js"
+    "verify:native-interactions": "node scripts/verify-native-interactions.js",
+    "verify:editorial-notifications": "node scripts/verify-editorial-notifications.js"
   },
   "dependencies": {
     "compression": "^1.8.1",

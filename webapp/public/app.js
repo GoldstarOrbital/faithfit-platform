@@ -5601,6 +5601,7 @@ async function openNotificationDestination(url) {
   if (kind === 'story') { state.tab = 'home'; state.homeCache = null; return render(); }
   if (kind === 'challenges') { state.tab = 'explore'; state.exploreTab = 'challenges'; return render(); }
   if (kind === 'recruiting') { state.tab = 'explore'; state.exploreTab = 'recruiting'; return render(); }
+  if (kind === 'podcasts' || kind === 'news') { state.tab = 'explore'; state.exploreTab = kind; return render(); }
   if (kind === 'bible-answers' || kind === 'bibleAnswers') { ensureBibleAnswersUI(); openBibleAnswers(); return; }
   if (kind === 'profile' && p.get('user_id')) return renderUserProfile(p.get('user_id'));
   if (kind === 'profile') { state.tab = 'profile'; return render(); }
@@ -8538,4 +8539,3 @@ async function baAsk(raw) {
     baRenderThread();
   } catch { /* suggestions are a nicety */ }
 }
-

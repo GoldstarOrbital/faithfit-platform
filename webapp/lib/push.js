@@ -41,6 +41,8 @@ const CATEGORIES = {
   verse_reply: 'When someone replies to your reflection.',
   social: 'Follows, likes and comments.',
   reminders: 'Streaks and challenges you have joined.',
+  podcasts: 'New episodes from podcasts in Explore.',
+  news: 'New headlines from the Christian news feed.',
   security: 'New devices and sensitive account changes.',
 };
 // Encouragement is intentionally included: it is event-driven at meaningful
@@ -204,6 +206,26 @@ async function send(userId, category, payload) {
   return { sent, native };
 }
 
+/** Deliver editorial content only to members who explicitly enabled it on at
+ * least one registered device. Keeping the audience lookup here means feed
+ * ingestion never needs to know how browser subscriptions and APNs tokens are
+ * stored, and send() still applies the choice independently on every device. */
+async function broadcast(category, payload) {
+  if (!CATEGORIES[category]) return { users: 0, sent: 0 };
+  const userIds = new Set();
+  const rows = [
+    ...db.prepare('SELECT user_id, categories FROM push_subscriptions').all(),
+    ...db.prepare('SELECT user_id, categories FROM native_push_tokens').all(),
+  ];
+  for (const row of rows) {
+    try {
+      if (JSON.parse(row.categories || '[]').includes(category)) userIds.add(row.user_id);
+    } catch { /* malformed legacy preferences are ignored */ }
+  }
+  const results = await Promise.all([...userIds].map(userId => send(userId, category, payload)));
+  return { users: userIds.size, sent: results.reduce((sum, result) => sum + result.sent, 0) };
+}
+
 /** Store (or refresh) a native APNs/FCM device token. Idempotent on token. */
 function registerNativeToken(userId, platform, token, categories) {
   if (!userId || !['ios', 'android'].includes(platform) || !token) return null;
@@ -273,6 +295,8 @@ function nativeDestination(url) {
     case 'verse': return query.get('ref')
       ? `functioningfaith://verse?ref=${encodeURIComponent(query.get('ref'))}` : 'functioningfaith://scripture';
     case 'profile': return 'functioningfaith://profile';
+    case 'podcasts': return 'functioningfaith://podcasts';
+    case 'news': return 'functioningfaith://news';
     // journeys, challenges, story, stats have no dedicated native deep-link
     // case (see DeepLinkRouter.swift) -- Explore is the closest existing
     // destination rather than the generic Home fallback every other unknown
@@ -348,6 +372,6 @@ function start() {
 
 module.exports = {
   start, init, isConfigured, isNativeConfigured, publicKey, subscribe, unsubscribe, setCategories,
-  get, send, history, CATEGORIES, DEFAULT_CATEGORIES,
+  get, send, broadcast, history, CATEGORIES, DEFAULT_CATEGORIES,
   registerNativeToken, unregisterNativeToken, sendNative,
 };
