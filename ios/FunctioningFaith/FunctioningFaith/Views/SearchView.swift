@@ -13,6 +13,7 @@ struct SearchView: View {
     @State private var errorMessage: String?
     @State private var searchTask: Task<Void, Never>?
     @State private var searchGeneration = UUID()
+    @State private var selectedPersonID: UUID?
 
     var body: some View {
         // Keep the field in the screen instead of relying on navigation-bar
@@ -23,6 +24,9 @@ struct SearchView: View {
             content
         }
             .navigationTitle("Search")
+            .navigationDestination(item: $selectedPersonID) { userID in
+                MemberProfileView(userID: userID)
+            }
             .onChange(of: query) { _, newValue in
                 searchTask?.cancel()
                 let generation = UUID()
@@ -106,12 +110,14 @@ struct SearchView: View {
     @ViewBuilder
     private func resultRow(_ item: SearchResultItem, groupType: String) -> some View {
         if groupType == "people", let uuid = UUID(uuidString: item.id) {
-            NavigationLink(value: SearchPersonDestination(id: uuid, name: item.title)) {
+            Button {
+                selectedPersonID = uuid
+            } label: {
                 resultLabel(item, systemImage: "person.crop.circle")
             }
-            .navigationDestination(for: SearchPersonDestination.self) { person in
-                MemberProfileView(userID: person.id)
-            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .accessibilityHint("Opens \(item.title)'s profile, where you can follow or message them")
         } else if groupType == "scripture", let ref = Self.parseScriptureReference(item.id) {
             NavigationLink {
                 BiblePassageView(book: ref.book, chapter: ref.chapter, highlightVerse: ref.verse)
@@ -145,7 +151,9 @@ struct SearchView: View {
                     Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
             }
+            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func icon(for groupType: String) -> String {
@@ -173,11 +181,6 @@ struct SearchView: View {
             errorMessage = error.localizedDescription
         }
     }
-}
-
-private struct SearchPersonDestination: Hashable {
-    let id: UUID
-    let name: String
 }
 
 #Preview {

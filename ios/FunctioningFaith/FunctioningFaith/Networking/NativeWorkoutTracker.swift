@@ -27,6 +27,7 @@ final class NativeWorkoutTracker: NSObject, ObservableObject, CLLocationManagerD
         manager.activityType = .fitness
         manager.pausesLocationUpdatesAutomatically = false
         manager.allowsBackgroundLocationUpdates = true
+        manager.showsBackgroundLocationIndicator = true
     }
 
     func start() {

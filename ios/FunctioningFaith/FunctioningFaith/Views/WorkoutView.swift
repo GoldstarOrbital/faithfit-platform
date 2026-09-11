@@ -19,30 +19,17 @@ struct WorkoutView: View {
     /// fallback. nil for the ordinary Train tab entry point.
     var initialVerse: VerseSnippet? = nil
 
-    @StateObject private var tracker = NativeWorkoutTracker()
+    @ObservedObject private var activeWorkout = ActiveWorkoutSession.shared
     @ObservedObject private var network = NetworkMonitor.shared
     @ObservedObject private var bluetooth = BluetoothHeartRateManager.shared
     @ObservedObject private var healthKit = HealthKitManager.shared
     @State private var mode: Mode = .live
     @State private var activityTypes: [ActivityTypeItem] = ActivityCatalog.fallback
-    @State private var selectedType = "Run"
-    @State private var isActive = false
-    @State private var isPaused = false
-    @State private var isOfflineWorkout = false
-    @State private var elapsed: TimeInterval = 0
-    @State private var heartRate = 0
     @State private var mapPosition: MapCameraPosition = .automatic
-    @State private var lastHeartRateRefresh = Date.distantPast
-    @State private var lastBiometricUpload = Date.distantPast
-    @State private var lastHeartRateCalmCue = Date.distantPast
-    @State private var heartRateCalmMessage: String?
     @AppStorage("privacy.biometricIngest") private var biometricIngestEnabled = false
     @AppStorage("privacy.scripturePersonalization") private var scripturePersonalizationEnabled = false
     @AppStorage("notifications.heartRateCalm") private var heartRateCalmNotifications = true
     @AppStorage("notifications.heartRateCalm.threshold") private var heartRateCalmThreshold = 160
-    @State private var workoutID: UUID?
-    @State private var workoutStartedAt: Date?
-    @State private var workoutVerse: VerseSnippet?
     @State private var errorMessage: String?
     @State private var completedWorkout: WorkoutCompletion?
     @State private var completedSportMetrics: [String: Double] = [:]
@@ -55,6 +42,33 @@ struct WorkoutView: View {
     @State private var isSavingManual = false
     @State private var recent: [LoggedWorkout] = []
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    private var tracker: NativeWorkoutTracker { activeWorkout.tracker }
+    private var selectedType: String {
+        get { activeWorkout.selectedType }
+        nonmutating set { activeWorkout.selectedType = newValue }
+    }
+    private var isActive: Bool { activeWorkout.isActive }
+    private var isPaused: Bool { activeWorkout.isPaused }
+    private var isOfflineWorkout: Bool {
+        get { activeWorkout.isOfflineWorkout }
+        nonmutating set { activeWorkout.isOfflineWorkout = newValue }
+    }
+    private var elapsed: TimeInterval { activeWorkout.elapsed }
+    private var heartRate: Int {
+        get { activeWorkout.heartRate }
+        nonmutating set { activeWorkout.heartRate = newValue }
+    }
+    private var workoutID: UUID? { activeWorkout.workoutID }
+    private var workoutStartedAt: Date? { activeWorkout.workoutStartedAt }
+    private var workoutVerse: VerseSnippet? {
+        get { activeWorkout.workoutVerse }
+        nonmutating set { activeWorkout.workoutVerse = newValue }
+    }
+    private var heartRateCalmMessage: String? {
+        get { activeWorkout.heartRateCalmMessage }
+        nonmutating set { activeWorkout.heartRateCalmMessage = newValue }
+    }
 
     var body: some View {
         ScrollView {
@@ -87,14 +101,13 @@ struct WorkoutView: View {
         .navigationTitle("Log")
         .onReceive(timer) { _ in
             guard isActive, !isPaused else { return }
-            elapsed += 1
             // ActivityKit updates are intentionally paced; the timer continues
             // live in the widget without waking the extension every second.
             if Int(elapsed) % 10 == 0 { updateLiveActivity() }
         }
         .onReceive(timer) { _ in
-            guard isActive, Date().timeIntervalSince(lastHeartRateRefresh) >= 15 else { return }
-            lastHeartRateRefresh = .now
+            guard isActive, Date().timeIntervalSince(activeWorkout.lastHeartRateRefresh) >= 15 else { return }
+            activeWorkout.lastHeartRateRefresh = .now
             Task { await refreshHeartRate() }
         }
         .onChange(of: tracker.points) { _, points in
@@ -409,19 +422,13 @@ struct WorkoutView: View {
             do {
                 let started = try await APIClient.shared.startWorkout(type: selectedType)
                 await MainActor.run {
-                    workoutID = started.id
-                    workoutStartedAt = started.startTime
-                    elapsed = 0
-                    isPaused = false
-                    isOfflineWorkout = false
-                    heartRate = 0
-                    lastHeartRateRefresh = .distantPast
-                    lastBiometricUpload = .distantPast
-                    lastHeartRateCalmCue = .distantPast
-                    heartRateCalmMessage = nil
-                    workoutVerse = initialVerse
-                    isActive = true
-                    tracker.start()
+                    activeWorkout.begin(
+                        id: started.id,
+                        startedAt: started.startTime,
+                        type: selectedType,
+                        offline: false,
+                        verse: initialVerse
+                    )
                     WorkoutLiveActivityManager.shared.start(sport: selectedType)
                 }
             } catch {
@@ -430,14 +437,13 @@ struct WorkoutView: View {
                     return
                 }
                 await MainActor.run {
-                    workoutID = UUID()
-                    workoutStartedAt = .now
-                    elapsed = 0
-                    isPaused = false
-                    isOfflineWorkout = true
-                    workoutVerse = initialVerse
-                    isActive = true
-                    tracker.start()
+                    activeWorkout.begin(
+                        id: UUID(),
+                        startedAt: .now,
+                        type: selectedType,
+                        offline: true,
+                        verse: initialVerse
+                    )
                     WorkoutLiveActivityManager.shared.start(sport: selectedType)
                 }
             }
@@ -445,22 +451,18 @@ struct WorkoutView: View {
     }
 
     private func pauseWorkout() {
-        isPaused = true
-        tracker.stop()
+        activeWorkout.pause()
         Task { await WorkoutLiveActivityManager.shared.update(distanceKm: tracker.distanceKm, speedKmh: nil, heartRate: heartRate > 0 ? heartRate : nil) }
     }
 
     private func resumeWorkout() {
-        isPaused = false
-        tracker.resume()
+        activeWorkout.resume()
     }
 
     private func finishWorkout() {
         if isActive {
             guard let id = workoutID else { return }
-            isActive = false
-            isPaused = false
-            tracker.stop()
+            activeWorkout.markFinished()
             Task { await WorkoutLiveActivityManager.shared.end() }
             let route = tracker.points
             let distance = tracker.distanceKm
@@ -519,8 +521,8 @@ struct WorkoutView: View {
     private func deliverCalmCueIfNeeded() async {
         guard heartRateCalmNotifications,
               heartRate >= heartRateCalmThreshold,
-              Date().timeIntervalSince(lastHeartRateCalmCue) >= 5 * 60 else { return }
-        lastHeartRateCalmCue = .now
+              Date().timeIntervalSince(activeWorkout.lastHeartRateCalmCue) >= 5 * 60 else { return }
+        activeWorkout.lastHeartRateCalmCue = .now
         // Carry whatever verse this session already has (from the biometric
         // pipeline, or the plain fallback fetch) into the cue itself, so the
         // moment isn't just a pace warning with none of the app's scripture.
@@ -557,8 +559,8 @@ struct WorkoutView: View {
 
     private func submitBiometricSampleIfNeeded() async {
         guard biometricIngestEnabled, heartRate > 0, let workoutID,
-              Date().timeIntervalSince(lastBiometricUpload) >= 60 else { return }
-        lastBiometricUpload = .now
+              Date().timeIntervalSince(activeWorkout.lastBiometricUpload) >= 60 else { return }
+        activeWorkout.lastBiometricUpload = .now
         do {
             let result = try await APIClient.shared.recordWorkoutBiometrics(id: workoutID, heartRate: heartRate)
             if scripturePersonalizationEnabled, let verse = result.verse { workoutVerse = verse }

@@ -12,6 +12,7 @@ struct RootTabView: View {
     @EnvironmentObject private var network: NetworkMonitor
     @EnvironmentObject private var deepLinks: DeepLinkRouter
     @StateObject private var dmStore = DMStore()
+    @ObservedObject private var activeWorkout = ActiveWorkoutSession.shared
     @State private var showSidePanel = false
     @State private var showAskAI = false
 
@@ -28,6 +29,13 @@ struct RootTabView: View {
                     askAIButton
                 }
                 .environmentObject(dmStore)
+
+                if activeWorkout.isActive {
+                    activeWorkoutIndicator
+                        .padding(.leading, FFTheme.Space.md)
+                        .padding(.top, FFTheme.Space.sm)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
 
                 if showSidePanel {
                     Color.black.opacity(0.25)
@@ -206,6 +214,25 @@ struct RootTabView: View {
 
     private func openPanel() {
         withAnimation(.easeInOut(duration: 0.2)) { showSidePanel = true }
+    }
+
+    private var activeWorkoutIndicator: some View {
+        Button {
+            deepLinks.selectedTab = .workouts
+        } label: {
+            Label(
+                activeWorkout.isPaused ? "Workout paused" : "Recording workout",
+                systemImage: activeWorkout.isPaused ? "pause.circle.fill" : "location.fill"
+            )
+            .font(.caption.weight(.bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 36)
+            .background(Color.blue, in: Capsule())
+            .shadow(color: .black.opacity(0.18), radius: 5, y: 2)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Returns to the active workout")
     }
 }
 
