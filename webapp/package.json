@@ -29,7 +29,19 @@
     "verify:offline-scripture": "node scripts/verify-offline-scripture.js",
     "verify:story-replies": "node scripts/verify-story-replies.js",
     "verify:story-ownership": "node scripts/verify-story-ownership.js",
-    "verify:native-interactions": "node scripts/verify-native-interactions.js"
+    "verify:native-interactions": "node scripts/verify-native-interactions.js",
+    "verify:block-severs-relationship": "node scripts/verify-block-severs-relationship.js",
+    "verify:shell-cache": "node scripts/verify-shell-cache.js",
+    "verify:feed-ranking": "node scripts/verify-feed-ranking.js",
+    "verify:search-navigation": "node scripts/verify-search-navigation.js",
+    "verify:workout-distance": "node scripts/verify-workout-distance.js",
+    "verify:reels-latency": "node scripts/verify-reels-latency.js",
+    "verify:bible": "node scripts/verify-bible.js",
+    "verify:reel-seeds": "node scripts/verify-reel-seeds.js",
+    "verify:comment-notify-mute-block": "node scripts/verify-comment-notify-mute-block.js",
+    "verify:restrict-on-comments": "node scripts/verify-restrict-on-comments.js",
+    "verify:group-messages-blocks": "node scripts/verify-group-messages-blocks.js",
+    "verify:input-bounds-partners-search": "node scripts/verify-input-bounds-partners-search.js"
   },
   "dependencies": {
     "compression": "^1.8.1",
