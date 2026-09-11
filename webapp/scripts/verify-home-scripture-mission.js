@@ -11,6 +11,14 @@ const path = require('node:path');
 
 const app = fs.readFileSync(path.join(__dirname, '../public/app.js'), 'utf8');
 const api = fs.readFileSync(path.join(__dirname, '../routes/api.js'), 'utf8');
+const missionSource = fs.readFileSync(path.join(__dirname, '../lib/scriptureMission.js'), 'utf8');
+
+assert.match(missionSource, /function cleanCoaching\s*\(/,
+  'Scripture in Motion must clean model formatting before returning coaching');
+assert.match(missionSource, /replace\(\/\\\*\\\*\|__\/g/,
+  'Scripture in Motion must remove Markdown bold markers');
+assert.doesNotMatch(missionSource, /shape what comes next â€”/,
+  'the fallback coaching line must not expose a malformed dash');
 
 assert.match(api, /router\.get\('\/scripture\/mission',\s*requireAuth,\s*async/,
   'GET /scripture/mission must stay behind requireAuth');

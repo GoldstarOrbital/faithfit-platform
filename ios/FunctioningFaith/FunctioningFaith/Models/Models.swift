@@ -44,6 +44,21 @@ struct ScriptureMission: Codable {
     let text: String
     let coaching: String
 
+    /// Model providers occasionally wrap a one-line answer in Markdown bold
+    /// markers despite being asked for plain text. Older server fallbacks also
+    /// contained a mojibake dash. Keep both artifacts out of the visible card,
+    /// including missions already present in the on-device cache.
+    var displayCoaching: String {
+        coaching
+            .replacingOccurrences(of: "**", with: "")
+            .replacingOccurrences(of: "__", with: "")
+            .replacingOccurrences(of: "â€”", with: ", ")
+            .replacingOccurrences(of: "—", with: ", ")
+            .replacingOccurrences(of: "--", with: ", ")
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     /// The card's structure is product copy, not remote configuration. This
     /// bundled value gives a calm, complete first frame on a genuinely cold
     /// launch; the live mission replaces it as soon as the verse request

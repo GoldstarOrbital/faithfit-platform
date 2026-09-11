@@ -93,7 +93,16 @@ function recentRefs(userId, limit) {
 }
 
 const FALLBACK_COACHING = 'Take a short movement break, notice your breath, and let this verse ' +
-  'shape what comes next â€” not a performance test, but a practice of presence.';
+  'shape what comes next. This is not a performance test, but a practice of presence.';
+
+/** Keep model formatting artifacts out of member-facing coaching copy. */
+function cleanCoaching(value) {
+  return (companion.cleanNote(value, 30) || '')
+    .replace(/\*\*|__/g, '')
+    .replace(/\s*(?:â€”|—|--)\s*/g, ', ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 /**
  * The AI-personalized coaching line, generated at most once per calendar day
@@ -132,7 +141,7 @@ function dailyInsight(userId, pool, shape) {
     `Do NOT quote, paraphrase, or reference any specific Bible verse -- a real verse is ` +
     `shown separately beside your sentence. Speak to them directly and warmly, grounded ` +
     `in real presence rather than performance.\n\n` +
-    `Reply with ONLY the sentence -- no quotes, no JSON, no preamble.`;
+    `Reply with ONLY the sentence. Do not use quotes, Markdown, asterisks, em dashes, JSON, or a preamble.`;
 
   const opts = {
     kind: 'scripture_mission_daily_insight',
@@ -143,7 +152,7 @@ function dailyInsight(userId, pool, shape) {
   };
 
   const cached = gloo.peekCache(opts);
-  if (cached && cached.text) return companion.cleanNote(cached.text, 30) || FALLBACK_COACHING;
+  if (cached && cached.text) return cleanCoaching(cached.text) || FALLBACK_COACHING;
 
   // Fire-and-forget: populates gloo's cache for the next visit. Errors are
   // gloo.chat's own concern (it already returns null and logs internally on

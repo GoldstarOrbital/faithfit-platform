@@ -2,6 +2,17 @@ import XCTest
 @testable import FunctioningFaith
 
 final class FunctioningFaithTests: XCTestCase {
+    func testScriptureMissionRemovesModelFormattingArtifacts() {
+        let mission = ScriptureMission(
+            headline: "Move with purpose",
+            reference: "Colossians 3:23",
+            text: "Whatever you do, work at it with all your heart.",
+            coaching: "**Take one faithful stepâ€”then keep moving.**"
+        )
+
+        XCTAssertEqual(mission.displayCoaching, "Take one faithful step, then keep moving.")
+    }
+
     func testWorkoutFeedMetricsAndSharedRouteSurviveCache() throws {
         var workout = WorkoutSummary(id: UUID(), type: "Run", startTime: .now, endTime: .now, calories: 200, avgHR: 135)
         workout.distanceKm = 5

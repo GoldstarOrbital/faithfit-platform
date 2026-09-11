@@ -884,7 +884,7 @@ struct ScriptureInMotionCard: View {
                     .clipShape(RoundedRectangle(cornerRadius: 1.5))
             }
 
-            Text(mission.coaching)
+            Text(mission.displayCoaching)
                 .font(.caption).foregroundStyle(FFTheme.inkSoft)
 
             HStack(spacing: 14) {
