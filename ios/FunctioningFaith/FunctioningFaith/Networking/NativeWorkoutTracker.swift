@@ -17,6 +17,8 @@ final class NativeWorkoutTracker: NSObject, ObservableObject, CLLocationManagerD
 
     private let manager = CLLocationManager()
     private var lastAcceptedLocation: CLLocation?
+    private var elevationReference: CLLocation?
+    private var activityType = "Workout"
 
     override init() {
         authorization = manager.authorizationStatus
@@ -30,10 +32,12 @@ final class NativeWorkoutTracker: NSObject, ObservableObject, CLLocationManagerD
         manager.showsBackgroundLocationIndicator = true
     }
 
-    func start() {
+    func start(activityType: String = "Workout") {
+        self.activityType = activityType
         points.removeAll(keepingCapacity: true)
         distanceKm = 0
         lastAcceptedLocation = nil
+        elevationReference = nil
         lastAccuracyMeters = nil
         currentSpeedKmh = nil
         maxSpeedKmh = 0
@@ -91,26 +95,45 @@ final class NativeWorkoutTracker: NSObject, ObservableObject, CLLocationManagerD
                 // Less than two metres is normally GPS wander; a kilometre
                 // jump between callbacks is never a credible workout trace.
                 guard deltaMeters >= 2, deltaMeters <= 1_000 else { continue }
-                distanceKm += deltaMeters / 1_000
                 let seconds = max(0.1, location.timestamp.timeIntervalSince(last.timestamp))
                 let derivedSpeed = deltaMeters / seconds * 3.6
                 let speedKmh = location.speed >= 0 ? location.speed * 3.6 : derivedSpeed
-                // Ignore impossible GPS spikes. A 160 km/h ceiling still
-                // leaves room for downhill skiing while protecting a bad fix.
-                if speedKmh.isFinite, speedKmh >= 0, speedKmh <= 160 {
-                    currentSpeedKmh = speedKmh
-                    maxSpeedKmh = max(maxSpeedKmh, speedKmh)
-                }
-                if location.verticalAccuracy >= 0, last.verticalAccuracy >= 0,
-                   location.verticalAccuracy <= 20, last.verticalAccuracy <= 20 {
-                    let vertical = location.altitude - last.altitude
-                    if vertical > 0 { elevationGainM += vertical }
-                    else { elevationLossM += abs(vertical) }
+                // Reject the point before adding its distance. Previously an
+                // impossible spike was hidden from the speed tile but had
+                // already inflated distance, pace, records, and the widget.
+                let ceiling = speedCeilingKmh(for: activityType)
+                guard speedKmh.isFinite, speedKmh >= 0, speedKmh <= ceiling else { continue }
+                distanceKm += deltaMeters / 1_000
+                currentSpeedKmh = speedKmh
+                maxSpeedKmh = max(maxSpeedKmh, speedKmh)
+
+                // Accumulate elevation only after a meaningful move from a
+                // stable reference, rather than summing every 1m GPS wobble.
+                if location.verticalAccuracy >= 0, location.verticalAccuracy <= 20 {
+                    if let reference = elevationReference {
+                        let threshold = max(3, min(8, max(location.verticalAccuracy, reference.verticalAccuracy) * 0.5))
+                        let vertical = location.altitude - reference.altitude
+                        if vertical >= threshold { elevationGainM += vertical; elevationReference = location }
+                        else if vertical <= -threshold { elevationLossM += abs(vertical); elevationReference = location }
+                    } else {
+                        elevationReference = location
+                    }
                 }
             }
             points.append(next)
             lastAcceptedLocation = location
         }
         if points.count > 3000 { points.removeFirst(points.count - 3000) }
+    }
+
+    private func speedCeilingKmh(for activity: String) -> Double {
+        switch activity.lowercased() {
+        case "walk", "hike": return 18
+        case "run", "trail run": return 40
+        case "cycling", "cycle", "mountain biking": return 100
+        case "swim": return 12
+        case "skiing", "snowboarding": return 160
+        default: return 80
+        }
     }
 }

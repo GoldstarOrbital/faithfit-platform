@@ -303,10 +303,31 @@ struct MemberProfileView: View {
     }
 
     private func follow() async {
+        guard !isFollowingAction, var optimistic = profile else { return }
         isFollowingAction = true
         defer { isFollowingAction = false }
-        do { _ = try await APIClient.shared.followUser(id: userID); await load() }
-        catch { errorMessage = error.localizedDescription }
+        let previous = optimistic
+        let willFollow = !optimistic.isFollowing && !optimistic.followRequested
+        optimistic.isFollowing = willFollow
+        optimistic.followRequested = false
+        if let count = optimistic.stats.followers {
+            optimistic.stats.followers = max(0, count + (willFollow ? 1 : -1))
+        }
+        // Make the tap feel immediate. The response remains authoritative and
+        // rolls this state back on any network/server failure.
+        profile = optimistic
+        do {
+            let result = try await APIClient.shared.followUser(id: userID)
+            if var confirmed = profile {
+                confirmed.isFollowing = result.following
+                confirmed.followRequested = !result.following && willFollow
+                confirmed.stats.followers = result.followersCount
+                profile = confirmed
+            }
+        } catch {
+            profile = previous
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func message(_ member: MemberProfile) async {

@@ -369,7 +369,7 @@ final class APIClient {
     func fetchWorkouts(limit: Int = 20) async throws -> [LoggedWorkout] {
         if useMock {
             return [
-                LoggedWorkout(id: "mock-1", type: "Run", startTime: ISO8601DateFormatter().string(from: .now.addingTimeInterval(-3600)), endTime: ISO8601DateFormatter().string(from: .now), durationSec: 1800, distanceKm: 5.0, calories: 300, note: nil, source: "live", paceMinPerKm: 6.0),
+                LoggedWorkout(id: "mock-1", type: "Run", startTime: ISO8601DateFormatter().string(from: .now.addingTimeInterval(-3600)), endTime: ISO8601DateFormatter().string(from: .now), durationSec: 1800, distanceKm: 5.0, calories: 300, note: nil, source: "live", paceMinPerKm: 6.0, name: nil),
             ]
         }
         let page: WorkoutLogPage = try await request("/api/workouts?limit=\(limit)")
@@ -402,6 +402,11 @@ final class APIClient {
         return try await request("/api/workouts/\(id)/gps-correction", method: "POST")
     }
 
+    func updateWorkout(id: String, name: String, description: String) async throws {
+        if useMock { return }
+        let _: WorkoutEditResponse = try await request("/api/workouts/\(id)", method: "PATCH", body: WorkoutEditBody(name: name, description: description))
+    }
+
     func fetchAthleteIntelligence() async throws -> AthleteTrainingIntelligence {
         if useMock { return AthleteTrainingIntelligence(trainingLog: [], fitness: AthleteFitness(ctl: 0, atl: 0, form: 0, label: "Balanced", disclaimer: "Training guidance only."), bestEfforts: [:], racePrediction: nil) }
         return try await request("/api/training/intelligence")
@@ -426,6 +431,17 @@ final class APIClient {
     func updateWorkoutBeacon(id: UUID, recipientID: UUID, latitude: Double, longitude: Double, accuracyM: Double?) async throws -> BeaconResult {
         if useMock { return BeaconResult(ok: true, expiresAt: ISO8601DateFormatter().string(from: .now.addingTimeInterval(14_400))) }
         return try await request("/api/workouts/\(id.uuidString.lowercased())/beacon", method: "POST", body: WorkoutBeaconBody(recipientID: recipientID.uuidString.lowercased(), latitude: latitude, longitude: longitude, accuracyM: accuracyM))
+    }
+
+    func stopWorkoutBeacon(id: UUID) async throws {
+        if useMock { return }
+        let _: ActionResponse = try await request("/api/workouts/\(id.uuidString.lowercased())/beacon", method: "DELETE")
+    }
+
+    func fetchActiveBeacons() async throws -> [ActiveBeacon] {
+        if useMock { return [] }
+        let response: ActiveBeaconsResponse = try await request("/api/beacons", forceRefresh: true)
+        return response.beacons
     }
 
     func fetchHeatmap(community: Bool = false) async throws -> WorkoutHeatmap {
@@ -1721,6 +1737,8 @@ private struct SaveRouteBody: Encodable {
     let path: [[Double]]
     enum CodingKeys: String, CodingKey { case name, path; case activityType = "activity_type" }
 }
+private struct WorkoutEditBody: Encodable { let name: String; let description: String }
+private struct WorkoutEditResponse: Decodable { let ok: Bool }
 private struct ManualWorkoutBody: Encodable {
     let type: String
     let durationMin: Double

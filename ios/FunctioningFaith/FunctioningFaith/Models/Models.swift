@@ -239,7 +239,7 @@ struct MemberProfile: Decodable, Identifiable {
 struct MemberProfileStats: Decodable {
     let workouts: Int
     let posts: Int
-    let followers: Int?
+    var followers: Int?
     let following: Int?
 }
 
@@ -271,10 +271,10 @@ struct MutualFollowersResponse: Decodable {
 
 struct MemberProfileResponse: Decodable {
     let user: MemberProfile
-    let stats: MemberProfileStats
+    var stats: MemberProfileStats
     let posts: [MemberProfilePost]
     let isMe: Bool
-    let isFollowing: Bool
+    var isFollowing: Bool
     let isBlocked: Bool
     // The server has sent these since it shipped mute/restrict's web
     // initiation UI (see webapp/public/app.js's profile-mute/profile-restrict
@@ -283,7 +283,7 @@ struct MemberProfileResponse: Decodable {
     // (SafetyView) once they'd somehow already been set from the web.
     let isMuted: Bool
     let isRestricted: Bool
-    let followRequested: Bool
+    var followRequested: Bool
 
     enum CodingKeys: String, CodingKey {
         case user, stats, posts
@@ -1732,6 +1732,21 @@ struct AthleteBestEffort: Decodable { let workoutID: String; let paceMinPerKm: D
 struct RacePrediction: Decodable { let basedOnKm: Double; let predictions: [RacePredictionEntry]; let disclaimer: String; enum CodingKeys: String, CodingKey { case basedOnKm="based_on_km"; case predictions, disclaimer } }
 struct RacePredictionEntry: Decodable, Identifiable { let distanceKm: Double; let estimatedSec: Int; let rangeSec: Int; var id: Double { distanceKm }; enum CodingKeys: String, CodingKey { case distanceKm="distance_km"; case estimatedSec="estimated_sec"; case rangeSec="range_sec" } }
 struct BeaconResult: Decodable { let ok: Bool; let expiresAt: String; enum CodingKeys: String, CodingKey { case ok; case expiresAt="expires_at" } }
+struct ActiveBeacon: Decodable, Identifiable {
+    let workoutID: String
+    let latitude: Double
+    let longitude: Double
+    let accuracyM: Double?
+    let updatedAt: String
+    let displayName: String
+    var id: String { workoutID }
+    enum CodingKeys: String, CodingKey {
+        case latitude, longitude
+        case workoutID = "workout_id", accuracyM = "accuracy_m"
+        case updatedAt = "updated_at", displayName = "display_name"
+    }
+}
+struct ActiveBeaconsResponse: Decodable { let beacons: [ActiveBeacon] }
 struct WorkoutHeatmap: Decodable { let scope: String; let cells: [HeatmapCell]; let privacy: String }
 struct HeatmapCell: Decodable, Identifiable { let latitude: Double; let longitude: Double; let count: Int; var id: String { "\(latitude),\(longitude)" } }
 struct SavedRouteResult: Decodable { let id: String; let distanceKm: Double; enum CodingKeys: String, CodingKey { case id; case distanceKm = "distance_km" } }
@@ -1774,6 +1789,8 @@ struct WorkoutAnalysis: Decodable {
     var distanceKm: Double? = nil
     var elevationGainM: Double? = nil
     var elevationLossM: Double? = nil
+    var name: String? = nil
+    var description: String? = nil
     enum CodingKeys: String, CodingKey {
         case note
         case workoutID = "workout_id"
@@ -1788,6 +1805,8 @@ struct WorkoutAnalysis: Decodable {
         case distanceKm = "distance_km"
         case elevationGainM = "elevation_gain_m"
         case elevationLossM = "elevation_loss_m"
+        case name
+        case description = "workout_note"
     }
 }
 struct MatchedWorkoutEffort: Decodable, Identifiable {
@@ -2056,9 +2075,10 @@ struct LoggedWorkout: Decodable, Identifiable {
     let note: String?
     let source: String?
     let paceMinPerKm: Double?
+    let name: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, type, calories, note, source
+        case id, type, calories, note, source, name
         case startTime = "start_time"
         case endTime = "end_time"
         case durationSec = "duration_sec"

@@ -500,6 +500,7 @@ if (!wCols2.includes('elevation_loss_m')) db.exec("ALTER TABLE workouts ADD COLU
 // "Corrected" badge and the action isn't offered a second time on the same
 // recording.
 if (!wCols2.includes('gps_corrected_at')) db.exec("ALTER TABLE workouts ADD COLUMN gps_corrected_at TEXT");
+if (!wCols2.includes('name')) db.exec("ALTER TABLE workouts ADD COLUMN name TEXT");
 
 // --- themed challenges (Strava-style, scripture/LotR flavored) ---
 db.exec(`

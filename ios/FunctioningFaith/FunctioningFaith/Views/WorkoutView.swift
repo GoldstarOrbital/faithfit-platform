@@ -1,5 +1,6 @@
 import SwiftUI
 import MapKit
+import WidgetKit
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -129,7 +130,7 @@ struct WorkoutView: View {
         }
         .sheet(isPresented: $showWearables) { WearableConnectView() }
         .sheet(isPresented: $showBeacon) {
-            if let workoutID { BeaconSafetyView(workoutID: workoutID, location: tracker.points.last) }
+            BeaconSafetyView()
         }
         .alert("Workout unavailable", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
@@ -228,7 +229,7 @@ struct WorkoutView: View {
 
             if isActive {
                 Button { showBeacon = true } label: {
-                    Label("Share safety beacon", systemImage: "location.circle.fill")
+                    Label(activeWorkout.beaconRecipients.isEmpty ? "Share safety beacon" : "Safety beacon live", systemImage: "location.circle.fill")
                         .font(.caption.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 42)
                 }
                 .buttonStyle(.ffGhost)
@@ -374,7 +375,7 @@ struct WorkoutView: View {
                 } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(workout.type).font(.subheadline.weight(.semibold))
+                            Text(workout.name ?? workout.type).font(.subheadline.weight(.semibold))
                             Text(workout.startTime.prefix(16)).font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
@@ -554,6 +555,8 @@ struct WorkoutView: View {
         guard let verse = try? await APIClient.shared.fetchRandomVerse() else { return }
         await MainActor.run {
             workoutVerse = VerseSnippet(id: verse.reference, reference: verse.reference, snippet: verse.text, deepLink: "")
+            WidgetScriptureStore.save(reference: verse.reference, text: verse.text, context: "After your \(selectedType.lowercased())")
+            WidgetCenter.shared.reloadTimelines(ofKind: "FunctioningFaithScripture")
         }
     }
 
@@ -632,6 +635,10 @@ struct PostWorkoutSummaryView: View {
     let healthConnected: Bool
     @State private var routeName = ""
     @State private var routeSaveStatus: String?
+    @State private var activityName = ""
+    @State private var activityDescription = ""
+    @State private var editStatus: String?
+    @State private var isSavingDetails = false
 
     private var distanceText: String? {
         guard let distance = completion.distanceKm, distance > 0 else { return nil }
@@ -689,6 +696,24 @@ struct PostWorkoutSummaryView: View {
                         }
                     }
 
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Tell the story of this workout", systemImage: "square.and.pencil")
+                            .font(.headline).foregroundStyle(FFTheme.seal)
+                        TextField("Workout name", text: $activityName)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("How did it go?", text: $activityDescription, axis: .vertical)
+                            .lineLimit(3...7).textFieldStyle(.roundedBorder)
+                        Button {
+                            Task { await saveWorkoutDetails() }
+                        } label: {
+                            if isSavingDetails { ProgressView().frame(maxWidth: .infinity) }
+                            else { Text("Save workout post").frame(maxWidth: .infinity) }
+                        }
+                        .buttonStyle(.ffPrimary).disabled(isSavingDetails)
+                        if let editStatus { Text(editStatus).font(.caption).foregroundStyle(.secondary) }
+                    }
+                    .padding(14).background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
                     if route.count > 1 {
                         VStack(alignment: .leading, spacing: 8) {
                             Label("Save this route", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
@@ -745,6 +770,20 @@ struct PostWorkoutSummaryView: View {
             let saved = try await APIClient.shared.saveRoute(name: name, activityType: activityType, path: route)
             routeSaveStatus = "Saved \(Units.distanceString(km: saved.distanceKm)) route."
         } catch { routeSaveStatus = error.localizedDescription }
+    }
+
+
+    private func saveWorkoutDetails() async {
+        isSavingDetails = true
+        defer { isSavingDetails = false }
+        do {
+            try await APIClient.shared.updateWorkout(
+                id: completion.id.uuidString.lowercased(),
+                name: activityName.trimmingCharacters(in: .whitespacesAndNewlines),
+                description: activityDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            editStatus = "Workout and shared post updated."
+        } catch { editStatus = error.localizedDescription }
     }
 }
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import WidgetKit
 
 /// The app's root shell. See AppShell.swift for the design: a persistent
 /// global bottom bar (Home, Reels, Scripture, Messages, Search) plus a
@@ -205,6 +206,8 @@ struct RootTabView: View {
         let (mission, posts, reels) = await (warmedMission, warmedFeed, warmedReels)
         if let mission {
             MissionCache.save(mission, userID: userID)
+            WidgetScriptureStore.save(reference: mission.reference, text: mission.text, context: "Your daily mission")
+            WidgetCenter.shared.reloadTimelines(ofKind: "FunctioningFaithScripture")
         }
         if let posts {
             FeedCache.save(posts, userID: userID, mode: HomeFeedMode.forYou.rawValue)

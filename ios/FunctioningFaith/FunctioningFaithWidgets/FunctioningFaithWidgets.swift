@@ -4,7 +4,50 @@ import WidgetKit
 
 @main
 struct FunctioningFaithWidgets: WidgetBundle {
-    var body: some Widget { FunctioningFaithWorkoutLiveActivity() }
+    var body: some Widget {
+        FunctioningFaithWorkoutLiveActivity()
+        FunctioningFaithScriptureWidget()
+    }
+}
+
+private struct ScriptureEntry: TimelineEntry {
+    let date: Date
+    let scripture: WidgetScriptureSnapshot
+}
+
+private struct ScriptureProvider: TimelineProvider {
+    func placeholder(in context: Context) -> ScriptureEntry { ScriptureEntry(date: .now, scripture: WidgetScriptureStore.fallback) }
+    func getSnapshot(in context: Context, completion: @escaping (ScriptureEntry) -> Void) {
+        completion(ScriptureEntry(date: .now, scripture: WidgetScriptureStore.load()))
+    }
+    func getTimeline(in context: Context, completion: @escaping (Timeline<ScriptureEntry>) -> Void) {
+        let entry = ScriptureEntry(date: .now, scripture: WidgetScriptureStore.load())
+        completion(Timeline(entries: [entry], policy: .after(.now.addingTimeInterval(30 * 60))))
+    }
+}
+
+struct FunctioningFaithScriptureWidget: Widget {
+    let kind = "FunctioningFaithScripture"
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: kind, provider: ScriptureProvider()) { entry in
+            VStack(alignment: .leading, spacing: 8) {
+                Label(entry.scripture.context.uppercased(), systemImage: "cross.fill")
+                    .font(.caption2.weight(.bold)).foregroundStyle(Color(red: 0.69, green: 0.48, blue: 0.15))
+                Text("“\(entry.scripture.text)”")
+                    .font(.system(.body, design: .serif, weight: .medium))
+                    .lineLimit(4).foregroundStyle(Color(red: 0.16, green: 0.12, blue: 0.08))
+                Text(entry.scripture.reference)
+                    .font(.caption.weight(.semibold)).foregroundStyle(Color(red: 0.12, green: 0.38, blue: 0.25))
+            }
+            .containerBackground(for: .widget) {
+                LinearGradient(colors: [Color(red: 0.98, green: 0.95, blue: 0.86), Color(red: 0.91, green: 0.85, blue: 0.69)], startPoint: .topLeading, endPoint: .bottomTrailing)
+            }
+            .widgetURL(URL(string: "functioningfaith://scripture"))
+        }
+        .configurationDisplayName("Scripture for Your Journey")
+        .description("Scripture refreshed from your Functioning Faith activity and daily mission.")
+        .supportedFamilies([.systemSmall, .systemMedium])
+    }
 }
 
 struct FunctioningFaithWorkoutLiveActivity: Widget {

@@ -1,11 +1,13 @@
 import SwiftUI
 
-/// Sign out and account deletion -- split out of ProfileView's old single
-/// giant Form, briefly a Profile bottom-bar tab, now reached as "Settings"
-/// at the bottom of the side panel instead (see AppShell.swift's
-/// SettingsSectionShell). Same two actions throughout, unchanged; only
-/// where you reach them from has moved.
+/// The Settings destination now owns preferences that previously crowded the
+/// public-facing Profile screen. Destructive account actions remain one level
+/// deeper so they cannot be tapped accidentally while changing a preference.
 struct ProfileAccountView: View {
+    var body: some View { ProfileView(content: .settings) }
+}
+
+struct AccountManagementView: View {
     @EnvironmentObject private var session: NativeSession
     @State private var showingDeleteConfirmation = false
     @State private var deleteError: String?
@@ -23,7 +25,7 @@ struct ProfileAccountView: View {
             .listRowBackground(FFTheme.parchment1)
         }
         .ffListChrome()
-        .navigationTitle("Settings")
+        .navigationTitle("Account management")
         .confirmationDialog("Delete your Functioning Faith account?", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete permanently", role: .destructive) {
                 Task {
@@ -41,4 +43,4 @@ struct ProfileAccountView: View {
     }
 }
 
-#Preview { NavigationStack { ProfileAccountView() }.environmentObject(NativeSession()) }
+#Preview { NavigationStack { ProfileAccountView() }.environmentObject(NativeSession()).environmentObject(BiometricLock()) }

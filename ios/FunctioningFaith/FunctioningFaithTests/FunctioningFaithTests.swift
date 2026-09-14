@@ -1,7 +1,32 @@
 import XCTest
+import CoreLocation
 @testable import FunctioningFaith
 
 final class FunctioningFaithTests: XCTestCase {
+    func testWorkoutTrackerRejectsImpossibleDistanceBeforeAccumulatingIt() {
+        let tracker = NativeWorkoutTracker()
+        tracker.start(activityType: "Walk")
+        defer { tracker.stop() }
+        let manager = CLLocationManager()
+        let start = CLLocation(coordinate: .init(latitude: 37, longitude: -122), altitude: 10,
+                               horizontalAccuracy: 5, verticalAccuracy: 5, timestamp: .now.addingTimeInterval(-6))
+        let impossible = CLLocation(coordinate: .init(latitude: 38, longitude: -122), altitude: 10,
+                                    horizontalAccuracy: 5, verticalAccuracy: 5, timestamp: .now.addingTimeInterval(-5))
+        let plausible = CLLocation(coordinate: .init(latitude: 37.0001, longitude: -122), altitude: 11,
+                                   horizontalAccuracy: 5, verticalAccuracy: 5, timestamp: .now)
+        tracker.locationManager(manager, didUpdateLocations: [start, impossible, plausible])
+        XCTAssertEqual(tracker.points.count, 2)
+        XCTAssertGreaterThan(tracker.distanceKm, 0.005)
+        XCTAssertLessThan(tracker.distanceKm, 0.02)
+    }
+
+    func testWorkoutEditFieldsDecodeWithoutBreakingLegacyRows() throws {
+        let rich = try JSONDecoder().decode(LoggedWorkout.self, from: Data(#"{"id":"w1","type":"Walk","start_time":"2026-09-14","end_time":"2026-09-14","duration_sec":1200,"distance_km":1.5,"calories":90,"note":"Sunrise","source":"app","pace_min_per_km":13.3,"name":"Morning prayer walk"}"#.utf8))
+        XCTAssertEqual(rich.name, "Morning prayer walk")
+        let legacy = try JSONDecoder().decode(LoggedWorkout.self, from: Data(#"{"id":"w2","type":"Walk","start_time":"2026-09-13"}"#.utf8))
+        XCTAssertNil(legacy.name)
+    }
+
     func testEditorialNotificationsAreExplicitOptIns() {
         XCTAssertFalse(NotificationCategory.podcasts.defaultEnabled)
         XCTAssertFalse(NotificationCategory.news.defaultEnabled)

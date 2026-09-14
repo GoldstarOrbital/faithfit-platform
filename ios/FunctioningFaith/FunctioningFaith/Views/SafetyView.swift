@@ -9,15 +9,28 @@ struct SafetyView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var workingID: String?
+    @State private var beacons: [ActiveBeacon] = []
 
     var body: some View {
         Group {
             if isLoading && relationships == nil {
                 ProgressView()
-            } else if let relationships, isEmpty(relationships) {
+            } else if let relationships, isEmpty(relationships) && beacons.isEmpty {
                 ContentUnavailableView("Nobody muted, restricted, or blocked", systemImage: "hand.raised", description: Text("Safety controls you apply to other members appear here."))
             } else if let relationships {
                 List {
+                    if !beacons.isEmpty {
+                        Section("Live safety beacons") {
+                            ForEach(beacons) { beacon in
+                                Link(destination: URL(string: "https://maps.apple.com/?ll=\(beacon.latitude),\(beacon.longitude)&q=\(beacon.displayName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "Workout")")!) {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Label("\(beacon.displayName) is recording", systemImage: "location.circle.fill")
+                                        Text("Updated \(beacon.updatedAt)").font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
                     section("Muted", items: relationships.muted, control: "mute", note: "Their posts and workouts stay out of your feed. They can't tell.")
                     section("Restricted", items: relationships.restricted, control: "restrict", note: "New message threads from them are blocked; existing conversations still work.")
                     section("Blocked", items: relationships.blocked, control: "block", note: "Neither of you can message the other.")
@@ -54,7 +67,12 @@ struct SafetyView: View {
 
     private func load() async {
         isLoading = true
-        do { relationships = try await APIClient.shared.fetchRelationships() }
+        do {
+            async let relationshipRequest = APIClient.shared.fetchRelationships()
+            async let beaconRequest = APIClient.shared.fetchActiveBeacons()
+            relationships = try await relationshipRequest
+            beacons = (try? await beaconRequest) ?? []
+        }
         catch { errorMessage = error.localizedDescription }
         isLoading = false
     }

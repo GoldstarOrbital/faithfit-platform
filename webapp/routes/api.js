@@ -2132,6 +2132,23 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
          metrics.elevation_gain_m || null, Object.keys(metrics).length ? JSON.stringify(metrics) : null,
          effort.effort_score, effort.time_in_zone ? JSON.stringify(effort.time_in_zone) : null, effort.peak_zone, workout.id);
 
+  // Refine the stored route in the background. The workout finishes
+  // immediately even if terrain elevation is unavailable; distance is
+  // re-derived from the cleaned trace and DEM elevation is applied when the
+  // public provider responds. This also benefits widgets/feed cards because
+  // they read the corrected workout row rather than a client-side estimate.
+  if (pathJson) {
+    setImmediate(async () => {
+      try {
+        const corrected = await gpsCorrection.correctRoute(JSON.parse(pathJson), workout.type);
+        if (!corrected) return;
+        db.prepare(`UPDATE workouts SET distance_km=?, elevation_gain_m=COALESCE(?,elevation_gain_m),
+                    elevation_loss_m=COALESCE(?,elevation_loss_m), gps_corrected_at=datetime('now') WHERE id=?`)
+          .run(corrected.distanceKm, corrected.elevationGainM, corrected.elevationLossM, workout.id);
+      } catch { /* correction never invalidates a successfully saved workout */ }
+    });
+  }
+
   // Only notify when a real comparison against real history says this was notable.
   if (notable) notify(req.session.userId, 'effort', notable.message, { workout_id: workout.id, effort_type: notable.type });
 
@@ -3965,7 +3982,8 @@ router.get('/workouts/:id/analysis', requireAuth, (req, res) => {
     .map(x=>({...x,pace_min_per_km:x.distance_km>.05?+((x.duration_sec/60)/x.distance_km).toFixed(2):null}));
   res.json({ workout_id:w.id, pace_min_per_km:pace, grade_adjusted_pace_min_per_km: null, power_watts: Number(metrics.power_watts||metrics.power||0)||null, top_speed_kmh:Number(metrics.max_speed_kmh||0)||null, relative_effort:Math.round(Number(w.effort_score)||Math.max(1,mins)), matched_efforts:matched, note:'Grade-adjusted pace requires reliable elevation grade samples; it is unavailable for this activity rather than estimated.',
     has_route: !!w.gps_path, gps_corrected_at: w.gps_corrected_at || null,
-    distance_km: km || null, elevation_gain_m: w.elevation_gain_m != null ? Number(w.elevation_gain_m) : null, elevation_loss_m: w.elevation_loss_m != null ? Number(w.elevation_loss_m) : null });
+    distance_km: km || null, elevation_gain_m: w.elevation_gain_m != null ? Number(w.elevation_gain_m) : null, elevation_loss_m: w.elevation_loss_m != null ? Number(w.elevation_loss_m) : null,
+    name: w.name || null, workout_note: w.note || null });
 });
 
 // A post-workout reflection is grounded in this activity's stored metrics. If
@@ -4007,9 +4025,23 @@ router.post('/workouts/:id/beacon', requireAuth, (req, res) => {
   const { recipient_id, latitude, longitude, accuracy_m }=req.body||{};
   if(!w || !recipient_id || !Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) return res.status(400).json({error:'invalid_beacon'});
   if(!db.prepare('SELECT 1 FROM followers WHERE follower_id=? AND followee_id=?').get(recipient_id,req.session.userId)) return res.status(403).json({error:'recipient_not_connected'});
+  const wasLive = db.prepare('SELECT active FROM workout_beacons WHERE workout_id=? AND recipient_id=?').get(w.id, recipient_id)?.active;
   const expires=new Date(Date.now()+4*3600000).toISOString();
   db.prepare(`INSERT INTO workout_beacons (id,workout_id,owner_id,recipient_id,latitude,longitude,accuracy_m,expires_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(workout_id,recipient_id) DO UPDATE SET latitude=excluded.latitude,longitude=excluded.longitude,accuracy_m=excluded.accuracy_m,active=1,expires_at=excluded.expires_at,updated_at=datetime('now')`).run(randomUUID(),w.id,req.session.userId,recipient_id,Number(latitude),Number(longitude),Number(accuracy_m)||null,expires);
+  if (!wasLive) {
+    notify(recipient_id, 'safety_beacon', `${displayName(req.session.userId)} shared a live workout safety beacon with you. Open Profile > Safety to view it.`, {
+      actor_id: req.session.userId, url: '/?open=home', beacon_workout_id: w.id,
+    });
+  }
   res.json({ok:true,expires_at:expires});
+});
+
+router.delete('/workouts/:id/beacon', requireAuth, (req, res) => {
+  const w = db.prepare('SELECT id FROM workouts WHERE id=? AND user_id=?').get(req.params.id, req.session.userId);
+  if (!w) return res.status(404).json({ error: 'not_found' });
+  db.prepare('UPDATE workout_beacons SET active=0, updated_at=datetime(\'now\') WHERE workout_id=? AND owner_id=?')
+    .run(w.id, req.session.userId);
+  res.json({ ok: true });
 });
 
 router.get('/beacons', requireAuth, (req,res) => res.json({ beacons: db.prepare(`SELECT b.workout_id,b.latitude,b.longitude,b.accuracy_m,b.updated_at,u.display_name FROM workout_beacons b JOIN users u ON u.id=b.owner_id WHERE b.recipient_id=? AND b.active=1 AND b.expires_at>datetime('now')`).all(req.session.userId) }));
@@ -7469,6 +7501,25 @@ router.delete('/dms/block/:userId', requireAuth, (req, res) => {
 // and an id belonging to somebody else is a 404 rather than a 403 so ids cannot
 // be probed.
 
+router.patch('/workouts/:id', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const workout = db.prepare('SELECT id,type,duration_sec,distance_km FROM workouts WHERE id=? AND user_id=? AND end_time IS NOT NULL')
+    .get(req.params.id, uid);
+  if (!workout) return res.status(404).json({ error: 'not_found' });
+  const name = String((req.body || {}).name || '').trim().slice(0, 80);
+  const note = String((req.body || {}).description || '').trim().slice(0, 500);
+  db.prepare('UPDATE workouts SET name=?, note=? WHERE id=?').run(name || null, note || null, workout.id);
+
+  // Keep the workout's social post aligned with the member's edits. This
+  // updates only their post already linked to this exact workout.
+  const fallback = workout.distance_km
+    ? `Finished a ${Number(workout.distance_km).toFixed(2)} km ${String(workout.type || 'workout').toLowerCase()}.`
+    : `Finished a ${Math.round(Number(workout.duration_sec || 0) / 60)} minute ${String(workout.type || 'workout').toLowerCase()}.`;
+  const content = [name, note].filter(Boolean).join('\n\n') || fallback;
+  db.prepare('UPDATE posts SET content=? WHERE workout_id=? AND user_id=?').run(content, workout.id, uid);
+  res.json({ ok: true, id: workout.id, name: name || null, description: note || null });
+});
+
 router.get('/workouts', requireAuth, (req, res) => {
   const uid = req.session.userId;
   const limit = Math.min(Number(req.query.limit) || 30, 100);
@@ -7476,7 +7527,7 @@ router.get('/workouts', requireAuth, (req, res) => {
 
   const rows = db.prepare(`
     SELECT w.id, w.type, w.start_time, w.end_time, w.duration_sec, w.distance_km,
-           w.calories, w.avg_hr, w.max_hr, w.effort_score, w.peak_zone, w.note, w.source,
+           w.calories, w.avg_hr, w.max_hr, w.effort_score, w.peak_zone, w.note, w.name, w.source,
            CASE WHEN w.gps_path IS NOT NULL THEN 1 ELSE 0 END AS has_route,
            (SELECT p.id FROM posts p WHERE p.workout_id = w.id AND p.user_id = w.user_id LIMIT 1) AS post_id
     FROM workouts w
