@@ -23,6 +23,7 @@ struct SearchView: View {
             searchField
             content
         }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Search")
             .navigationDestination(item: $selectedPersonID) { userID in
                 MemberProfileView(userID: userID)

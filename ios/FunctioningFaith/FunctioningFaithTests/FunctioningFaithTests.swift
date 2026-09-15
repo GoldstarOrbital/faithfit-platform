@@ -3,6 +3,59 @@ import CoreLocation
 @testable import FunctioningFaith
 
 final class FunctioningFaithTests: XCTestCase {
+    func testLiveActivityStateCarriesAuthoritativeElapsedAndDistance() throws {
+        let state = WorkoutLiveActivityAttributes.ContentState(
+            startedAt: Date(timeIntervalSince1970: 100),
+            elapsedSeconds: 735,
+            isPaused: true,
+            updatedAt: Date(timeIntervalSince1970: 900),
+            distanceKm: 2.47,
+            speedKmh: nil,
+            heartRate: 132
+        )
+        let decoded = try JSONDecoder().decode(
+            WorkoutLiveActivityAttributes.ContentState.self,
+            from: JSONEncoder().encode(state)
+        )
+        XCTAssertEqual(decoded.elapsedSeconds, 735)
+        XCTAssertTrue(decoded.isPaused)
+        XCTAssertEqual(decoded.distanceKm, 2.47, accuracy: 0.001)
+    }
+
+    func testReelCropAlwaysCoversVerticalPlatformFrame() {
+        let source = CGSize(width: 1920, height: 1080)
+        let render = CGSize(width: 720, height: 1280)
+        for position in [-1.0, 0, 1.0] {
+            let transform = ReelCropMath.transform(
+                sourceSize: source,
+                preferredTransform: .identity,
+                renderSize: render,
+                zoom: 1.2,
+                position: position
+            )
+            let frame = CGRect(origin: .zero, size: source).applying(transform)
+            XCTAssertLessThanOrEqual(frame.minX, 0.01)
+            XCTAssertLessThanOrEqual(frame.minY, 0.01)
+            XCTAssertGreaterThanOrEqual(frame.maxX, render.width - 0.01)
+            XCTAssertGreaterThanOrEqual(frame.maxY, render.height - 0.01)
+        }
+    }
+
+    func testPopulatedInboxNeverShowsBlockingRefreshError() {
+        XCTAssertFalse(DMInboxPresentation.shouldShowLoadError(isLoading: false, hasThreads: true, error: "Timed out"))
+        XCTAssertFalse(DMInboxPresentation.shouldShowLoadError(isLoading: true, hasThreads: false, error: "Timed out"))
+        XCTAssertTrue(DMInboxPresentation.shouldShowLoadError(isLoading: false, hasThreads: false, error: "Timed out"))
+    }
+
+    func testAvatarCacheCanBeWarmedBeforeRowsRender() async {
+        let id = UUID()
+        let dataURL = "data:image/jpeg;base64,/9j/2Q=="
+        await MemberAvatarCache.shared.replace(dataURL, for: id)
+        let loaded = await MemberAvatarCache.shared.dataURL(for: id)
+        XCTAssertEqual(loaded, dataURL)
+        await MemberAvatarCache.shared.clearAll()
+    }
+
     func testWorkoutTrackerRejectsImpossibleDistanceBeforeAccumulatingIt() {
         let tracker = NativeWorkoutTracker()
         tracker.start(activityType: "Walk")

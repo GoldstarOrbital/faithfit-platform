@@ -15,7 +15,10 @@ final class WorkoutLiveActivityManager {
         Task {
             await endAllOrphaned()
             let attributes = WorkoutLiveActivityAttributes(activityName: "Functioning Faith", sport: sport)
-            let state = WorkoutLiveActivityAttributes.ContentState(startedAt: startedAt, distanceKm: 0, speedKmh: nil, heartRate: nil)
+            let state = WorkoutLiveActivityAttributes.ContentState(
+                startedAt: startedAt, elapsedSeconds: 0, isPaused: false,
+                updatedAt: .now, distanceKm: 0, speedKmh: nil, heartRate: nil
+            )
             do {
                 activity = try Activity.request(attributes: attributes, content: ActivityContent(state: state, staleDate: nil), pushType: nil)
             } catch {
@@ -24,16 +27,19 @@ final class WorkoutLiveActivityManager {
         }
     }
 
-    func update(distanceKm: Double, speedKmh: Double?, heartRate: Int?) {
+    func update(distanceKm: Double, elapsed: TimeInterval, isPaused: Bool, speedKmh: Double?, heartRate: Int?) {
         guard let activity else { return }
         let prior = activity.content.state
         let state = WorkoutLiveActivityAttributes.ContentState(
             startedAt: prior.startedAt,
+            elapsedSeconds: max(0, Int(elapsed.rounded(.down))),
+            isPaused: isPaused,
+            updatedAt: .now,
             distanceKm: distanceKm,
             speedKmh: speedKmh,
             heartRate: heartRate
         )
-        Task { await activity.update(ActivityContent(state: state, staleDate: nil)) }
+        Task { await activity.update(ActivityContent(state: state, staleDate: .now.addingTimeInterval(30))) }
     }
 
     func end() async {

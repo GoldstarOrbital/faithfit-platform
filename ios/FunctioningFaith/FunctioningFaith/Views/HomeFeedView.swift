@@ -249,6 +249,7 @@ struct HomeFeedView: View {
         // exactly as before.
         if posts.isEmpty, let userID = session.profile?.id,
            let cached = FeedCache.load(userID: userID, mode: requestedMode.rawValue) {
+            await warmAvatars(in: cached)
             posts = cached
         }
         isLoading = posts.isEmpty
@@ -262,12 +263,14 @@ struct HomeFeedView: View {
                 // paginated list isn't safe. No "load more" for this mode.
                 let fetched = try await APIClient.shared.fetchForYouFeed(forceRefresh: forceRefresh)
                 guard !Task.isCancelled, feedGeneration == generation, mode == requestedMode else { return }
+                await warmAvatars(in: fetched)
                 posts = fetched
                 nextCursor = nil
                 if let userID = session.profile?.id { FeedCache.save(fetched, userID: userID, mode: requestedMode.rawValue) }
             case .following:
                 let page = try await APIClient.shared.fetchFeedPage(followingOnly: true, forceRefresh: forceRefresh)
                 guard !Task.isCancelled, feedGeneration == generation, mode == requestedMode else { return }
+                await warmAvatars(in: page.posts)
                 posts = page.posts
                 if let userID = session.profile?.id { FeedCache.save(page.posts, userID: userID, mode: requestedMode.rawValue) }
                 nextCursor = page.nextCursor
@@ -291,6 +294,7 @@ struct HomeFeedView: View {
         do {
             let page = try await APIClient.shared.fetchFeedPage(before: cursor, followingOnly: true)
             guard !Task.isCancelled, feedGeneration == generation, mode == .following else { return }
+            await warmAvatars(in: page.posts)
             let existing = Set(posts.map(\.id))
             posts.append(contentsOf: page.posts.filter { !existing.contains($0.id) })
             nextCursor = page.nextCursor
@@ -298,6 +302,14 @@ struct HomeFeedView: View {
             guard !Task.isCancelled, feedGeneration == generation, mode == .following else { return }
             actionError = "Couldn’t load more posts. Pull down to try again."
         }
+    }
+
+    private func warmAvatars(in posts: [FeedPost]) async {
+        let members = posts.prefix(20).compactMap { post -> (id: UUID, hasAvatar: Bool)? in
+            guard let id = post.authorID else { return nil }
+            return (id, post.authorHasAvatar)
+        }
+        await MemberAvatarCache.shared.prefetch(members)
     }
 
     private func toggleLike(_ post: FeedPost) {

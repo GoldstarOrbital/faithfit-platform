@@ -1,5 +1,11 @@
 import SwiftUI
 
+enum DMInboxPresentation {
+    static func shouldShowLoadError(isLoading: Bool, hasThreads: Bool, error: String?) -> Bool {
+        !isLoading && !hasThreads && error != nil
+    }
+}
+
 struct DMInboxView: View {
     var isActive: Bool = true
 
@@ -74,12 +80,18 @@ struct DMInboxView: View {
         // pushed across tab switches unless cleared here too.
         .onChange(of: isActive) { _, active in if !active { deepLinkThread = nil } }
         .alert("Could not load messages", isPresented: Binding(
-            get: { store.loadError != nil },
-            set: { if !$0 { /* clear via reload */ }
+            get: {
+                DMInboxPresentation.shouldShowLoadError(
+                    isLoading: isLoading,
+                    hasThreads: !store.threads.isEmpty,
+                    error: store.loadError
+                )
+            },
+            set: { if !$0 { store.clearLoadError() }
             }
         )) {
             Button("Try again") { Task { await store.loadInbox() } }
-            Button("OK", role: .cancel) { }
+            Button("OK", role: .cancel) { store.clearLoadError() }
         } message: {
             Text(store.loadError ?? "")
         }

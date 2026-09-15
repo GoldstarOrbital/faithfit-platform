@@ -44,6 +44,7 @@ struct DMConversationView: View {
                     }
                     .padding()
                 }
+                .scrollDismissesKeyboard(.interactively)
                 .onChange(of: conversation?.messages.count) { _, _ in
                     if let last = conversation?.messages.last?.id {
                         withAnimation { proxy.scrollTo(last, anchor: .bottom) }
@@ -109,6 +110,13 @@ struct DMConversationView: View {
                 Button(conversation?.blocked == true ? "Unblock" : "Block", role: .destructive) {
                     showBlockConfirm = true
                 }
+            }
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                }
+                .fontWeight(.semibold)
             }
         }
         .confirmationDialog(

@@ -26,7 +26,10 @@ final class ActiveWorkoutSession: ObservableObject {
     var lastHeartRateCalmCue = Date.distantPast
 
     private var timer: AnyCancellable?
+    private var accumulatedElapsed: TimeInterval = 0
+    private var runningBeganAt: Date?
     private var lastBeaconUpdate = Date.distantPast
+    private var lastLiveActivityUpdate = Date.distantPast
     private var beaconUpdateInFlight = false
 
     private init() {}
@@ -35,7 +38,9 @@ final class ActiveWorkoutSession: ObservableObject {
         workoutID = id
         workoutStartedAt = startedAt
         selectedType = type
-        elapsed = 0
+        accumulatedElapsed = 0
+        runningBeganAt = startedAt
+        elapsed = max(0, Date().timeIntervalSince(startedAt))
         isPaused = false
         isOfflineWorkout = offline
         heartRate = 0
@@ -47,24 +52,34 @@ final class ActiveWorkoutSession: ObservableObject {
         isActive = true
         beaconRecipients.removeAll()
         lastBeaconUpdate = .distantPast
+        lastLiveActivityUpdate = .distantPast
         tracker.start(activityType: type)
         startClock()
     }
 
     func pause() {
         guard isActive, !isPaused else { return }
+        refreshElapsed()
+        accumulatedElapsed = elapsed
+        runningBeganAt = nil
         isPaused = true
         tracker.stop()
+        updateLiveActivity()
     }
 
     func resume() {
         guard isActive, isPaused else { return }
         isPaused = false
+        runningBeganAt = .now
         tracker.resume()
+        updateLiveActivity()
     }
 
     func markFinished() {
         let finishedID = workoutID
+        refreshElapsed()
+        accumulatedElapsed = elapsed
+        runningBeganAt = nil
         isActive = false
         isPaused = false
         tracker.stop()
@@ -110,15 +125,32 @@ final class ActiveWorkoutSession: ObservableObject {
             .autoconnect()
             .sink { [weak self] _ in
                 guard let self, self.isActive, !self.isPaused else { return }
-                self.elapsed += 1
-                if Int(self.elapsed) % 10 == 0 {
-                    WorkoutLiveActivityManager.shared.update(
-                        distanceKm: self.tracker.distanceKm,
-                        speedKmh: self.tracker.currentSpeedKmh,
-                        heartRate: self.heartRate > 0 ? self.heartRate : nil
-                    )
-                }
+                // A publisher does not fire while iOS suspends the app. Derive
+                // from wall time instead of counting callbacks so returning
+                // from the Lock Screen cannot make elapsed time jump backward.
+                self.refreshElapsed()
+                if Date().timeIntervalSince(self.lastLiveActivityUpdate) >= 5 { self.updateLiveActivity() }
                 if Int(self.elapsed) % 20 == 0 { Task { await self.refreshBeaconIfNeeded() } }
             }
+    }
+
+    private func refreshElapsed(now: Date = .now) {
+        guard let runningBeganAt else {
+            elapsed = accumulatedElapsed
+            return
+        }
+        elapsed = accumulatedElapsed + max(0, now.timeIntervalSince(runningBeganAt))
+    }
+
+    func updateLiveActivity() {
+        guard isActive else { return }
+        lastLiveActivityUpdate = .now
+        WorkoutLiveActivityManager.shared.update(
+            distanceKm: tracker.distanceKm,
+            elapsed: elapsed,
+            isPaused: isPaused,
+            speedKmh: isPaused ? nil : tracker.currentSpeedKmh,
+            heartRate: heartRate > 0 ? heartRate : nil
+        )
     }
 }

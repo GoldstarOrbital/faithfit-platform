@@ -201,16 +201,15 @@ extension View {
     /// a Form) needs this to know to leave room at the bottom instead of
     /// letting its last rows land behind the bar.
     ///
-    /// 140pt, not 60: the floating "Ask Bible Answers" button (see
+    /// 104pt clears the floating "Ask Bible Answers" button (see
     /// RootTabView's askAIButton) floats globally above whichever bar is
     /// showing, on every screen -- 60pt only cleared the bar itself, which
     /// is how a "Follow" button on Explore's People-for-you list ended up
     /// partially covered by the AI button once it stopped being scoped to
-    /// just the Home tab. The AI button is a RootTabView-level overlay, not
-    /// something each screen can see, so the fix has to be "always leave
-    /// enough room for it" rather than something screen-specific.
+    /// just the Home tab. The previous 140pt inset left 36pt of visible dead
+    /// space after the button was reduced to the 44pt iOS tap target.
     func reserveFeatureBottomBar() -> some View {
-        safeAreaInset(edge: .bottom) { Color.clear.frame(height: 140) }
+        safeAreaInset(edge: .bottom) { Color.clear.frame(height: 104) }
     }
 }
 

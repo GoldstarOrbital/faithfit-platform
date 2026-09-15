@@ -39,7 +39,7 @@ struct MemberAvatarView: View {
         .task(id: userID) {
             image = nil
             guard hasAvatar else { return }
-            if let dataURL = try? await APIClient.shared.fetchAvatarData(userID: userID) {
+            if let dataURL = await MemberAvatarCache.shared.dataURL(for: userID, hasAvatar: hasAvatar) {
                 image = ImageUpload.decode(dataURL)
             }
         }

@@ -27,6 +27,7 @@ final class NativeSession: ObservableObject {
                 FeedCache.clearAll()
                 MissionCache.clearAll()
                 ReelsCache.clearAll()
+                await MemberAvatarCache.shared.clearAll()
             }
         }
     }
@@ -54,6 +55,7 @@ final class NativeSession: ObservableObject {
             FeedCache.clearAll()
             MissionCache.clearAll()
             ReelsCache.clearAll()
+            await MemberAvatarCache.shared.clearAll()
         } catch {
             if let state = try? await APIClient.shared.fetchSessionState() {
                 profile = state.profile
@@ -84,6 +86,7 @@ final class NativeSession: ObservableObject {
         FeedCache.clearAll()
         MissionCache.clearAll()
         ReelsCache.clearAll()
+        await MemberAvatarCache.shared.clearAll()
     }
 
     func deleteAccount() async throws {
@@ -94,6 +97,7 @@ final class NativeSession: ObservableObject {
         FeedCache.clearAll()
         MissionCache.clearAll()
         ReelsCache.clearAll()
+        await MemberAvatarCache.shared.clearAll()
     }
 }
 

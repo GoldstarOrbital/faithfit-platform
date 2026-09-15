@@ -453,7 +453,6 @@ struct WorkoutView: View {
 
     private func pauseWorkout() {
         activeWorkout.pause()
-        Task { await WorkoutLiveActivityManager.shared.update(distanceKm: tracker.distanceKm, speedKmh: nil, heartRate: heartRate > 0 ? heartRate : nil) }
     }
 
     private func resumeWorkout() {
@@ -538,6 +537,8 @@ struct WorkoutView: View {
         guard isActive else { return }
         WorkoutLiveActivityManager.shared.update(
             distanceKm: tracker.distanceKm,
+            elapsed: elapsed,
+            isPaused: isPaused,
             speedKmh: tracker.currentSpeedKmh ?? bluetooth.speedKmh,
             heartRate: heartRate > 0 ? heartRate : bluetooth.heartRate
         )

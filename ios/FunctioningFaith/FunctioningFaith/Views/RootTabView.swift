@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import WidgetKit
 
 /// The app's root shell. See AppShell.swift for the design: a persistent
@@ -27,7 +28,7 @@ struct RootTabView: View {
                     if isGlobalBarActive {
                         FeatureBottomBar(items: globalBarItems, selection: globalBarSelection)
                     }
-                    askAIButton
+                    if deepLinks.selectedTab != .reels { askAIButton }
                 }
                 .environmentObject(dmStore)
 
@@ -210,6 +211,9 @@ struct RootTabView: View {
             WidgetCenter.shared.reloadTimelines(ofKind: "FunctioningFaithScripture")
         }
         if let posts {
+            await MemberAvatarCache.shared.prefetch(posts.prefix(20).compactMap { post in
+                post.authorID.map { (id: $0, hasAvatar: post.authorHasAvatar) }
+            })
             FeedCache.save(posts, userID: userID, mode: HomeFeedMode.forYou.rawValue)
         }
         if let reels { ReelsCache.save(reels, userID: userID) }
@@ -252,7 +256,8 @@ extension View {
     /// screen so the brand mark opens the side panel from anywhere inside
     /// that section, not just its landing screen.
     func ffRootBrand(onTapLogo: @escaping () -> Void) -> some View {
-        toolbar {
+        navigationBarTitleDisplayMode(.inline)
+        .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button(action: onTapLogo) {
                     Image("BrandMark")
@@ -272,7 +277,19 @@ extension View {
                 .accessibilityLabel("Open menu")
                 .accessibilityHint("Shows Train, Explore, and Profile")
             }
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil, from: nil, for: nil
+                    )
+                }
+                .fontWeight(.semibold)
+                .accessibilityHint("Hides the keyboard so the content and send controls are visible")
+            }
         }
+        .scrollDismissesKeyboard(.interactively)
     }
 
     /// Same fix as ffRootBrand(isActive:), for any OTHER screen's own

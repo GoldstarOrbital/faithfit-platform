@@ -92,14 +92,7 @@ struct ReelsFeedView: View {
     }
 
     var body: some View {
-        // The picker sits above the feed in its own strip rather than floating
-        // over the video. Overlaid, it covered the top of whatever was playing
-        // and read as part of the video instead of as the control that chooses
-        // which feed you are watching.
-        VStack(spacing: 0) {
-            if !reels.isEmpty { originalsToggle }
-            reelsBody
-        }
+        reelsBody
     }
 
     @ViewBuilder
@@ -130,6 +123,7 @@ struct ReelsFeedView: View {
                                      isCurrent: currentReelID == reel.id,
                                      onPlay: { playingReel = reel },
                                      onLike: { react(reel, kind: "like") },
+                                     onDoubleTapLike: { if !reel.likedByMe { react(reel, kind: "like") } },
                                      onSave: { react(reel, kind: "save") },
                                      onComments: reel.provider == "functioning_faith" ? { openComments(for: reel) } : nil,
                                      onShare: { sharingReel = reel },
@@ -153,6 +147,19 @@ struct ReelsFeedView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarIfActive(isActive) {
             ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button { showOriginalsOnly = false } label: {
+                        Label("All Reels", systemImage: showOriginalsOnly ? "circle" : "checkmark")
+                    }
+                    Button { showOriginalsOnly = true } label: {
+                        Label("Functioning Faith Originals", systemImage: showOriginalsOnly ? "checkmark" : "circle")
+                    }
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                }
+                .accessibilityLabel(showOriginalsOnly ? "Showing Functioning Faith Originals" : "Showing all Reels")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showComposer = true
                 } label: {
@@ -173,21 +180,6 @@ struct ReelsFeedView: View {
         .alert("Could not load reels", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
-    }
-
-    private var originalsToggle: some View {
-        Picker("Feed", selection: $showOriginalsOnly.animation(.default)) {
-            Text("All Reels").tag(false)
-            Text("Functioning Faith Originals").tag(true)
-        }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, FFTheme.Space.md)
-        .padding(.top, FFTheme.Space.sm)
-        .padding(.bottom, FFTheme.Space.xs)
-        // Solid, not translucent: the 35% black was there to sit legibly on
-        // top of moving video. In its own strip it reads as part of the Reels
-        // surface, which is black.
-        .background(Color.black)
     }
 
     /// `forceRefresh` for a pull to refresh: the server marks reels
@@ -366,6 +358,7 @@ private struct ReelPage: View {
     let isCurrent: Bool
     let onPlay: () -> Void
     let onLike: () -> Void
+    let onDoubleTapLike: () -> Void
     let onSave: () -> Void
     let onComments: (() -> Void)?
     let onShare: () -> Void
@@ -408,6 +401,8 @@ private struct ReelPage: View {
             Color.black
             if isNativeInline, let dataURL = reel.videoData ?? prefetchedVideoData ?? loadedVideo {
                 InlineReelPlayer(dataURL: dataURL, isActive: isCurrent)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2, perform: onDoubleTapLike)
             } else if isNativeInline && isCurrent {
                 if mediaError {
                     Button("Could not load video. Tap to retry") { mediaRetry += 1 }
@@ -415,12 +410,16 @@ private struct ReelPage: View {
                 } else { ProgressView("Preparing video…").tint(.white).foregroundStyle(.white) }
             } else if isYouTubeInline && isCurrent {
                 InlineYouTubeReelPlayer(videoID: reel.videoID)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2, perform: onDoubleTapLike)
             } else if let thumb = reel.thumbnailURL, let url = URL(string: thumb) {
                 AsyncImage(url: url) { image in
                     image.resizable().scaledToFill()
                 } placeholder: {
                     Color.white.opacity(0.08)
                 }
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2, perform: onDoubleTapLike)
             } else {
                 LinearGradient(colors: [FFTheme.walnut0, FFTheme.walnut], startPoint: .top, endPoint: .bottom)
             }
@@ -445,19 +444,9 @@ private struct ReelPage: View {
                         // Category/source badges, matching the webapp's own
                         // .reel-meta row exactly -- same audience/source
                         // labels, same green-pill-plus-bordered-pill shape.
-                        HStack(spacing: 6) {
-                            Text(audienceLabel.uppercased())
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 8).padding(.vertical, 3)
-                                .background(FFTheme.meadow.opacity(0.85), in: Capsule())
-                            Text(sourceLabel)
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.9))
-                                .padding(.horizontal, 7).padding(.vertical, 3)
-                                .background(.black.opacity(0.38), in: Capsule())
-                                .overlay(Capsule().stroke(.white.opacity(0.2), lineWidth: 1))
-                        }
+                        Text("\(audienceLabel) · \(sourceLabel)")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.78))
                         Text(reel.title ?? "Untitled")
                             .font(.subheadline.weight(.bold))
                             .lineLimit(2)
@@ -489,13 +478,24 @@ private struct ReelPage: View {
 
                     VStack(spacing: 9) {
                         actionButton(systemImage: reel.likedByMe ? "heart.fill" : "heart", label: "\(reel.likeCount)", tint: reel.likedByMe ? FFTheme.seal : .white, action: onLike)
-                        actionButton(systemImage: reel.savedByMe ? "bookmark.fill" : "bookmark", label: "\(reel.saveCount)", tint: reel.savedByMe ? FFTheme.goldBright : .white, action: onSave)
                         if let onComments {
                             actionButton(systemImage: "bubble.left.fill", label: "Reply", tint: .white, action: onComments)
                         }
                         actionButton(systemImage: "paperplane.fill", label: "Share", tint: .white, action: onShare)
-                        actionButton(systemImage: "hand.thumbsdown", label: "Not for me", tint: .white.opacity(0.85), action: onNotInterested)
-                            .accessibilityLabel("Not interested")
+                        Menu {
+                            Button(action: onSave) {
+                                Label(reel.savedByMe ? "Remove from saved" : "Save Reel", systemImage: reel.savedByMe ? "bookmark.slash" : "bookmark")
+                            }
+                            Button(role: .destructive, action: onNotInterested) {
+                                Label("Not interested", systemImage: "hand.thumbsdown")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.title3.weight(.bold)).foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(.black.opacity(0.28), in: Circle())
+                        }
+                        .accessibilityLabel("More Reel actions")
                     }
                 }
                 .padding(.horizontal, FFTheme.Space.md)
@@ -539,9 +539,8 @@ private struct ReelPage: View {
             }
             .foregroundStyle(tint)
             .frame(minWidth: 44, minHeight: 44)
-            .padding(.horizontal, 6).padding(.vertical, 4)
-            .background(.black.opacity(0.42), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(.white.opacity(0.2), lineWidth: 1))
+            .padding(.horizontal, 2).padding(.vertical, 2)
+            .shadow(color: .black.opacity(0.65), radius: 4, y: 1)
         }
     }
 }
