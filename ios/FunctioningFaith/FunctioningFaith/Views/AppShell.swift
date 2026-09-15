@@ -161,13 +161,18 @@ struct FeatureBottomBarItem: Identifiable, Equatable {
 struct FeatureBottomBar: View {
     let items: [FeatureBottomBarItem]
     @Binding var selection: String
+    var onReselect: ((String) -> Void)? = nil
 
     var body: some View {
         HStack(spacing: 0) {
             ForEach(items) { item in
                 let isSelected = item.id == selection
                 Button {
-                    selection = item.id
+                    if isSelected {
+                        onReselect?(item.id)
+                    } else {
+                        selection = item.id
+                    }
                 } label: {
                     VStack(spacing: 3) {
                         ZStack(alignment: .topTrailing) {
@@ -224,6 +229,7 @@ extension View {
 struct HomeSectionShell: View {
     let onTapLogo: () -> Void
     let isActive: Bool
+    let scrollToTopRequest: Int
     // Every section shell keeps its own NavigationPath so it can be popped
     // to root the moment the section stops being the visible one -- see
     // this shell struct's own .onChange(of: isActive) below for why: a
@@ -236,10 +242,11 @@ struct HomeSectionShell: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            HomeFeedView(isActive: isActive)
+            HomeFeedView(isActive: isActive, scrollToTopRequest: scrollToTopRequest)
                 .reserveFeatureBottomBar()
                 .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
+        .onChange(of: scrollToTopRequest) { _, _ in path = NavigationPath() }
         .onChange(of: isActive) { _, active in if !active { path = NavigationPath() } }
     }
 }

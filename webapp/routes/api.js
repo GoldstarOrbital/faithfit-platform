@@ -2672,16 +2672,34 @@ async function matchedScriptureForPost(userId, content, workoutId, requestedId) 
   }
   const workout=workoutId?db.prepare('SELECT type FROM workouts WHERE id=? AND user_id=?').get(workoutId,userId):null;
   const activityTheme={Run:'endurance perseverance',Walk:'peace gratitude',Hike:'creation strength',Cycle:'endurance courage',Strength:'strength discipline',HIIT:'discipline perseverance',Yoga:'peace stillness',Swim:'renewal courage'};
-  const terms=`${activityTheme[workout?.type]||'faith encouragement'} ${String(content||'').replace(/[^A-Za-z\s]/g,' ').slice(0,180)}`;
+  // Personalization remains grounded in this member's own data: recent
+  // workout types, Scripture they saved, and questions they actually asked.
+  // These enrich the search terms; the returned text still comes exclusively
+  // from the verified local Bible library.
+  const recentWorkoutTypes=db.prepare(`SELECT type FROM workouts WHERE user_id=? AND type IS NOT NULL
+    ORDER BY COALESCE(end_time,created_at) DESC LIMIT 5`).all(userId).map(r=>r.type);
+  const savedSignal=db.prepare(`SELECT text FROM saved_verses WHERE user_id=? ORDER BY created_at DESC LIMIT 3`)
+    .all(userId).map(r=>r.text).join(' ').slice(0,240);
+  const questionSignal=db.prepare(`SELECT question FROM bible_answers_history WHERE user_id=? ORDER BY created_at DESC LIMIT 3`)
+    .all(userId).map(r=>r.question).join(' ').slice(0,180);
+  const memberSignals=`${recentWorkoutTypes.map(type=>activityTheme[type]||type).join(' ')} ${savedSignal} ${questionSignal}`;
+  const terms=`${activityTheme[workout?.type]||'faith encouragement'} ${String(content||'').replace(/[^A-Za-z\s]/g,' ').slice(0,180)} ${memberSignals}`;
   let candidates=bibleFtsSearch(terms).slice(0,8);
   if(!candidates.length) candidates=db.prepare('SELECT id,book,chapter,verse,text,translation FROM bible_verses ORDER BY RANDOM() LIMIT 8').all().map(mirrorVerse);
   if(!candidates.length) return null;
+  // Do not stamp consecutive posts with the same top-ranked verse. Prefer a
+  // fitting candidate the member has not received on any of their last 12
+  // posts; only recycle once the relevant candidate pool is exhausted.
+  const recentVerseIds=new Set(db.prepare(`SELECT verse_id FROM posts WHERE user_id=? AND verse_id IS NOT NULL
+    ORDER BY created_at DESC LIMIT 12`).all(userId).map(r=>r.verse_id));
+  const freshCandidates=candidates.filter(v=>!recentVerseIds.has(v.id));
+  if(freshCandidates.length) candidates=freshCandidates;
   let picked=candidates[0],source='verified_fallback',reason=`Matched to ${workout?.type||'the post'} using verified Bible text.`;
   if(gloo.isConfigured()) {
     try {
       const user=db.prepare('SELECT tradition FROM users WHERE id=?').get(userId)||{};
       const out=await gloo.chatJson({kind:'post_scripture_match',userId,tradition:gloo.normaliseTradition(user.tradition),cache:false,maxTokens:180,
-        messages:[{role:'user',content:`Choose exactly one candidate id for this Christian fitness/community post. Do not write or alter scripture. Return JSON {"id":"...","reason":"..."}. Post context: ${String(content||'').slice(0,300)}. Activity: ${workout?.type||'none'}. Candidates: ${JSON.stringify(candidates.map(v=>({id:v.id,reference:v.reference,text:v.text})))}`}]});
+        messages:[{role:'user',content:`Choose exactly one candidate id for this Christian fitness/community post. Do not write or alter scripture. Return JSON {"id":"...","reason":"..."}. Post context: ${String(content||'').slice(0,300)}. Current activity: ${workout?.type||'none'}. Recent member workout types: ${recentWorkoutTypes.join(', ')||'none'}. Candidates: ${JSON.stringify(candidates.map(v=>({id:v.id,reference:v.reference,text:v.text})))}`}]});
       const chosen=out?.json&&candidates.find(v=>v.id===out.json.id);
       if(chosen){picked=chosen;source='gloo_verified_candidates';reason=String(out.json.reason||reason).slice(0,240);}
     } catch { /* verified fallback remains */ }

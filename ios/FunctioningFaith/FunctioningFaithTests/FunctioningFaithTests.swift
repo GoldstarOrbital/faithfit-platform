@@ -41,6 +41,33 @@ final class FunctioningFaithTests: XCTestCase {
         }
     }
 
+    func testHorizontalReelPositionOnlyMovesOnHorizontalAxis() {
+        let source = CGSize(width: 1920, height: 1080)
+        let render = CGSize(width: 720, height: 1280)
+        let leftFrame = CGRect(origin: .zero, size: source).applying(
+            ReelCropMath.transform(sourceSize: source, preferredTransform: .identity,
+                                   renderSize: render, zoom: 1.2, position: -1)
+        )
+        let rightFrame = CGRect(origin: .zero, size: source).applying(
+            ReelCropMath.transform(sourceSize: source, preferredTransform: .identity,
+                                   renderSize: render, zoom: 1.2, position: 1)
+        )
+        XCTAssertEqual(leftFrame.midY, render.height / 2, accuracy: 0.01)
+        XCTAssertEqual(rightFrame.midY, render.height / 2, accuracy: 0.01)
+        XCTAssertNotEqual(leftFrame.midX, rightFrame.midX)
+    }
+
+    func testPostMediaUsesInstagramStyleFullWidthAspectBounds() {
+        XCTAssertEqual(PostMediaSizing.displayAspectRatio(for: CGSize(width: 800, height: 1000)), 0.8, accuracy: 0.001)
+        XCTAssertEqual(PostMediaSizing.displayAspectRatio(for: CGSize(width: 1000, height: 1000)), 1, accuracy: 0.001)
+        XCTAssertEqual(PostMediaSizing.displayAspectRatio(for: CGSize(width: 2400, height: 800)), 1.91, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testFreshRouterAlwaysStartsOnHome() {
+        XCTAssertEqual(DeepLinkRouter().selectedTab, .home)
+    }
+
     func testPopulatedInboxNeverShowsBlockingRefreshError() {
         XCTAssertFalse(DMInboxPresentation.shouldShowLoadError(isLoading: false, hasThreads: true, error: "Timed out"))
         XCTAssertFalse(DMInboxPresentation.shouldShowLoadError(isLoading: true, hasThreads: false, error: "Timed out"))

@@ -388,9 +388,14 @@ enum ReelCropMath {
         let overflowX = max(0, (scaled.width - renderSize.width) / 2)
         let overflowY = max(0, (scaled.height - renderSize.height) / 2)
         let safePosition = CGFloat(min(max(position, -1), 1))
+        let isWide = orientedSize.width / orientedSize.height > renderSize.width / renderSize.height
         let translation = CGAffineTransform(
-            translationX: (renderSize.width - scaled.width) / 2 - safePosition * overflowX,
-            y: (renderSize.height - scaled.height) / 2 - safePosition * overflowY
+            // Position only on the source's primary overflow axis. Zoom adds
+            // a little overflow on both axes, but shifting both made a wide
+            // clip drift vertically in the export even though the preview
+            // correctly moved it only left/right.
+            translationX: (renderSize.width - scaled.width) / 2 - (isWide ? safePosition * overflowX : 0),
+            y: (renderSize.height - scaled.height) / 2 - (isWide ? 0 : safePosition * overflowY)
         )
 
         return preferredTransform

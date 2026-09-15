@@ -68,7 +68,7 @@ assert.match(client, /func fetchPrivacySettings\(\)/, 'native app must load pers
 assert.match(client, /func setConsent\(scope: String, granted: Bool\)/, 'native app must persist biometric consent');
 assert.match(profile, /await APIClient\.shared\.fetchPrivacySettings\(\)/, 'profile must restore saved privacy choices');
 assert.match(workout, /guard biometricIngestEnabled, heartRate > 0, let workoutID/, 'biometric uploads must remain explicit opt-in');
-assert.match(workout, /Date\(\)\.timeIntervalSince\(lastBiometricUpload\) >= 60/, 'biometric uploads must be rate limited');
+assert.match(workout, /Date\(\)\.timeIntervalSince\((?:activeWorkout\.)?lastBiometricUpload\) >= 60/, 'biometric uploads must be rate limited');
 const appShell = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'AppShell.swift');
 const exploreShell = appShell.split('struct ExploreSectionShell')[1]?.split('\nstruct ')[0];
 assert.ok(exploreShell, 'Explore needs a dedicated section shell');
@@ -90,14 +90,14 @@ assert.match(reelComposer, /Choose an MP4 or MOV/, 'iPhone MOV files must be acc
 assert.match(reelComposer, /let mime = "video\/mp4"/, 'accepted camera videos must be exported to an iOS/web-playable MP4');
 assert.match(media, /const MAX_VIDEO_BYTES = 10 \* 1024 \* 1024/, 'the server must accommodate a short iPhone MOV');
 assert.match(reelComposer, /private static let maxBytes = 10 \* 1024 \* 1024/, 'the native reel picker must match the server upload cap');
-assert.match(reelComposer, /private func compressedVideoURL\(from sourceURL: URL\) async throws -> URL/, 'native Reel uploads must run through a client-side compression export');
+assert.match(reelComposer, /private func compressedVideoURL\(from sourceURL: URL, zoom: Double, position: Double\) async throws -> URL/, 'native Reel uploads must run through a client-side compression export');
 assert.match(reelComposer, /AVAssetExportPresetMediumQuality/, 'native Reel compression must use a practical mobile export preset');
 assert.match(reelComposer, /exportAsynchronously/, 'video compression must not block the SwiftUI interaction thread');
-assert.match(reelComposer, /uploadURL = try await compressedVideoURL\(from: url\)/, 'the uploaded Reel payload must come from the compressed output, not the camera original');
+assert.match(reelComposer, /uploadURL = try await compressedVideoURL\(from: (?:url|previewURL), zoom:/, 'the uploaded Reel payload must come from the compressed output, not the camera original');
 assert.match(workout, /struct PostWorkoutSummaryView/, 'stopping a workout must show a complete session recap');
 assert.match(workout, /Apple Health insight/, 'the recap must explain the actual available Apple Health data');
 assert.match(profile, /Heart-rate calm cue/, 'members need an explicit calm-cue preference');
-assert.match(workout, /Date\(\)\.timeIntervalSince\(lastHeartRateCalmCue\) >= 5 \* 60/, 'heart-rate calm cues must be rate limited');
+assert.match(workout, /Date\(\)\.timeIntervalSince\((?:activeWorkout\.)?lastHeartRateCalmCue\) >= 5 \* 60/, 'heart-rate calm cues must be rate limited');
 assert.match(notifications, /deliverHeartRateCalmCue/, 'the calm cue must reach the local-notification coordinator');
 
 console.log(JSON.stringify({ native_action_contracts: true, timeout_boundary_seconds: 20, bluetooth_profiles: ['heart_rate', 'cycling_speed_cadence', 'cycling_power', 'fitness_machine'] }));

@@ -17,6 +17,8 @@ struct RootTabView: View {
     @ObservedObject private var activeWorkout = ActiveWorkoutSession.shared
     @State private var showSidePanel = false
     @State private var showAskAI = false
+    @State private var homeScrollToTopRequest = 0
+    @State private var establishedInitialTab = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,7 +28,13 @@ struct RootTabView: View {
                 ZStack(alignment: .bottom) {
                     currentSection
                     if isGlobalBarActive {
-                        FeatureBottomBar(items: globalBarItems, selection: globalBarSelection)
+                        FeatureBottomBar(
+                            items: globalBarItems,
+                            selection: globalBarSelection,
+                            onReselect: { title in
+                                if title == AppTab.home.title { homeScrollToTopRequest &+= 1 }
+                            }
+                        )
                     }
                     if deepLinks.selectedTab != .reels { askAIButton }
                 }
@@ -60,6 +68,12 @@ struct RootTabView: View {
             }
         }
         .task {
+            // A fresh signed-in shell always starts at Home. A real incoming
+            // deep link remains authoritative and is never overwritten.
+            if !establishedInitialTab {
+                establishedInitialTab = true
+                if deepLinks.pending == nil { deepLinks.selectedTab = .home }
+            }
             if let id = session.profile?.id {
                 await dmStore.configure(myUserID: id)
                 await dmStore.loadInbox()
@@ -93,7 +107,13 @@ struct RootTabView: View {
     // visibility" trick TabView itself uses under the hood.
     private var currentSection: some View {
         ZStack {
-            section(.home) { HomeSectionShell(onTapLogo: openPanel, isActive: $0) }
+            section(.home) {
+                HomeSectionShell(
+                    onTapLogo: openPanel,
+                    isActive: $0,
+                    scrollToTopRequest: homeScrollToTopRequest
+                )
+            }
             section(.reels) { ReelsSectionShell(onTapLogo: openPanel, isActive: $0) }
             section(.scripture) { ScriptureSectionShell(onTapLogo: openPanel, isActive: $0) }
             section(.messages) { MessagesSectionShell(onTapLogo: openPanel, isActive: $0) }

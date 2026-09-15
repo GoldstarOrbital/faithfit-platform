@@ -54,9 +54,12 @@ struct BibleAnswersView: View {
                     conversation
                 }
                 if !suggestions.isEmpty { suggestionsRow }
-                composeBar
             }
         }
+        // A safe-area composer follows the keyboard instead of remaining
+        // behind it. The question text and send control stay visible at every
+        // keyboard height, including the larger accessibility keyboard.
+        .safeAreaInset(edge: .bottom, spacing: 0) { composeBar }
         .navigationTitle("Bible Answers")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -76,6 +79,11 @@ struct BibleAnswersView: View {
                     errorMessage = nil
                 }
                 .disabled(history.isEmpty && pendingQuestion == nil)
+            }
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { inputFocused = false }
+                    .fontWeight(.semibold)
             }
         }
         .sheet(isPresented: $showMemory) {
@@ -323,6 +331,8 @@ struct BibleAnswersView: View {
                 .lineLimit(1...4)
                 .font(FFTheme.serif(15))
                 .focused($inputFocused)
+                .submitLabel(.send)
+                .onSubmit { Task { await ask() } }
                 .padding(.horizontal, FFTheme.Space.md)
                 .padding(.vertical, FFTheme.Space.sm)
                 .background(FFTheme.parchment2, in: Capsule())
