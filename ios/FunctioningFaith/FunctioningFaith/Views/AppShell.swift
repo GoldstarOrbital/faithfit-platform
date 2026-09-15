@@ -31,13 +31,14 @@ extension AppTab: Identifiable {
     /// way the bar itself does. Settings is deliberately last: it's
     /// account-level, not a "section" the way Train/Explore/Profile are, so
     /// it sits at the bottom of the list on its own.
-    static let overflowSections: [AppTab] = [.home, .workouts, .explore, .profile, .settings]
+    static let overflowSections: [AppTab] = [.home, .workouts, .explore, .meditation, .profile, .settings]
 
     var title: String {
         switch self {
         case .home: return "Home"
         case .workouts: return "Train"
         case .explore: return "Explore"
+        case .meditation: return "Meditation"
         case .messages: return "Messages"
         case .profile: return "Profile"
         case .reels: return "Reels"
@@ -52,6 +53,7 @@ extension AppTab: Identifiable {
         case .home: return "house.fill"
         case .workouts: return "figure.run"
         case .explore: return "safari.fill"
+        case .meditation: return "sparkles"
         case .messages: return "bubble.left.and.bubble.right.fill"
         case .profile: return "person.crop.circle.fill"
         case .reels: return "rectangle.stack.fill"
@@ -308,7 +310,23 @@ struct SearchSectionShell: View {
     }
 }
 
-/// Train's five real sub-areas -- these used to be three toolbar icons plus
+/// Meditation lives in the left panel so breathwork has a calm, dedicated
+/// home instead of being buried inside workout tracking.
+struct MeditationSectionShell: View {
+    let onTapLogo: () -> Void
+    let isActive: Bool
+    @State private var path = NavigationPath()
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            BreathworkView()
+                .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
+        }
+        .onChange(of: isActive) { _, active in if !active { path = NavigationPath() } }
+    }
+}
+
+/// Train's real sub-areas -- these used to be three toolbar icons plus
 /// an inline "See all" link on top of WorkoutView's own logging screen;
 /// now they're peers instead of being nested inside it.
 struct TrainSectionShell: View {
@@ -325,7 +343,6 @@ struct TrainSectionShell: View {
         FeatureBottomBarItem(id: "log", title: "Log", systemImage: "figure.run"),
         FeatureBottomBarItem(id: "history", title: "History", systemImage: "clock.arrow.circlepath"),
         FeatureBottomBarItem(id: "stats", title: "Stats", systemImage: "chart.bar.fill"),
-        FeatureBottomBarItem(id: "breathe", title: "Breathe", systemImage: "wind"),
         FeatureBottomBarItem(id: "heart", title: "Heart", systemImage: "heart.text.square.fill"),
     ]
 
@@ -337,7 +354,6 @@ struct TrainSectionShell: View {
                     case "log": WorkoutView()
                     case "history": WorkoutHistoryView()
                     case "stats": StatsView()
-                    case "breathe": BreathworkView()
                     default: HeartCheckInView()
                     }
                 }

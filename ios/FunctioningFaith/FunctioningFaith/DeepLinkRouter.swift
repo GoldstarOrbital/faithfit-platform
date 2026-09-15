@@ -187,7 +187,7 @@ final class DeepLinkRouter: ObservableObject {
 
 enum AppTab: Hashable {
     // home, reels, scripture, messages, search are the persistent global
-    // bottom bar's five items; workouts, explore, profile, settings are
+    // bottom bar's five items; workouts, explore, meditation, profile, and settings are
     // reached through the side panel instead (see AppShell.swift).
-    case home, workouts, explore, messages, profile, reels, scripture, search, settings
+    case home, workouts, explore, meditation, messages, profile, reels, scripture, search, settings
 }

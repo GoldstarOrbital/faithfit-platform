@@ -14,6 +14,7 @@ final class NativeWorkoutTracker: NSObject, ObservableObject, CLLocationManagerD
     @Published private(set) var maxSpeedKmh: Double = 0
     @Published private(set) var elevationGainM: Double = 0
     @Published private(set) var elevationLossM: Double = 0
+    private(set) var isTracking = false
 
     private let manager = CLLocationManager()
     private var lastAcceptedLocation: CLLocation?
@@ -29,10 +30,15 @@ final class NativeWorkoutTracker: NSObject, ObservableObject, CLLocationManagerD
         manager.activityType = .fitness
         manager.pausesLocationUpdatesAutomatically = false
         manager.allowsBackgroundLocationUpdates = true
-        manager.showsBackgroundLocationIndicator = true
+        // The system's blue location indicator must never appear merely
+        // because this singleton was created. It is enabled only while a
+        // member has explicitly started or resumed a workout.
+        manager.showsBackgroundLocationIndicator = false
     }
 
     func start(activityType: String = "Workout") {
+        isTracking = true
+        manager.showsBackgroundLocationIndicator = true
         self.activityType = activityType
         points.removeAll(keepingCapacity: true)
         distanceKm = 0
@@ -48,12 +54,18 @@ final class NativeWorkoutTracker: NSObject, ObservableObject, CLLocationManagerD
         manager.startUpdatingLocation()
     }
 
-    func stop() { manager.stopUpdatingLocation() }
+    func stop() {
+        isTracking = false
+        manager.stopUpdatingLocation()
+        manager.showsBackgroundLocationIndicator = false
+    }
 
     /// Temporarily stops GPS collection without discarding the route or the
     /// accumulated distance. A resumed workout must be one continuous record,
     /// not a new workout with a silently reset route.
     func resume() {
+        isTracking = true
+        manager.showsBackgroundLocationIndicator = true
         lastAcceptedLocation = nil
         currentSpeedKmh = nil
         guard authorization == .authorizedAlways || authorization == .authorizedWhenInUse else { return }
@@ -78,6 +90,7 @@ final class NativeWorkoutTracker: NSObject, ObservableObject, CLLocationManagerD
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         authorization = manager.authorizationStatus
+        guard isTracking else { return }
         if authorization == .authorizedAlways || authorization == .authorizedWhenInUse { manager.startUpdatingLocation() }
     }
 

@@ -120,6 +120,7 @@ struct RootTabView: View {
             section(.search) { SearchSectionShell(onTapLogo: openPanel, isActive: $0) }
             section(.workouts) { TrainSectionShell(onTapLogo: openPanel, isActive: $0) }
             section(.explore) { ExploreSectionShell(onTapLogo: openPanel, isActive: $0) }
+            section(.meditation) { MeditationSectionShell(onTapLogo: openPanel, isActive: $0) }
             section(.profile) { ProfileSectionShell(onTapLogo: openPanel, isActive: $0) }
             section(.settings) { SettingsSectionShell(onTapLogo: openPanel, isActive: $0) }
         }

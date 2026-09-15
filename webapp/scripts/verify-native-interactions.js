@@ -30,6 +30,8 @@ const postComposer = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', '
 const reelComposer = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'ReelComposerView.swift');
 const reelClient = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Networking', 'APIClient+MemberReels.swift');
 const notifications = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Networking', 'NotificationCoordinator.swift');
+const breathwork = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'BreathworkView.swift');
+const homeFeed = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'HomeFeedView.swift');
 const media = read('lib', 'media.js');
 
 assert.match(client, /request\.timeoutInterval = timeoutInterval/, 'native requests need an explicit finite deadline');
@@ -80,6 +82,9 @@ assert.match(liveActivity, /Activity<WorkoutLiveActivityAttributes>/, 'active wo
 assert.match(workout, /WorkoutLiveActivityManager\.shared\.start/, 'starting a workout must begin its Live Activity');
 assert.match(workout, /WorkoutLiveActivityManager\.shared\.end/, 'stopping a workout must dismiss its Live Activity');
 assert.match(tracker, /allowsBackgroundLocationUpdates = true/, 'live workouts must keep collecting location in the background');
+assert.match(tracker, /showsBackgroundLocationIndicator = false/, 'idle tracker must not display the system location indicator');
+assert.match(tracker, /guard isTracking else \{ return \}/, 'authorization changes must not start GPS outside an explicit workout');
+assert.match(tracker, /func stop\(\)[^]*isTracking = false[^]*stopUpdatingLocation\(\)[^]*showsBackgroundLocationIndicator = false/, 'finishing or pausing a workout must stop GPS and its indicator');
 assert.match(appInfo, /NSSupportsLiveActivities/, 'the app must declare Live Activity support');
 assert.match(appInfo, /UIBackgroundModes/, 'the app must declare its background location mode');
 assert.match(widgetProject, /FunctioningFaithWidgets:/, 'the generated project must include the Widget extension');
@@ -99,5 +104,15 @@ assert.match(workout, /Apple Health insight/, 'the recap must explain the actual
 assert.match(profile, /Heart-rate calm cue/, 'members need an explicit calm-cue preference');
 assert.match(workout, /Date\(\)\.timeIntervalSince\((?:activeWorkout\.)?lastHeartRateCalmCue\) >= 5 \* 60/, 'heart-rate calm cues must be rate limited');
 assert.match(notifications, /deliverHeartRateCalmCue/, 'the calm cue must reach the local-notification coordinator');
+assert.match(appShell, /overflowSections[^\n]*\.meditation/, 'Meditation must be reachable from the side panel');
+assert.match(appShell, /struct MeditationSectionShell[^]*BreathworkView\(\)/, 'the side-panel Meditation destination must own breathwork');
+assert.doesNotMatch(appShell.split('struct TrainSectionShell')[1]?.split('\nstruct ')[0] || '', /id: "breathe"/, 'breathwork must no longer be buried in Train');
+assert.match(breathwork, /MeditationSoundscapePlayer[^]*AVAudioPlayerNode/, 'meditation needs offline ambient soundscapes');
+assert.match(breathwork, /scriptureBlock[^]*circleView/, 'guided meditation must lead with Scripture');
+const storiesPosition = homeFeed.indexOf('StoriesRail(isActive: isActive)');
+const missionPosition = homeFeed.indexOf('ScriptureInMotionCard()');
+const actionsPosition = homeFeed.indexOf('HomeActionsRow()');
+assert.ok(storiesPosition >= 0 && storiesPosition < missionPosition && missionPosition < actionsPosition,
+  'Moments must appear above Scripture in Motion and the route/Reels shortcuts');
 
 console.log(JSON.stringify({ native_action_contracts: true, timeout_boundary_seconds: 20, bluetooth_profiles: ['heart_rate', 'cycling_speed_cadence', 'cycling_power', 'fitness_machine'] }));
