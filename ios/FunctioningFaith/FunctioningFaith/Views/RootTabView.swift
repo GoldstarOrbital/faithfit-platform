@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 import WidgetKit
 
 /// The app's root shell. See AppShell.swift for the design: a persistent
@@ -298,18 +297,12 @@ extension View {
                 .accessibilityLabel("Open menu")
                 .accessibilityHint("Shows Train, Explore, and Profile")
             }
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") {
-                    UIApplication.shared.sendAction(
-                        #selector(UIResponder.resignFirstResponder),
-                        to: nil, from: nil, for: nil
-                    )
-                }
-                .fontWeight(.semibold)
-                .accessibilityHint("Hides the keyboard so the content and send controls are visible")
-            }
         }
+        // Keyboard accessories belong to the screen that owns the focused
+        // field (Bible Answers and DMs install their own Done controls).
+        // Installing one beside this shared navigation-bar toolbar caused
+        // SwiftUI to rebuild both bars as the keyboard dismissed, leaving
+        // the navigation header and bottom chrome at the keyboard's size.
         .scrollDismissesKeyboard(.interactively)
     }
 

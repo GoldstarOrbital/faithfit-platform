@@ -30,6 +30,13 @@ enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
 
     var id: String { rawValue }
 
+    /// Breathwork has a dedicated Meditation section in the side panel.
+    /// Keep the enum case for saved/deep-linked destinations, but do not
+    /// duplicate it in Explore's Faith catalog.
+    static func visibleItems(in category: Category) -> [ExploreCatalogItem] {
+        allCases.filter { $0.category == category && $0 != .breathe }
+    }
+
     var category: Category {
         switch self {
         case .scripture, .bibleBrowse, .scripturePractice, .savedVerses, .bibleAnswers, .breathe, .heartCheckIn:
@@ -202,7 +209,7 @@ struct ExploreCatalogGrid: View {
     }
 
     private func categorySection(_ category: ExploreCatalogItem.Category) -> some View {
-        let items = ExploreCatalogItem.allCases.filter { $0.category == category }
+        let items = ExploreCatalogItem.visibleItems(in: category)
         return VStack(alignment: .leading, spacing: FFTheme.Space.xs) {
             if categories.count > 1 {
                 Text(category.rawValue)

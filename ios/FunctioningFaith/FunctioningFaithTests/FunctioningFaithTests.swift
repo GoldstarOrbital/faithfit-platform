@@ -270,6 +270,11 @@ final class FunctioningFaithTests: XCTestCase {
         ])
     }
 
+    func testBreathworkLivesOnlyInMeditationNotExploreFaith() {
+        XCTAssertFalse(ExploreCatalogItem.visibleItems(in: .faith).contains(.breathe))
+        XCTAssertTrue(AppTab.overflowSections.contains(.meditation))
+    }
+
     func testWeeklyRecapDecodesRailwayShape() throws {
         let json = #"{"workouts":4,"distance_km":18.2,"minutes":110,"active_days":3,"posts":1,"kudos":6,"replies":2,"focus":"Run","share_text":"This week I showed up."}"#
         let recap = try JSONDecoder().decode(WeeklyRecap.self, from: Data(json.utf8))
