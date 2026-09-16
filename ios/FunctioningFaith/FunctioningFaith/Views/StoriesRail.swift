@@ -4,6 +4,7 @@ import SwiftUI
 /// stories-rail pattern -- an unviewed ring is highlighted, tapping opens
 /// that author's moments in order. "Add a moment" is always the first ring.
 struct StoriesRail: View {
+    @EnvironmentObject private var session: NativeSession
     /// Home stays mounted under RootTabView; without this the rail only loads
     /// once via `.task` and muted authors' rings can linger until remount.
     var isActive: Bool = true
@@ -103,8 +104,14 @@ struct StoriesRail: View {
 
     private func load() async {
         loadError = nil
+        if stories.isEmpty, let userID = session.profile?.id,
+           let cached = StoriesCache.load(userID: userID) {
+            stories = cached
+        }
         do {
-            stories = try await APIClient.shared.fetchStories()
+            let fresh = try await APIClient.shared.fetchStories()
+            stories = fresh
+            if let userID = session.profile?.id { StoriesCache.save(fresh, userID: userID) }
         } catch is CancellationError {
             return
         } catch {

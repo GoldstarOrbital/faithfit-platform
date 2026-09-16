@@ -331,12 +331,20 @@ final class APIClient {
     func startWorkout(type: String) async throws -> WorkoutSummary {
         if useMock { return MockData.activeWorkout(type: type) }
         let response: WorkoutStartResponse = try await request("/api/workouts/start", method: "POST", body: WorkoutStart(type: type))
-        return WorkoutSummary(id: response.id, type: type, startTime: .now, endTime: nil, calories: nil, avgHR: nil)
+        let verse = response.startVerse.map {
+            VerseSnippet(
+                id: $0.deepLink ?? $0.reference,
+                reference: $0.reference,
+                snippet: $0.snippet ?? $0.text ?? "",
+                deepLink: $0.deepLink ?? ""
+            )
+        }
+        return WorkoutSummary(id: response.id, type: type, startTime: .now, endTime: nil, calories: nil, avgHR: nil, startVerse: verse)
     }
 
     func stopWorkout(id: UUID, gpsPoints: [[Double]], gpsDistanceKm: Double, activeDurationSec: Int, sportMetrics: [String: Double] = [:]) async throws -> WorkoutCompletion {
         if useMock {
-            return WorkoutCompletion(id: id, calories: TrainingMath.estimatedKcal(elapsed: 0, km: gpsDistanceKm), avgHR: nil, maxHR: nil, distanceKm: gpsDistanceKm, durationSec: 0, encouragement: nil, effort: nil)
+            return WorkoutCompletion(id: id, calories: TrainingMath.estimatedKcal(elapsed: 0, km: gpsDistanceKm), avgHR: nil, maxHR: nil, distanceKm: gpsDistanceKm, durationSec: 0, encouragement: nil, effort: nil, finishVerse: nil)
         }
         // UUID.uuidString is uppercase on Apple platforms. Workout IDs are
         // generated and stored by Node as lowercase strings, and SQLite's `=`
@@ -356,7 +364,7 @@ final class APIClient {
 
     func logManualWorkout(type: String, durationMin: Double, distanceKm: Double?, note: String?) async throws -> ManualWorkoutResult {
         if useMock {
-            return ManualWorkoutResult(id: UUID().uuidString, type: type, calories: TrainingMath.estimatedKcal(elapsed: durationMin * 60, km: distanceKm ?? 0), distanceKm: distanceKm, durationSec: Int(durationMin * 60))
+            return ManualWorkoutResult(id: UUID().uuidString, type: type, calories: TrainingMath.estimatedKcal(elapsed: durationMin * 60, km: distanceKm ?? 0), distanceKm: distanceKm, durationSec: Int(durationMin * 60), finishVerse: nil)
         }
         return try await request("/api/workouts/manual", method: "POST", body: ManualWorkoutBody(
             type: type,
@@ -1792,7 +1800,24 @@ private struct NativeAppleAuthResponse: Decodable {
         case mfaRequired = "mfa_required"
     }
 }
-private struct WorkoutStartResponse: Decodable { let id: UUID }
+private struct WorkoutStartResponse: Decodable {
+    struct VersePayload: Decodable {
+        let reference: String
+        let snippet: String?
+        let text: String?
+        let deepLink: String?
+        enum CodingKeys: String, CodingKey {
+            case reference, snippet, text
+            case deepLink = "deep_link"
+        }
+    }
+    let id: UUID
+    let startVerse: VersePayload?
+    enum CodingKeys: String, CodingKey {
+        case id
+        case startVerse = "start_verse"
+    }
+}
 
 // MARK: - DM wire types (field names match lib/dms.js's real response shapes exactly)
 

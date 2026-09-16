@@ -428,7 +428,11 @@ struct WorkoutView: View {
                         startedAt: started.startTime,
                         type: selectedType,
                         offline: false,
-                        verse: initialVerse
+                        // The server rotates a verified, workout-specific
+                        // opening verse against this member's recent history.
+                        // Previously the client decoded only the workout id
+                        // and silently threw that selection away.
+                        verse: started.startVerse ?? initialVerse
                     )
                     WorkoutLiveActivityManager.shared.start(sport: selectedType)
                 }
@@ -481,7 +485,15 @@ struct WorkoutView: View {
                     if let power = bluetooth.cyclingPowerWatts { sportMetrics["power_w"] = Double(power) }
                     if bluetooth.peakPowerWatts > 0 { sportMetrics["peak_power_w"] = Double(bluetooth.peakPowerWatts) }
                     let completion = try await APIClient.shared.stopWorkout(id: id, gpsPoints: route, gpsDistanceKm: distance, activeDurationSec: Int(elapsed.rounded()), sportMetrics: sportMetrics)
-                    await fillInVerseIfNeeded()
+                    if let finishVerse = completion.finishVerse {
+                        await MainActor.run {
+                            workoutVerse = finishVerse
+                            WidgetScriptureStore.save(reference: finishVerse.reference, text: finishVerse.snippet, context: "After your \(selectedType.lowercased())")
+                            WidgetCenter.shared.reloadTimelines(ofKind: "FunctioningFaithScripture")
+                        }
+                    } else {
+                        await fillInVerseIfNeeded()
+                    }
                     await MainActor.run {
                         completedSportMetrics = sportMetrics
                         completedRoute = route
@@ -594,7 +606,13 @@ struct WorkoutView: View {
                 note: manualNote.isEmpty ? nil : manualNote
             )
             completedSportMetrics = [:]
-            await fillInVerseIfNeeded()
+            if let finishVerse = saved.finishVerse {
+                workoutVerse = finishVerse
+                WidgetScriptureStore.save(reference: finishVerse.reference, text: finishVerse.snippet, context: "After your \(selectedType.lowercased())")
+                WidgetCenter.shared.reloadTimelines(ofKind: "FunctioningFaithScripture")
+            } else {
+                await fillInVerseIfNeeded()
+            }
             completedWorkout = WorkoutCompletion(
                 id: UUID(uuidString: saved.id) ?? UUID(),
                 calories: saved.calories,
@@ -603,7 +621,8 @@ struct WorkoutView: View {
                 distanceKm: saved.distanceKm,
                 durationSec: saved.durationSec,
                 encouragement: "Every faithful step counts. Keep building the rhythm God has given you.",
-                effort: nil
+                effort: nil,
+                finishVerse: nil
             )
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             let now = Date()

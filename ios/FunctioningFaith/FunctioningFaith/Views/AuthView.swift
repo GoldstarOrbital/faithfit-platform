@@ -27,6 +27,7 @@ final class NativeSession: ObservableObject {
                 FeedCache.clearAll()
                 MissionCache.clearAll()
                 ReelsCache.clearAll()
+                StoriesCache.clearAll()
                 await MemberAvatarCache.shared.clearAll()
             }
         }
@@ -55,6 +56,7 @@ final class NativeSession: ObservableObject {
             FeedCache.clearAll()
             MissionCache.clearAll()
             ReelsCache.clearAll()
+            StoriesCache.clearAll()
             await MemberAvatarCache.shared.clearAll()
         } catch {
             if let state = try? await APIClient.shared.fetchSessionState() {
@@ -66,6 +68,7 @@ final class NativeSession: ObservableObject {
         // live mission so the first Home appear often already has a hit.
         if let userID = profile?.id {
             MissionCache.warmFromDisk(userID: userID)
+            _ = StoriesCache.load(userID: userID)
             Task {
                 if let fetched = try? await APIClient.shared.fetchScriptureMission() {
                     MissionCache.save(fetched, userID: userID)
@@ -86,6 +89,7 @@ final class NativeSession: ObservableObject {
         FeedCache.clearAll()
         MissionCache.clearAll()
         ReelsCache.clearAll()
+        StoriesCache.clearAll()
         await MemberAvatarCache.shared.clearAll()
     }
 
@@ -97,6 +101,7 @@ final class NativeSession: ObservableObject {
         FeedCache.clearAll()
         MissionCache.clearAll()
         ReelsCache.clearAll()
+        StoriesCache.clearAll()
         await MemberAvatarCache.shared.clearAll()
     }
 }

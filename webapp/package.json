@@ -32,7 +32,8 @@
     "verify:native-interactions": "node scripts/verify-native-interactions.js",
     "verify:editorial-notifications": "node scripts/verify-editorial-notifications.js",
     "verify:workout-release": "node scripts/verify-workout-release.js",
-    "verify:post-scripture-personalization": "node scripts/verify-post-scripture-personalization.js"
+    "verify:post-scripture-personalization": "node scripts/verify-post-scripture-personalization.js",
+    "verify:launch-readiness": "node scripts/verify-launch-readiness.js"
   },
   "dependencies": {
     "compression": "^1.8.1",

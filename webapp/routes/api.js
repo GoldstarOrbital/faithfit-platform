@@ -1951,7 +1951,7 @@ router.post('/workouts/start', requireAuth, (req, res) => {
   // its push as verse_reply/"Community", which most members never toggled on
   // for what is, in substance, a Scripture notification.
   if (startResult.payload) {
-    push.send(uid, 'daily_verse', {
+    push.send(uid, 'workout_scripture', {
       title: 'Starting strong',
       body: `${startResult.payload.reference} — ${startResult.payload.snippet || startResult.payload.text || ''}`,
       url: notificationDestination('verse', { reference: startResult.payload.reference }),
@@ -2050,7 +2050,7 @@ router.post('/workouts/:id/sample', requireAuth, async (req, res) => {
 
   // Closed-device encouragement is reserved for hard transitions, and only if
   // the member opted into reminders. The on-site card remains the primary path.
-  if (['climbing', 'the_wall', 'finishing'].includes(result.moment)) {
+  if (['climbing', 'the_wall'].includes(result.moment)) {
     push.send(req.session.userId, 'reminders', {
       title: `${result.moment_label} · Functioning Faith`,
       body: `${result.payload.reference} — ${result.payload.snippet || 'Keep going with courage.'}`,
@@ -2156,14 +2156,14 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   // A closed-device verse for every completed run, not just a live-tracked one
   // that happened to reach the 'finishing' biometric moment above -- a manual
   // entry or a short run that never sampled that far still deserves one.
+  let finishVerse = null;
   try {
-    const verseRow = db.prepare('SELECT book, chapter, verse, text FROM bible_verses ORDER BY RANDOM() LIMIT 1').get();
-    if (verseRow) {
-      const reference = `${verseRow.book} ${verseRow.chapter}:${verseRow.verse}`;
-      push.send(req.session.userId, 'daily_verse', {
+    finishVerse = workoutFinishVerse(req.session.userId, workout.id);
+    if (finishVerse) {
+      push.send(req.session.userId, 'workout_scripture', {
         title: 'After your run',
-        body: `${reference} — ${verseRow.text}`,
-        url: notificationDestination('verse', { reference }),
+        body: `${finishVerse.reference} — ${finishVerse.snippet}`,
+        url: notificationDestination('verse', { reference: finishVerse.reference }),
         tag: `workout-${workout.id}-finished`,
       }).catch(() => {});
     }
@@ -2221,6 +2221,7 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
       max_hr_formula: maxInfo ? maxInfo.formula || null : null,
     },
     encouragement,
+    finish_verse: finishVerse,
   });
 });
 
@@ -2350,14 +2351,14 @@ router.post('/workouts/manual', requireAuth, (req, res) => {
   }
 
   publish('workout.completed', { user_id: uid, workout_id: id, calories: cal, avg_hr: avg_hr || null });
+  let finishVerse = null;
   try {
-    const verseRow = db.prepare('SELECT book, chapter, verse, text FROM bible_verses ORDER BY RANDOM() LIMIT 1').get();
-    if (verseRow) {
-      const reference = `${verseRow.book} ${verseRow.chapter}:${verseRow.verse}`;
-      push.send(uid, 'daily_verse', {
+    finishVerse = workoutFinishVerse(uid, id);
+    if (finishVerse) {
+      push.send(uid, 'workout_scripture', {
         title: 'After your run',
-        body: `${reference} — ${verseRow.text}`,
-        url: notificationDestination('verse', { reference }),
+        body: `${finishVerse.reference} — ${finishVerse.snippet}`,
+        url: notificationDestination('verse', { reference: finishVerse.reference }),
         tag: `workout-${id}-finished`,
       }).catch(() => {});
     }
@@ -2385,6 +2386,7 @@ router.post('/workouts/manual', requireAuth, (req, res) => {
     effort_note: effortSummary
       ? effortLib.describeEffort(effortSummary, personalBests(uid, id))
       : null,
+    finish_verse: finishVerse,
   });
 });
 
@@ -4421,12 +4423,17 @@ subscribe('workout.completed', (event) => {
     const message = composeForEvent(topic, event);
     db.prepare('INSERT INTO notifications (id, user_id, type, payload) VALUES (?, ?, ?, ?)')
       .run(randomUUID(), event.user_id, message.type, JSON.stringify(message));
-    const details = { ...message, ...(message.data && typeof message.data === 'object' ? message.data : {}) };
-    const destination = notificationDestination(message.type, details);
-    push.send(event.user_id, notificationPushCategory(message.type), {
-      title: message.title || 'Functioning Faith', body: message.body || message.message,
-      url: destination, tag: `${message.type}:${event.badge_id || event.quest_id || event.verse_id || 'notification'}`,
-    }).catch(() => {});
+    // Workout routes own their push cadence and category. The generic
+    // verse-trigger subscriber still creates the in-app notification, but
+    // sending here too produced two APNs alerts for the same start/moment.
+    if (topic !== 'verse.triggered') {
+      const details = { ...message, ...(message.data && typeof message.data === 'object' ? message.data : {}) };
+      const destination = notificationDestination(message.type, details);
+      push.send(event.user_id, notificationPushCategory(message.type), {
+        title: message.title || 'Functioning Faith', body: message.body || message.message,
+        url: destination, tag: `${message.type}:${event.badge_id || event.quest_id || event.verse_id || 'notification'}`,
+      }).catch(() => {});
+    }
   });
 });
 
@@ -5652,6 +5659,57 @@ function lookupBibleReference(book, chapter, verse) {
   return mirrorVerse(row);
 }
 
+/**
+ * A verified completion verse that is different from every verse already
+ * shown in this workout and, when possible, from the member's recent workout
+ * scripture. Recording the selection as a trigger makes the rotation durable
+ * across sessions instead of choosing the first finishing verse every time.
+ */
+function workoutFinishVerse(userId, workoutId) {
+  const sessionRows = db.prepare(`SELECT sv.id, sv.reference
+      FROM scripture_triggers st JOIN scripture_verses sv ON sv.id = st.verse_id
+     WHERE st.workout_id = ?`).all(workoutId);
+  const sessionIDs = new Set(sessionRows.map(row => row.id));
+  const recentRefs = new Set(db.prepare(`SELECT sv.reference
+      FROM scripture_triggers st JOIN scripture_verses sv ON sv.id = st.verse_id
+     WHERE st.user_id = ? ORDER BY st.timestamp DESC LIMIT 40`).all(userId).map(row => row.reference));
+  const authored = moments.MOMENTS.finishing.refs;
+  const ordered = [
+    ...authored.filter(ref => !recentRefs.has(ref)),
+    ...authored.filter(ref => recentRefs.has(ref)),
+  ];
+
+  let selected = null;
+  for (const reference of ordered) {
+    const match = /^(.+?)\s+(\d+):(\d+)$/.exec(reference);
+    if (!match) continue;
+    const row = lookupBibleReference(match[1], Number(match[2]), Number(match[3]));
+    if (row && !sessionIDs.has(row.id)) { selected = row; break; }
+  }
+  if (!selected) {
+    const rows = db.prepare('SELECT id, book, chapter, verse, text, translation FROM bible_verses ORDER BY RANDOM() LIMIT 30').all();
+    const row = rows.find(candidate => !sessionIDs.has(candidate.id));
+    if (row) selected = mirrorVerse(row);
+  }
+  if (!selected) return null;
+
+  db.prepare(`INSERT INTO scripture_triggers
+      (id, user_id, verse_id, trigger_type, biometric_snapshot, workout_id, moment)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(randomUUID(), userId, selected.id, 'workout_finish', '{}', workoutId, 'finishing');
+  const payload = {
+    id: selected.id,
+    reference: selected.reference,
+    snippet: selected.text,
+    deep_link: selected.youversion_id ? `youversion://bible/verse/${selected.youversion_id}` : '',
+  };
+  publish('verse.triggered', {
+    user_id: userId, verse_id: selected.id, youversion_id: selected.youversion_id,
+    trigger_type: 'workout_finish', payload,
+  });
+  return payload;
+}
+
 function mirrorVerse(row) {
   const reference = `${row.book} ${row.chapter}:${row.verse}`;
   const code = YV_BOOK_CODES[row.book];
@@ -6322,7 +6380,7 @@ router.post('/push/native-unregister', requireAuth, (req, res) => {
 // Send one to yourself, so permission and delivery can be proven immediately
 // rather than by waiting until tomorrow morning.
 router.post('/push/test', requireAuth, async (req, res) => {
-  if (!push.isConfigured()) return res.status(503).json({ error: 'push_not_configured' });
+  if (!push.isConfigured() && !push.isNativeConfigured()) return res.status(503).json({ error: 'push_not_configured' });
   const r = await push.send(req.session.userId, 'daily_verse', {
     title: 'Functioning Faith',
     body: 'Notifications are working. Your morning verse will arrive here.',
@@ -6381,7 +6439,7 @@ router.delete('/reminders/:id', requireAuth, (req, res) => {
 
 // Send yourself today's morning verse now — the real thing, same code path.
 router.post('/push/daily-now', requireAuth, async (req, res) => {
-  if (!push.isConfigured()) return res.status(503).json({ error: 'push_not_configured' });
+  if (!push.isConfigured() && !push.isNativeConfigured()) return res.status(503).json({ error: 'push_not_configured' });
   const r = await daily.sendFor(req.session.userId);
   if (!r) return res.status(409).json({ error: 'nothing_to_send',
     hint: 'Subscribe to the daily verse category first, or you have had every verse in the pool recently.' });

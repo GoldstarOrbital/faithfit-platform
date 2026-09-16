@@ -222,10 +222,12 @@ struct RootTabView: View {
     private func warmHomeLaunchCaches() async {
         guard let userID = session.profile?.id else { return }
         _ = MissionCache.load(userID: userID)
+        _ = StoriesCache.load(userID: userID)
         async let warmedMission = try? await APIClient.shared.fetchScriptureMission()
         async let warmedFeed = try? await APIClient.shared.fetchForYouFeed()
         async let warmedReels = try? await APIClient.shared.fetchReels()
-        let (mission, posts, reels) = await (warmedMission, warmedFeed, warmedReels)
+        async let warmedStories = try? await APIClient.shared.fetchStories()
+        let (mission, posts, reels, stories) = await (warmedMission, warmedFeed, warmedReels, warmedStories)
         if let mission {
             MissionCache.save(mission, userID: userID)
             WidgetScriptureStore.save(reference: mission.reference, text: mission.text, context: "Your daily mission")
@@ -238,6 +240,7 @@ struct RootTabView: View {
             FeedCache.save(posts, userID: userID, mode: HomeFeedMode.forYou.rawValue)
         }
         if let reels { ReelsCache.save(reels, userID: userID) }
+        if let stories { StoriesCache.save(stories, userID: userID) }
     }
 
     private func openPanel() {

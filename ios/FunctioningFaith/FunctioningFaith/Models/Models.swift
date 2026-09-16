@@ -11,6 +11,7 @@ struct WorkoutSummary: Codable, Identifiable {
     var route: [[Double]]? = nil
     var durationSec: Double? = nil
     var averageSpeedKmh: Double? = nil
+    var startVerse: VerseSnippet? = nil
 }
 
 struct VerseSnippet: Codable, Identifiable {
@@ -185,10 +186,12 @@ struct WorkoutCompletion: Decodable, Identifiable {
     let durationSec: Int
     let encouragement: String?
     let effort: WorkoutCompletionEffort?
+    let finishVerse: VerseSnippet?
 
     enum CodingKeys: String, CodingKey {
         case id, calories, encouragement, effort
         case avgHR = "avg_hr", maxHR = "max_hr", distanceKm = "distance_km", durationSec = "duration_sec"
+        case finishVerse = "finish_verse"
     }
 }
 
@@ -831,7 +834,7 @@ enum PhotoCategory: String, CaseIterable, Identifiable {
 
 // ---- Stories / Moments (24h ephemeral) ----
 
-struct Story: Decodable, Identifiable {
+struct Story: Codable, Identifiable {
     let id: String
     let userID: String
     let content: String?
@@ -2120,9 +2123,11 @@ struct ManualWorkoutResult: Decodable {
     let calories: Int
     let distanceKm: Double?
     let durationSec: Int
+    let finishVerse: VerseSnippet?
     enum CodingKeys: String, CodingKey {
         case id, type, calories
         case distanceKm = "distance_km"
         case durationSec = "duration_sec"
+        case finishVerse = "finish_verse"
     }
 }

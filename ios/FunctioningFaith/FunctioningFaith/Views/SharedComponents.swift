@@ -76,13 +76,30 @@ struct FFKeyboardDismissBridge: UIViewRepresentable {
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            // SwiftUI's TextField is wrapped in private hosting views. On the
+            // first tap those wrappers can be reported instead of the actual
+            // UITextField, so an unconditional recognizer immediately ended
+            // the edit session it had just started and no keyboard appeared.
+            // An outside-tap dismissal only makes sense when something was
+            // already editing before this touch began.
+            guard window?.ffFirstResponder != nil else { return false }
             var view = touch.view
             while let current = view {
-                if current is UITextField || current is UITextView { return false }
+                if current is UITextField || current is UITextView || current is UIControl { return false }
                 view = current.superview
             }
             return true
         }
+    }
+}
+
+private extension UIView {
+    var ffFirstResponder: UIView? {
+        if isFirstResponder { return self }
+        for child in subviews {
+            if let responder = child.ffFirstResponder { return responder }
+        }
+        return nil
     }
 }
 

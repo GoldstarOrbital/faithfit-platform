@@ -195,7 +195,7 @@ enum NotificationCategory: String, CaseIterable, Identifiable {
     /// looking enabled in Settings.
     var serverCategories: [String] {
         switch self {
-        case .scripture: return ["daily_verse"]
+        case .scripture: return ["daily_verse", "workout_scripture"]
         case .community: return ["verse_reply", "social"]
         case .reminders: return ["reminders"]
         case .podcasts: return ["podcasts"]

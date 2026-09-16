@@ -111,6 +111,7 @@ assert.match(appShell, /overflowSections[^\n]*\.meditation/, 'Meditation must be
 assert.match(appShell, /case \.reels: return "Frames"/, 'native short-form video must be branded Frames');
 assert.match(sharedComponents, /struct FFKeyboardDismissBridge/, 'native app needs one global outside-tap keyboard dismissal bridge');
 assert.match(sharedComponents, /endEditing\(true\)/, 'native keyboard dismissal must work for keyboards without a Return key');
+assert.match(sharedComponents, /guard window\?\.ffFirstResponder != nil else \{ return false \}/, 'outside-tap dismissal must preserve the initial field-focus tap');
 assert.match(nativeApp, /\.scrollDismissesKeyboard\(\.interactively\)/, 'native scroll surfaces must dismiss the keyboard interactively');
 assert.match(webApp, /function installKeyboardManager\(\)/, 'web editors need a shared mobile keyboard manager');
 assert.match(webApp, /done\.setAttribute\('aria-label', 'Hide keyboard'\)/, 'web editors need an accessible keyboard escape hatch');

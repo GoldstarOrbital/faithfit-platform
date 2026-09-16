@@ -73,7 +73,7 @@ function weekShape(userId) {
 function recentRefs(userId, days) {
   try {
     return db.prepare(`SELECT body FROM push_log
-                        WHERE user_id = ? AND category = 'daily_verse'
+                        WHERE user_id = ? AND category = 'daily_verse' AND ok = 1
                           AND sent_at > datetime('now', ?)`)
       .all(userId, '-' + (Number(days) || 21) + ' days')
       .map(r => (/^([^—]+?)\s*—/.exec(r.body || '') || [])[1])
@@ -145,6 +145,10 @@ async function sendFor(userId) {
     url: '/?open=verse&ref=' + encodeURIComponent(verse.reference),
     tag: 'daily-verse',
   });
+  // A configured but temporarily failing APNs delivery is not "sent". Leave
+  // it eligible for the next scheduler tick instead of suppressing the entire
+  // day because an unsuccessful telemetry row exists.
+  if (!res || res.sent < 1) return null;
   return { reference: verse.reference, note: verse.note, ...res };
 }
 
@@ -178,7 +182,7 @@ async function runOnce() {
     if (!due) continue;
     // Once per member per day, whatever else happens.
     const already = db.prepare(`SELECT COUNT(*) c FROM push_log
-                                 WHERE user_id = ? AND category = 'daily_verse'
+                                 WHERE user_id = ? AND category = 'daily_verse' AND ok = 1
                                    AND sent_at > datetime('now','-20 hours')`).get(id);
     if (already && already.c > 0) continue;
     try { if (await sendFor(id)) sent++; } catch { /* one member's failure is not everyone's */ }
@@ -196,6 +200,10 @@ function start() {
   if (!push.isConfigured() && !push.isNativeConfigured()) return;
   // Runs every tick now (not gated to a fixed hour range) since runOnce()
   // itself decides who is due, per-member, against their own chosen hour.
+  // Do one due check at boot as well. A Railway deploy or restart during a
+  // member's selected hour should not postpone the first check by 30 minutes
+  // (or miss a narrow delivery window entirely).
+  runOnce().catch(() => {});
   timer = setInterval(() => runOnce().catch(() => {}), 30 * 60 * 1000);
   if (timer.unref) timer.unref();
   console.log('[daily] morning verse scheduled');
