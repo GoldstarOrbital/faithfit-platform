@@ -18,6 +18,59 @@ const state = {
 
 let gpsStartedAt = null, gpsTicker = null;
 
+// Keep every editor visible when a mobile software keyboard resizes the
+// visual viewport. Numeric keyboards often omit a Done key, so the app also
+// supplies one consistent escape hatch for search, messages, and forms.
+function installKeyboardManager() {
+  if (document.getElementById('keyboard-dismiss')) return;
+  const root = document.documentElement;
+  const done = document.createElement('button');
+  done.id = 'keyboard-dismiss';
+  done.type = 'button';
+  done.textContent = 'Done';
+  done.setAttribute('aria-label', 'Hide keyboard');
+  done.hidden = true;
+  document.body.appendChild(done);
+
+  const isEditor = element => {
+    if (!(element instanceof HTMLElement)) return false;
+    if (element.matches('textarea, [contenteditable="true"]')) return true;
+    if (!element.matches('input')) return false;
+    return !['button', 'checkbox', 'radio', 'range', 'file', 'submit', 'reset', 'color', 'hidden'].includes(element.type);
+  };
+  const sync = () => {
+    const viewport = window.visualViewport;
+    const keyboardHeight = viewport
+      ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
+      : 0;
+    const editing = isEditor(document.activeElement);
+    const open = editing && (keyboardHeight > 80 || window.matchMedia('(pointer: coarse)').matches);
+    root.classList.toggle('keyboard-open', open);
+    root.style.setProperty('--keyboard-offset', `${open ? keyboardHeight : 0}px`);
+    done.hidden = !open;
+  };
+  const revealEditor = () => {
+    const editor = document.activeElement;
+    if (!isEditor(editor)) return;
+    window.setTimeout(() => {
+      sync();
+      editor.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+    }, 180);
+  };
+  done.addEventListener('pointerdown', event => event.preventDefault());
+  done.addEventListener('click', () => {
+    if (isEditor(document.activeElement)) document.activeElement.blur();
+    sync();
+  });
+  document.addEventListener('focusin', () => { sync(); revealEditor(); });
+  document.addEventListener('focusout', () => window.setTimeout(sync, 80));
+  window.visualViewport?.addEventListener('resize', sync);
+  window.visualViewport?.addEventListener('scroll', sync);
+  window.addEventListener('orientationchange', () => window.setTimeout(sync, 200));
+}
+
+installKeyboardManager();
+
 // A tab switch and the notification/profile bootstrap can ask for the same
 // read in the same event loop turn. Share that request instead of opening two
 // sockets. This is deliberately in-flight only: private member data is never
@@ -951,7 +1004,7 @@ async function renderHome(main, forceRefresh = false) {
         ${homeReels?.videos?.slice(0, 2).map(v => `
           <button class="home-explore-tile home-explore-tile-reel" data-home-tab="explore" data-home-explore="reels" style="${v.thumbnail_url ? `background-image:linear-gradient(0deg,rgba(20,14,8,.75),rgba(20,14,8,.1)),url('${escapeHtml(v.thumbnail_url)}');background-size:cover;background-position:center` : ''}">
             <span class="home-explore-tile-icon">▶</span>
-            <span class="home-explore-tile-label">${escapeHtml((v.title || 'Reel').slice(0, 40))}</span>
+            <span class="home-explore-tile-label">${escapeHtml((v.title || 'Frame').slice(0, 40))}</span>
           </button>`).join('') || ''}
         <button class="home-explore-tile" data-home-tab="explore" data-home-explore="groups">
           <span class="home-explore-tile-icon">👥</span>
@@ -1163,7 +1216,7 @@ async function renderHome(main, forceRefresh = false) {
         </select>` : ''}
       </div>
       <div class="post-content">${linkifyText(p.content || '')}</div>
-      <div class="muted" style="font-size:.75rem;font-weight:700;margin:8px 0">${({workout:'WORKOUT',reel:'REEL',scripture:'SCRIPTURE & REFLECTION',post:'COMMUNITY POST'})[p.content_kind] || 'COMMUNITY POST'}</div>
+      <div class="muted" style="font-size:.75rem;font-weight:700;margin:8px 0">${({workout:'WORKOUT',reel:'FRAME',scripture:'SCRIPTURE & REFLECTION',post:'COMMUNITY POST'})[p.content_kind] || 'COMMUNITY POST'}</div>
       ${p.workout_type ? `
         <h3>${escapeHtml(p.workout_type)}</h3>
         ${isMine ? `<button class="ghost" type="button" data-route-sharing="${escapeHtml(p.id)}">${p.route ? 'Hide GPS route' : 'Share GPS route'}</button>` : ''}
@@ -1744,7 +1797,7 @@ const EXPLORE_SECTIONS = [
     icon: '<path d="M7 4h10v4a5 5 0 01-10 0V4z"/><path d="M7 6H4v1a3 3 0 003 3M17 6h3v1a3 3 0 01-3 3"/><path d="M10 15h4v3h-4z"/><path d="M8 21h8"/>' },
   { key: 'videos',      name: 'Videos',      blurb: 'Kids, fitness, and short teaching films.',
     icon: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M10 9.5l5 2.5-5 2.5z"/>' },
-  { key: 'reels',       name: 'Reels',       blurb: 'Scroll short encouragement, movement, faith, and food.',
+  { key: 'reels',       name: 'Frames',      blurb: 'Scroll short encouragement, movement, faith, and food.',
     icon: '<rect x="5" y="3" width="14" height="18" rx="3"/><path d="M9 3l2 4h4l-2-4M9 11h6M9 15h4"/>' },
   { key: 'podcasts',    name: 'Podcasts',    blurb: 'Full episodes from public faith and fitness feeds.',
     icon: '<rect x="9" y="3" width="6" height="10" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v3M9 21h6"/>' },
@@ -2242,9 +2295,9 @@ function reelSoundButton(on) {
 function openReelStudio(onPublished) {
   const host = document.createElement('div');
   host.className = 'reel-studio-backdrop';
-  host.innerHTML = `<section class="reel-studio" role="dialog" aria-modal="true" aria-label="Create a Reel">
-    <div class="reel-studio-head"><div><div class="video-kicker">FUNCTIONING FAITH ORIGINAL</div><h2>Create a Reel</h2></div><button class="ghost" data-reel-close aria-label="Close">×</button></div>
-    <p class="muted">Up to 60 seconds. Show a workout, nature, animals, or a group—never a solo vanity clip. Every Reel is paired with verified Scripture.</p>
+  host.innerHTML = `<section class="reel-studio" role="dialog" aria-modal="true" aria-label="Create a Frame">
+    <div class="reel-studio-head"><div><div class="video-kicker">FUNCTIONING FAITH ORIGINAL</div><h2>Create a Frame</h2></div><button class="ghost" data-reel-close aria-label="Close">×</button></div>
+    <p class="muted">Up to 60 seconds. Show a workout, nature, animals, or a group—never a solo vanity clip. Every Frame is paired with verified Scripture.</p>
     <input id="reel-file" type="file" accept="video/mp4,video/webm" style="display:none">
     <input id="reel-camera-file" type="file" accept="video/mp4,video/webm" capture="environment" style="display:none">
     <div class="reel-studio-actions"><button class="ghost" id="reel-choose">Choose video</button><button class="ghost" id="reel-camera">Use phone camera</button><button class="primary" id="reel-record">Record here</button></div>
@@ -2255,7 +2308,7 @@ function openReelStudio(onPublished) {
     <select id="reel-category"><option value="workout">Workout or gear</option><option value="nature">Nature</option><option value="animal">Animal</option><option value="group">Group of people</option></select>
     <label class="terms-check"><input id="reel-attest" type="checkbox"><span>I have the rights to share this, it serves the community, and it is not a solo vanity clip.</span></label>
     <div id="reel-studio-status" class="muted" aria-live="polite"></div>
-    <button class="primary" id="reel-publish" style="width:100%;margin-top:10px">Publish Reel</button>
+    <button class="primary" id="reel-publish" style="width:100%;margin-top:10px">Publish Frame</button>
   </section>`;
   document.body.appendChild(host);
   const $ = id => host.querySelector(id);
@@ -2266,13 +2319,13 @@ function openReelStudio(onPublished) {
   const setFile = file => {
     if (!file) return;
     if (!/^video\/(mp4|webm)$/.test(file.type || '')) { status('Choose an MP4 or WebM video.'); return; }
-    if (file.size > 4 * 1024 * 1024) { status('Keep the Reel under 4MB—trim it or record a shorter clip.'); return; }
+    if (file.size > 4 * 1024 * 1024) { status('Keep the Frame under 4MB—trim it or record a shorter clip.'); return; }
     const reader = new FileReader();
-    status('Preparing your Reel…');
+    status('Preparing your Frame…');
     reader.onload = () => {
       videoData = reader.result;
       const box = $('#reel-preview'); box.hidden = false;
-      box.innerHTML = `<video src="${escapeHtml(videoData)}" controls muted playsinline></video><div class="muted">${escapeHtml(file.name || 'Recorded Reel')} · ${(file.size / 1024 / 1024).toFixed(1)}MB</div>`;
+      box.innerHTML = `<video src="${escapeHtml(videoData)}" controls muted playsinline></video><div class="muted">${escapeHtml(file.name || 'Recorded Frame')} · ${(file.size / 1024 / 1024).toFixed(1)}MB</div>`;
       status('Ready to publish.');
     };
     reader.onerror = () => status('Could not read that video.');
@@ -2303,13 +2356,13 @@ function openReelStudio(onPublished) {
   };
   $('#reel-publish').onclick = async () => {
     const caption = $('#reel-caption').value.trim();
-    if (!videoData) { status('Choose or record a Reel first.'); return; }
+    if (!videoData) { status('Choose or record a Frame first.'); return; }
     if (!caption) { status('Add a short caption so Scripture can be matched thoughtfully.'); return; }
     if (!$('#reel-attest').checked) { status('Confirm the rights and community-purpose standard.'); return; }
     const btn = $('#reel-publish'); btn.disabled = true; status('Matching verified Scripture and publishing…');
     const result = await api('/posts', { method: 'POST', body: { content: caption, visibility: 'public', video_data: videoData, video_category: $('#reel-category').value } }).catch(() => ({ error: 'network' }));
     btn.disabled = false;
-    if (result.error) { status(result.hint || 'Could not publish this Reel.'); return; }
+    if (result.error) { status(result.hint || 'Could not publish this Frame.'); return; }
     close(); if (typeof onPublished === 'function') onPublished();
   };
 }
@@ -2333,11 +2386,11 @@ async function renderMemberList(main, userId, kind, displayName) {
 }
 function reelActionButton(kind, active, count) {
   const icon = kind === 'like' ? '♥' : '🔖';
-  const label = kind === 'like' ? (active ? 'Unlike reel' : 'Like reel') : (active ? 'Remove reel from saves' : 'Save reel');
+  const label = kind === 'like' ? (active ? 'Unlike Frame' : 'Like Frame') : (active ? 'Remove Frame from saves' : 'Save Frame');
   return `<button type="button" class="reel-action ${active ? 'is-active' : ''}" data-reel-action="${kind}" aria-pressed="${active ? 'true' : 'false'}" aria-label="${label}"><span class="reel-action-icon">${icon}</span><span data-reel-count>${Number(count) || 0}</span></button>`;
 }
 function reelShareButton() {
-  return '<button type="button" class="reel-action" data-reel-action="share" aria-label="Share reel"><span class="reel-action-icon">↗</span><span>Share</span></button>';
+  return '<button type="button" class="reel-action" data-reel-action="share" aria-label="Share Frame"><span class="reel-action-icon">↗</span><span>Share</span></button>';
 }
 
 // Original Reels are posts first, so their conversation uses the exact same
@@ -2348,7 +2401,7 @@ function reelShareButton() {
 function openReelDiscussion(postId) {
   const host = document.createElement('div');
   host.className = 'reel-discussion-backdrop';
-  host.innerHTML = `<section class="reel-discussion" role="dialog" aria-modal="true" aria-label="Reel conversation">
+  host.innerHTML = `<section class="reel-discussion" role="dialog" aria-modal="true" aria-label="Frame conversation">
     <div class="reel-discussion-head"><div><div class="video-kicker">FUNCTIONING FAITH ORIGINAL</div><h2>Encourage the creator</h2></div><button type="button" class="ghost" data-reel-discussion-close aria-label="Close conversation">×</button></div>
     <p class="muted">Keep this focused on the shared moment. The creator and people already in the conversation can be notified.</p>
     <div class="reel-discussion-list" data-reel-discussion-list><div class="muted">Loading conversation…</div></div>
@@ -2396,11 +2449,11 @@ function openReelDiscussion(postId) {
 async function renderReelsTab(body) {
   const generation = Symbol('reels');
   body.reelGeneration = generation;
-  body.innerHTML = `<div class="reels-hero"><div class="video-kicker">FUNCTIONING FAITH REELS</div><h2>Small moments. Big encouragement.</h2><p>One mixed feed for faith, movement, meals, family, and your church. Swipe up for the next moment.</p>
+  body.innerHTML = `<div class="reels-hero"><div class="video-kicker">FUNCTIONING FAITH FRAMES</div><h2>Small moments. Big encouragement.</h2><p>One mixed feed for faith, movement, meals, family, and your church. Swipe up for the next moment.</p>
     <div class="reels-feed-note">Shorts + food + church content · fresh when you actually watch</div>
-    <button class="reel-create-btn" id="reel-create-open">＋ Create a Reel</button>
-    <div class="reel-view-switch" role="tablist" aria-label="Reel feed"><button type="button" role="tab" aria-selected="${state.reelsView === 'for_you'}" class="${state.reelsView === 'for_you' ? 'active' : ''}" data-reels-view="for_you">For you</button><button type="button" role="tab" aria-selected="${state.reelsView === 'saved'}" class="${state.reelsView === 'saved' ? 'active' : ''}" data-reels-view="saved">Saved</button></div></div>
-    <div id="reels-list"><div class="muted">Loading reels…</div></div>`;
+    <button class="reel-create-btn" id="reel-create-open">＋ Create a Frame</button>
+    <div class="reel-view-switch" role="tablist" aria-label="Frame feed"><button type="button" role="tab" aria-selected="${state.reelsView === 'for_you'}" class="${state.reelsView === 'for_you' ? 'active' : ''}" data-reels-view="for_you">For you</button><button type="button" role="tab" aria-selected="${state.reelsView === 'saved'}" class="${state.reelsView === 'saved' ? 'active' : ''}" data-reels-view="saved">Saved</button></div></div>
+    <div id="reels-list"><div class="muted">Loading Frames…</div></div>`;
   body.querySelectorAll('[data-reels-view]').forEach(btn => btn.onclick = () => { state.reelsView = btn.dataset.reelsView; renderReelsTab(body); });
   const createReel = body.querySelector('#reel-create-open');
   if (createReel) createReel.onclick = () => openReelStudio(() => renderReelsTab(body));
@@ -2418,16 +2471,16 @@ async function renderReelsTab(body) {
   videos = videos.filter(v => v.video_id && !seen.has(v.video_id) && (seen.add(v.video_id), true));
   const list = document.getElementById('reels-list');
   if (!body.isConnected || body.reelGeneration !== generation || !list || !body.contains(list)) return;
-  if (!videos.length) { list.innerHTML = `<div class="card glass"><p class="muted">${state.reelsView === 'saved' ? 'Your saved Reels will appear here. Tap 🔖 on anything you want to come back to.' : 'No reels in this filter yet. Fresh videos will appear here as the library refreshes.'}</p></div>`; return; }
+  if (!videos.length) { list.innerHTML = `<div class="card glass"><p class="muted">${state.reelsView === 'saved' ? 'Your saved Frames will appear here. Tap 🔖 on anything you want to come back to.' : 'No Frames in this filter yet. Fresh videos will appear here as the library refreshes.'}</p></div>`; return; }
   const labels = { food: 'Food + fitness', kids: 'Kids + family', fitness: 'Faith + movement', christian: 'Scripture + formation', motivational: 'Purpose + perseverance', veggietales: 'Kids + family', nickbare: 'Training + discipline', thechosen: 'The Chosen', church: 'Your church', instagram: 'Instagram · external', tiktok: 'TikTok · external', youtube: 'YouTube · external' };
   const sourceLabel = v => v.source_kind === 'functioning_faith' ? 'Functioning Faith original'
     : v.source_kind === 'church' ? 'From your church'
       : v.source_kind === 'channel' ? 'Official channel' : 'Curated for this community';
   list.innerHTML = videos.map(v => `<article class="reel-card" data-reel-card="${escapeHtml(v.video_id)}" data-reel-provider="${escapeHtml(v.provider || 'youtube')}" data-reel-source-url="${escapeHtml(v.source_url || '')}" data-reel-track-impression="${['channel', 'seed', 'query'].includes(v.source_kind) ? 'true' : 'false'}">
     <div class="reel-frame video-thumb-wrap" data-reel-frame="${escapeHtml(v.video_id)}">${v.provider === 'functioning_faith'
-      ? `<video ${v.video_data ? `src="${escapeHtml(v.video_data)}"` : ''} muted loop playsinline preload="metadata" aria-label="${escapeHtml(v.title || 'Functioning Faith reel')}"></video>${reelSoundButton(reelsSoundOn())}`
-      : `<img loading="lazy" src="${escapeHtml(v.thumbnail_url || ((v.provider || 'youtube') === 'youtube' ? `https://i.ytimg.com/vi/${encodeURIComponent(v.video_id)}/hqdefault.jpg` : ''))}" alt="${escapeHtml(v.title || 'Functioning Faith reel')}" /><span class="reel-play">▶</span>${reelSoundButton(reelsSoundOn())}`}</div>
-    <div class="reel-actions" aria-label="Reel actions">${reelActionButton('like', v.liked_by_me, v.like_count)}${reelActionButton('save', v.saved_by_me, v.save_count)}${v.source_kind === 'functioning_faith' ? `<button type="button" class="reel-action" data-reel-discuss="${escapeHtml(v.video_id)}" aria-label="Discuss this Reel"><span class="reel-action-icon">💬</span><span>Discuss</span></button>` : ''}${reelShareButton()}${state.reelsView === 'for_you' ? '<button type="button" class="reel-action reel-not-interested" data-reel-not-interested aria-label="Show fewer Reels like this"><span class="reel-action-icon">×</span><span>Not for me</span></button>' : ''}</div>
+      ? `<video ${v.video_data ? `src="${escapeHtml(v.video_data)}"` : ''} muted loop playsinline preload="metadata" aria-label="${escapeHtml(v.title || 'Functioning Faith Frame')}"></video>${reelSoundButton(reelsSoundOn())}`
+      : `<img loading="lazy" src="${escapeHtml(v.thumbnail_url || ((v.provider || 'youtube') === 'youtube' ? `https://i.ytimg.com/vi/${encodeURIComponent(v.video_id)}/hqdefault.jpg` : ''))}" alt="${escapeHtml(v.title || 'Functioning Faith Frame')}" /><span class="reel-play">▶</span>${reelSoundButton(reelsSoundOn())}`}</div>
+    <div class="reel-actions" aria-label="Frame actions">${reelActionButton('like', v.liked_by_me, v.like_count)}${reelActionButton('save', v.saved_by_me, v.save_count)}${v.source_kind === 'functioning_faith' ? `<button type="button" class="reel-action" data-reel-discuss="${escapeHtml(v.video_id)}" aria-label="Discuss this Frame"><span class="reel-action-icon">💬</span><span>Discuss</span></button>` : ''}${reelShareButton()}${state.reelsView === 'for_you' ? '<button type="button" class="reel-action reel-not-interested" data-reel-not-interested aria-label="Show fewer Frames like this"><span class="reel-action-icon">×</span><span>Not for me</span></button>' : ''}</div>
     <div class="reel-overlay"><div class="reel-meta"><span class="video-audience">${escapeHtml(labels[v.category] || 'Faith + movement')}</span><span class="reel-source">${escapeHtml(sourceLabel(v))}</span></div><div class="reel-title">${escapeHtml(v.title || 'Short encouragement')}</div><div class="muted">${escapeHtml(v.channel_title || '')}</div>${v.verse_reference ? `<button type="button" class="reel-scripture" data-reel-verse-ref="${escapeHtml(v.verse_reference)}">Open ${escapeHtml(v.verse_reference)} <span aria-hidden="true">→</span></button>` : ''}${v.source_url && ['instagram','tiktok'].includes(v.provider) ? `<a class="reel-external-link" href="${escapeHtml(v.source_url)}" target="_blank" rel="noopener noreferrer">Open original on ${escapeHtml(v.provider)}</a>` : ''}</div>
   </article>`).join('');
   let activeCard = null;
@@ -2482,7 +2535,7 @@ async function renderReelsTab(body) {
     // would be a control that silently does nothing. Omit it there instead.
     const canControlSound = !['tiktok', 'instagram'].includes(card.dataset.reelProvider);
     const sourceUrl = card.dataset.reelSourceUrl || '';
-    frame.innerHTML = `<iframe src="${reelEmbedSrc(card.dataset.reelProvider, id, on, sourceUrl)}" title="Functioning Faith reel from ${escapeHtml(card.dataset.reelProvider)}" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>${canControlSound ? reelSoundButton(on) : ''}`;
+    frame.innerHTML = `<iframe src="${reelEmbedSrc(card.dataset.reelProvider, id, on, sourceUrl)}" title="Functioning Faith Frame from ${escapeHtml(card.dataset.reelProvider)}" frameborder="0" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>${canControlSound ? reelSoundButton(on) : ''}`;
   };
 
   // One delegated handler for every sound button, present and future — the
@@ -2507,7 +2560,7 @@ async function renderReelsTab(body) {
         if (wasActive && next?.matches?.('[data-reel-card]')) activate(next);
         if (!list.querySelector('[data-reel-card]')) renderReelsTab(body);
         showToast('Got it. We will show less like that.');
-      }).catch(() => { notInterested.disabled = false; showToast('Could not update your Reel preferences.', true); });
+      }).catch(() => { notInterested.disabled = false; showToast('Could not update your Frame preferences.', true); });
       return;
     }
     const action = e.target.closest('[data-reel-action]');
@@ -2521,16 +2574,16 @@ async function renderReelsTab(body) {
       if (kind === 'share') {
         const url = `${location.origin}/?open=reel&video_id=${encodeURIComponent(id)}`;
         const finish = () => { action.classList.add('is-confirmed'); setTimeout(() => action.classList.remove('is-confirmed'), 900); };
-        if (navigator.share) navigator.share({ title: 'Functioning Faith Reel', url }).then(finish).catch(() => {});
+        if (navigator.share) navigator.share({ title: 'Functioning Faith Frame', url }).then(finish).catch(() => {});
         else if (navigator.clipboard) navigator.clipboard.writeText(url).then(finish).catch(() => {});
-        else { window.prompt('Copy this reel link', url); }
+        else { window.prompt('Copy this Frame link', url); }
       } else {
         api(`/reels/${encodeURIComponent(id)}/reaction`, { method: 'POST', body: { kind }, throwOnError: true }).then(result => {
           action.classList.toggle('is-active', !!result.active);
           action.setAttribute('aria-pressed', result.active ? 'true' : 'false');
           action.setAttribute('aria-label', kind === 'like'
-            ? (result.active ? 'Unlike reel' : 'Like reel')
-            : (result.active ? 'Remove reel from saves' : 'Save reel'));
+            ? (result.active ? 'Unlike Frame' : 'Like Frame')
+            : (result.active ? 'Remove Frame from saves' : 'Save Frame'));
           const count = action.querySelector('[data-reel-count]');
           if (count) count.textContent = result.count;
         }).catch(() => {});
@@ -3237,10 +3290,10 @@ async function renderProfile(main) {
       <div class="muted" style="margin-top:10px">Passkeys/biometric login: ${securityCapabilities.passkeys_biometric?'available':'not enabled'} · SMS 2FA: ${securityCapabilities.sms_mfa?'available':'not enabled'} · DMs use HTTPS and access controls; end-to-end encryption is ${securityCapabilities.end_to_end_encrypted_dms?'enabled':'not claimed'}.</div>
     </div>
     <div class="card glass profile-panel" data-profile-group="integrations" id="developer-verification-card">
-      <h2>Creator &amp; Verified developer</h2><p class="muted">Status: <strong>${escapeHtml(developerStatus.status||'not_applied')}</strong>. Content uploads (reels), developer keys, and webhooks all live here once verified. Verification requires a .edu identity, a verified church relationship, review, and the current accountability terms — this exists to keep what gets published accountable to a real institution, not to make it hard to find.</p>
+      <h2>Creator &amp; Verified developer</h2><p class="muted">Status: <strong>${escapeHtml(developerStatus.status||'not_applied')}</strong>. Content uploads (Frames), developer keys, and webhooks all live here once verified. Verification requires a .edu identity, a verified church relationship, review, and the current accountability terms — this exists to keep what gets published accountable to a real institution, not to make it hard to find.</p>
       ${developerStatus.status==='verified'?`<div class="badge-pill">✓ Verified developer</div>
-        <details style="margin-top:10px"><summary><strong>Submit a reel</strong></summary>
-          <p class="muted" style="margin:6px 0">A YouTube or Vimeo link, reviewed before it can appear. Approved reels show up in Explore → Reels alongside everything else, ranked above other sources.</p>
+        <details style="margin-top:10px"><summary><strong>Submit a Frame</strong></summary>
+          <p class="muted" style="margin:6px 0">A YouTube or Vimeo link, reviewed before it can appear. Approved Frames show up in Explore → Frames alongside everything else, ranked above other sources.</p>
           <input id="dc-url" type="url" placeholder="https://youtube.com/watch?v=… or vimeo.com/…">
           <input id="dc-title" type="text" maxlength="160" placeholder="Title">
           <select id="dc-category">
@@ -3304,7 +3357,7 @@ async function renderProfile(main) {
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)"><h3 style="margin:0 0 6px">Feature controls</h3><div id="admin-features" class="muted">Loading…</div></div>
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)"><h3 style="margin:0 0 6px">Issue inbox</h3><div id="admin-issues" class="muted">Loading…</div></div>
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)"><h3 style="margin:0 0 6px">Community reports</h3><p class="muted" style="margin:0 0 8px">Human review only. Removing content or suspending an account always asks for confirmation and is logged.</p><div id="admin-moderation" class="muted">Loading…</div></div>
-      <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)"><h3 style="margin:0 0 6px">Publish official Reel</h3><input id="admin-video-url" type="url" placeholder="YouTube or Vimeo URL"><input id="admin-video-title" maxlength="160" placeholder="Title" style="margin-top:6px"><select id="admin-video-category" style="margin-top:6px"><option value="christian">Scripture + formation</option><option value="fitness">Faith + movement</option><option value="motivation">Motivation</option><option value="food">Food + fitness</option><option value="kids">Kids + family</option></select><textarea id="admin-video-purpose" maxlength="1000" rows="3" placeholder="How does this serve the community?" style="margin-top:6px"></textarea><label class="terms-check"><input id="admin-video-rights" type="checkbox"><span>I have authority to publish or embed this source.</span></label><button class="primary" id="admin-video-publish" style="width:100%;margin-top:8px">Publish to Reels</button><div id="admin-video-status" class="muted" style="margin-top:6px"></div></div>
+      <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)"><h3 style="margin:0 0 6px">Publish official Frame</h3><input id="admin-video-url" type="url" placeholder="YouTube or Vimeo URL"><input id="admin-video-title" maxlength="160" placeholder="Title" style="margin-top:6px"><select id="admin-video-category" style="margin-top:6px"><option value="christian">Scripture + formation</option><option value="fitness">Faith + movement</option><option value="motivation">Motivation</option><option value="food">Food + fitness</option><option value="kids">Kids + family</option></select><textarea id="admin-video-purpose" maxlength="1000" rows="3" placeholder="How does this serve the community?" style="margin-top:6px"></textarea><label class="terms-check"><input id="admin-video-rights" type="checkbox"><span>I have authority to publish or embed this source.</span></label><button class="primary" id="admin-video-publish" style="width:100%;margin-top:8px">Publish to Frames</button><div id="admin-video-status" class="muted" style="margin-top:6px"></div></div>
       <div style="margin-top:14px;padding-top:14px;border-top:1px solid rgba(0,0,0,0.08)">
         <h3 style="margin:0 0 6px">Growth, 30 days</h3>
         <div id="admin-trend" class="muted">Loading…</div>
@@ -3556,7 +3609,7 @@ async function renderProfile(main) {
       paintAdminModeration();
     }
     const publishBtn=document.getElementById('admin-video-publish');
-    if(publishBtn) publishBtn.onclick=async()=>{const status=document.getElementById('admin-video-status');publishBtn.disabled=true;status.textContent='Publishing…';const r=await api('/admin/content/publish',{method:'POST',body:{source_url:document.getElementById('admin-video-url').value,title:document.getElementById('admin-video-title').value,category:document.getElementById('admin-video-category').value,community_purpose:document.getElementById('admin-video-purpose').value,rights_confirmed:document.getElementById('admin-video-rights').checked}}).catch(()=>({error:'network'}));publishBtn.disabled=false;status.textContent=r.error?(r.hint||'Could not publish.'):'Published to the Reel library.';if(!r.error){document.getElementById('admin-video-url').value='';document.getElementById('admin-video-title').value='';document.getElementById('admin-video-purpose').value='';document.getElementById('admin-video-rights').checked=false;}};
+    if(publishBtn) publishBtn.onclick=async()=>{const status=document.getElementById('admin-video-status');publishBtn.disabled=true;status.textContent='Publishing…';const r=await api('/admin/content/publish',{method:'POST',body:{source_url:document.getElementById('admin-video-url').value,title:document.getElementById('admin-video-title').value,category:document.getElementById('admin-video-category').value,community_purpose:document.getElementById('admin-video-purpose').value,rights_confirmed:document.getElementById('admin-video-rights').checked}}).catch(()=>({error:'network'}));publishBtn.disabled=false;status.textContent=r.error?(r.hint||'Could not publish.'):'Published to the Frames library.';if(!r.error){document.getElementById('admin-video-url').value='';document.getElementById('admin-video-title').value='';document.getElementById('admin-video-purpose').value='';document.getElementById('admin-video-rights').checked=false;}};
     const paintAdminMetrics=()=>api('/admin/metrics').then(m=>{
       adminMetricsEl.innerHTML=`
         <div class="stat-tiles">

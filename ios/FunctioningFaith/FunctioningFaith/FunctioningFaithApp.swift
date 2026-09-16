@@ -78,6 +78,8 @@ struct FunctioningFaithApp: App {
             .environmentObject(biometricLock)
             .environmentObject(network)
             .environmentObject(deepLinks)
+            .background(FFKeyboardDismissBridge())
+            .scrollDismissesKeyboard(.interactively)
             // Every branded surface is parchment. Respecting a system dark
             // text palette on that fixed light surface produces white-on-white
             // labels, so keep the native app's readable light palette until a

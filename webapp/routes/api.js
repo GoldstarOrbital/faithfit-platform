@@ -2712,7 +2712,7 @@ router.post('/posts', requireAuth, requireCommunityAccess, async (req, res) => {
           video_data, video_category, show_route, route_privacy_m } = req.body || {};
   const uid = req.session.userId;
   if (video_data && !admin.featureEnabled('member_reels')) {
-    return res.status(503).json({ error: 'member_reels_paused', hint: 'Member Reel publishing is temporarily paused.' });
+    return res.status(503).json({ error: 'member_reels_paused', hint: 'Member Frame publishing is temporarily paused.' });
   }
   if(!allowWindow(postRateWindow,uid,6,60_000)) return res.status(429).json({error:'posting_too_fast'});
 
@@ -5175,7 +5175,7 @@ async function refreshChurchVideos(church) {
 // church videos, and Gloo's grounded curation of those church candidates. Gloo
 // never invents a video ID here: it may only rank IDs we supplied.
 router.get('/reels', requireAuth, aiLimiter, async (req, res) => {
-  if (!admin.featureEnabled('reels')) return res.status(503).json({ error: 'reels_paused', hint: 'Reels are temporarily paused.' });
+  if (!admin.featureEnabled('reels')) return res.status(503).json({ error: 'reels_paused', hint: 'Frames are temporarily paused.' });
   const blocked = /\b(porn|sex|onlyfans|cannabis|marijuana|weed|alcohol|beer|wine|vodka|drug|steroid|anorexia|bulimia|purge|starvation|pro[- ]ana|laxative)\b/i;
   const library = db.prepare(`SELECT video_id, title, description, thumbnail_url, channel_title, published_at, category, provider, source_url, source_kind
     FROM (SELECT video_id,title,description,thumbnail_url,channel_title,published_at,category,
@@ -7359,8 +7359,8 @@ router.post('/dms/:threadId/reel', requireAuth, (req, res) => {
       AND video_category IN ('workout','nature','animal','group') LIMIT 1`).get(videoId);
   if (!catalogItem && !ownedItem) return res.status(404).json({ error: 'reel_not_found' });
 
-  const title = catalogItem ? (catalogItem.title || 'A reel') : (ownedItem.content || 'A Functioning Faith Original');
-  const sent = dms.send(req.session.userId, req.params.threadId, `Shared a reel: ${title}`, {
+  const title = catalogItem ? (catalogItem.title || 'A Frame') : (ownedItem.content || 'A Functioning Faith Original');
+  const sent = dms.send(req.session.userId, req.params.threadId, `Shared a frame: ${title}`, {
     kind: 'reel',
     metadata: {
       video_id: videoId, title,
@@ -7370,7 +7370,7 @@ router.post('/dms/:threadId/reel', requireAuth, (req, res) => {
     replyToId: req.body && req.body.reply_to_id,
   });
   if (sent.error) return res.status(sent.error === 'blocked' ? 403 : 400).json(sent);
-  notify(sent.recipient_id, 'dm', `${displayName(req.session.userId)} shared a reel with you.`, { actor_id: req.session.userId, thread_id: req.params.threadId });
+  notify(sent.recipient_id, 'dm', `${displayName(req.session.userId)} shared a frame with you.`, { actor_id: req.session.userId, thread_id: req.params.threadId });
   res.status(201).json({ message: sent.message });
 });
 

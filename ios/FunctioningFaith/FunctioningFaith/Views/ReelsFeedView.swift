@@ -99,16 +99,16 @@ struct ReelsFeedView: View {
     private var reelsBody: some View {
         Group {
             if isLoading && reels.isEmpty {
-                FFLoadingView(message: "Loading Reels…")
+                FFLoadingView(message: "Loading Frames…")
             } else if let errorMessage, reels.isEmpty {
                 FFErrorStateView(message: errorMessage, onRetry: { Task { await load() } })
             } else if reels.isEmpty {
-                FFEmptyStateView(title: "No Reels right now", systemImage: "play.rectangle", message: "Check back soon — or publish a short encouragement of your own.", actionTitle: "Create a Reel", action: { showComposer = true })
+                FFEmptyStateView(title: "No Frames right now", systemImage: "play.rectangle", message: "Check back soon — or publish a short encouragement of your own.", actionTitle: "Create a Frame", action: { showComposer = true })
             } else if visibleReels.isEmpty {
                 // The toggle is in the strip above now, so switching to
                 // Originals when there are none still leaves a way back to
                 // All Reels without leaving the tab.
-                FFEmptyStateView(title: "No Originals yet", systemImage: "play.rectangle", message: "Videos uploaded directly to Functioning Faith show up here.", actionTitle: "Create a Reel", action: { showComposer = true })
+                FFEmptyStateView(title: "No Originals yet", systemImage: "play.rectangle", message: "Videos uploaded directly to Functioning Faith show up here.", actionTitle: "Create a Frame", action: { showComposer = true })
             } else {
                 // A one-video-per-screen, edge-to-edge paged feed -- not a
                 // scrollable list of preview cards. Each page fills the
@@ -149,7 +149,7 @@ struct ReelsFeedView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button { showOriginalsOnly = false } label: {
-                        Label("All Reels", systemImage: showOriginalsOnly ? "circle" : "checkmark")
+                        Label("All Frames", systemImage: showOriginalsOnly ? "circle" : "checkmark")
                     }
                     Button { showOriginalsOnly = true } label: {
                         Label("Functioning Faith Originals", systemImage: showOriginalsOnly ? "checkmark" : "circle")
@@ -157,7 +157,7 @@ struct ReelsFeedView: View {
                 } label: {
                     Image(systemName: "line.3.horizontal.decrease.circle")
                 }
-                .accessibilityLabel(showOriginalsOnly ? "Showing Functioning Faith Originals" : "Showing all Reels")
+                .accessibilityLabel(showOriginalsOnly ? "Showing Functioning Faith Originals" : "Showing all Frames")
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -165,7 +165,7 @@ struct ReelsFeedView: View {
                 } label: {
                     Image(systemName: "plus")
                 }
-                .accessibilityLabel("Create a Reel")
+                .accessibilityLabel("Create a Frame")
             }
         }
         .task { await load() }
@@ -177,7 +177,7 @@ struct ReelsFeedView: View {
                 Task { await load() }
             }
         }
-        .alert("Could not load reels", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+        .alert("Could not load Frames", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
     }
@@ -484,7 +484,7 @@ private struct ReelPage: View {
                         actionButton(systemImage: "paperplane.fill", label: "Share", tint: .white, action: onShare)
                         Menu {
                             Button(action: onSave) {
-                                Label(reel.savedByMe ? "Remove from saved" : "Save Reel", systemImage: reel.savedByMe ? "bookmark.slash" : "bookmark")
+                                Label(reel.savedByMe ? "Remove from saved" : "Save Frame", systemImage: reel.savedByMe ? "bookmark.slash" : "bookmark")
                             }
                             Button(role: .destructive, action: onNotInterested) {
                                 Label("Not interested", systemImage: "hand.thumbsdown")
@@ -495,7 +495,7 @@ private struct ReelPage: View {
                                 .frame(width: 44, height: 44)
                                 .background(.black.opacity(0.28), in: Circle())
                         }
-                        .accessibilityLabel("More Reel actions")
+                        .accessibilityLabel("More Frame actions")
                     }
                 }
                 .padding(.horizontal, FFTheme.Space.md)

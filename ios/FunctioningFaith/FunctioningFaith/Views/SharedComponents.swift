@@ -1,4 +1,90 @@
 import SwiftUI
+import UIKit
+
+// MARK: - Keyboard behavior
+
+/// One source of truth for keyboard visibility. The app's persistent bottom
+/// chrome and its matching content reservation both read this value, so they
+/// disappear and return together instead of independently resizing around
+/// the keyboard and leaving stretched headers or a stale bottom gap.
+@MainActor
+final class FFKeyboardState: ObservableObject {
+    static let shared = FFKeyboardState()
+
+    @Published private(set) var isVisible = false
+    private var observers: [NSObjectProtocol] = []
+
+    private init() {
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.isVisible = true
+        })
+        observers.append(center.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.isVisible = false
+        })
+    }
+
+    deinit {
+        observers.forEach(NotificationCenter.default.removeObserver)
+    }
+}
+
+/// Installs a non-blocking tap recognizer on the app window. Tapping outside
+/// the active field dismisses every keyboard type (including number pads that
+/// have no Return key) while the original tap still reaches buttons and links.
+struct FFKeyboardDismissBridge: UIViewRepresentable {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView(frame: .zero)
+        view.isUserInteractionEnabled = false
+        DispatchQueue.main.async { context.coordinator.install(from: view) }
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        DispatchQueue.main.async { context.coordinator.install(from: uiView) }
+    }
+
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.uninstall()
+    }
+
+    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        private weak var window: UIWindow?
+        private lazy var recognizer: UITapGestureRecognizer = {
+            let recognizer = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+            recognizer.cancelsTouchesInView = false
+            recognizer.delegate = self
+            return recognizer
+        }()
+
+        func install(from view: UIView) {
+            guard let window = view.window, self.window !== window else { return }
+            uninstall()
+            self.window = window
+            window.addGestureRecognizer(recognizer)
+        }
+
+        func uninstall() {
+            window?.removeGestureRecognizer(recognizer)
+            window = nil
+        }
+
+        @objc private func dismissKeyboard() {
+            window?.endEditing(true)
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            var view = touch.view
+            while let current = view {
+                if current is UITextField || current is UITextView { return false }
+                view = current.superview
+            }
+            return true
+        }
+    }
+}
 
 // MARK: - Member avatar
 

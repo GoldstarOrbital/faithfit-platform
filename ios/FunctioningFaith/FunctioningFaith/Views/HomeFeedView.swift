@@ -448,7 +448,7 @@ struct FeedPostRow: View {
                 .dynamicTypeSize(.large ... .accessibility3)
                 .padding(.horizontal, 16)
 
-            Text(post.workout != nil ? "WORKOUT" : (post.videoCategory != nil || post.deferredMediaKind == "video" ? "REEL" : (post.verse != nil && post.photoCategory == nil ? "SCRIPTURE & REFLECTION" : "COMMUNITY POST")))
+            Text(post.workout != nil ? "WORKOUT" : (post.videoCategory != nil || post.deferredMediaKind == "video" ? "FRAME" : (post.verse != nil && post.photoCategory == nil ? "SCRIPTURE & REFLECTION" : "COMMUNITY POST")))
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(FFTheme.meadow)
                 .padding(.horizontal, 16)
@@ -797,7 +797,7 @@ struct HomeActionsRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Button { destination = .reels } label: {
-                actionCard(title: "Watch Reels", subtitle: "Short encouragement & movement")
+                actionCard(title: "Watch Frames", subtitle: "Short encouragement & movement")
             }
             .buttonStyle(.plain)
             Button { destination = .journeys } label: {

@@ -32,6 +32,9 @@ const reelClient = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Ne
 const notifications = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Networking', 'NotificationCoordinator.swift');
 const breathwork = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'BreathworkView.swift');
 const homeFeed = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'HomeFeedView.swift');
+const sharedComponents = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'SharedComponents.swift');
+const nativeApp = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'FunctioningFaithApp.swift');
+const webApp = read('public', 'app.js');
 const media = read('lib', 'media.js');
 
 assert.match(client, /request\.timeoutInterval = timeoutInterval/, 'native requests need an explicit finite deadline');
@@ -105,6 +108,13 @@ assert.match(profile, /Heart-rate calm cue/, 'members need an explicit calm-cue 
 assert.match(workout, /Date\(\)\.timeIntervalSince\((?:activeWorkout\.)?lastHeartRateCalmCue\) >= 5 \* 60/, 'heart-rate calm cues must be rate limited');
 assert.match(notifications, /deliverHeartRateCalmCue/, 'the calm cue must reach the local-notification coordinator');
 assert.match(appShell, /overflowSections[^\n]*\.meditation/, 'Meditation must be reachable from the side panel');
+assert.match(appShell, /case \.reels: return "Frames"/, 'native short-form video must be branded Frames');
+assert.match(sharedComponents, /struct FFKeyboardDismissBridge/, 'native app needs one global outside-tap keyboard dismissal bridge');
+assert.match(sharedComponents, /endEditing\(true\)/, 'native keyboard dismissal must work for keyboards without a Return key');
+assert.match(nativeApp, /\.scrollDismissesKeyboard\(\.interactively\)/, 'native scroll surfaces must dismiss the keyboard interactively');
+assert.match(webApp, /function installKeyboardManager\(\)/, 'web editors need a shared mobile keyboard manager');
+assert.match(webApp, /done\.setAttribute\('aria-label', 'Hide keyboard'\)/, 'web editors need an accessible keyboard escape hatch');
+assert.match(webApp, /name: 'Frames'/, 'web short-form video must be branded Frames');
 assert.match(appShell, /struct MeditationSectionShell[^]*BreathworkView\(\)/, 'the side-panel Meditation destination must own breathwork');
 assert.doesNotMatch(appShell.split('struct TrainSectionShell')[1]?.split('\nstruct ')[0] || '', /id: "breathe"/, 'breathwork must no longer be buried in Train');
 assert.match(breathwork, /MeditationSoundscapePlayer[^]*AVAudioPlayerNode/, 'meditation needs offline ambient soundscapes');

@@ -39,7 +39,7 @@ struct ReelComposerView: View {
         NavigationStack {
             Form {
                 Section {
-                    Text("Up to 60 seconds and 10MB. Show a workout, nature, animals, or a group — never a solo vanity clip. Every Reel is paired with verified Scripture.")
+                    Text("Up to 60 seconds and 10MB. Show a workout, nature, animals, or a group — never a solo vanity clip. Every Frame is paired with verified Scripture.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -53,7 +53,7 @@ struct ReelComposerView: View {
                     }
 
                     if isPreparing {
-                        ProgressView("Preparing your Reel…")
+                        ProgressView("Preparing your Frame…")
                     }
 
                     if let fileLabel {
@@ -132,7 +132,7 @@ struct ReelComposerView: View {
                     }
                 }
             }
-            .navigationTitle("Create a Reel")
+            .navigationTitle("Create a Frame")
             .navigationBarTitleDisplayMode(.inline)
             .scrollDismissesKeyboard(.interactively)
             .toolbar {
@@ -216,7 +216,7 @@ struct ReelComposerView: View {
                 return
             }
             if seconds > Self.maxSeconds {
-                statusMessage = "Keep the Reel under 60 seconds — trim it and try again."
+                statusMessage = "Keep the Frame under 60 seconds — trim it and try again."
                 try? FileManager.default.removeItem(at: url)
                 clearTempFiles()
                 return
@@ -239,12 +239,12 @@ struct ReelComposerView: View {
                 return
             }
 
-            statusMessage = "Compressing your Reel…"
+            statusMessage = "Compressing your Frame…"
             let uploadURL = try await compressedVideoURL(from: url, zoom: 1, position: 0)
             let data = try Data(contentsOf: uploadURL)
             try? FileManager.default.removeItem(at: uploadURL)
             if data.count > Self.maxBytes {
-                statusMessage = "That Reel is still over 10MB after compression. Trim it or record a shorter clip."
+                statusMessage = "That Frame is still over 10MB after compression. Trim it or record a shorter clip."
                 try? FileManager.default.removeItem(at: url)
                 clearTempFiles()
                 return
@@ -257,7 +257,7 @@ struct ReelComposerView: View {
             let base64 = data.base64EncodedString()
             let dataURL = "data:\(mime);base64,\(base64)"
             if dataURL.count > (Self.maxBytes / 3) * 4 + 64 {
-                statusMessage = "Keep the Reel under 10MB."
+                statusMessage = "Keep the Frame under 10MB."
                 try? FileManager.default.removeItem(at: url)
                 clearTempFiles()
                 return
@@ -445,7 +445,7 @@ private struct ReelCropPreview: View {
             player = queue
         }
         .onDisappear { player?.pause() }
-        .accessibilityLabel("Reel framing preview")
+        .accessibilityLabel("Frame preview")
     }
 }
 

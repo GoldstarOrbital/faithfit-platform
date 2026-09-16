@@ -62,7 +62,7 @@ enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
         case .groups: return "Groups"
         case .leaderboard: return "Leaderboard"
         case .recruiting: return "Recruiting"
-        case .reels: return "Reels"
+        case .reels: return "Frames"
         case .videos: return "Videos"
         case .podcasts: return "Podcasts"
         case .motivation: return "Motivation"

@@ -41,7 +41,7 @@ extension AppTab: Identifiable {
         case .meditation: return "Meditation"
         case .messages: return "Messages"
         case .profile: return "Profile"
-        case .reels: return "Reels"
+        case .reels: return "Frames"
         case .scripture: return "Scripture"
         case .search: return "Search"
         case .settings: return "Settings"
@@ -164,39 +164,44 @@ struct FeatureBottomBar: View {
     let items: [FeatureBottomBarItem]
     @Binding var selection: String
     var onReselect: ((String) -> Void)? = nil
+    @ObservedObject private var keyboard = FFKeyboardState.shared
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(items) { item in
-                let isSelected = item.id == selection
-                Button {
-                    if isSelected {
-                        onReselect?(item.id)
-                    } else {
-                        selection = item.id
-                    }
-                } label: {
-                    VStack(spacing: 3) {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: item.systemImage)
-                                .font(.system(size: 19, weight: isSelected ? .semibold : .regular))
-                            if item.badge > 0 {
-                                Circle().fill(FFTheme.hearth).frame(width: 7, height: 7).offset(x: 6, y: -3)
+        Group {
+            if !keyboard.isVisible {
+                HStack(spacing: 0) {
+                    ForEach(items) { item in
+                        let isSelected = item.id == selection
+                        Button {
+                            if isSelected {
+                                onReselect?(item.id)
+                            } else {
+                                selection = item.id
                             }
+                        } label: {
+                            VStack(spacing: 3) {
+                                ZStack(alignment: .topTrailing) {
+                                    Image(systemName: item.systemImage)
+                                        .font(.system(size: 19, weight: isSelected ? .semibold : .regular))
+                                    if item.badge > 0 {
+                                        Circle().fill(FFTheme.hearth).frame(width: 7, height: 7).offset(x: 6, y: -3)
+                                    }
+                                }
+                                Text(item.title)
+                                    .font(.system(size: 10, weight: isSelected ? .semibold : .medium))
+                            }
+                            .foregroundStyle(isSelected ? FFTheme.emerald2 : FFTheme.parchment2.opacity(0.65))
+                            .frame(maxWidth: .infinity)
                         }
-                        Text(item.title)
-                            .font(.system(size: 10, weight: isSelected ? .semibold : .medium))
+                        .accessibilityLabel(item.title + (item.badge > 0 ? ", \(item.badge) unread" : ""))
+                        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
                     }
-                    .foregroundStyle(isSelected ? FFTheme.emerald2 : FFTheme.parchment2.opacity(0.65))
-                    .frame(maxWidth: .infinity)
                 }
-                .accessibilityLabel(item.title + (item.badge > 0 ? ", \(item.badge) unread" : ""))
-                .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+                .padding(.top, FFTheme.Space.xs)
+                .padding(.bottom, FFTheme.Space.xxs)
+                .background(FFTheme.walnut.ignoresSafeArea(edges: .bottom))
             }
         }
-        .padding(.top, FFTheme.Space.xs)
-        .padding(.bottom, FFTheme.Space.xxs)
-        .background(FFTheme.walnut.ignoresSafeArea(edges: .bottom))
     }
 }
 
@@ -216,7 +221,20 @@ extension View {
     /// just the Home tab. The previous 140pt inset left 36pt of visible dead
     /// space after the button was reduced to the 44pt iOS tap target.
     func reserveFeatureBottomBar() -> some View {
-        safeAreaInset(edge: .bottom) { Color.clear.frame(height: 104) }
+        modifier(FeatureBottomBarReservation())
+    }
+}
+
+private struct FeatureBottomBarReservation: ViewModifier {
+    @ObservedObject private var keyboard = FFKeyboardState.shared
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if keyboard.isVisible {
+            content
+        } else {
+            content.safeAreaInset(edge: .bottom) { Color.clear.frame(height: 104) }
+        }
     }
 }
 

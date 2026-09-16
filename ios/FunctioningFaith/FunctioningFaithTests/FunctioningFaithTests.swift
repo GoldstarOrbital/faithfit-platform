@@ -116,6 +116,13 @@ final class FunctioningFaithTests: XCTestCase {
         XCTAssertEqual(MeditationSoundscape.allCases.count, 4)
     }
 
+    func testFramesBrandingPreservesTheExistingWireContract() {
+        XCTAssertEqual(AppTab.reels.title, "Frames")
+        XCTAssertEqual(ExploreCatalogItem.reels.name, "Frames")
+        XCTAssertEqual(ExploreCatalogItem.reels.rawValue, "reels")
+        XCTAssertTrue(AppTab.globalBarSections.contains(.reels))
+    }
+
     func testWorkoutEditFieldsDecodeWithoutBreakingLegacyRows() throws {
         let rich = try JSONDecoder().decode(LoggedWorkout.self, from: Data(#"{"id":"w1","type":"Walk","start_time":"2026-09-14","end_time":"2026-09-14","duration_sec":1200,"distance_km":1.5,"calories":90,"note":"Sunrise","source":"app","pace_min_per_km":13.3,"name":"Morning prayer walk"}"#.utf8))
         XCTAssertEqual(rich.name, "Morning prayer walk")

@@ -14,6 +14,7 @@ struct RootTabView: View {
     @EnvironmentObject private var deepLinks: DeepLinkRouter
     @StateObject private var dmStore = DMStore()
     @ObservedObject private var activeWorkout = ActiveWorkoutSession.shared
+    @ObservedObject private var keyboard = FFKeyboardState.shared
     @State private var showSidePanel = false
     @State private var showAskAI = false
     @State private var homeScrollToTopRequest = 0
@@ -35,7 +36,7 @@ struct RootTabView: View {
                             }
                         )
                     }
-                    if deepLinks.selectedTab != .reels { askAIButton }
+                    if deepLinks.selectedTab != .reels && !keyboard.isVisible { askAIButton }
                 }
                 .environmentObject(dmStore)
 

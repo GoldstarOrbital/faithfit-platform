@@ -376,7 +376,7 @@ private struct DMBubble: View {
                     .overlay(Image(systemName: "play.rectangle.fill").foregroundStyle(.tint))
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text("Shared a reel").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                Text("Shared a frame").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
                 Text(reel.title ?? "Untitled").font(.callout).lineLimit(2)
             }
             Spacer(minLength: 0)
@@ -442,7 +442,7 @@ private struct DMBubble: View {
         switch reply.kind {
         case "e2e": return "🔒 Encrypted message"
         case "verse": return reply.body ?? "Shared a verse"
-        case "reel": return reply.body ?? "Shared a reel"
+        case "reel": return reply.body ?? "Shared a frame"
         case "workout": return reply.body ?? "Shared a workout"
         case "bible_answer": return reply.body ?? "Shared a Bible Answers response"
         default: return reply.body ?? "…"
