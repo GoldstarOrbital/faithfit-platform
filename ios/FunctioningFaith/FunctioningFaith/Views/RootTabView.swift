@@ -36,7 +36,12 @@ struct RootTabView: View {
                             }
                         )
                     }
-                    if deepLinks.selectedTab != .reels && !keyboard.isVisible { askAIButton }
+                    if deepLinks.selectedTab != .reels {
+                        askAIButton
+                            .opacity(keyboard.isVisible ? 0 : 1)
+                            .allowsHitTesting(!keyboard.isVisible)
+                            .accessibilityHidden(keyboard.isVisible)
+                    }
                 }
                 .environmentObject(dmStore)
 

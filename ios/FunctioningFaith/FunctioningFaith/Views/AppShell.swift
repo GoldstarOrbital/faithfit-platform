@@ -167,41 +167,51 @@ struct FeatureBottomBar: View {
     @ObservedObject private var keyboard = FFKeyboardState.shared
 
     var body: some View {
-        Group {
-            if !keyboard.isVisible {
-                HStack(spacing: 0) {
-                    ForEach(items) { item in
-                        let isSelected = item.id == selection
-                        Button {
-                            if isSelected {
-                                onReselect?(item.id)
-                            } else {
-                                selection = item.id
-                            }
-                        } label: {
-                            VStack(spacing: 3) {
-                                ZStack(alignment: .topTrailing) {
-                                    Image(systemName: item.systemImage)
-                                        .font(.system(size: 19, weight: isSelected ? .semibold : .regular))
-                                    if item.badge > 0 {
-                                        Circle().fill(FFTheme.hearth).frame(width: 7, height: 7).offset(x: 6, y: -3)
-                                    }
-                                }
-                                Text(item.title)
-                                    .font(.system(size: 10, weight: isSelected ? .semibold : .medium))
-                            }
-                            .foregroundStyle(isSelected ? FFTheme.emerald2 : FFTheme.parchment2.opacity(0.65))
-                            .frame(maxWidth: .infinity)
-                        }
-                        .accessibilityLabel(item.title + (item.badge > 0 ? ", \(item.badge) unread" : ""))
-                        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        HStack(spacing: 0) {
+            ForEach(items) { item in
+                let isSelected = item.id == selection
+                Button {
+                    if isSelected {
+                        onReselect?(item.id)
+                    } else {
+                        selection = item.id
                     }
+                } label: {
+                    VStack(spacing: 3) {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: item.systemImage)
+                                .font(.system(size: 19, weight: isSelected ? .semibold : .regular))
+                            if item.badge > 0 {
+                                Circle().fill(FFTheme.hearth).frame(width: 7, height: 7).offset(x: 6, y: -3)
+                            }
+                        }
+                        Text(item.title)
+                            .font(.system(size: 10, weight: isSelected ? .semibold : .medium))
+                    }
+                    .foregroundStyle(isSelected ? FFTheme.emerald2 : FFTheme.parchment2.opacity(0.65))
+                    .frame(maxWidth: .infinity)
                 }
-                .padding(.top, FFTheme.Space.xs)
-                .padding(.bottom, FFTheme.Space.xxs)
-                .background(FFTheme.walnut.ignoresSafeArea(edges: .bottom))
+                .accessibilityLabel(item.title + (item.badge > 0 ? ", \(item.badge) unread" : ""))
+                .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
             }
         }
+        .padding(.top, FFTheme.Space.xs)
+        .padding(.bottom, FFTheme.Space.xxs)
+        .background {
+            if keyboard.isVisible {
+                // The hidden bar must stop extending through the keyboard's
+                // safe area or sibling composers are laid out underneath it.
+                FFTheme.walnut
+            } else {
+                FFTheme.walnut.ignoresSafeArea(edges: .bottom)
+            }
+        }
+        // Never conditionally remove this subtree when the keyboard starts
+        // opening. Doing so rebuilt its sibling screen at the exact moment a
+        // TextField became first responder, which immediately cancelled focus.
+        .opacity(keyboard.isVisible ? 0 : 1)
+        .allowsHitTesting(!keyboard.isVisible)
+        .accessibilityHidden(keyboard.isVisible)
     }
 }
 
@@ -228,12 +238,11 @@ extension View {
 private struct FeatureBottomBarReservation: ViewModifier {
     @ObservedObject private var keyboard = FFKeyboardState.shared
 
-    @ViewBuilder
     func body(content: Content) -> some View {
-        if keyboard.isVisible {
-            content
-        } else {
-            content.safeAreaInset(edge: .bottom) { Color.clear.frame(height: 104) }
+        // Keep the modifier hierarchy stable while focus changes. The old
+        // if/else replaced the entire focused screen on keyboardWillShow.
+        content.safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear.frame(height: keyboard.isVisible ? 0 : 104)
         }
     }
 }

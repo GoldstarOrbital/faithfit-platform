@@ -14,6 +14,7 @@ struct SearchView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var searchGeneration = UUID()
     @State private var selectedPersonID: UUID?
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         // Keep the field in the screen instead of relying on navigation-bar
@@ -40,6 +41,9 @@ struct SearchView: View {
                     await runSearch(trimmed, generation: generation)
                 }
             }
+            .onChange(of: isActive) { _, active in
+                if !active { searchFocused = false }
+            }
             .alert("Search failed", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK", role: .cancel) { errorMessage = nil }
             } message: { Text(errorMessage ?? "") }
@@ -52,8 +56,19 @@ struct SearchView: View {
             TextField("People, groups, journeys, scripture…", text: $query)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                .focused($searchFocused)
                 .submitLabel(.search)
                 .onSubmit { searchImmediately() }
+                .accessibilityIdentifier("home-search-text-field")
+            if searchFocused {
+                Button {
+                    searchFocused = false
+                } label: {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                        .foregroundStyle(FFTheme.inkSoft)
+                }
+                .accessibilityLabel("Hide keyboard")
+            }
             if !query.isEmpty {
                 Button {
                     query = ""

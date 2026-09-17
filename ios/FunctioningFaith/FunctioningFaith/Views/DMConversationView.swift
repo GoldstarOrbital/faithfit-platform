@@ -22,6 +22,7 @@ struct DMConversationView: View {
     @State private var showVersePicker = false
     @State private var replyingTo: DMMessage?
     @State private var openVerseReference: OpenVerseReference?
+    @FocusState private var messageFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -83,6 +84,16 @@ struct DMConversationView: View {
                 TextField("Message…", text: $messageText, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...4)
+                    .focused($messageFocused)
+                    .accessibilityIdentifier("dm-message-text-field")
+                if messageFocused {
+                    Button {
+                        messageFocused = false
+                    } label: {
+                        Image(systemName: "keyboard.chevron.compact.down")
+                    }
+                    .accessibilityLabel("Hide keyboard")
+                }
                 Button {
                     Task {
                         if editingMessage != nil { await saveEdit() } else { await send() }
@@ -138,6 +149,7 @@ struct DMConversationView: View {
         } message: { Text(errorMessage ?? "") }
         .task { await load() }
         .task { await pollWhileVisible() }
+        .onDisappear { messageFocused = false }
     }
 
     private func replyPreviewSnippet(_ message: DMMessage) -> String {

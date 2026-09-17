@@ -34,6 +34,9 @@ const breathwork = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Vi
 const homeFeed = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'HomeFeedView.swift');
 const sharedComponents = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'SharedComponents.swift');
 const nativeApp = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'FunctioningFaithApp.swift');
+const bibleAnswers = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'BibleAnswersView.swift');
+const searchView = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'SearchView.swift');
+const dmConversation = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'DMConversationView.swift');
 const webApp = read('public', 'app.js');
 const media = read('lib', 'media.js');
 
@@ -114,6 +117,14 @@ assert.doesNotMatch(nativeApp, /FFKeyboardDismissBridge/, 'the app root must not
 assert.match(sharedComponents, /struct FFKeyboardEscapeModifier/, 'typing screens need a non-toolbar keyboard escape control');
 assert.match(nativeApp, /\.ffKeyboardEscape\(\)/, 'the keyboard escape control must be available throughout the app');
 assert.match(nativeApp, /\.scrollDismissesKeyboard\(\.interactively\)/, 'native scroll surfaces must dismiss the keyboard interactively');
+assert.doesNotMatch(appShell, /if keyboard\.isVisible\s*\{\s*content\s*\}\s*else/,
+  'keyboard opening must not replace the focused screen hierarchy');
+assert.match(appShell, /Color\.clear\.frame\(height: keyboard\.isVisible \? 0 : 104\)/,
+  'bottom-bar spacing must change without replacing focused content');
+assert.match(bibleAnswers, /keyboard\.coveredHeight/, 'Bible Answers must clear the measured keyboard frame');
+assert.match(searchView, /\.focused\(\$searchFocused\)/, 'Search must own explicit field focus');
+assert.match(dmConversation, /\.focused\(\$messageFocused\)/, 'DM composer must own explicit field focus');
+assert.match(dmInbox, /new-message-search-text-field/, 'new-message search must use an inline focusable field');
 assert.match(webApp, /function installKeyboardManager\(\)/, 'web editors need a shared mobile keyboard manager');
 assert.match(webApp, /done\.setAttribute\('aria-label', 'Hide keyboard'\)/, 'web editors need an accessible keyboard escape hatch');
 assert.match(webApp, /name: 'Frames'/, 'web short-form video must be branded Frames');

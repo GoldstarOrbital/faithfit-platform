@@ -12,25 +12,45 @@ final class FFKeyboardState: ObservableObject {
     static let shared = FFKeyboardState()
 
     @Published private(set) var isVisible = false
+    @Published private(set) var coveredHeight: CGFloat = 0
     private var observers: [NSObjectProtocol] = []
 
     private init() {
         let center = NotificationCenter.default
-        observers.append(center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.isVisible = true
+        observers.append(center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] note in
+            self?.updateFrame(from: note)
+        })
+        observers.append(center.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] note in
+            self?.updateFrame(from: note)
         })
         observers.append(center.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] _ in
             self?.isVisible = false
+            self?.coveredHeight = 0
         })
         observers.append(center.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in
             self?.isVisible = false
+            self?.coveredHeight = 0
         })
         observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             // If iOS backgrounds the scene while an editor is focused it does
             // not always deliver keyboardWillHide. Never retain phantom
             // keyboard spacing or hide the app's navigation after resume.
             self?.isVisible = false
+            self?.coveredHeight = 0
         })
+    }
+
+    private func updateFrame(from note: Notification) {
+        guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
+            isVisible = true
+            return
+        }
+        let screenBounds = (UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?.screen.bounds) ?? UIScreen.main.bounds
+        let overlap = max(0, screenBounds.maxY - frame.minY)
+        coveredHeight = overlap
+        isVisible = overlap > 0
     }
 
     deinit {
@@ -47,29 +67,29 @@ struct FFKeyboardEscapeModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content.overlay(alignment: .topTrailing) {
-            if keyboard.isVisible {
-                Button {
-                    UIApplication.shared.sendAction(
-                        #selector(UIResponder.resignFirstResponder),
-                        to: nil, from: nil, for: nil
-                    )
-                } label: {
-                    Label("Done", systemImage: "keyboard.chevron.compact.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(FFTheme.ink)
-                        .padding(.horizontal, 12)
-                        .frame(minHeight: 36)
-                        .background(.regularMaterial, in: Capsule())
-                        .overlay(Capsule().strokeBorder(FFTheme.hairline, lineWidth: 1))
-                        .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
-                }
-                .buttonStyle(.plain)
-                .padding(.top, 6)
-                .padding(.trailing, 10)
-                .accessibilityLabel("Hide keyboard")
-                .transition(.opacity)
-                .zIndex(100)
+            Button {
+                UIApplication.shared.sendAction(
+                    #selector(UIResponder.resignFirstResponder),
+                    to: nil, from: nil, for: nil
+                )
+            } label: {
+                Label("Done", systemImage: "keyboard.chevron.compact.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(FFTheme.ink)
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 36)
+                    .background(.regularMaterial, in: Capsule())
+                    .overlay(Capsule().strokeBorder(FFTheme.hairline, lineWidth: 1))
+                    .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
             }
+            .buttonStyle(.plain)
+            .padding(.top, 6)
+            .padding(.trailing, 10)
+            .accessibilityLabel("Hide keyboard")
+            .opacity(keyboard.isVisible ? 1 : 0)
+            .allowsHitTesting(keyboard.isVisible)
+            .accessibilityHidden(!keyboard.isVisible)
+            .zIndex(100)
         }
     }
 }

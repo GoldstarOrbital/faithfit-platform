@@ -19,10 +19,12 @@ const bibleAnswers = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', '
 assert.doesNotMatch(shared, /FFKeyboardDismissBridge|endEditing\(true\)/,
   'window-level recognizers must not cancel SwiftUI field focus');
 assert.match(shared, /struct FFKeyboardEscapeModifier/, 'the keyboard must have a non-intercepting global escape control');
-assert.doesNotMatch(bibleAnswers, /safeAreaInset\(edge: \.bottom[^}]*composeBar/,
-  'Bible Answers composer must participate directly in keyboard-resized layout');
+assert.match(shared, /@Published private\(set\) var coveredHeight: CGFloat = 0/,
+  'nested composers must have the actual UIKit keyboard overlap');
 assert.match(bibleAnswers, /if !suggestions\.isEmpty && !inputFocused \{ suggestionsRow \}\s*composeBar/,
   'Bible Answers must keep its editor visible and release suggestion space while typing');
+assert.match(bibleAnswers, /\.ignoresSafeArea\(\.keyboard, edges: \.bottom\)[^]*\.padding\(\.bottom, keyboard\.coveredHeight\)/,
+  'Bible Answers must explicitly clear the keyboard in both navigation and sheet presentations');
 assert.match(stories, /StoriesCache\.load\(userID:/, 'Moments must paint a disk snapshot before live refresh');
 assert.match(stories, /StoriesCache\.save\(fresh, userID:/, 'fresh Moments must replace the disk snapshot');
 assert.match(storiesCache, /appendingPathComponent\("stories-cache"/, 'Moment snapshots must use their own member-scoped cache');

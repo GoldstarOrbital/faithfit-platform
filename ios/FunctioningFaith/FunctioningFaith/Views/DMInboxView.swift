@@ -123,43 +123,47 @@ private struct NewMessageView: View {
     @State private var errorMessage: String?
     @State private var opened: NewConversationDestination?
     @State private var searchTask: Task<Void, Never>?
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
-        Group {
-            if query.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 {
-                ContentUnavailableView("Find someone", systemImage: "person.badge.plus", description: Text("Search by their name or username to start a message."))
-            } else if isSearching && people.isEmpty {
-                ProgressView()
-            } else if people.isEmpty {
-                ContentUnavailableView.search(text: query)
-            } else {
-                List(people) { person in
-                    Button { Task { await open(person) } } label: {
-                        HStack(spacing: 12) {
-                            if let personID = UUID(uuidString: person.id) {
-                                MemberAvatarView(userID: personID, hasAvatar: person.hasAvatar ?? false, size: 32)
-                            } else {
-                                Image(systemName: "person.crop.circle.fill")
-                                    .font(.title2).foregroundStyle(FFTheme.hearth)
-                            }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(person.title).foregroundStyle(FFTheme.ink)
-                                if let subtitle = person.subtitle, !subtitle.isEmpty {
-                                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        VStack(spacing: 0) {
+            newMessageSearchField
+            Group {
+                if query.trimmingCharacters(in: .whitespacesAndNewlines).count < 2 {
+                    ContentUnavailableView("Find someone", systemImage: "person.badge.plus", description: Text("Search by their name or username to start a message."))
+                } else if isSearching && people.isEmpty {
+                    ProgressView()
+                } else if people.isEmpty {
+                    ContentUnavailableView.search(text: query)
+                } else {
+                    List(people) { person in
+                        Button { Task { await open(person) } } label: {
+                            HStack(spacing: 12) {
+                                if let personID = UUID(uuidString: person.id) {
+                                    MemberAvatarView(userID: personID, hasAvatar: person.hasAvatar ?? false, size: 32)
+                                } else {
+                                    Image(systemName: "person.crop.circle.fill")
+                                        .font(.title2).foregroundStyle(FFTheme.hearth)
                                 }
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(person.title).foregroundStyle(FFTheme.ink)
+                                    if let subtitle = person.subtitle, !subtitle.isEmpty {
+                                        Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                    }
+                                }
+                                Spacer()
+                                Image(systemName: "message.fill").foregroundStyle(.tint)
                             }
-                            Spacer()
-                            Image(systemName: "message.fill").foregroundStyle(.tint)
                         }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
+                    .ffListChrome()
                 }
-                .ffListChrome()
             }
         }
         .navigationTitle("New message")
         .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } } }
-        .searchable(text: $query, prompt: "Name or username")
+        .scrollDismissesKeyboard(.interactively)
         .onChange(of: query) { _, value in
             searchTask?.cancel()
             let clean = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -182,6 +186,37 @@ private struct NewMessageView: View {
         .alert("Could not open conversation", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
+    }
+
+    private var newMessageSearchField: some View {
+        HStack(spacing: FFTheme.Space.sm) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(FFTheme.inkSoft)
+            TextField("Name or username", text: $query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .focused($searchFocused)
+                .submitLabel(.search)
+                .accessibilityIdentifier("new-message-search-text-field")
+            if searchFocused {
+                Button { searchFocused = false } label: {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                }
+                .accessibilityLabel("Hide keyboard")
+            }
+            if !query.isEmpty {
+                Button { query = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                }
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, FFTheme.Space.md)
+        .frame(minHeight: 44)
+        .background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(FFTheme.hairline, lineWidth: 1))
+        .padding(.horizontal, FFTheme.Space.md)
+        .padding(.vertical, FFTheme.Space.sm)
     }
 
     private func open(_ person: SearchResultItem) async {
