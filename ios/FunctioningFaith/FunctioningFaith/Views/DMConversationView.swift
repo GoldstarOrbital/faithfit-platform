@@ -111,13 +111,6 @@ struct DMConversationView: View {
                     showBlockConfirm = true
                 }
             }
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") {
-                    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                }
-                .fontWeight(.semibold)
-            }
         }
         .confirmationDialog(
             conversation?.blocked == true ? "Unblock \(otherName)?" : "Block \(otherName)?",

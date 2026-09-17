@@ -22,6 +22,15 @@ final class FFKeyboardState: ObservableObject {
         observers.append(center.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] _ in
             self?.isVisible = false
         })
+        observers.append(center.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.isVisible = false
+        })
+        observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            // If iOS backgrounds the scene while an editor is focused it does
+            // not always deliver keyboardWillHide. Never retain phantom
+            // keyboard spacing or hide the app's navigation after resume.
+            self?.isVisible = false
+        })
     }
 
     deinit {
@@ -29,78 +38,44 @@ final class FFKeyboardState: ObservableObject {
     }
 }
 
-/// Installs a non-blocking tap recognizer on the app window. Tapping outside
-/// the active field dismisses every keyboard type (including number pads that
-/// have no Return key) while the original tap still reaches buttons and links.
-struct FFKeyboardDismissBridge: UIViewRepresentable {
-    func makeCoordinator() -> Coordinator { Coordinator() }
+/// A regular SwiftUI overlay, not a UIKit window gesture or keyboard toolbar.
+/// It can never intercept the tap that focuses a field, and it avoids the
+/// navigation-bar resizing glitches caused by `.toolbar(placement: .keyboard)`
+/// when several retained NavigationStacks are mounted under RootTabView.
+struct FFKeyboardEscapeModifier: ViewModifier {
+    @ObservedObject private var keyboard = FFKeyboardState.shared
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView(frame: .zero)
-        view.isUserInteractionEnabled = false
-        DispatchQueue.main.async { context.coordinator.install(from: view) }
-        return view
-    }
-
-    func updateUIView(_ uiView: UIView, context: Context) {
-        DispatchQueue.main.async { context.coordinator.install(from: uiView) }
-    }
-
-    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
-        coordinator.uninstall()
-    }
-
-    final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        private weak var window: UIWindow?
-        private lazy var recognizer: UITapGestureRecognizer = {
-            let recognizer = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
-            recognizer.cancelsTouchesInView = false
-            recognizer.delegate = self
-            return recognizer
-        }()
-
-        func install(from view: UIView) {
-            guard let window = view.window, self.window !== window else { return }
-            uninstall()
-            self.window = window
-            window.addGestureRecognizer(recognizer)
-        }
-
-        func uninstall() {
-            window?.removeGestureRecognizer(recognizer)
-            window = nil
-        }
-
-        @objc private func dismissKeyboard() {
-            window?.endEditing(true)
-        }
-
-        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            // SwiftUI's TextField is wrapped in private hosting views. On the
-            // first tap those wrappers can be reported instead of the actual
-            // UITextField, so an unconditional recognizer immediately ended
-            // the edit session it had just started and no keyboard appeared.
-            // An outside-tap dismissal only makes sense when something was
-            // already editing before this touch began.
-            guard window?.ffFirstResponder != nil else { return false }
-            var view = touch.view
-            while let current = view {
-                if current is UITextField || current is UITextView || current is UIControl { return false }
-                view = current.superview
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .topTrailing) {
+            if keyboard.isVisible {
+                Button {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder),
+                        to: nil, from: nil, for: nil
+                    )
+                } label: {
+                    Label("Done", systemImage: "keyboard.chevron.compact.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(FFTheme.ink)
+                        .padding(.horizontal, 12)
+                        .frame(minHeight: 36)
+                        .background(.regularMaterial, in: Capsule())
+                        .overlay(Capsule().strokeBorder(FFTheme.hairline, lineWidth: 1))
+                        .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 6)
+                .padding(.trailing, 10)
+                .accessibilityLabel("Hide keyboard")
+                .transition(.opacity)
+                .zIndex(100)
             }
-            return true
         }
     }
 }
 
-private extension UIView {
-    var ffFirstResponder: UIView? {
-        if isFirstResponder { return self }
-        for child in subviews {
-            if let responder = child.ffFirstResponder { return responder }
-        }
-        return nil
-    }
+extension View {
+    func ffKeyboardEscape() -> some View { modifier(FFKeyboardEscapeModifier()) }
 }
 
 // MARK: - Member avatar

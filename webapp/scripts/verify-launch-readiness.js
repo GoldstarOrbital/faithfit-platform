@@ -14,9 +14,15 @@ const notificationCoordinator = read('..', 'ios', 'FunctioningFaith', 'Functioni
 const shared = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'SharedComponents.swift');
 const stories = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'StoriesRail.swift');
 const storiesCache = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Networking', 'StoriesCache.swift');
+const bibleAnswers = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'BibleAnswersView.swift');
 
-assert.match(shared, /guard window\?\.ffFirstResponder != nil else \{ return false \}/,
-  'the global recognizer must not cancel a field\'s initial focus tap');
+assert.doesNotMatch(shared, /FFKeyboardDismissBridge|endEditing\(true\)/,
+  'window-level recognizers must not cancel SwiftUI field focus');
+assert.match(shared, /struct FFKeyboardEscapeModifier/, 'the keyboard must have a non-intercepting global escape control');
+assert.doesNotMatch(bibleAnswers, /safeAreaInset\(edge: \.bottom[^}]*composeBar/,
+  'Bible Answers composer must participate directly in keyboard-resized layout');
+assert.match(bibleAnswers, /if !suggestions\.isEmpty && !inputFocused \{ suggestionsRow \}\s*composeBar/,
+  'Bible Answers must keep its editor visible and release suggestion space while typing');
 assert.match(stories, /StoriesCache\.load\(userID:/, 'Moments must paint a disk snapshot before live refresh');
 assert.match(stories, /StoriesCache\.save\(fresh, userID:/, 'fresh Moments must replace the disk snapshot');
 assert.match(storiesCache, /appendingPathComponent\("stories-cache"/, 'Moment snapshots must use their own member-scoped cache');

@@ -53,13 +53,14 @@ struct BibleAnswersView: View {
                 } else {
                     conversation
                 }
-                if !suggestions.isEmpty { suggestionsRow }
+                // Keep the active editor and its send button in the same
+                // keyboard-resized VStack. A safeAreaInset attached outside
+                // this ZStack could be laid out behind the keyboard when this
+                // view was presented as a sheet from RootTabView.
+                if !suggestions.isEmpty && !inputFocused { suggestionsRow }
+                composeBar
             }
         }
-        // A safe-area composer follows the keyboard instead of remaining
-        // behind it. The question text and send control stay visible at every
-        // keyboard height, including the larger accessibility keyboard.
-        .safeAreaInset(edge: .bottom, spacing: 0) { composeBar }
         .navigationTitle("Bible Answers")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -79,11 +80,6 @@ struct BibleAnswersView: View {
                     errorMessage = nil
                 }
                 .disabled(history.isEmpty && pendingQuestion == nil)
-            }
-            ToolbarItemGroup(placement: .keyboard) {
-                Spacer()
-                Button("Done") { inputFocused = false }
-                    .fontWeight(.semibold)
             }
         }
         .sheet(isPresented: $showMemory) {
