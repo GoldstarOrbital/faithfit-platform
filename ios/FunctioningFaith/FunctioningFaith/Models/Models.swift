@@ -19,6 +19,41 @@ struct VerseSnippet: Codable, Identifiable {
     let reference: String
     let snippet: String
     let deepLink: String
+
+    /// API verse payloads use `deep_link`, while older on-device caches were
+    /// written with Swift's synthesized `deepLink` key. Accept both so a
+    /// perfectly valid workout-completion response cannot fail decoding only
+    /// after the server has already saved the workout.
+    private enum CodingKeys: String, CodingKey {
+        case id, reference, snippet, deepLink
+        case deepLinkSnake = "deep_link"
+    }
+
+    init(id: String, reference: String, snippet: String, deepLink: String) {
+        self.id = id
+        self.reference = reference
+        self.snippet = snippet
+        self.deepLink = deepLink
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        reference = try container.decode(String.self, forKey: .reference)
+        snippet = try container.decode(String.self, forKey: .snippet)
+        deepLink = try container.decodeIfPresent(String.self, forKey: .deepLinkSnake)
+            ?? container.decodeIfPresent(String.self, forKey: .deepLink)
+            ?? ""
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(reference, forKey: .reference)
+        try container.encode(snippet, forKey: .snippet)
+        // Keep the established cache representation stable.
+        try container.encode(deepLink, forKey: .deepLink)
+    }
 }
 
 /// Result of "Sync & correct with GPS" (see webapp's gpsCorrection.js) --

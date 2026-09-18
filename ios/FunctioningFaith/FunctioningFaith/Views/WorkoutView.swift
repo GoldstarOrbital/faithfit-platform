@@ -466,29 +466,35 @@ struct WorkoutView: View {
     private func finishWorkout() {
         if isActive {
             guard let id = workoutID else { return }
+            // Snapshot everything needed by the recap before ending the live
+            // session. The server may take a moment to answer, and the active
+            // session is no longer the owner of these finished values.
+            let finishedType = selectedType
+            let finishedElapsed = Int(elapsed.rounded())
+            let finishedStartedAt = workoutStartedAt
             activeWorkout.markFinished()
             Task { await WorkoutLiveActivityManager.shared.end() }
             let route = tracker.points
             let distance = tracker.distanceKm
             if isOfflineWorkout {
-                OfflineWorkoutQueue.shared.enqueue(type: selectedType, durationSec: Int(elapsed.rounded()), distanceKm: distance)
+                OfflineWorkoutQueue.shared.enqueue(type: finishedType, durationSec: finishedElapsed, distanceKm: distance)
                 isOfflineWorkout = false
                 errorMessage = "Workout saved on this phone and will upload automatically when you reconnect."
                 return
             }
             Task {
+                var sportMetrics: [String: Double] = ["top_speed_kmh": max(tracker.maxSpeedKmh, bluetooth.speedKmh ?? 0),
+                                                       "elevation_gain_m": tracker.elevationGainM,
+                                                       "elevation_loss_m": tracker.elevationLossM]
+                if let cadence = bluetooth.cadenceRPM { sportMetrics["cadence_rpm"] = Double(cadence) }
+                if let power = bluetooth.cyclingPowerWatts { sportMetrics["power_w"] = Double(power) }
+                if bluetooth.peakPowerWatts > 0 { sportMetrics["peak_power_w"] = Double(bluetooth.peakPowerWatts) }
                 do {
-                    var sportMetrics: [String: Double] = ["top_speed_kmh": max(tracker.maxSpeedKmh, bluetooth.speedKmh ?? 0),
-                                                           "elevation_gain_m": tracker.elevationGainM,
-                                                           "elevation_loss_m": tracker.elevationLossM]
-                    if let cadence = bluetooth.cadenceRPM { sportMetrics["cadence_rpm"] = Double(cadence) }
-                    if let power = bluetooth.cyclingPowerWatts { sportMetrics["power_w"] = Double(power) }
-                    if bluetooth.peakPowerWatts > 0 { sportMetrics["peak_power_w"] = Double(bluetooth.peakPowerWatts) }
-                    let completion = try await APIClient.shared.stopWorkout(id: id, gpsPoints: route, gpsDistanceKm: distance, activeDurationSec: Int(elapsed.rounded()), sportMetrics: sportMetrics)
+                    let completion = try await APIClient.shared.stopWorkout(id: id, gpsPoints: route, gpsDistanceKm: distance, activeDurationSec: finishedElapsed, sportMetrics: sportMetrics)
                     if let finishVerse = completion.finishVerse {
                         await MainActor.run {
                             workoutVerse = finishVerse
-                            WidgetScriptureStore.save(reference: finishVerse.reference, text: finishVerse.snippet, context: "After your \(selectedType.lowercased())")
+                            WidgetScriptureStore.save(reference: finishVerse.reference, text: finishVerse.snippet, context: "After your \(finishedType.lowercased())")
                             WidgetCenter.shared.reloadTimelines(ofKind: "FunctioningFaithScripture")
                         }
                     } else {
@@ -499,11 +505,42 @@ struct WorkoutView: View {
                         completedRoute = route
                         completedWorkout = completion
                         UINotificationFeedbackGenerator().notificationOccurred(.success)
-                        if let startedAt = workoutStartedAt {
+                        if let startedAt = finishedStartedAt {
                             healthKit.saveWorkoutToHealth(
-                                activityType: selectedType, start: startedAt, end: Date(),
+                                activityType: finishedType, start: startedAt, end: Date(),
                                 calories: Double(completion.calories),
                                 distanceMeters: completion.distanceKm.map { $0 * 1000 })
+                        }
+                    }
+                    recent = (try? await APIClient.shared.fetchWorkouts()) ?? recent
+                } catch APIError.invalidResponse {
+                    // A decoding failure occurs only after a successful 2xx
+                    // response, so the server has already persisted the stop.
+                    // Never strand the member on the Train screen just because
+                    // an optional response field drifted: show a truthful recap
+                    // from the measurements captured on this phone.
+                    let fallback = WorkoutCompletion(
+                        id: id,
+                        calories: TrainingMath.estimatedKcal(elapsed: Double(finishedElapsed), km: distance),
+                        avgHR: heartRate > 0 ? heartRate : nil,
+                        maxHR: heartRate > 0 ? heartRate : nil,
+                        distanceKm: distance > 0 ? distance : nil,
+                        durationSec: finishedElapsed,
+                        encouragement: "Your workout is saved.",
+                        effort: nil,
+                        finishVerse: nil
+                    )
+                    await fillInVerseIfNeeded()
+                    await MainActor.run {
+                        completedSportMetrics = sportMetrics
+                        completedRoute = route
+                        completedWorkout = fallback
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        if let startedAt = finishedStartedAt {
+                            healthKit.saveWorkoutToHealth(
+                                activityType: finishedType, start: startedAt, end: Date(),
+                                calories: Double(fallback.calories),
+                                distanceMeters: fallback.distanceKm.map { $0 * 1000 })
                         }
                     }
                     recent = (try? await APIClient.shared.fetchWorkouts()) ?? recent

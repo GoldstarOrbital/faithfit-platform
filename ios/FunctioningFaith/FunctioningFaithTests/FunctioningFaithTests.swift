@@ -178,6 +178,41 @@ final class FunctioningFaithTests: XCTestCase {
         XCTAssertNil(decoded.averageSpeedKmh)
     }
 
+    func testWorkoutCompletionDecodesProductionFinishVerse() throws {
+        let json = """
+        {
+          "id":"00000000-0000-0000-0000-000000000001",
+          "calories":312,
+          "avg_hr":142,
+          "max_hr":171,
+          "distance_km":5.2,
+          "duration_sec":1840,
+          "encouragement":"A strong finish.",
+          "effort":{"effort_score":74,"peak_zone":"vigorous"},
+          "finish_verse":{
+            "id":"php.4.13",
+            "reference":"Philippians 4:13",
+            "snippet":"I can do all this through him who gives me strength.",
+            "deep_link":"youversion://bible/verse/php.4.13"
+          }
+        }
+        """
+
+        let completion = try JSONDecoder().decode(WorkoutCompletion.self, from: Data(json.utf8))
+        XCTAssertEqual(completion.id.uuidString.lowercased(), "00000000-0000-0000-0000-000000000001")
+        XCTAssertEqual(completion.durationSec, 1840)
+        XCTAssertEqual(completion.finishVerse?.reference, "Philippians 4:13")
+        XCTAssertEqual(completion.finishVerse?.deepLink, "youversion://bible/verse/php.4.13")
+    }
+
+    func testVerseSnippetStillDecodesExistingCamelCaseCache() throws {
+        let json = """
+        {"id":"psa.23.1","reference":"Psalm 23:1","snippet":"The Lord is my shepherd.","deepLink":"youversion://bible/verse/psa.23.1"}
+        """
+        let verse = try JSONDecoder().decode(VerseSnippet.self, from: Data(json.utf8))
+        XCTAssertEqual(verse.deepLink, "youversion://bible/verse/psa.23.1")
+    }
+
     func testSocialOnboardingOnlyAppearsForTheNewlyRegisteredAccount() {
         let registered = UUID()
 
