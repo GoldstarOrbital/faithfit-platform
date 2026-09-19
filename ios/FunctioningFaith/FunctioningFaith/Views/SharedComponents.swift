@@ -18,26 +18,28 @@ final class FFKeyboardState: ObservableObject {
     private init() {
         let center = NotificationCenter.default
         observers.append(center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] note in
-            self?.updateFrame(from: note)
+            Task { @MainActor [weak self] in self?.updateFrame(from: note) }
         })
         observers.append(center.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] note in
-            self?.updateFrame(from: note)
+            Task { @MainActor [weak self] in self?.updateFrame(from: note) }
         })
         observers.append(center.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.isVisible = false
-            self?.coveredHeight = 0
+            Task { @MainActor [weak self] in self?.clear() }
         })
         observers.append(center.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.isVisible = false
-            self?.coveredHeight = 0
+            Task { @MainActor [weak self] in self?.clear() }
         })
         observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             // If iOS backgrounds the scene while an editor is focused it does
             // not always deliver keyboardWillHide. Never retain phantom
             // keyboard spacing or hide the app's navigation after resume.
-            self?.isVisible = false
-            self?.coveredHeight = 0
+            Task { @MainActor [weak self] in self?.clear() }
         })
+    }
+
+    private func clear() {
+        isVisible = false
+        coveredHeight = 0
     }
 
     private func updateFrame(from note: Notification) {
@@ -96,6 +98,14 @@ struct FFKeyboardEscapeModifier: ViewModifier {
 
 extension View {
     func ffKeyboardEscape() -> some View { modifier(FFKeyboardEscapeModifier()) }
+
+    /// Apply at presentation boundaries (sheets/full-screen covers). An
+    /// overlay installed on the presenting view is rendered behind a SwiftUI
+    /// presentation, so modal editors need their own escape control.
+    func ffKeyboardReady() -> some View {
+        scrollDismissesKeyboard(.interactively)
+            .ffKeyboardEscape()
+    }
 }
 
 // MARK: - Member avatar

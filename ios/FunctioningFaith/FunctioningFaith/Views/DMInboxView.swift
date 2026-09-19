@@ -186,6 +186,7 @@ private struct NewMessageView: View {
         .alert("Could not open conversation", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
+        .ffKeyboardReady()
     }
 
     private var newMessageSearchField: some View {

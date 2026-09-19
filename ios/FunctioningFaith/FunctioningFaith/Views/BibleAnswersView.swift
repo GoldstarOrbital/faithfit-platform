@@ -142,6 +142,7 @@ struct BibleAnswersView: View {
             hasLoadedHistory = true
         }
         .onDisappear { inputFocused = false }
+        .ffKeyboardReady()
     }
 
     // MARK: - Personalized suggestions

@@ -522,6 +522,7 @@ private struct CreateGroupView: View {
         .navigationTitle("Create group")
         .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } } }
         .alert("Could not create group", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) { Button("OK", role: .cancel) {} } message: { Text(errorMessage ?? "") }
+        .ffKeyboardReady()
     }
 
     private func create() async {

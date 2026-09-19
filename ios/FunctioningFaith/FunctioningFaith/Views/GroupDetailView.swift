@@ -201,6 +201,7 @@ struct GroupDetailView: View {
                     ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showAnnouncementEditor = false } }
                     ToolbarItem(placement: .confirmationAction) { Button("Save") { Task { await saveAnnouncement() } } }
                 }
+                .ffKeyboardReady()
             }
         }
     }
@@ -419,6 +420,7 @@ private struct GroupEventComposerView: View {
         .alert("Could not create event", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
+        .ffKeyboardReady()
     }
 
     private func save() async {

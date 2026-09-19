@@ -110,6 +110,7 @@ struct EditProfileView: View {
                 #endif
             }
         }
+        .ffKeyboardReady()
     }
 
     private var canSave: Bool {

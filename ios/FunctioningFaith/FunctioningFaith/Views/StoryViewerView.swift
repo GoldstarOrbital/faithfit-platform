@@ -65,6 +65,7 @@ struct StoryViewerView: View {
         .sheet(item: $viewerStory) { story in
             NavigationStack { StoryViewersView(storyID: story.id, initialCount: story.viewCount ?? 0) }
         }
+        .ffKeyboardReady()
     }
 
     private var progressBar: some View {
@@ -230,6 +231,7 @@ private struct StoryViewersView: View {
                 FFLoadingView(message: "Loading viewers…")
             }
         }
+        .ffKeyboardReady()
         .navigationTitle("Viewed by")
         .task(id: query) { await load() }
     }

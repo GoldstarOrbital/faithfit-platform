@@ -809,6 +809,7 @@ struct PostWorkoutSummaryView: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
         .presentationDetents([.large])
+        .ffKeyboardReady()
     }
 
     private func summaryMetric(_ value: String, _ label: String) -> some View {

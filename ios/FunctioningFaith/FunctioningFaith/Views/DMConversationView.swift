@@ -514,6 +514,7 @@ private struct DMVersePickerSheet: View {
                 Button("OK", role: .cancel) { errorMessage = nil }
             } message: { Text(errorMessage ?? "") }
         }
+        .ffKeyboardReady()
     }
 
     private func lookup() async {

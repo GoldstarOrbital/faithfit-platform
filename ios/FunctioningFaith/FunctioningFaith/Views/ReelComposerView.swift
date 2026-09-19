@@ -164,6 +164,7 @@ struct ReelComposerView: View {
             }
             .onDisappear { clearTempFiles() }
         }
+        .ffKeyboardReady()
     }
 
     private var canPublish: Bool {

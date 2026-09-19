@@ -115,6 +115,8 @@ assert.match(appShell, /case \.reels: return "Frames"/, 'native short-form video
 assert.doesNotMatch(sharedComponents, /FFKeyboardDismissBridge|endEditing\(true\)/, 'window-level gestures must never steal SwiftUI field focus');
 assert.doesNotMatch(nativeApp, /FFKeyboardDismissBridge/, 'the app root must not install a keyboard-cancelling recognizer');
 assert.match(sharedComponents, /struct FFKeyboardEscapeModifier/, 'typing screens need a non-toolbar keyboard escape control');
+assert.match(sharedComponents, /func ffKeyboardReady\(\)/,
+  'modal typing screens need a presentation-local keyboard escape control');
 assert.match(nativeApp, /\.ffKeyboardEscape\(\)/, 'the keyboard escape control must be available throughout the app');
 assert.match(nativeApp, /\.scrollDismissesKeyboard\(\.interactively\)/, 'native scroll surfaces must dismiss the keyboard interactively');
 assert.doesNotMatch(appShell, /if keyboard\.isVisible\s*\{\s*content\s*\}\s*else/,
@@ -125,6 +127,17 @@ assert.match(bibleAnswers, /keyboard\.coveredHeight/, 'Bible Answers must clear 
 assert.match(searchView, /\.focused\(\$searchFocused\)/, 'Search must own explicit field focus');
 assert.match(dmConversation, /\.focused\(\$messageFocused\)/, 'DM composer must own explicit field focus');
 assert.match(dmInbox, /new-message-search-text-field/, 'new-message search must use an inline focusable field');
+for (const file of [
+  'BibleAnswersView.swift', 'CommentThreadView.swift', 'DMConversationView.swift',
+  'DMInboxView.swift', 'EditProfileView.swift', 'ExploreCatalog.swift',
+  'GroupDetailView.swift', 'PostComposerView.swift', 'ReelComposerView.swift',
+  'RemindersView.swift', 'SharePickerSheet.swift', 'StatsView.swift',
+  'StoryComposerView.swift', 'StoryViewerView.swift', 'WorkoutView.swift',
+]) {
+  const source = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', file);
+  assert.match(source, /\.ffKeyboardReady\(\)/,
+    `${file} contains a presented text-entry surface and must dismiss its own keyboard`);
+}
 assert.match(webApp, /function installKeyboardManager\(\)/, 'web editors need a shared mobile keyboard manager');
 assert.match(webApp, /done\.setAttribute\('aria-label', 'Hide keyboard'\)/, 'web editors need an accessible keyboard escape hatch');
 assert.match(webApp, /name: 'Frames'/, 'web short-form video must be branded Frames');

@@ -45,6 +45,7 @@ struct PostComposerView: View {
         } message: {
             Text(errorMessage ?? "Please try again.")
         }
+        .ffKeyboardReady()
     }
 
     private var postTextSection: some View {

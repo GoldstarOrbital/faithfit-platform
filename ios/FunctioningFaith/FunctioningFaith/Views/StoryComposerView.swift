@@ -36,6 +36,7 @@ struct StoryComposerView: View {
         .alert("Could not share", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
+        .ffKeyboardReady()
     }
 
     private var canPost: Bool { !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || uploadData != nil }
