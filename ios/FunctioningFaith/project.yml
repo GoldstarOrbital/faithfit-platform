@@ -101,6 +101,10 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.functioningfaith.app.tests
         PRODUCT_MODULE_NAME: FunctioningFaithTests
+        # Unit-test bundles still need an Info.plist when Xcode signs them for
+        # an iOS Simulator destination. Generate it so CI and local launch
+        # checks run without a manually maintained test plist.
+        GENERATE_INFOPLIST_FILE: YES
 
 schemes:
   FunctioningFaith:
