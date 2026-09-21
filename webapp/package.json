@@ -33,7 +33,8 @@
     "verify:editorial-notifications": "node scripts/verify-editorial-notifications.js",
     "verify:workout-release": "node scripts/verify-workout-release.js",
     "verify:post-scripture-personalization": "node scripts/verify-post-scripture-personalization.js",
-    "verify:launch-readiness": "node scripts/verify-launch-readiness.js"
+    "verify:launch-readiness": "node scripts/verify-launch-readiness.js",
+    "verify:semantic-cache": "node scripts/verify-semantic-cache.js"
   },
   "dependencies": {
     "compression": "^1.8.1",

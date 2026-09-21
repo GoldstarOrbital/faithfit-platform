@@ -36,6 +36,7 @@ const gloo = require('./gloo');
 const youversion = require('./youversion');
 const moments = require('./moments');
 const contexts = require('./contexts');
+const semanticCache = require('./semantic-cache');
 
 /**
  * Real text for a reference: the local verified library first, the YouVersion
@@ -314,8 +315,9 @@ async function restVerse(opts) {
  * of it. Any further reference it brings in is resolved and returned alongside,
  * and one that cannot be resolved is dropped from the answer.
  */
-// Short-lived, bounded cache of fully verified answers, isolated by member,
-// translation and tradition. Provider failures are never cached here.
+// Short-lived process cache keeps an immediately repeated tap fast. The durable
+// semantic cache below is scoped to passage/tradition/translation and contains
+// only verified answers; provider failures are never cached in either layer.
 const verifiedVerseAnswers = new Map();
 async function askAboutVerse(opts) {
   const o = opts || {};
@@ -325,6 +327,8 @@ async function askAboutVerse(opts) {
   const question = String(o.question || '').trim();
   if (!reference || !question) return null;
   if (question.length > 500) return null;
+  const semanticHit = semanticCache.lookup({ kind: 'verse_explanation', reference, tradition: o.tradition, versionId: o.versionId, question });
+  if (semanticHit) return semanticHit;
   const answerKey = JSON.stringify([o.userId || null, o.tradition || null, o.versionId || null, reference, question]);
   const cachedAnswer = verifiedVerseAnswers.get(answerKey);
   if (cachedAnswer && cachedAnswer.until > Date.now()) return {...cachedAnswer.answer, cached:true};
@@ -394,6 +398,7 @@ async function askAboutVerse(opts) {
   };
   verifiedVerseAnswers.set(answerKey, {until:Date.now() + 15 * 60 * 1000, answer:verifiedAnswer});
   while (verifiedVerseAnswers.size > 128) verifiedVerseAnswers.delete(verifiedVerseAnswers.keys().next().value);
+  semanticCache.store({ kind: 'verse_explanation', reference, tradition: o.tradition, versionId: o.versionId, question }, verifiedAnswer);
   return verifiedAnswer;
 }
 
@@ -416,6 +421,8 @@ async function askBibleQuestion(opts) {
   const question = String(o.question || '').trim();
   if (!question) return null;
   if (question.length > 500) return null;
+  const semanticHit = semanticCache.lookup({ kind: 'bible_answers', tradition: o.tradition, versionId: o.versionId, question });
+  if (semanticHit) return { ...semanticHit, question };
 
   const prompt =
     `A member of a Christian fitness and community app has a question about the Bible ` +
@@ -463,7 +470,7 @@ async function askBibleQuestion(opts) {
     answer = answer.split(bad).join('that passage');
   }
 
-  return {
+  const verifiedAnswer = {
     question,
     answer: answer.trim(),
     also: check.verified,
@@ -473,6 +480,8 @@ async function askBibleQuestion(opts) {
     model: res.model || null,
     cached: !!res.cached,
   };
+  semanticCache.store({ kind: 'bible_answers', tradition: o.tradition, versionId: o.versionId, question }, verifiedAnswer);
+  return verifiedAnswer;
 }
 
 /**

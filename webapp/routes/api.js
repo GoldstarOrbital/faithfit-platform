@@ -30,6 +30,7 @@ const verseCategories = require('../lib/verse-categories');
 const scriptureMission = require('../lib/scriptureMission');
 const gloo = require('../lib/gloo');
 const companion = require('../lib/companion');
+const semanticCache = require('../lib/semantic-cache');
 const breathwork = require('../lib/breathwork');
 const dms = require('../lib/dms');
 const athletes = require('../lib/athletes');
@@ -6471,7 +6472,7 @@ router.get('/ai/status', (req, res) => {
       'A reply whose references cannot be resolved is dropped entirely; the app falls back to hand-authored scripture.',
       'Verse text always comes from the resolver, never from the model.',
     ],
-    last_7_days: { by_kind: s, refs_cited: cited, refs_verified: verified },
+    last_7_days: { by_kind: s, refs_cited: cited, refs_verified: verified, semantic_cache: semanticCache.stats(7) },
   });
 });
 

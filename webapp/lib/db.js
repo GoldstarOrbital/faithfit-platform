@@ -1044,4 +1044,39 @@ if (!notificationCols.includes('actor_id')) db.exec('ALTER TABLE notifications A
 // the whole startup.
 db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_actor ON notifications(actor_id)');
 
+// --- Durable semantic-answer cache (additive) -----------------------------
+// This cache contains only a compact, derived intent signature -- never the
+// member's raw question or their identity. The answer has already passed the
+// normal citation resolver before it can be stored. Context (kind, reference,
+// tradition and translation) is part of every lookup, so an answer about one
+// passage or tradition can never leak into another.
+db.exec(`
+CREATE TABLE IF NOT EXISTS semantic_answer_cache (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  reference TEXT NOT NULL DEFAULT '',
+  tradition TEXT NOT NULL DEFAULT '',
+  version_id TEXT NOT NULL DEFAULT '',
+  intent TEXT NOT NULL,
+  terms TEXT NOT NULL,
+  answer_json TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at TEXT NOT NULL,
+  hit_count INTEGER NOT NULL DEFAULT 0,
+  last_hit_at TEXT,
+  UNIQUE(kind, reference, tradition, version_id, intent, terms)
+);
+CREATE INDEX IF NOT EXISTS idx_semantic_answer_cache_scope
+  ON semantic_answer_cache(kind, reference, tradition, version_id, expires_at);
+CREATE TABLE IF NOT EXISTS semantic_cache_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  outcome TEXT NOT NULL CHECK(outcome IN ('hit', 'miss', 'store')),
+  similarity REAL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_semantic_cache_events_created
+  ON semantic_cache_events(created_at, kind, outcome);
+`);
+
 module.exports = db;
