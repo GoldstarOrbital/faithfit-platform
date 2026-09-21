@@ -54,7 +54,7 @@ targets:
         "INFOPLIST_KEY_UISupportedInterfaceOrientations~ipad": UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         TARGETED_DEVICE_FAMILY: "1,2"
         MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1789778465"
+        CURRENT_PROJECT_VERSION: "1790026756"
         SWIFT_OPTIMIZATION_LEVEL: "-Onone"
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
       configs:
@@ -84,7 +84,7 @@ targets:
         PRODUCT_MODULE_NAME: FunctioningFaithWidgets
         CODE_SIGN_ENTITLEMENTS: FunctioningFaithWidgets/FunctioningFaithWidgets.entitlements
         MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1789778465"
+        CURRENT_PROJECT_VERSION: "1790026756"
       configs:
         Release:
           CODE_SIGN_STYLE: Manual
