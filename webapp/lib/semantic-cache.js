@@ -8,6 +8,15 @@
 // the passage being discussed.
 const { randomUUID } = require('crypto');
 const db = require('./db');
+const { Pool } = require('pg');
+
+// Core member data remains on the existing SQLite volume during the staged
+// cutover. High-volume, independently recoverable AI cache/telemetry is the
+// first production workload on Postgres. A brief Postgres outage can never
+// make Bible Answers fail: each operation transparently falls back to SQLite.
+const postgresUrl = process.env.POSTGRES_DATABASE_URL;
+const postgres = postgresUrl ? new Pool({ connectionString: postgresUrl, max: 5, idleTimeoutMillis: 10000 }) : null;
+let postgresFailureLogged = false;
 
 const STOP_WORDS = new Set([
   'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'can', 'do', 'does', 'for',
@@ -67,12 +76,12 @@ function similarity(a, b) {
   return intersect / union;
 }
 
-function event(kind, outcome, score = null) {
+function sqliteEvent(kind, outcome, score = null) {
   db.prepare('INSERT INTO semantic_cache_events (kind, outcome, similarity) VALUES (?, ?, ?)')
     .run(kind, outcome, score);
 }
 
-function lookup(input) {
+function sqliteLookup(input) {
   const s = scope(input);
   const requested = signature(input.question);
   // One generic word is not enough to safely reuse an answer. Exact matches
@@ -88,24 +97,24 @@ function lookup(input) {
   }
   const safeHit = best && ((requested.terms.length >= 2 && best.score >= 0.8) || best.score === 1);
   if (!safeHit) {
-    event(s.kind, 'miss', best ? best.score : null);
+    sqliteEvent(s.kind, 'miss', best ? best.score : null);
     return null;
   }
   try {
     const answer = JSON.parse(best.row.answer_json);
     db.prepare(`UPDATE semantic_answer_cache
       SET hit_count = hit_count + 1, last_hit_at = datetime('now') WHERE id = ?`).run(best.row.id);
-    event(s.kind, 'hit', best.score);
+    sqliteEvent(s.kind, 'hit', best.score);
     return { ...answer, cached: true, semanticCached: true };
   } catch {
     // A malformed old row cannot break Bible Answers; discard it and generate.
     db.prepare('DELETE FROM semantic_answer_cache WHERE id = ?').run(best.row.id);
-    event(s.kind, 'miss', null);
+    sqliteEvent(s.kind, 'miss', null);
     return null;
   }
 }
 
-function store(input, answer, ttlDays = 14) {
+function sqliteStore(input, answer, ttlDays = 14) {
   const s = scope(input);
   const sig = signature(input.question);
   if (sig.terms.length < 2 || !answer || !String(answer.answer || '').trim()) return false;
@@ -117,11 +126,11 @@ function store(input, answer, ttlDays = 14) {
       answer_json = excluded.answer_json, created_at = datetime('now'), expires_at = excluded.expires_at`).run(
     randomUUID(), s.kind, s.reference, s.tradition, s.versionId, sig.intent,
     JSON.stringify(sig.terms), JSON.stringify(answer), expiresAt);
-  event(s.kind, 'store', null);
+  sqliteEvent(s.kind, 'store', null);
   return true;
 }
 
-function stats(days = 7) {
+function sqliteStats(days = 7) {
   const safeDays = Math.max(1, Math.min(90, Number(days) || 7));
   return db.prepare(`SELECT kind,
     SUM(CASE WHEN outcome = 'hit' THEN 1 ELSE 0 END) AS hits,
@@ -131,5 +140,80 @@ function stats(days = 7) {
     WHERE created_at >= datetime('now', ?)
     GROUP BY kind`).all(`-${safeDays} days`);
 }
+
+async function postgresEvent(kind, outcome, score = null) {
+  await postgres.query('INSERT INTO semantic_cache_events (kind, outcome, similarity) VALUES ($1, $2, $3)', [kind, outcome, score]);
+}
+
+async function postgresLookup(input) {
+  const s = scope(input);
+  const requested = signature(input.question);
+  const result = await postgres.query(`SELECT id, intent, terms, answer_json FROM semantic_answer_cache
+    WHERE kind = $1 AND reference = $2 AND tradition = $3 AND version_id = $4
+      AND expires_at > NOW()`, [s.kind, s.reference, s.tradition, s.versionId]);
+  let best = null;
+  for (const row of result.rows) {
+    if (row.intent !== requested.intent) continue;
+    const score = similarity(requested.terms, typeof row.terms === 'string' ? JSON.parse(row.terms) : row.terms);
+    if (!best || score > best.score) best = { row, score };
+  }
+  const safeHit = best && ((requested.terms.length >= 2 && best.score >= 0.8) || best.score === 1);
+  if (!safeHit) {
+    await postgresEvent(s.kind, 'miss', best ? best.score : null);
+    return null;
+  }
+  try {
+    const answer = typeof best.row.answer_json === 'string' ? JSON.parse(best.row.answer_json) : best.row.answer_json;
+    await postgres.query('UPDATE semantic_answer_cache SET hit_count = hit_count + 1, last_hit_at = NOW() WHERE id = $1', [best.row.id]);
+    await postgresEvent(s.kind, 'hit', best.score);
+    return { ...answer, cached: true, semanticCached: true };
+  } catch {
+    await postgres.query('DELETE FROM semantic_answer_cache WHERE id = $1', [best.row.id]);
+    await postgresEvent(s.kind, 'miss', null);
+    return null;
+  }
+}
+
+async function postgresStore(input, answer, ttlDays = 14) {
+  const s = scope(input);
+  const sig = signature(input.question);
+  if (sig.terms.length < 2 || !answer || !String(answer.answer || '').trim()) return false;
+  await postgres.query(`INSERT INTO semantic_answer_cache
+    (id, kind, reference, tradition, version_id, intent, terms, answer_json, expires_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW() + ($9 * INTERVAL '1 day'))
+    ON CONFLICT(kind, reference, tradition, version_id, intent, terms) DO UPDATE SET
+      answer_json = EXCLUDED.answer_json, created_at = NOW(), expires_at = EXCLUDED.expires_at`, [
+    randomUUID(), s.kind, s.reference, s.tradition, s.versionId, sig.intent,
+    JSON.stringify(sig.terms), JSON.stringify(answer), ttlDays]);
+  await postgresEvent(s.kind, 'store', null);
+  return true;
+}
+
+async function postgresStats(days = 7) {
+  const safeDays = Math.max(1, Math.min(90, Number(days) || 7));
+  const result = await postgres.query(`SELECT kind,
+    SUM(CASE WHEN outcome = 'hit' THEN 1 ELSE 0 END)::int AS hits,
+    SUM(CASE WHEN outcome = 'miss' THEN 1 ELSE 0 END)::int AS misses,
+    SUM(CASE WHEN outcome = 'store' THEN 1 ELSE 0 END)::int AS stores
+    FROM semantic_cache_events
+    WHERE created_at >= NOW() - ($1 * INTERVAL '1 day') GROUP BY kind`, [safeDays]);
+  return result.rows;
+}
+
+async function usePostgres(operation, fallback) {
+  if (!postgres) return fallback();
+  try { return await operation(); }
+  catch (error) {
+    if (!postgresFailureLogged) {
+      postgresFailureLogged = true;
+      console.error('Postgres semantic cache unavailable; using SQLite fallback.', error.message);
+    }
+    return fallback();
+  }
+}
+
+async function lookup(input) { return usePostgres(() => postgresLookup(input), () => sqliteLookup(input)); }
+async function store(input, answer, ttlDays) { return usePostgres(() => postgresStore(input, answer, ttlDays), () => sqliteStore(input, answer, ttlDays)); }
+async function stats(days) { return usePostgres(() => postgresStats(days), () => sqliteStats(days)); }
 
 module.exports = { lookup, store, stats, signature, similarity };

@@ -327,7 +327,7 @@ async function askAboutVerse(opts) {
   const question = String(o.question || '').trim();
   if (!reference || !question) return null;
   if (question.length > 500) return null;
-  const semanticHit = semanticCache.lookup({ kind: 'verse_explanation', reference, tradition: o.tradition, versionId: o.versionId, question });
+  const semanticHit = await semanticCache.lookup({ kind: 'verse_explanation', reference, tradition: o.tradition, versionId: o.versionId, question });
   if (semanticHit) return semanticHit;
   const answerKey = JSON.stringify([o.userId || null, o.tradition || null, o.versionId || null, reference, question]);
   const cachedAnswer = verifiedVerseAnswers.get(answerKey);
@@ -398,7 +398,7 @@ async function askAboutVerse(opts) {
   };
   verifiedVerseAnswers.set(answerKey, {until:Date.now() + 15 * 60 * 1000, answer:verifiedAnswer});
   while (verifiedVerseAnswers.size > 128) verifiedVerseAnswers.delete(verifiedVerseAnswers.keys().next().value);
-  semanticCache.store({ kind: 'verse_explanation', reference, tradition: o.tradition, versionId: o.versionId, question }, verifiedAnswer);
+  await semanticCache.store({ kind: 'verse_explanation', reference, tradition: o.tradition, versionId: o.versionId, question }, verifiedAnswer);
   return verifiedAnswer;
 }
 
@@ -421,7 +421,7 @@ async function askBibleQuestion(opts) {
   const question = String(o.question || '').trim();
   if (!question) return null;
   if (question.length > 500) return null;
-  const semanticHit = semanticCache.lookup({ kind: 'bible_answers', tradition: o.tradition, versionId: o.versionId, question });
+  const semanticHit = await semanticCache.lookup({ kind: 'bible_answers', tradition: o.tradition, versionId: o.versionId, question });
   if (semanticHit) return { ...semanticHit, question };
 
   const prompt =
@@ -480,7 +480,7 @@ async function askBibleQuestion(opts) {
     model: res.model || null,
     cached: !!res.cached,
   };
-  semanticCache.store({ kind: 'bible_answers', tradition: o.tradition, versionId: o.versionId, question }, verifiedAnswer);
+  await semanticCache.store({ kind: 'bible_answers', tradition: o.tradition, versionId: o.versionId, question }, verifiedAnswer);
   return verifiedAnswer;
 }
 

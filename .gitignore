@@ -1,5 +1,9 @@
 node_modules/
 .env
+# Local Stripe Projects state can include provider session metadata. Railway
+# variables and database credentials are managed remotely and must never land
+# in this repository.
+.projects/
 *.log
 .DS_Store
 webapp/data/*.db

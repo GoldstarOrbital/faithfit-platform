@@ -6451,7 +6451,7 @@ router.post('/push/daily-now', requireAuth, async (req, res) => {
 // unauthenticated on purpose: the claim this app makes is that a model never
 // puts words in scripture's mouth, and a claim like that should be checkable
 // by anyone, not asserted in a README.
-router.get('/ai/status', (req, res) => {
+router.get('/ai/status', async (req, res) => {
   const s = gloo.stats(7);
   const cited = s.reduce((a, r) => a + (r.refs_cited || 0), 0);
   const verified = s.reduce((a, r) => a + (r.refs_verified || 0), 0);
@@ -6472,7 +6472,7 @@ router.get('/ai/status', (req, res) => {
       'A reply whose references cannot be resolved is dropped entirely; the app falls back to hand-authored scripture.',
       'Verse text always comes from the resolver, never from the model.',
     ],
-    last_7_days: { by_kind: s, refs_cited: cited, refs_verified: verified, semantic_cache: semanticCache.stats(7) },
+    last_7_days: { by_kind: s, refs_cited: cited, refs_verified: verified, semantic_cache: await semanticCache.stats(7) },
   });
 });
 

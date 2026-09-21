@@ -34,12 +34,14 @@
     "verify:workout-release": "node scripts/verify-workout-release.js",
     "verify:post-scripture-personalization": "node scripts/verify-post-scripture-personalization.js",
     "verify:launch-readiness": "node scripts/verify-launch-readiness.js",
-    "verify:semantic-cache": "node scripts/verify-semantic-cache.js"
+    "verify:semantic-cache": "node scripts/verify-semantic-cache.js",
+    "migrate:sqlite-postgres": "node scripts/migrate-sqlite-to-postgres.js"
   },
   "dependencies": {
     "compression": "^1.8.1",
     "cookie-session": "^2.1.0",
     "express": "^4.19.2",
+    "pg": "^8.23.0",
     "web-push": "^3.6.7"
   }
 }
