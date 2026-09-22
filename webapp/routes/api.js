@@ -469,8 +469,17 @@ router.get('/auth/providers', (req, res) => {
 });
 router.get('/auth/security-config', (req,res) => res.json({ turnstile_site_key:(process.env.TURNSTILE_SITE_KEY&&process.env.TURNSTILE_SECRET_KEY)?process.env.TURNSTILE_SITE_KEY:null }));
 
+// Security-sensitive links (password recovery and OAuth callbacks) must never
+// inherit an untrusted Host header in production. Railway forwards the public
+// request host, but a caller can still send an arbitrary Host value; using it
+// here would let a password-reset email point at an attacker-controlled site.
+// Set APP_BASE_URL for a custom production domain. The Railway domain is the
+// safe default for this deployment and remains stable across requests.
+const PRODUCTION_APP_ORIGIN = String(
+  process.env.APP_BASE_URL || process.env.PUBLIC_APP_URL || 'https://faithfit-demo-production.up.railway.app'
+).replace(/\/$/, '');
 function baseUrl(req) {
-  if (process.env.APP_BASE_URL) return process.env.APP_BASE_URL.replace(/\/$/, '');
+  if (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT) return PRODUCTION_APP_ORIGIN;
   const proto = req.headers['x-forwarded-proto'] || req.protocol;
   return `${proto}://${req.get('host')}`;
 }
