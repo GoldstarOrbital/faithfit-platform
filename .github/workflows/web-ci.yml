@@ -49,6 +49,7 @@ jobs:
           node --check scripts/verify-admin-hq.js
           node --check scripts/verify-workout-kudos.js
           node --check scripts/verify-scripture-practice.js
+          node --check scripts/migrate-sqlite-to-postgres.js
       - name: Verify native authentication contract
         run: npm run verify:native-auth
       - name: Verify feed ranking and privacy
