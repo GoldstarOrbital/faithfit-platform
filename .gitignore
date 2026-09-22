@@ -8,6 +8,8 @@ node_modules/
 .DS_Store
 webapp/data/*.db
 webapp/data/*.db-*
+# Local editor scratch exports can contain fixture accounts and password hashes.
+webapp/UsersalexgAppDataLocal/
 
 # Local Xcode generation and archive output. Signing assets must remain local.
 ios/FunctioningFaith/FunctioningFaith.xcodeproj/
