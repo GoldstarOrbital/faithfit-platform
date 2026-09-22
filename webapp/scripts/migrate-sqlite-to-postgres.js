@@ -10,6 +10,7 @@
 //   DATABASE_URL='postgresql://…' node scripts/migrate-sqlite-to-postgres.js \
 //     --source /path/to/faithfit.db --verify-only
 const fs = require('fs');
+const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
 const { Client } = require('pg');
 
@@ -34,6 +35,38 @@ function columns(table) {
 
 function sourceCount(table) {
   return source.prepare(`SELECT count(*) AS count FROM ${quote(table)}`).get().count;
+}
+
+function primaryKeyColumns(table) {
+  return source.prepare(`PRAGMA table_info(${quote(table)})`).all()
+    .filter((column) => Number(column.pk) > 0)
+    .sort((left, right) => Number(left.pk) - Number(right.pk))
+    .map((column) => column.name);
+}
+
+function digestRows(rows) {
+  const hash = crypto.createHash('sha256');
+  for (const row of rows) {
+    // IDs are the migration's identity invariant. Coercing values to strings
+    // makes SQLite TEXT and Postgres's decoded equivalents compare the same
+    // without treating a driver representation difference as data loss.
+    hash.update(JSON.stringify(Object.values(row).map((value) => value == null ? null : String(value))));
+    hash.update('\n');
+  }
+  return hash.digest('hex');
+}
+
+function sourcePrimaryKeyDigest(table, keys) {
+  const select = keys.map(quote).join(', ');
+  const order = keys.map(quote).join(', ');
+  return digestRows(source.prepare(`SELECT ${select} FROM ${quote(table)} ORDER BY ${order}`).all());
+}
+
+async function destinationPrimaryKeyDigest(client, table, keys) {
+  const select = keys.map(quote).join(', ');
+  const order = keys.map(quote).join(', ');
+  const result = await client.query(`SELECT ${select} FROM ${quote(table)} ORDER BY ${order}`);
+  return digestRows(result.rows.map((row) => keys.reduce((out, key) => ({ ...out, [key]: row[key] }), {})));
 }
 
 async function destinationCount(client, table) {
@@ -75,16 +108,31 @@ async function normalizeSemanticCacheSchema(client) {
 
 async function verify(client) {
   const mismatches = [];
+  const schemaMismatches = [];
+  const keyMismatches = [];
+  const unkeyedTables = [];
   for (const table of tables) {
     const expected = sourceCount(table);
     const actual = await destinationCount(client, table);
     if (expected !== actual) mismatches.push({ table, expected, actual });
+    const expectedColumns = columns(table);
+    const destinationColumns = (await client.query(`SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = $1 ORDER BY ordinal_position`, [table])).rows.map((row) => row.column_name);
+    if (JSON.stringify(expectedColumns) !== JSON.stringify(destinationColumns)) {
+      schemaMismatches.push({ table, expectedColumns, destinationColumns });
+      continue;
+    }
+    const keys = primaryKeyColumns(table);
+    if (!keys.length) { unkeyedTables.push(table); continue; }
+    const expectedDigest = sourcePrimaryKeyDigest(table, keys);
+    const actualDigest = await destinationPrimaryKeyDigest(client, table, keys);
+    if (expectedDigest !== actualDigest) keyMismatches.push({ table, keys, expectedDigest, actualDigest });
   }
-  if (mismatches.length) {
-    console.error(JSON.stringify({ verified: false, mismatches }, null, 2));
+  if (mismatches.length || schemaMismatches.length || keyMismatches.length) {
+    console.error(JSON.stringify({ verified: false, mismatches, schemaMismatches, keyMismatches, unkeyedTables }, null, 2));
     process.exitCode = 1;
   } else {
-    console.log(JSON.stringify({ verified: true, tables: tables.length }, null, 2));
+    console.log(JSON.stringify({ verified: true, tables: tables.length, primaryKeyFingerprints: tables.length - unkeyedTables.length, unkeyedTables }, null, 2));
   }
 }
 
