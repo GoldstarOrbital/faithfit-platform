@@ -45,27 +45,29 @@ function primaryKeyColumns(table) {
 }
 
 function digestRows(rows) {
-  const hash = crypto.createHash('sha256');
+  // SQLite and Postgres do not promise the same text collation order. Hash
+  // each identity independently and sort the fixed-width digests locally, so
+  // this proves set equality instead of accidentally comparing collation.
+  const rowDigests = [];
   for (const row of rows) {
     // IDs are the migration's identity invariant. Coercing values to strings
     // makes SQLite TEXT and Postgres's decoded equivalents compare the same
     // without treating a driver representation difference as data loss.
-    hash.update(JSON.stringify(Object.values(row).map((value) => value == null ? null : String(value))));
-    hash.update('\n');
+    rowDigests.push(crypto.createHash('sha256')
+      .update(JSON.stringify(Object.values(row).map((value) => value == null ? null : String(value))))
+      .digest('hex'));
   }
-  return hash.digest('hex');
+  return crypto.createHash('sha256').update(rowDigests.sort().join('\n')).digest('hex');
 }
 
 function sourcePrimaryKeyDigest(table, keys) {
   const select = keys.map(quote).join(', ');
-  const order = keys.map(quote).join(', ');
-  return digestRows(source.prepare(`SELECT ${select} FROM ${quote(table)} ORDER BY ${order}`).all());
+  return digestRows(source.prepare(`SELECT ${select} FROM ${quote(table)}`).all());
 }
 
 async function destinationPrimaryKeyDigest(client, table, keys) {
   const select = keys.map(quote).join(', ');
-  const order = keys.map(quote).join(', ');
-  const result = await client.query(`SELECT ${select} FROM ${quote(table)} ORDER BY ${order}`);
+  const result = await client.query(`SELECT ${select} FROM ${quote(table)}`);
   return digestRows(result.rows.map((row) => keys.reduce((out, key) => ({ ...out, [key]: row[key] }), {})));
 }
 
