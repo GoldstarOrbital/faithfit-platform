@@ -285,6 +285,24 @@ final class APIClient {
         return .authenticated(try await fetchSessionState())
     }
 
+    /// Always returns the same success response for an unknown address and a
+    /// real account. That preserves account privacy while giving a locked-out
+    /// member a reliable recovery path from the native sign-in screen.
+    func requestPasswordReset(email: String) async throws {
+        if useMock { return }
+        let _: AuthResponse = try await request(
+            "/api/auth/recovery/request", method: "POST", body: PasswordRecoveryRequest(email: email)
+        )
+    }
+
+    func changePassword(currentPassword: String, newPassword: String) async throws {
+        if useMock { return }
+        let _: AuthResponse = try await request(
+            "/api/security/password/change", method: "POST",
+            body: PasswordChangeRequest(currentPassword: currentPassword, newPassword: newPassword)
+        )
+    }
+
     func completeMfa(code: String) async throws -> NativeSessionState {
         if useMock { return NativeSessionState(profile: MockData.profile, accountSetupRequired: false) }
         let _: AuthResponse = try await request("/api/auth/mfa/complete", method: "POST", body: MfaBody(code: code))
@@ -1560,7 +1578,9 @@ final class APIClient {
         }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
-        if http.statusCode == 401 {
+        let details = try? decoder.decode(APIErrorResponse.self, from: data)
+        if http.statusCode == 401,
+           ["session_expired", "session_inactive", "not_signed_in"].contains(details?.error) {
             // Every caller used to just get this thrown at it individually --
             // no single one of them is in a position to know the session
             // itself is gone, so a real expiry showed up as several
@@ -1571,7 +1591,6 @@ final class APIClient {
             throw APIError.notSignedIn
         }
         guard (200..<300).contains(http.statusCode) else {
-            let details = try? decoder.decode(APIErrorResponse.self, from: data)
             let message = details?.hint ?? details?.error?.replacingOccurrences(of: "_", with: " ").capitalized
             throw APIError.requestFailed(http.statusCode, message)
         }
@@ -1717,6 +1736,15 @@ private struct ReflectionBody: Encodable {
 }
 private struct APIErrorResponse: Decodable { let error: String?; let hint: String? }
 private struct Credentials: Encodable { let email: String; let password: String }
+private struct PasswordRecoveryRequest: Encodable { let email: String }
+private struct PasswordChangeRequest: Encodable {
+    let currentPassword: String
+    let newPassword: String
+    enum CodingKeys: String, CodingKey {
+        case currentPassword = "current_password"
+        case newPassword = "new_password"
+    }
+}
 private struct MfaBody: Encodable { let code: String }
 private struct NativeOAuthExchangeBody: Encodable {
     let code: String

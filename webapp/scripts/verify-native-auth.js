@@ -14,6 +14,7 @@ process.env.SESSION_SECRET = 'native-auth-contract-test-secret';
 
 const db = require('../lib/db');
 const security = require('../lib/account-security');
+const { hashPassword } = require('../lib/password');
 
 function makeGrant(userId, method = 'google') {
   const verifier = crypto.randomBytes(32).toString('base64url');
@@ -40,8 +41,10 @@ async function main() {
   try {
     security.init();
     const userId = crypto.randomUUID();
-    db.prepare('INSERT INTO users(id,email,display_name) VALUES(?,?,?)')
-      .run(userId, `${userId}@example.test`, 'Native Auth Test');
+    const email = `${userId}@example.test`;
+    const originalPassword = 'NativeAuth-Original-2026!';
+    db.prepare('INSERT INTO users(id,email,display_name,password_hash) VALUES(?,?,?,?)')
+      .run(userId, email, 'Native Auth Test', await hashPassword(originalPassword));
 
     const direct = makeGrant(userId);
     assert.strictEqual(security.consumeNativeAuthCode(direct.code, 'wrong-verifier'), null,
@@ -101,6 +104,48 @@ async function main() {
     assert.strictEqual(mePayload.user.id, userId);
     assert.strictEqual(mePayload.account_setup_required, true);
 
+    // Password sign-in is a first-class native path. It must establish the
+    // same HttpOnly session as OAuth, rather than relying on a browser-only
+    // form or treating failed credentials as a lost existing session.
+    const passwordLogin = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-functioning-faith-client': 'ios-native-v1' },
+      body: JSON.stringify({ email, password: originalPassword }),
+    });
+    assert.strictEqual(passwordLogin.status, 200, 'a valid email/password account must sign in from native iOS');
+    const passwordCookie = (typeof passwordLogin.headers.getSetCookie === 'function'
+      ? passwordLogin.headers.getSetCookie() : [passwordLogin.headers.get('set-cookie')].filter(Boolean))
+      .map(value => value.split(';')[0]).join('; ');
+    assert.ok(passwordCookie, 'password sign-in must set an authenticated session cookie');
+
+    const wrongCurrent = await fetch(`http://127.0.0.1:${port}/api/security/password/change`, {
+      method: 'POST', headers: { 'content-type': 'application/json', cookie: passwordCookie },
+      body: JSON.stringify({ current_password: 'wrong password', new_password: 'NativeAuth-Changed-2026!' }),
+    });
+    assert.strictEqual(wrongCurrent.status, 401, 'a password change must verify the current password');
+
+    const passwordChange = await fetch(`http://127.0.0.1:${port}/api/security/password/change`, {
+      method: 'POST', headers: { 'content-type': 'application/json', cookie: passwordCookie },
+      body: JSON.stringify({ current_password: originalPassword, new_password: 'NativeAuth-Changed-2026!' }),
+    });
+    assert.strictEqual(passwordChange.status, 200, 'an authenticated member can change a verified password');
+
+    const oldPasswordLogin = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ email, password: originalPassword }),
+    });
+    assert.strictEqual(oldPasswordLogin.status, 401, 'the replaced password must no longer authenticate');
+    const newPasswordLogin = await fetch(`http://127.0.0.1:${port}/api/auth/login`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-functioning-faith-client': 'ios-native-v1' },
+      body: JSON.stringify({ email, password: 'NativeAuth-Changed-2026!' }),
+    });
+    assert.strictEqual(newPasswordLogin.status, 200, 'the newly changed password must authenticate from native iOS');
+
+    const recovery = await fetch(`http://127.0.0.1:${port}/api/auth/recovery/request`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-functioning-faith-client': 'ios-native-v1' },
+      body: JSON.stringify({ email }),
+    });
+    assert.strictEqual(recovery.status, 200, 'native password recovery request must always receive a generic acknowledgement');
+
     const replay = await fetch(`http://127.0.0.1:${port}/api/auth/native/exchange`, {
       method: 'POST', headers: { 'content-type': 'application/json', 'x-functioning-faith-client': 'ios-native-v1' },
       body: JSON.stringify({ code: routeGrant.code, handoff_verifier: routeGrant.verifier }),
@@ -114,6 +159,9 @@ async function main() {
       session_cookie: true,
       account_setup_gate: true,
       apple_token_verification: true,
+      native_password_login: true,
+      password_change_current_password: true,
+      password_recovery_request: true,
     }));
     if (serverError) process.stderr.write(serverError);
   } finally {

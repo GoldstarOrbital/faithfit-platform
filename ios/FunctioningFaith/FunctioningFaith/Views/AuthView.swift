@@ -123,6 +123,7 @@ struct NativeAuthView: View {
     @State private var mfaRequired = false
     @State private var mfaCode = ""
     @State private var appleNonce: String?
+    @State private var showingPasswordRecovery = false
 
     var body: some View {
         NavigationStack {
@@ -231,6 +232,9 @@ struct NativeAuthView: View {
             .task {
                 providers = (try? await APIClient.shared.fetchAuthProviders()) ?? []
             }
+            .sheet(isPresented: $showingPasswordRecovery) {
+                PasswordRecoveryView(initialEmail: email)
+            }
         }
     }
 
@@ -261,6 +265,13 @@ struct NativeAuthView: View {
         TextField("you@example.com", text: $email).textContentType(.emailAddress).textInputAutocapitalization(.never).keyboardType(.emailAddress).ffAuthField()
         fieldLabel("Password")
         SecureField(isRegistering ? "12+ characters" : "Your password", text: $password).textContentType(isRegistering ? .newPassword : .password).ffAuthField()
+        if !isRegistering {
+            Button("Forgot password?") { showingPasswordRecovery = true }
+                .buttonStyle(.plain)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(FFTheme.meadowDeep)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+        }
         if isRegistering {
             Text("Use 12+ characters and at least three of: lowercase, uppercase, number, or symbol.")
                 .font(.caption).foregroundStyle(.secondary)
@@ -421,6 +432,71 @@ struct NativeAuthView: View {
             try? await Task.sleep(nanoseconds: 350_000_000)
             guard !Task.isCancelled else { return }
             usernameStatus = try? await APIClient.shared.checkUsernameAvailable(candidate)
+        }
+    }
+}
+
+/// A generic confirmation is intentional: it never tells a caller whether an
+/// address belongs to an account, but a genuine member gets a short-lived
+/// reset link sent by the server to get back in.
+private struct PasswordRecoveryView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var email: String
+    @State private var isSending = false
+    @State private var submitted = false
+    @State private var errorMessage: String?
+
+    init(initialEmail: String) {
+        _email = State(initialValue: initialEmail)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("Enter the email for your Functioning Faith password account. We’ll send a secure reset link if one is available.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    TextField("you@example.com", text: $email)
+                        .textContentType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.emailAddress)
+                        .autocorrectionDisabled()
+                    if submitted {
+                        Label("If that account can use password recovery, a reset link is on its way. Check your inbox and spam folder.", systemImage: "envelope.badge")
+                            .font(.footnote)
+                            .foregroundStyle(FFTheme.meadowDeep)
+                    }
+                    if let errorMessage {
+                        Text(errorMessage).font(.footnote).foregroundStyle(FFTheme.seal)
+                    }
+                }
+                .listRowBackground(FFTheme.parchment1)
+            }
+            .ffListChrome()
+            .scrollDismissesKeyboard(.interactively)
+            .navigationTitle("Reset password")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSending ? "Sending…" : "Send link") { send() }
+                        .disabled(isSending || email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+
+    private func send() {
+        isSending = true
+        errorMessage = nil
+        Task {
+            do {
+                try await APIClient.shared.requestPasswordReset(email: email)
+                submitted = true
+            } catch {
+                errorMessage = "We couldn’t request a reset link. Please check your connection and try again."
+            }
+            isSending = false
         }
     }
 }

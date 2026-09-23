@@ -292,6 +292,15 @@ const authLimiter = rateLimit({
   message: 'Too many attempts. Please wait a few minutes and try again.',
 });
 
+// Changing a password is both sensitive and relatively expensive (scrypt is
+// deliberately memory-hard). Keep this separate from the broader auth limit:
+// an already-signed-in member gets a small, clear retry window without a bad
+// actor being able to turn the endpoint into a KDF workload.
+const passwordChangeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 8, keyFn: byUserOrIP, keyPrefix: 'password-change',
+  message: 'Too many password-change attempts. Please wait a few minutes and try again.',
+});
+
 // The direct guard on the app's actual per-call bill: every route wired to
 // this calls a metered external API (Gloo AI, chiefly) once per request, with
 // no server-side cache that a normal client retriggers under regular use.
@@ -416,7 +425,11 @@ router.post('/auth/recovery/complete', authLimiter, async (req,res) => {
   const userId=accountSecurity.consumePasswordReset(req.body?.token);
   if(!userId) return res.status(400).json({error:'invalid_or_expired_reset'});
   db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(await hashPassword(req.body.password),userId);
-  accountSecurity.audit(userId,'password_reset_completed',req);
+  // A recovery link may have been used because a device is lost. Unlike a
+  // normal in-session change, there is no current trusted session to retain:
+  // revoke every prior session before issuing the fresh recovery session.
+  const revoked=accountSecurity.revokeOtherSessions(userId,'');
+  accountSecurity.audit(userId,'password_reset_completed',req,{revoked_sessions:revoked});
   const started=accountSecurity.startSession(req,userId,'password_recovery');
   notify(userId,'security',`Your password was reset on ${started.deviceName}.`,{url:'/?open=profile&settings=security'});
   res.json({ok:true});
@@ -1328,6 +1341,33 @@ router.post('/security/reauthenticate', requireAuth, async (req, res) => {
   accountSecurity.markReauthenticated(req);
   accountSecurity.audit(req.session.userId, 'reauthenticated', req);
   res.json({ ok: true });
+});
+
+// Password-account members can change their password from the native settings
+// screen. Require the current password rather than treating a live session as
+// sufficient, revoke every other session after success, and never expose
+// whether an OAuth-only account exists beyond the signed-in member themself.
+router.post('/security/password/change', requireAuth, passwordChangeLimiter, async (req, res) => {
+  const user = db.prepare('SELECT password_hash FROM users WHERE id=?').get(req.session.userId);
+  if (!user?.password_hash) return res.status(409).json({ error: 'oauth_reauthentication_required' });
+
+  const currentPassword = String(req.body?.current_password || '');
+  const nextPassword = String(req.body?.new_password || '');
+  if (!(await verifyPassword(currentPassword, user.password_hash))) {
+    return res.status(401).json({ error: 'invalid_credentials' });
+  }
+  const policy = accountSecurity.passwordPolicy(nextPassword);
+  if (!policy.ok) return res.status(400).json({ error: 'weak_password', hint: policy.hint });
+  if (await verifyPassword(nextPassword, user.password_hash)) {
+    return res.status(400).json({ error: 'password_reused', hint: 'Choose a password you have not used for this account.' });
+  }
+
+  db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(await hashPassword(nextPassword), req.session.userId);
+  accountSecurity.markReauthenticated(req);
+  const revoked = accountSecurity.revokeOtherSessions(req.session.userId, req.session.sid);
+  accountSecurity.audit(req.session.userId, 'password_changed', req, { revoked_sessions: revoked });
+  notify(req.session.userId, 'security', `Your password was changed on ${req.session.deviceName || 'this device'}.`, { url: '/?open=profile&settings=security' });
+  res.json({ ok: true, revoked_sessions: revoked });
 });
 
 router.get('/security/mfa', requireAuth, (req, res) => res.json({ enabled: accountSecurity.mfaEnabled(req.session.userId) }));
