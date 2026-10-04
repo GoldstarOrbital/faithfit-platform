@@ -181,7 +181,7 @@ async function render() {
   const main = document.getElementById('main');
   syncTabA11y(state.tab);
   if (!state.me) return renderSignIn();
-  if (!state.me.user.terms_accepted_at || !state.me.user.date_of_birth) return renderAccountSetup(main);
+  if (state.me.account_setup_required || !state.me.user.terms_accepted_at || !state.me.user.date_of_birth) return renderAccountSetup(main);
   if (state.tab === 'home') return renderHome(main);
   if (state.tab === 'workout') return renderWorkout(main);
   if (state.tab === 'stats') return renderStats(main);

@@ -3,7 +3,7 @@
 const { randomUUID } = require('crypto');
 const db = require('./db');
 
-const TERMS_VERSION = '2026-08-11';
+const TERMS_VERSION = '2026-10-04';
 const APPLICATION_STATES = new Set(['pending_email', 'pending_church', 'pending_review', 'verified', 'rejected', 'suspended', 'revoked']);
 
 function init() {
@@ -313,7 +313,7 @@ async function dispatchChurchNotifications() {
   for(const row of rows){
     try{
       const response=await fetch('https://api.resend.com/emails',{method:'POST',headers:{authorization:`Bearer ${process.env.RESEND_API_KEY}`,'content-type':'application/json'},
-        body:JSON.stringify({from:process.env.EMAIL_FROM||'Functioning Faith <accountability@functioningfaith.com>',to:[row.recipient_email],subject:row.subject,text:row.body}),signal:AbortSignal.timeout(8000)});
+        body:JSON.stringify({from:process.env.EMAIL_FROM||'Functioning Faith <alexgoldsmith@goldstarorbital.com>',to:[row.recipient_email],subject:row.subject,text:row.body}),signal:AbortSignal.timeout(8000)});
       if(!response.ok) throw new Error(`email_${response.status}`);
       const now=new Date().toISOString();
       db.prepare("UPDATE church_notification_outbox SET status='sent',sent_at=?,last_error=NULL WHERE id=?").run(now,row.id);

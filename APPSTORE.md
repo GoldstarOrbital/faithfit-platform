@@ -18,7 +18,7 @@ against `ios/FunctioningFaith/` and `webapp/`, not assumed.
 | XcodeGen project | **Present** | `ios/FunctioningFaith/project.yml` |
 | Bundle ID | `com.functioningfaith.app` | `project.yml` |
 | Sign in with Apple entitlement scaffold | **Present** | `FunctioningFaith.entitlements` |
-| HealthKit entitlement (read-only) | **Present** | same |
+| HealthKit entitlement (member-authorized read/write workout sync) | **Present** | same |
 | Permission copy (location, Bluetooth, Health, notifications, Face ID) | **Present** | `Resources/Info.plist` |
 | Privacy manifest | **Present** | `Resources/PrivacyInfo.xcprivacy` |
 | Production API base URL | Default production Railway host; overridable via Info.plist `FFAPIBaseURL` | `APIClient.swift` + `Config.swift` |
@@ -32,10 +32,10 @@ The App Store submission is **not** a web-view wrapper. The native binary
 includes:
 
 - Core Location route capture for live workouts
-- HealthKit read of workouts / steps / workout heart rate
+- HealthKit sync of member-authorized workouts, steps, and workout heart rate
 - Native Sign in with Apple (ASAuthorization)
 - Native OAuth via `ASWebAuthenticationSession` for other providers
-- Keychain-backed E2E DM crypto interoperable with the web client
+- Keychain-backed E2E DM crypto for compatible participants; unencrypted fallback remains available
 - Biometric lock option
 - Category-gated notification permission requests
 
@@ -50,7 +50,7 @@ mistaken for a thin Safari shell.
 | Block users | **Done** | `POST/DELETE /api/users/:id/block`, DM-level block |
 | Published content standard | **Done** | `webapp/public/terms.html` |
 | Moderation queue | **Done** | `webapp/public/moderation.html` + API |
-| Developer contact / support URL | **Done** | `webapp/public/support.html`, `hello@functioningfaith.app` |
+| Developer contact / support URL | **Done** | `webapp/public/support.html`, `alexgoldsmith@goldstarorbital.com` |
 
 ## Guideline 5.1.1(v) — Account deletion
 

@@ -166,9 +166,9 @@ Faith, fitness & community
 ```
 Functioning Faith is a faith-based fitness and community app. Track real workouts with GPS, pair movement with Scripture, and grow with others — alone or with your church.
 
-• Live GPS workouts and HealthKit (read-only) sync from Apple Watch and other wearables
+• Live GPS workouts and member-authorized HealthKit sync from Apple Watch and other wearables
 • Scripture library, verse practice, and moment-aware encouragement
-• Community feed, groups, challenges, and end-to-end encrypted direct messages
+• Community feed, groups, challenges, and direct messages with end-to-end encryption for compatible participants
 • Church finder, podcasts, and reels
 • Sign in with Apple, email, or other providers you choose
 • Full in-app account deletion and data controls
@@ -237,7 +237,7 @@ Functioning Faith is a native SwiftUI app (not a web-view wrapper).
 
 Key native capabilities for review:
 • Core Location route capture during member-initiated live workouts
-• HealthKit read-only (workouts, steps, workout heart rate) — never writes to Health
+• Member-authorized HealthKit sync for workouts, steps, and workout heart rate; in-app workouts may be written back to Apple Health
 • Sign in with Apple via ASAuthorizationAppleIDProvider
 • End-to-end encrypted DMs (CryptoKit ECDH + AES-GCM, interoperable with the web client)
 • In-app permanent account deletion (Profile → Delete account → DELETE /api/me)

@@ -110,7 +110,7 @@ function init() {
 
   if (isConfigured()) {
     webpush.setVapidDetails(
-      process.env.VAPID_SUBJECT || 'mailto:hello@functioningfaith.app',
+      process.env.VAPID_SUBJECT || 'mailto:alexgoldsmith@goldstarorbital.com',
       publicKey(), process.env.VAPID_PRIVATE_KEY);
   }
 }

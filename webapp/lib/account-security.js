@@ -16,7 +16,7 @@ const ABSOLUTE_TIMEOUT_MS = Math.max(1, Number(process.env.SESSION_ABSOLUTE_DAYS
 const IDLE_TIMEOUT_MS = process.env.SESSION_IDLE_MINUTES
   ? Math.max(15, Number(process.env.SESSION_IDLE_MINUTES)) * 60 * 1000
   : ABSOLUTE_TIMEOUT_MS;
-const TERMS_VERSION = '2026-08-11';
+const TERMS_VERSION = '2026-10-04';
 const PRIVACY_VALUES = {
   profile_visibility: new Set(['public', 'followers', 'private']),
   follower_list_visibility: new Set(['public', 'followers', 'private']),
@@ -425,7 +425,7 @@ async function requestPasswordReset(email, baseUrl, req) {
   db.prepare('INSERT INTO password_reset_tokens(id,user_id,token_hash,expires_at) VALUES(?,?,?,?)').run(randomUUID(),user.id,hash(token),expires);
   const link=`${String(baseUrl).replace(/\/$/,'')}/?reset_token=${encodeURIComponent(token)}`;
   const response=await fetch('https://api.resend.com/emails',{method:'POST',headers:{authorization:`Bearer ${process.env.RESEND_API_KEY}`,'content-type':'application/json'},
-    body:JSON.stringify({from:process.env.EMAIL_FROM||'Functioning Faith <security@functioningfaith.com>',to:[user.email],subject:'Reset your Functioning Faith password',
+    body:JSON.stringify({from:process.env.EMAIL_FROM||'Functioning Faith <alexgoldsmith@goldstarorbital.com>',to:[user.email],subject:'Reset your Functioning Faith password',
       html:`<p>A password reset was requested for your Functioning Faith account.</p><p><a href="${link}">Reset password</a></p><p>This link expires in 20 minutes. If you did not request it, no action is needed.</p>`}),signal:AbortSignal.timeout(8000)});
   if(!response.ok) throw new Error('recovery_email_failed');
   audit(user.id,'password_reset_requested',req);
