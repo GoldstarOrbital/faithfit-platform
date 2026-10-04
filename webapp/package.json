@@ -29,12 +29,20 @@
     "verify:offline-scripture": "node scripts/verify-offline-scripture.js",
     "verify:story-replies": "node scripts/verify-story-replies.js",
     "verify:story-ownership": "node scripts/verify-story-ownership.js",
-    "verify:native-interactions": "node scripts/verify-native-interactions.js"
+    "verify:native-interactions": "node scripts/verify-native-interactions.js",
+    "verify:editorial-notifications": "node scripts/verify-editorial-notifications.js",
+    "verify:workout-release": "node scripts/verify-workout-release.js",
+    "verify:post-scripture-personalization": "node scripts/verify-post-scripture-personalization.js",
+    "verify:launch-readiness": "node scripts/verify-launch-readiness.js",
+    "verify:query-plans": "node scripts/verify-query-plans.js",
+    "verify:semantic-cache": "node scripts/verify-semantic-cache.js",
+    "migrate:sqlite-postgres": "node scripts/migrate-sqlite-to-postgres.js"
   },
   "dependencies": {
     "compression": "^1.8.1",
     "cookie-session": "^2.1.0",
     "express": "^4.19.2",
+    "pg": "^8.23.0",
     "web-push": "^3.6.7"
   }
 }

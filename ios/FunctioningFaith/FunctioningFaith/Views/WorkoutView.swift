@@ -1,5 +1,6 @@
 import SwiftUI
 import MapKit
+import WidgetKit
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -19,27 +20,17 @@ struct WorkoutView: View {
     /// fallback. nil for the ordinary Train tab entry point.
     var initialVerse: VerseSnippet? = nil
 
-    @StateObject private var tracker = NativeWorkoutTracker()
+    @ObservedObject private var activeWorkout = ActiveWorkoutSession.shared
+    @ObservedObject private var network = NetworkMonitor.shared
     @ObservedObject private var bluetooth = BluetoothHeartRateManager.shared
     @ObservedObject private var healthKit = HealthKitManager.shared
     @State private var mode: Mode = .live
     @State private var activityTypes: [ActivityTypeItem] = ActivityCatalog.fallback
-    @State private var selectedType = "Run"
-    @State private var isActive = false
-    @State private var elapsed: TimeInterval = 0
-    @State private var heartRate = 0
     @State private var mapPosition: MapCameraPosition = .automatic
-    @State private var lastHeartRateRefresh = Date.distantPast
-    @State private var lastBiometricUpload = Date.distantPast
-    @State private var lastHeartRateCalmCue = Date.distantPast
-    @State private var heartRateCalmMessage: String?
     @AppStorage("privacy.biometricIngest") private var biometricIngestEnabled = false
     @AppStorage("privacy.scripturePersonalization") private var scripturePersonalizationEnabled = false
     @AppStorage("notifications.heartRateCalm") private var heartRateCalmNotifications = true
     @AppStorage("notifications.heartRateCalm.threshold") private var heartRateCalmThreshold = 160
-    @State private var workoutID: UUID?
-    @State private var workoutStartedAt: Date?
-    @State private var workoutVerse: VerseSnippet?
     @State private var errorMessage: String?
     @State private var completedWorkout: WorkoutCompletion?
     @State private var completedSportMetrics: [String: Double] = [:]
@@ -52,6 +43,33 @@ struct WorkoutView: View {
     @State private var isSavingManual = false
     @State private var recent: [LoggedWorkout] = []
     let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    private var tracker: NativeWorkoutTracker { activeWorkout.tracker }
+    private var selectedType: String {
+        get { activeWorkout.selectedType }
+        nonmutating set { activeWorkout.selectedType = newValue }
+    }
+    private var isActive: Bool { activeWorkout.isActive }
+    private var isPaused: Bool { activeWorkout.isPaused }
+    private var isOfflineWorkout: Bool {
+        get { activeWorkout.isOfflineWorkout }
+        nonmutating set { activeWorkout.isOfflineWorkout = newValue }
+    }
+    private var elapsed: TimeInterval { activeWorkout.elapsed }
+    private var heartRate: Int {
+        get { activeWorkout.heartRate }
+        nonmutating set { activeWorkout.heartRate = newValue }
+    }
+    private var workoutID: UUID? { activeWorkout.workoutID }
+    private var workoutStartedAt: Date? { activeWorkout.workoutStartedAt }
+    private var workoutVerse: VerseSnippet? {
+        get { activeWorkout.workoutVerse }
+        nonmutating set { activeWorkout.workoutVerse = newValue }
+    }
+    private var heartRateCalmMessage: String? {
+        get { activeWorkout.heartRateCalmMessage }
+        nonmutating set { activeWorkout.heartRateCalmMessage = newValue }
+    }
 
     var body: some View {
         ScrollView {
@@ -83,15 +101,14 @@ struct WorkoutView: View {
         .background(FFTheme.parchment0.ignoresSafeArea())
         .navigationTitle("Log")
         .onReceive(timer) { _ in
-            guard isActive else { return }
-            elapsed += 1
+            guard isActive, !isPaused else { return }
             // ActivityKit updates are intentionally paced; the timer continues
             // live in the widget without waking the extension every second.
             if Int(elapsed) % 10 == 0 { updateLiveActivity() }
         }
         .onReceive(timer) { _ in
-            guard isActive, Date().timeIntervalSince(lastHeartRateRefresh) >= 15 else { return }
-            lastHeartRateRefresh = .now
+            guard isActive, Date().timeIntervalSince(activeWorkout.lastHeartRateRefresh) >= 15 else { return }
+            activeWorkout.lastHeartRateRefresh = .now
             Task { await refreshHeartRate() }
         }
         .onChange(of: tracker.points) { _, points in
@@ -113,7 +130,7 @@ struct WorkoutView: View {
         }
         .sheet(isPresented: $showWearables) { WearableConnectView() }
         .sheet(isPresented: $showBeacon) {
-            if let workoutID { BeaconSafetyView(workoutID: workoutID, location: tracker.points.last) }
+            BeaconSafetyView()
         }
         .alert("Workout unavailable", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
@@ -122,6 +139,10 @@ struct WorkoutView: View {
             activityTypes = (try? await APIClient.shared.fetchActivityTypes()) ?? ActivityCatalog.fallback
             recent = (try? await APIClient.shared.fetchWorkouts()) ?? []
             if workoutVerse == nil { workoutVerse = initialVerse }
+            await OfflineWorkoutQueue.shared.flush()
+        }
+        .onChange(of: network.isOnline) { _, online in
+            if online { Task { await OfflineWorkoutQueue.shared.flush() } }
         }
     }
 
@@ -154,10 +175,10 @@ struct WorkoutView: View {
             HStack(spacing: 8) {
                 Label(tracker.statusText, systemImage: tracker.isLocationReady ? "location.fill" : "location")
                 Spacer()
-                Text(isActive ? "LIVE" : "READY")
+                Text(isActive ? (isPaused ? "PAUSED" : "LIVE") : "READY")
                     .font(.caption2.weight(.bold))
                     .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(isActive ? FFTheme.seal : FFTheme.meadow, in: Capsule())
+                    .background(isActive ? (isPaused ? FFTheme.hearth : FFTheme.seal) : FFTheme.meadow, in: Capsule())
                     .foregroundStyle(FFTheme.cream)
             }
             .font(.caption.weight(.semibold))
@@ -208,7 +229,7 @@ struct WorkoutView: View {
 
             if isActive {
                 Button { showBeacon = true } label: {
-                    Label("Share safety beacon", systemImage: "location.circle.fill")
+                    Label(activeWorkout.beaconRecipients.isEmpty ? "Share safety beacon" : "Safety beacon live", systemImage: "location.circle.fill")
                         .font(.caption.weight(.semibold)).frame(maxWidth: .infinity, minHeight: 42)
                 }
                 .buttonStyle(.ffGhost)
@@ -231,16 +252,30 @@ struct WorkoutView: View {
                     .background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
 
-            Button(action: toggleWorkout) {
-                Text(isActive ? "Stop" : "Start")
-                    .font(.title2.weight(.semibold))
-                    .frame(width: 120, height: 120)
-                    .background(isActive ? FFTheme.seal : FFTheme.emerald)
-                    .foregroundStyle(.white)
-                    .clipShape(Circle())
+            if isActive {
+                HStack(spacing: 12) {
+                    Button(isPaused ? "Continue" : "Pause") {
+                        isPaused ? resumeWorkout() : pauseWorkout()
+                    }
+                    .buttonStyle(.ffGhost)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    Button("Finish workout") { finishWorkout() }
+                        .buttonStyle(.ffPrimary)
+                        .frame(maxWidth: .infinity, minHeight: 48)
+                }
+                .accessibilityElement(children: .contain)
+            } else {
+                Button(action: toggleWorkout) {
+                    Text("Start workout")
+                        .font(.title2.weight(.semibold))
+                        .frame(width: 120, height: 120)
+                        .background(FFTheme.emerald)
+                        .foregroundStyle(.white)
+                        .clipShape(Circle())
+                }
+                .accessibilityLabel("Start workout")
+                .frame(maxWidth: .infinity)
             }
-            .accessibilityLabel(isActive ? "Stop workout" : "Start workout")
-            .frame(maxWidth: .infinity)
         }
         .padding(FFTheme.Space.sm)
         .frame(maxWidth: .infinity)
@@ -340,7 +375,7 @@ struct WorkoutView: View {
                 } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(workout.type).font(.subheadline.weight(.semibold))
+                            Text(workout.name ?? workout.type).font(.subheadline.weight(.semibold))
                             Text(workout.startTime.prefix(16)).font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
@@ -383,61 +418,135 @@ struct WorkoutView: View {
     }
 
     private func toggleWorkout() {
+        if isActive { finishWorkout(); return }
+        Task {
+            do {
+                let started = try await APIClient.shared.startWorkout(type: selectedType)
+                await MainActor.run {
+                    activeWorkout.begin(
+                        id: started.id,
+                        startedAt: started.startTime,
+                        type: selectedType,
+                        offline: false,
+                        // The server rotates a verified, workout-specific
+                        // opening verse against this member's recent history.
+                        // Previously the client decoded only the workout id
+                        // and silently threw that selection away.
+                        verse: started.startVerse ?? initialVerse
+                    )
+                    WorkoutLiveActivityManager.shared.start(sport: selectedType)
+                }
+            } catch {
+                guard !network.isOnline else {
+                    await MainActor.run { errorMessage = error.localizedDescription }
+                    return
+                }
+                await MainActor.run {
+                    activeWorkout.begin(
+                        id: UUID(),
+                        startedAt: .now,
+                        type: selectedType,
+                        offline: true,
+                        verse: initialVerse
+                    )
+                    WorkoutLiveActivityManager.shared.start(sport: selectedType)
+                }
+            }
+        }
+    }
+
+    private func pauseWorkout() {
+        activeWorkout.pause()
+    }
+
+    private func resumeWorkout() {
+        activeWorkout.resume()
+    }
+
+    private func finishWorkout() {
         if isActive {
             guard let id = workoutID else { return }
-            isActive = false
-            tracker.stop()
+            // Snapshot everything needed by the recap before ending the live
+            // session. The server may take a moment to answer, and the active
+            // session is no longer the owner of these finished values.
+            let finishedType = selectedType
+            let finishedElapsed = Int(elapsed.rounded())
+            let finishedStartedAt = workoutStartedAt
+            activeWorkout.markFinished()
             Task { await WorkoutLiveActivityManager.shared.end() }
             let route = tracker.points
             let distance = tracker.distanceKm
+            if isOfflineWorkout {
+                OfflineWorkoutQueue.shared.enqueue(type: finishedType, durationSec: finishedElapsed, distanceKm: distance)
+                isOfflineWorkout = false
+                errorMessage = "Workout saved on this phone and will upload automatically when you reconnect."
+                return
+            }
             Task {
+                var sportMetrics: [String: Double] = ["top_speed_kmh": max(tracker.maxSpeedKmh, bluetooth.speedKmh ?? 0),
+                                                       "elevation_gain_m": tracker.elevationGainM,
+                                                       "elevation_loss_m": tracker.elevationLossM]
+                if let cadence = bluetooth.cadenceRPM { sportMetrics["cadence_rpm"] = Double(cadence) }
+                if let power = bluetooth.cyclingPowerWatts { sportMetrics["power_w"] = Double(power) }
+                if bluetooth.peakPowerWatts > 0 { sportMetrics["peak_power_w"] = Double(bluetooth.peakPowerWatts) }
                 do {
-                    var sportMetrics: [String: Double] = ["top_speed_kmh": max(tracker.maxSpeedKmh, bluetooth.speedKmh ?? 0),
-                                                           "elevation_gain_m": tracker.elevationGainM,
-                                                           "elevation_loss_m": tracker.elevationLossM]
-                    if let cadence = bluetooth.cadenceRPM { sportMetrics["cadence_rpm"] = Double(cadence) }
-                    if let power = bluetooth.cyclingPowerWatts { sportMetrics["power_w"] = Double(power) }
-                    if bluetooth.peakPowerWatts > 0 { sportMetrics["peak_power_w"] = Double(bluetooth.peakPowerWatts) }
-                    let completion = try await APIClient.shared.stopWorkout(id: id, gpsPoints: route, gpsDistanceKm: distance, sportMetrics: sportMetrics)
-                    await fillInVerseIfNeeded()
+                    let completion = try await APIClient.shared.stopWorkout(id: id, gpsPoints: route, gpsDistanceKm: distance, activeDurationSec: finishedElapsed, sportMetrics: sportMetrics)
+                    if let finishVerse = completion.finishVerse {
+                        await MainActor.run {
+                            workoutVerse = finishVerse
+                            WidgetScriptureStore.save(reference: finishVerse.reference, text: finishVerse.snippet, context: "After your \(finishedType.lowercased())")
+                            WidgetCenter.shared.reloadTimelines(ofKind: "FunctioningFaithScripture")
+                        }
+                    } else {
+                        await fillInVerseIfNeeded()
+                    }
                     await MainActor.run {
                         completedSportMetrics = sportMetrics
                         completedRoute = route
                         completedWorkout = completion
                         UINotificationFeedbackGenerator().notificationOccurred(.success)
-                        if let startedAt = workoutStartedAt {
+                        if let startedAt = finishedStartedAt {
                             healthKit.saveWorkoutToHealth(
-                                activityType: selectedType, start: startedAt, end: Date(),
+                                activityType: finishedType, start: startedAt, end: Date(),
                                 calories: Double(completion.calories),
                                 distanceMeters: completion.distanceKm.map { $0 * 1000 })
+                        }
+                    }
+                    recent = (try? await APIClient.shared.fetchWorkouts()) ?? recent
+                } catch APIError.invalidResponse {
+                    // A decoding failure occurs only after a successful 2xx
+                    // response, so the server has already persisted the stop.
+                    // Never strand the member on the Train screen just because
+                    // an optional response field drifted: show a truthful recap
+                    // from the measurements captured on this phone.
+                    let fallback = WorkoutCompletion(
+                        id: id,
+                        calories: TrainingMath.estimatedKcal(elapsed: Double(finishedElapsed), km: distance),
+                        avgHR: heartRate > 0 ? heartRate : nil,
+                        maxHR: heartRate > 0 ? heartRate : nil,
+                        distanceKm: distance > 0 ? distance : nil,
+                        durationSec: finishedElapsed,
+                        encouragement: "Your workout is saved.",
+                        effort: nil,
+                        finishVerse: nil
+                    )
+                    await fillInVerseIfNeeded()
+                    await MainActor.run {
+                        completedSportMetrics = sportMetrics
+                        completedRoute = route
+                        completedWorkout = fallback
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        if let startedAt = finishedStartedAt {
+                            healthKit.saveWorkoutToHealth(
+                                activityType: finishedType, start: startedAt, end: Date(),
+                                calories: Double(fallback.calories),
+                                distanceMeters: fallback.distanceKm.map { $0 * 1000 })
                         }
                     }
                     recent = (try? await APIClient.shared.fetchWorkouts()) ?? recent
                 } catch {
                     await MainActor.run { errorMessage = error.localizedDescription }
                 }
-            }
-            return
-        }
-        Task {
-            do {
-                let started = try await APIClient.shared.startWorkout(type: selectedType)
-                await MainActor.run {
-                    workoutID = started.id
-                    workoutStartedAt = started.startTime
-                    elapsed = 0
-                    heartRate = 0
-                    lastHeartRateRefresh = .distantPast
-                    lastBiometricUpload = .distantPast
-                    lastHeartRateCalmCue = .distantPast
-                    heartRateCalmMessage = nil
-                    workoutVerse = initialVerse
-                    isActive = true
-                    tracker.start()
-                    WorkoutLiveActivityManager.shared.start(sport: selectedType)
-                }
-            } catch {
-                await MainActor.run { errorMessage = error.localizedDescription }
             }
         }
     }
@@ -461,8 +570,8 @@ struct WorkoutView: View {
     private func deliverCalmCueIfNeeded() async {
         guard heartRateCalmNotifications,
               heartRate >= heartRateCalmThreshold,
-              Date().timeIntervalSince(lastHeartRateCalmCue) >= 5 * 60 else { return }
-        lastHeartRateCalmCue = .now
+              Date().timeIntervalSince(activeWorkout.lastHeartRateCalmCue) >= 5 * 60 else { return }
+        activeWorkout.lastHeartRateCalmCue = .now
         // Carry whatever verse this session already has (from the biometric
         // pipeline, or the plain fallback fetch) into the cue itself, so the
         // moment isn't just a pace warning with none of the app's scripture.
@@ -477,6 +586,8 @@ struct WorkoutView: View {
         guard isActive else { return }
         WorkoutLiveActivityManager.shared.update(
             distanceKm: tracker.distanceKm,
+            elapsed: elapsed,
+            isPaused: isPaused,
             speedKmh: tracker.currentSpeedKmh ?? bluetooth.speedKmh,
             heartRate: heartRate > 0 ? heartRate : bluetooth.heartRate
         )
@@ -494,13 +605,15 @@ struct WorkoutView: View {
         guard let verse = try? await APIClient.shared.fetchRandomVerse() else { return }
         await MainActor.run {
             workoutVerse = VerseSnippet(id: verse.reference, reference: verse.reference, snippet: verse.text, deepLink: "")
+            WidgetScriptureStore.save(reference: verse.reference, text: verse.text, context: "After your \(selectedType.lowercased())")
+            WidgetCenter.shared.reloadTimelines(ofKind: "FunctioningFaithScripture")
         }
     }
 
     private func submitBiometricSampleIfNeeded() async {
         guard biometricIngestEnabled, heartRate > 0, let workoutID,
-              Date().timeIntervalSince(lastBiometricUpload) >= 60 else { return }
-        lastBiometricUpload = .now
+              Date().timeIntervalSince(activeWorkout.lastBiometricUpload) >= 60 else { return }
+        activeWorkout.lastBiometricUpload = .now
         do {
             let result = try await APIClient.shared.recordWorkoutBiometrics(id: workoutID, heartRate: heartRate)
             if scripturePersonalizationEnabled, let verse = result.verse { workoutVerse = verse }
@@ -530,7 +643,13 @@ struct WorkoutView: View {
                 note: manualNote.isEmpty ? nil : manualNote
             )
             completedSportMetrics = [:]
-            await fillInVerseIfNeeded()
+            if let finishVerse = saved.finishVerse {
+                workoutVerse = finishVerse
+                WidgetScriptureStore.save(reference: finishVerse.reference, text: finishVerse.snippet, context: "After your \(selectedType.lowercased())")
+                WidgetCenter.shared.reloadTimelines(ofKind: "FunctioningFaithScripture")
+            } else {
+                await fillInVerseIfNeeded()
+            }
             completedWorkout = WorkoutCompletion(
                 id: UUID(uuidString: saved.id) ?? UUID(),
                 calories: saved.calories,
@@ -539,7 +658,8 @@ struct WorkoutView: View {
                 distanceKm: saved.distanceKm,
                 durationSec: saved.durationSec,
                 encouragement: "Every faithful step counts. Keep building the rhythm God has given you.",
-                effort: nil
+                effort: nil,
+                finishVerse: nil
             )
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             let now = Date()
@@ -572,6 +692,10 @@ struct PostWorkoutSummaryView: View {
     let healthConnected: Bool
     @State private var routeName = ""
     @State private var routeSaveStatus: String?
+    @State private var activityName = ""
+    @State private var activityDescription = ""
+    @State private var editStatus: String?
+    @State private var isSavingDetails = false
 
     private var distanceText: String? {
         guard let distance = completion.distanceKm, distance > 0 else { return nil }
@@ -629,6 +753,24 @@ struct PostWorkoutSummaryView: View {
                         }
                     }
 
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("Tell the story of this workout", systemImage: "square.and.pencil")
+                            .font(.headline).foregroundStyle(FFTheme.seal)
+                        TextField("Workout name", text: $activityName)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("How did it go?", text: $activityDescription, axis: .vertical)
+                            .lineLimit(3...7).textFieldStyle(.roundedBorder)
+                        Button {
+                            Task { await saveWorkoutDetails() }
+                        } label: {
+                            if isSavingDetails { ProgressView().frame(maxWidth: .infinity) }
+                            else { Text("Save workout post").frame(maxWidth: .infinity) }
+                        }
+                        .buttonStyle(.ffPrimary).disabled(isSavingDetails)
+                        if let editStatus { Text(editStatus).font(.caption).foregroundStyle(.secondary) }
+                    }
+                    .padding(14).background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+
                     if route.count > 1 {
                         VStack(alignment: .leading, spacing: 8) {
                             Label("Save this route", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
@@ -667,6 +809,7 @@ struct PostWorkoutSummaryView: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
         .presentationDetents([.large])
+        .ffKeyboardReady()
     }
 
     private func summaryMetric(_ value: String, _ label: String) -> some View {
@@ -685,6 +828,20 @@ struct PostWorkoutSummaryView: View {
             let saved = try await APIClient.shared.saveRoute(name: name, activityType: activityType, path: route)
             routeSaveStatus = "Saved \(Units.distanceString(km: saved.distanceKm)) route."
         } catch { routeSaveStatus = error.localizedDescription }
+    }
+
+
+    private func saveWorkoutDetails() async {
+        isSavingDetails = true
+        defer { isSavingDetails = false }
+        do {
+            try await APIClient.shared.updateWorkout(
+                id: completion.id.uuidString.lowercased(),
+                name: activityName.trimmingCharacters(in: .whitespacesAndNewlines),
+                description: activityDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+            editStatus = "Workout and shared post updated."
+        } catch { editStatus = error.localizedDescription }
     }
 }
 

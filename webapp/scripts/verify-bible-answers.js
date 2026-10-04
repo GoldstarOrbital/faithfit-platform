@@ -46,10 +46,10 @@ need(css, 'ba-sidebar-open', 'collapsible sidebar on narrow');
 // Explore catalogue entry
 need(app, "key: 'bibleAnswers'", 'Explore section for Bible Answers');
 
-// Answer path: verified library guardrails (server + client refusal)
+// Answer path: verified library guardrails with a safe server fallback.
 need(api, "router.post('/bible/ask'", 'POST /bible/ask route');
 need(api, "router.get('/bible/ask/history'", 'GET /bible/ask/history route');
-need(api, 'no_verified_answer', 'refusal when answer cannot be verified');
+need(api, 'fuller guided answer will return when the companion service is available', 'safe fallback when an answer cannot be verified');
 need(api, 'askBibleQuestion', 'companion askBibleQuestion call');
 need(companion, 'async function askBibleQuestion', 'askBibleQuestion implementation');
 need(companion, 'gloo.verifyRefs', 'citation verification before return');
@@ -60,8 +60,7 @@ need(gloo, 'async function verifyRefs', 'verifyRefs enforcement');
 need(gloo, 'hand-authored scripture', 'fallback when refs fail');
 need(db, 'bible_answers_history', 'history table');
 
-// Client must surface unverified refusal, never synthesize verse text
-need(app, 'no_verified_answer', 'client handles unverified refusal');
+// Client never synthesizes verse text.
 need(app, 'Verified Scripture · text from the library, not the model', 'UI discloses library source');
 need(app, 'Verse text always comes from the verified library', 'guardrail copy in panel');
 assert.ok(!/inventVerseText|fakeVerse|makeUpVerse/.test(app), 'no invented-verse helper in client');

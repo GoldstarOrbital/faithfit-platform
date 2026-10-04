@@ -20,10 +20,10 @@ struct ReelPlayerView: View {
                 case .external(let url):
                     ExternalWatchView(url: url, title: reel.title)
                 case .unavailable:
-                    ContentUnavailableView("This reel can't be played", systemImage: "play.slash")
+                    ContentUnavailableView("This frame can't be played", systemImage: "play.slash")
                 }
             }
-            .navigationTitle(reel.title ?? "Reel")
+            .navigationTitle(reel.title ?? "Frame")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
         }
@@ -149,7 +149,7 @@ private struct ExternalWatchView: View {
 
 #Preview {
     ReelPlayerView(reel: Reel(
-        videoID: "preview", title: "Preview Reel", description: nil, thumbnailURL: nil, channelTitle: "Preview Channel",
+        videoID: "preview", title: "Preview Frame", description: nil, thumbnailURL: nil, channelTitle: "Preview Channel",
         category: nil, provider: "youtube", sourceURL: nil, sourceKind: nil, videoData: nil, verseReference: nil,
         verseText: nil, churchName: nil, likeCount: 0, saveCount: 0, likedByMe: false, savedByMe: false
     ))

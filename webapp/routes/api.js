@@ -30,6 +30,7 @@ const verseCategories = require('../lib/verse-categories');
 const scriptureMission = require('../lib/scriptureMission');
 const gloo = require('../lib/gloo');
 const companion = require('../lib/companion');
+const semanticCache = require('../lib/semantic-cache');
 const breathwork = require('../lib/breathwork');
 const dms = require('../lib/dms');
 const athletes = require('../lib/athletes');
@@ -291,6 +292,15 @@ const authLimiter = rateLimit({
   message: 'Too many attempts. Please wait a few minutes and try again.',
 });
 
+// Changing a password is both sensitive and relatively expensive (scrypt is
+// deliberately memory-hard). Keep this separate from the broader auth limit:
+// an already-signed-in member gets a small, clear retry window without a bad
+// actor being able to turn the endpoint into a KDF workload.
+const passwordChangeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 8, keyFn: byUserOrIP, keyPrefix: 'password-change',
+  message: 'Too many password-change attempts. Please wait a few minutes and try again.',
+});
+
 // The direct guard on the app's actual per-call bill: every route wired to
 // this calls a metered external API (Gloo AI, chiefly) once per request, with
 // no server-side cache that a normal client retriggers under regular use.
@@ -415,7 +425,11 @@ router.post('/auth/recovery/complete', authLimiter, async (req,res) => {
   const userId=accountSecurity.consumePasswordReset(req.body?.token);
   if(!userId) return res.status(400).json({error:'invalid_or_expired_reset'});
   db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(await hashPassword(req.body.password),userId);
-  accountSecurity.audit(userId,'password_reset_completed',req);
+  // A recovery link may have been used because a device is lost. Unlike a
+  // normal in-session change, there is no current trusted session to retain:
+  // revoke every prior session before issuing the fresh recovery session.
+  const revoked=accountSecurity.revokeOtherSessions(userId,'');
+  accountSecurity.audit(userId,'password_reset_completed',req,{revoked_sessions:revoked});
   const started=accountSecurity.startSession(req,userId,'password_recovery');
   notify(userId,'security',`Your password was reset on ${started.deviceName}.`,{url:'/?open=profile&settings=security'});
   res.json({ok:true});
@@ -468,8 +482,17 @@ router.get('/auth/providers', (req, res) => {
 });
 router.get('/auth/security-config', (req,res) => res.json({ turnstile_site_key:(process.env.TURNSTILE_SITE_KEY&&process.env.TURNSTILE_SECRET_KEY)?process.env.TURNSTILE_SITE_KEY:null }));
 
+// Security-sensitive links (password recovery and OAuth callbacks) must never
+// inherit an untrusted Host header in production. Railway forwards the public
+// request host, but a caller can still send an arbitrary Host value; using it
+// here would let a password-reset email point at an attacker-controlled site.
+// Set APP_BASE_URL for a custom production domain. The Railway domain is the
+// safe default for this deployment and remains stable across requests.
+const PRODUCTION_APP_ORIGIN = String(
+  process.env.APP_BASE_URL || process.env.PUBLIC_APP_URL || 'https://faithfit-demo-production.up.railway.app'
+).replace(/\/$/, '');
 function baseUrl(req) {
-  if (process.env.APP_BASE_URL) return process.env.APP_BASE_URL.replace(/\/$/, '');
+  if (process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT) return PRODUCTION_APP_ORIGIN;
   const proto = req.headers['x-forwarded-proto'] || req.protocol;
   return `${proto}://${req.get('host')}`;
 }
@@ -605,7 +628,12 @@ router.post('/auth/native/apple', authLimiter, async (req, res) => {
     const expectedNonce = require('crypto').createHash('sha256').update(rawNonce).digest('hex');
     const audience = process.env.APPLE_NATIVE_CLIENT_ID || 'com.functioningfaith.app';
     const claims = await oauth.verifyIdToken('apple', identityToken, { nonce: expectedNonce, audience });
-    const userId = resolveOauthUser('apple', claims, req.body?.display_name);
+    // Apple has independently verified this email and the signed native
+    // credential is bound to the device nonce above. When a member first
+    // used email/password and later chooses the same Apple ID, link it to
+    // the existing account rather than returning a dead-end 409 that they
+    // cannot resolve before getting into Profile settings.
+    const userId = resolveOauthUser('apple', claims, req.body?.display_name, { linkVerifiedEmail: true });
     if (accountSecurity.mfaEnabled(userId)) {
       req.session.mfaPending = { userId, method: 'apple', native: false, createdAt: Date.now() };
       return res.status(202).json({ mfa_required: true });
@@ -628,12 +656,20 @@ router.post('/auth/native/apple', authLimiter, async (req, res) => {
   }
 });
 
-function resolveOauthUser(provider, claims, suppliedName) {
+function resolveOauthUser(provider, claims, suppliedName, { linkVerifiedEmail = false } = {}) {
   const email = claims.email ? String(claims.email).trim().toLowerCase() : null;
   const emailVerified = claims.email_verified === true || claims.email_verified === 'true';
   const identity = db.prepare('SELECT user_id FROM user_identities WHERE provider=? AND provider_user_id=?').get(provider, claims.sub);
   if (identity) return identity.user_id;
-  if (email && emailVerified && db.prepare('SELECT 1 FROM users WHERE email=?').get(email)) {
+  const existingUser = email && emailVerified
+    ? db.prepare('SELECT id FROM users WHERE email=?').get(email)
+    : null;
+  if (existingUser && linkVerifiedEmail) {
+    db.prepare('INSERT INTO user_identities (id,user_id,provider,provider_user_id,email,email_verified) VALUES (?,?,?,?,?,?)')
+      .run(randomUUID(), existingUser.id, provider, claims.sub, email, 1);
+    return existingUser.id;
+  }
+  if (existingUser) {
     throw Object.assign(new Error('Existing account must explicitly link this identity.'), { code: 'account_link_required' });
   }
   const userId = randomUUID();
@@ -1307,6 +1343,33 @@ router.post('/security/reauthenticate', requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// Password-account members can change their password from the native settings
+// screen. Require the current password rather than treating a live session as
+// sufficient, revoke every other session after success, and never expose
+// whether an OAuth-only account exists beyond the signed-in member themself.
+router.post('/security/password/change', requireAuth, passwordChangeLimiter, async (req, res) => {
+  const user = db.prepare('SELECT password_hash FROM users WHERE id=?').get(req.session.userId);
+  if (!user?.password_hash) return res.status(409).json({ error: 'oauth_reauthentication_required' });
+
+  const currentPassword = String(req.body?.current_password || '');
+  const nextPassword = String(req.body?.new_password || '');
+  if (!(await verifyPassword(currentPassword, user.password_hash))) {
+    return res.status(401).json({ error: 'invalid_credentials' });
+  }
+  const policy = accountSecurity.passwordPolicy(nextPassword);
+  if (!policy.ok) return res.status(400).json({ error: 'weak_password', hint: policy.hint });
+  if (await verifyPassword(nextPassword, user.password_hash)) {
+    return res.status(400).json({ error: 'password_reused', hint: 'Choose a password you have not used for this account.' });
+  }
+
+  db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(await hashPassword(nextPassword), req.session.userId);
+  accountSecurity.markReauthenticated(req);
+  const revoked = accountSecurity.revokeOtherSessions(req.session.userId, req.session.sid);
+  accountSecurity.audit(req.session.userId, 'password_changed', req, { revoked_sessions: revoked });
+  notify(req.session.userId, 'security', `Your password was changed on ${req.session.deviceName || 'this device'}.`, { url: '/?open=profile&settings=security' });
+  res.json({ ok: true, revoked_sessions: revoked });
+});
+
 router.get('/security/mfa', requireAuth, (req, res) => res.json({ enabled: accountSecurity.mfaEnabled(req.session.userId) }));
 router.post('/security/mfa/setup', requireAuth, (req, res) => {
   if (!accountSecurity.recentlyReauthenticated(req)) return res.status(403).json({ error: 'recent_reauthentication_required' });
@@ -1938,7 +2001,7 @@ router.post('/workouts/start', requireAuth, (req, res) => {
   // its push as verse_reply/"Community", which most members never toggled on
   // for what is, in substance, a Scripture notification.
   if (startResult.payload) {
-    push.send(uid, 'daily_verse', {
+    push.send(uid, 'workout_scripture', {
       title: 'Starting strong',
       body: `${startResult.payload.reference} — ${startResult.payload.snippet || startResult.payload.text || ''}`,
       url: notificationDestination('verse', { reference: startResult.payload.reference }),
@@ -2037,7 +2100,7 @@ router.post('/workouts/:id/sample', requireAuth, async (req, res) => {
 
   // Closed-device encouragement is reserved for hard transitions, and only if
   // the member opted into reminders. The on-site card remains the primary path.
-  if (['climbing', 'the_wall', 'finishing'].includes(result.moment)) {
+  if (['climbing', 'the_wall'].includes(result.moment)) {
     push.send(req.session.userId, 'reminders', {
       title: `${result.moment_label} · Functioning Faith`,
       body: `${result.payload.reference} — ${result.payload.snippet || 'Keep going with courage.'}`,
@@ -2066,7 +2129,7 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   const hrs = samples.map(s => s.heart_rate).filter(Boolean);
   const avgHr = hrs.length ? Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length) : null;
   const maxHr = hrs.length ? Math.max(...hrs) : null;
-  const { gps_distance_km, gps_points, gps_path, partner_user_ids, sport_metrics } = req.body || {};
+  const { gps_distance_km, gps_points, gps_path, partner_user_ids, sport_metrics, active_duration_sec } = req.body || {};
   // Every other number this handler accepts is bounded -- sport_metrics has
   // per-key ceilings below, gps_path drops non-finite coordinates -- but
   // distance went straight from the request body into the row, and it is the
@@ -2077,7 +2140,16 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   // any single session.
   const distanceKm = validWorkoutDistanceKm(gps_distance_km);
   // Calories: use real GPS distance if we have one (running ~ 60 kcal/km), else fall back to a duration-based estimate.
-  const durationMin = (Date.now() - new Date(workout.start_time).getTime()) / 60000;
+  // A paused session remains open on the server so it can survive a temporary
+  // loss of service, but paused wall-clock time is not training time. The
+  // client supplies its monotonic active timer; retain the historical server
+  // wall-clock calculation for older clients and bound the supplied value.
+  const wallDurationSec = Math.max(0, Math.round((Date.now() - new Date(workout.start_time).getTime()) / 1000));
+  const requestedActiveDuration = Number(active_duration_sec);
+  const durationSec = Number.isFinite(requestedActiveDuration) && requestedActiveDuration >= 0 && requestedActiveDuration <= wallDurationSec + 60
+    ? Math.round(requestedActiveDuration)
+    : wallDurationSec;
+  const durationMin = durationSec / 60000;
   const calories = distanceKm ? Math.round(distanceKm * 60) : Math.round(durationMin * 8);
 
   // Persist the real route (array of [lat,lng]) so a shared workout can render its
@@ -2091,8 +2163,6 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   } else if (Number.isInteger(gps_points)) {
     pointCount = gps_points;
   }
-
-  const durationSec = Math.max(0, Math.round((Date.now() - new Date(workout.start_time).getTime()) / 1000));
 
   // --- effort summary: what the body actually did in this session ---
   const maxInfo = effortLib.maxHrInfo(db.prepare('SELECT max_hr, birth_year FROM users WHERE id = ?').get(req.session.userId));
@@ -2112,6 +2182,23 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
          metrics.elevation_gain_m || null, Object.keys(metrics).length ? JSON.stringify(metrics) : null,
          effort.effort_score, effort.time_in_zone ? JSON.stringify(effort.time_in_zone) : null, effort.peak_zone, workout.id);
 
+  // Refine the stored route in the background. The workout finishes
+  // immediately even if terrain elevation is unavailable; distance is
+  // re-derived from the cleaned trace and DEM elevation is applied when the
+  // public provider responds. This also benefits widgets/feed cards because
+  // they read the corrected workout row rather than a client-side estimate.
+  if (pathJson) {
+    setImmediate(async () => {
+      try {
+        const corrected = await gpsCorrection.correctRoute(JSON.parse(pathJson), workout.type);
+        if (!corrected) return;
+        db.prepare(`UPDATE workouts SET distance_km=?, elevation_gain_m=COALESCE(?,elevation_gain_m),
+                    elevation_loss_m=COALESCE(?,elevation_loss_m), gps_corrected_at=datetime('now') WHERE id=?`)
+          .run(corrected.distanceKm, corrected.elevationGainM, corrected.elevationLossM, workout.id);
+      } catch { /* correction never invalidates a successfully saved workout */ }
+    });
+  }
+
   // Only notify when a real comparison against real history says this was notable.
   if (notable) notify(req.session.userId, 'effort', notable.message, { workout_id: workout.id, effort_type: notable.type });
 
@@ -2119,14 +2206,14 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
   // A closed-device verse for every completed run, not just a live-tracked one
   // that happened to reach the 'finishing' biometric moment above -- a manual
   // entry or a short run that never sampled that far still deserves one.
+  let finishVerse = null;
   try {
-    const verseRow = db.prepare('SELECT book, chapter, verse, text FROM bible_verses ORDER BY RANDOM() LIMIT 1').get();
-    if (verseRow) {
-      const reference = `${verseRow.book} ${verseRow.chapter}:${verseRow.verse}`;
-      push.send(req.session.userId, 'daily_verse', {
+    finishVerse = workoutFinishVerse(req.session.userId, workout.id);
+    if (finishVerse) {
+      push.send(req.session.userId, 'workout_scripture', {
         title: 'After your run',
-        body: `${reference} — ${verseRow.text}`,
-        url: notificationDestination('verse', { reference }),
+        body: `${finishVerse.reference} — ${finishVerse.snippet}`,
+        url: notificationDestination('verse', { reference: finishVerse.reference }),
         tag: `workout-${workout.id}-finished`,
       }).catch(() => {});
     }
@@ -2184,6 +2271,7 @@ router.post('/workouts/:id/stop', requireAuth, (req, res) => {
       max_hr_formula: maxInfo ? maxInfo.formula || null : null,
     },
     encouragement,
+    finish_verse: finishVerse,
   });
 });
 
@@ -2313,14 +2401,14 @@ router.post('/workouts/manual', requireAuth, (req, res) => {
   }
 
   publish('workout.completed', { user_id: uid, workout_id: id, calories: cal, avg_hr: avg_hr || null });
+  let finishVerse = null;
   try {
-    const verseRow = db.prepare('SELECT book, chapter, verse, text FROM bible_verses ORDER BY RANDOM() LIMIT 1').get();
-    if (verseRow) {
-      const reference = `${verseRow.book} ${verseRow.chapter}:${verseRow.verse}`;
-      push.send(uid, 'daily_verse', {
+    finishVerse = workoutFinishVerse(uid, id);
+    if (finishVerse) {
+      push.send(uid, 'workout_scripture', {
         title: 'After your run',
-        body: `${reference} — ${verseRow.text}`,
-        url: notificationDestination('verse', { reference }),
+        body: `${finishVerse.reference} — ${finishVerse.snippet}`,
+        url: notificationDestination('verse', { reference: finishVerse.reference }),
         tag: `workout-${id}-finished`,
       }).catch(() => {});
     }
@@ -2348,6 +2436,7 @@ router.post('/workouts/manual', requireAuth, (req, res) => {
     effort_note: effortSummary
       ? effortLib.describeEffort(effortSummary, personalBests(uid, id))
       : null,
+    finish_verse: finishVerse,
   });
 });
 
@@ -2635,16 +2724,34 @@ async function matchedScriptureForPost(userId, content, workoutId, requestedId) 
   }
   const workout=workoutId?db.prepare('SELECT type FROM workouts WHERE id=? AND user_id=?').get(workoutId,userId):null;
   const activityTheme={Run:'endurance perseverance',Walk:'peace gratitude',Hike:'creation strength',Cycle:'endurance courage',Strength:'strength discipline',HIIT:'discipline perseverance',Yoga:'peace stillness',Swim:'renewal courage'};
-  const terms=`${activityTheme[workout?.type]||'faith encouragement'} ${String(content||'').replace(/[^A-Za-z\s]/g,' ').slice(0,180)}`;
+  // Personalization remains grounded in this member's own data: recent
+  // workout types, Scripture they saved, and questions they actually asked.
+  // These enrich the search terms; the returned text still comes exclusively
+  // from the verified local Bible library.
+  const recentWorkoutTypes=db.prepare(`SELECT type FROM workouts WHERE user_id=? AND type IS NOT NULL
+    ORDER BY COALESCE(end_time,created_at) DESC LIMIT 5`).all(userId).map(r=>r.type);
+  const savedSignal=db.prepare(`SELECT text FROM saved_verses WHERE user_id=? ORDER BY created_at DESC LIMIT 3`)
+    .all(userId).map(r=>r.text).join(' ').slice(0,240);
+  const questionSignal=db.prepare(`SELECT question FROM bible_answers_history WHERE user_id=? ORDER BY created_at DESC LIMIT 3`)
+    .all(userId).map(r=>r.question).join(' ').slice(0,180);
+  const memberSignals=`${recentWorkoutTypes.map(type=>activityTheme[type]||type).join(' ')} ${savedSignal} ${questionSignal}`;
+  const terms=`${activityTheme[workout?.type]||'faith encouragement'} ${String(content||'').replace(/[^A-Za-z\s]/g,' ').slice(0,180)} ${memberSignals}`;
   let candidates=bibleFtsSearch(terms).slice(0,8);
   if(!candidates.length) candidates=db.prepare('SELECT id,book,chapter,verse,text,translation FROM bible_verses ORDER BY RANDOM() LIMIT 8').all().map(mirrorVerse);
   if(!candidates.length) return null;
+  // Do not stamp consecutive posts with the same top-ranked verse. Prefer a
+  // fitting candidate the member has not received on any of their last 12
+  // posts; only recycle once the relevant candidate pool is exhausted.
+  const recentVerseIds=new Set(db.prepare(`SELECT verse_id FROM posts WHERE user_id=? AND verse_id IS NOT NULL
+    ORDER BY created_at DESC LIMIT 12`).all(userId).map(r=>r.verse_id));
+  const freshCandidates=candidates.filter(v=>!recentVerseIds.has(v.id));
+  if(freshCandidates.length) candidates=freshCandidates;
   let picked=candidates[0],source='verified_fallback',reason=`Matched to ${workout?.type||'the post'} using verified Bible text.`;
   if(gloo.isConfigured()) {
     try {
       const user=db.prepare('SELECT tradition FROM users WHERE id=?').get(userId)||{};
       const out=await gloo.chatJson({kind:'post_scripture_match',userId,tradition:gloo.normaliseTradition(user.tradition),cache:false,maxTokens:180,
-        messages:[{role:'user',content:`Choose exactly one candidate id for this Christian fitness/community post. Do not write or alter scripture. Return JSON {"id":"...","reason":"..."}. Post context: ${String(content||'').slice(0,300)}. Activity: ${workout?.type||'none'}. Candidates: ${JSON.stringify(candidates.map(v=>({id:v.id,reference:v.reference,text:v.text})))}`}]});
+        messages:[{role:'user',content:`Choose exactly one candidate id for this Christian fitness/community post. Do not write or alter scripture. Return JSON {"id":"...","reason":"..."}. Post context: ${String(content||'').slice(0,300)}. Current activity: ${workout?.type||'none'}. Recent member workout types: ${recentWorkoutTypes.join(', ')||'none'}. Candidates: ${JSON.stringify(candidates.map(v=>({id:v.id,reference:v.reference,text:v.text})))}`}]});
       const chosen=out?.json&&candidates.find(v=>v.id===out.json.id);
       if(chosen){picked=chosen;source='gloo_verified_candidates';reason=String(out.json.reason||reason).slice(0,240);}
     } catch { /* verified fallback remains */ }
@@ -2657,7 +2764,7 @@ router.post('/posts', requireAuth, requireCommunityAccess, async (req, res) => {
           video_data, video_category, show_route, route_privacy_m } = req.body || {};
   const uid = req.session.userId;
   if (video_data && !admin.featureEnabled('member_reels')) {
-    return res.status(503).json({ error: 'member_reels_paused', hint: 'Member Reel publishing is temporarily paused.' });
+    return res.status(503).json({ error: 'member_reels_paused', hint: 'Member Frame publishing is temporarily paused.' });
   }
   if(!allowWindow(postRateWindow,uid,6,60_000)) return res.status(429).json({error:'posting_too_fast'});
 
@@ -3945,7 +4052,8 @@ router.get('/workouts/:id/analysis', requireAuth, (req, res) => {
     .map(x=>({...x,pace_min_per_km:x.distance_km>.05?+((x.duration_sec/60)/x.distance_km).toFixed(2):null}));
   res.json({ workout_id:w.id, pace_min_per_km:pace, grade_adjusted_pace_min_per_km: null, power_watts: Number(metrics.power_watts||metrics.power||0)||null, top_speed_kmh:Number(metrics.max_speed_kmh||0)||null, relative_effort:Math.round(Number(w.effort_score)||Math.max(1,mins)), matched_efforts:matched, note:'Grade-adjusted pace requires reliable elevation grade samples; it is unavailable for this activity rather than estimated.',
     has_route: !!w.gps_path, gps_corrected_at: w.gps_corrected_at || null,
-    distance_km: km || null, elevation_gain_m: w.elevation_gain_m != null ? Number(w.elevation_gain_m) : null, elevation_loss_m: w.elevation_loss_m != null ? Number(w.elevation_loss_m) : null });
+    distance_km: km || null, elevation_gain_m: w.elevation_gain_m != null ? Number(w.elevation_gain_m) : null, elevation_loss_m: w.elevation_loss_m != null ? Number(w.elevation_loss_m) : null,
+    name: w.name || null, workout_note: w.note || null });
 });
 
 // A post-workout reflection is grounded in this activity's stored metrics. If
@@ -3987,9 +4095,23 @@ router.post('/workouts/:id/beacon', requireAuth, (req, res) => {
   const { recipient_id, latitude, longitude, accuracy_m }=req.body||{};
   if(!w || !recipient_id || !Number.isFinite(Number(latitude)) || !Number.isFinite(Number(longitude))) return res.status(400).json({error:'invalid_beacon'});
   if(!db.prepare('SELECT 1 FROM followers WHERE follower_id=? AND followee_id=?').get(recipient_id,req.session.userId)) return res.status(403).json({error:'recipient_not_connected'});
+  const wasLive = db.prepare('SELECT active FROM workout_beacons WHERE workout_id=? AND recipient_id=?').get(w.id, recipient_id)?.active;
   const expires=new Date(Date.now()+4*3600000).toISOString();
   db.prepare(`INSERT INTO workout_beacons (id,workout_id,owner_id,recipient_id,latitude,longitude,accuracy_m,expires_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(workout_id,recipient_id) DO UPDATE SET latitude=excluded.latitude,longitude=excluded.longitude,accuracy_m=excluded.accuracy_m,active=1,expires_at=excluded.expires_at,updated_at=datetime('now')`).run(randomUUID(),w.id,req.session.userId,recipient_id,Number(latitude),Number(longitude),Number(accuracy_m)||null,expires);
+  if (!wasLive) {
+    notify(recipient_id, 'safety_beacon', `${displayName(req.session.userId)} shared a live workout safety beacon with you. Open Profile > Safety to view it.`, {
+      actor_id: req.session.userId, url: '/?open=home', beacon_workout_id: w.id,
+    });
+  }
   res.json({ok:true,expires_at:expires});
+});
+
+router.delete('/workouts/:id/beacon', requireAuth, (req, res) => {
+  const w = db.prepare('SELECT id FROM workouts WHERE id=? AND user_id=?').get(req.params.id, req.session.userId);
+  if (!w) return res.status(404).json({ error: 'not_found' });
+  db.prepare('UPDATE workout_beacons SET active=0, updated_at=datetime(\'now\') WHERE workout_id=? AND owner_id=?')
+    .run(w.id, req.session.userId);
+  res.json({ ok: true });
 });
 
 router.get('/beacons', requireAuth, (req,res) => res.json({ beacons: db.prepare(`SELECT b.workout_id,b.latitude,b.longitude,b.accuracy_m,b.updated_at,u.display_name FROM workout_beacons b JOIN users u ON u.id=b.owner_id WHERE b.recipient_id=? AND b.active=1 AND b.expires_at>datetime('now')`).all(req.session.userId) }));
@@ -4351,12 +4473,17 @@ subscribe('workout.completed', (event) => {
     const message = composeForEvent(topic, event);
     db.prepare('INSERT INTO notifications (id, user_id, type, payload) VALUES (?, ?, ?, ?)')
       .run(randomUUID(), event.user_id, message.type, JSON.stringify(message));
-    const details = { ...message, ...(message.data && typeof message.data === 'object' ? message.data : {}) };
-    const destination = notificationDestination(message.type, details);
-    push.send(event.user_id, notificationPushCategory(message.type), {
-      title: message.title || 'Functioning Faith', body: message.body || message.message,
-      url: destination, tag: `${message.type}:${event.badge_id || event.quest_id || event.verse_id || 'notification'}`,
-    }).catch(() => {});
+    // Workout routes own their push cadence and category. The generic
+    // verse-trigger subscriber still creates the in-app notification, but
+    // sending here too produced two APNs alerts for the same start/moment.
+    if (topic !== 'verse.triggered') {
+      const details = { ...message, ...(message.data && typeof message.data === 'object' ? message.data : {}) };
+      const destination = notificationDestination(message.type, details);
+      push.send(event.user_id, notificationPushCategory(message.type), {
+        title: message.title || 'Functioning Faith', body: message.body || message.message,
+        url: destination, tag: `${message.type}:${event.badge_id || event.quest_id || event.verse_id || 'notification'}`,
+      }).catch(() => {});
+    }
   });
 });
 
@@ -5105,7 +5232,7 @@ async function refreshChurchVideos(church) {
 // church videos, and Gloo's grounded curation of those church candidates. Gloo
 // never invents a video ID here: it may only rank IDs we supplied.
 router.get('/reels', requireAuth, aiLimiter, async (req, res) => {
-  if (!admin.featureEnabled('reels')) return res.status(503).json({ error: 'reels_paused', hint: 'Reels are temporarily paused.' });
+  if (!admin.featureEnabled('reels')) return res.status(503).json({ error: 'reels_paused', hint: 'Frames are temporarily paused.' });
   const blocked = /\b(porn|sex|onlyfans|cannabis|marijuana|weed|alcohol|beer|wine|vodka|drug|steroid|anorexia|bulimia|purge|starvation|pro[- ]ana|laxative)\b/i;
   const library = db.prepare(`SELECT video_id, title, description, thumbnail_url, channel_title, published_at, category, provider, source_url, source_kind
     FROM (SELECT video_id,title,description,thumbnail_url,channel_title,published_at,category,
@@ -5580,6 +5707,57 @@ function lookupBibleReference(book, chapter, verse) {
     .get(book, chapter, verse);
   if (!row) return null;
   return mirrorVerse(row);
+}
+
+/**
+ * A verified completion verse that is different from every verse already
+ * shown in this workout and, when possible, from the member's recent workout
+ * scripture. Recording the selection as a trigger makes the rotation durable
+ * across sessions instead of choosing the first finishing verse every time.
+ */
+function workoutFinishVerse(userId, workoutId) {
+  const sessionRows = db.prepare(`SELECT sv.id, sv.reference
+      FROM scripture_triggers st JOIN scripture_verses sv ON sv.id = st.verse_id
+     WHERE st.workout_id = ?`).all(workoutId);
+  const sessionIDs = new Set(sessionRows.map(row => row.id));
+  const recentRefs = new Set(db.prepare(`SELECT sv.reference
+      FROM scripture_triggers st JOIN scripture_verses sv ON sv.id = st.verse_id
+     WHERE st.user_id = ? ORDER BY st.timestamp DESC LIMIT 40`).all(userId).map(row => row.reference));
+  const authored = moments.MOMENTS.finishing.refs;
+  const ordered = [
+    ...authored.filter(ref => !recentRefs.has(ref)),
+    ...authored.filter(ref => recentRefs.has(ref)),
+  ];
+
+  let selected = null;
+  for (const reference of ordered) {
+    const match = /^(.+?)\s+(\d+):(\d+)$/.exec(reference);
+    if (!match) continue;
+    const row = lookupBibleReference(match[1], Number(match[2]), Number(match[3]));
+    if (row && !sessionIDs.has(row.id)) { selected = row; break; }
+  }
+  if (!selected) {
+    const rows = db.prepare('SELECT id, book, chapter, verse, text, translation FROM bible_verses ORDER BY RANDOM() LIMIT 30').all();
+    const row = rows.find(candidate => !sessionIDs.has(candidate.id));
+    if (row) selected = mirrorVerse(row);
+  }
+  if (!selected) return null;
+
+  db.prepare(`INSERT INTO scripture_triggers
+      (id, user_id, verse_id, trigger_type, biometric_snapshot, workout_id, moment)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(randomUUID(), userId, selected.id, 'workout_finish', '{}', workoutId, 'finishing');
+  const payload = {
+    id: selected.id,
+    reference: selected.reference,
+    snippet: selected.text,
+    deep_link: selected.youversion_id ? `youversion://bible/verse/${selected.youversion_id}` : '',
+  };
+  publish('verse.triggered', {
+    user_id: userId, verse_id: selected.id, youversion_id: selected.youversion_id,
+    trigger_type: 'workout_finish', payload,
+  });
+  return payload;
 }
 
 function mirrorVerse(row) {
@@ -6252,7 +6430,7 @@ router.post('/push/native-unregister', requireAuth, (req, res) => {
 // Send one to yourself, so permission and delivery can be proven immediately
 // rather than by waiting until tomorrow morning.
 router.post('/push/test', requireAuth, async (req, res) => {
-  if (!push.isConfigured()) return res.status(503).json({ error: 'push_not_configured' });
+  if (!push.isConfigured() && !push.isNativeConfigured()) return res.status(503).json({ error: 'push_not_configured' });
   const r = await push.send(req.session.userId, 'daily_verse', {
     title: 'Functioning Faith',
     body: 'Notifications are working. Your morning verse will arrive here.',
@@ -6311,7 +6489,7 @@ router.delete('/reminders/:id', requireAuth, (req, res) => {
 
 // Send yourself today's morning verse now — the real thing, same code path.
 router.post('/push/daily-now', requireAuth, async (req, res) => {
-  if (!push.isConfigured()) return res.status(503).json({ error: 'push_not_configured' });
+  if (!push.isConfigured() && !push.isNativeConfigured()) return res.status(503).json({ error: 'push_not_configured' });
   const r = await daily.sendFor(req.session.userId);
   if (!r) return res.status(409).json({ error: 'nothing_to_send',
     hint: 'Subscribe to the daily verse category first, or you have had every verse in the pool recently.' });
@@ -6322,7 +6500,7 @@ router.post('/push/daily-now', requireAuth, async (req, res) => {
 // unauthenticated on purpose: the claim this app makes is that a model never
 // puts words in scripture's mouth, and a claim like that should be checkable
 // by anyone, not asserted in a README.
-router.get('/ai/status', (req, res) => {
+router.get('/ai/status', async (req, res) => {
   const s = gloo.stats(7);
   const cited = s.reduce((a, r) => a + (r.refs_cited || 0), 0);
   const verified = s.reduce((a, r) => a + (r.refs_verified || 0), 0);
@@ -6343,7 +6521,7 @@ router.get('/ai/status', (req, res) => {
       'A reply whose references cannot be resolved is dropped entirely; the app falls back to hand-authored scripture.',
       'Verse text always comes from the resolver, never from the model.',
     ],
-    last_7_days: { by_kind: s, refs_cited: cited, refs_verified: verified },
+    last_7_days: { by_kind: s, refs_cited: cited, refs_verified: verified, semantic_cache: await semanticCache.stats(7) },
   });
 });
 
@@ -6356,8 +6534,6 @@ router.get('/ai/status', (req, res) => {
 // is not written into the thread as a reflection. Nobody's thread fills up with
 // machine text, and nothing here is attributable to another member.
 router.post('/verses/:reference/ask', requireAuth, aiLimiter, async (req, res) => {
-  if (!gloo.isConfigured()) return res.status(503).json({ error: 'companion_unavailable' });
-
   const { row, error, hint } = await resolveVerseReferenceFull(req.params.reference);
   if (error) return res.status(400).json({ error, hint });
   const canonical = `${row.book} ${row.chapter}:${row.verse}`;
@@ -6365,6 +6541,15 @@ router.post('/verses/:reference/ask', requireAuth, aiLimiter, async (req, res) =
   const question = String((req.body && req.body.question) || '').trim();
   if (!question) return res.status(400).json({ error: 'empty_question' });
   if (question.length > 500) return res.status(400).json({ error: 'question_too_long' });
+
+  if (!gloo.isConfigured()) {
+    return res.json({
+      reference: canonical,
+      text: row.text,
+      answer: 'Read this verse in its immediate chapter context. Compare the verses before and after it, then bring any remaining question to a trusted pastor or study resource.',
+      also: [],
+    });
+  }
 
   const me = db.prepare('SELECT tradition, bible_version_id FROM users WHERE id = ?')
     .get(req.session.userId) || {};
@@ -6379,9 +6564,14 @@ router.post('/verses/:reference/ask', requireAuth, aiLimiter, async (req, res) =
   // Null covers every failure mode, including an answer that cited scripture
   // which does not exist. We say nothing rather than something unverified.
   if (!answer) {
-    return res.status(502).json({
-      error: 'no_verified_answer',
-      hint: 'That answer could not be fully verified against Scripture, so it was not shown. Please try asking again.',
+    // Never show unverified model text, but do not leave the member at a
+    // dead-end when the companion times out or cannot verify its response.
+    // `row` is already a verified Scripture-library passage.
+    return res.json({
+      reference: canonical,
+      text: row.text,
+      answer: 'Read this verse in its immediate chapter context. Compare the verses before and after it, then bring any remaining question to a trusted pastor or study resource.',
+      also: [],
     });
   }
   res.json(answer);
@@ -6392,11 +6582,25 @@ router.post('/verses/:reference/ask', requireAuth, aiLimiter, async (req, res) =
 // is answering questions like this, not just narrating one passage, hence
 // its own Explore surface rather than living inside a verse thread.
 router.post('/bible/ask', requireAuth, aiLimiter, async (req, res) => {
-  if (!gloo.isConfigured()) return res.status(503).json({ error: 'companion_unavailable' });
-
   const question = String((req.body && req.body.question) || '').trim();
   if (!question) return res.status(400).json({ error: 'empty_question' });
   if (question.length > 500) return res.status(400).json({ error: 'question_too_long' });
+
+  // The companion is an enhancement, not a reason to leave this screen
+  // broken. When it is unavailable, return one verified passage and an
+  // honest study prompt instead of a 503.
+  if (!gloo.isConfigured()) {
+    const term = (question.toLowerCase().match(/[a-z]{4,}/g) || ['love'])[0];
+    const verse = db.prepare('SELECT book, chapter, verse, text FROM bible_verses WHERE lower(text) LIKE ? LIMIT 1').get(`%${term}%`)
+      || db.prepare('SELECT book, chapter, verse, text FROM bible_verses ORDER BY RANDOM() LIMIT 1').get();
+    const also = verse ? [{ reference: `${verse.book} ${verse.chapter}:${verse.verse}`, text: verse.text }] : [];
+    const answer = verse
+      ? 'Here is a verified passage to begin exploring your question. Read it with the surrounding chapter; a fuller guided answer will return when the companion service is available.'
+      : 'Bible Answers is temporarily unavailable. Please try again shortly.';
+    db.prepare('INSERT INTO bible_answers_history (id, user_id, question, answer, also_json) VALUES (?, ?, ?, ?, ?)')
+      .run(randomUUID(), req.session.userId, question, answer, JSON.stringify(also));
+    return res.json({ question, answer, also });
+  }
 
   const me = db.prepare('SELECT tradition, bible_version_id FROM users WHERE id = ?')
     .get(req.session.userId) || {};
@@ -6408,10 +6612,18 @@ router.post('/bible/ask', requireAuth, aiLimiter, async (req, res) => {
     question,
   });
   if (!answer) {
-    return res.status(502).json({
-      error: 'no_verified_answer',
-      hint: 'That answer could not be fully verified against Scripture, so it was not shown. Please try asking again.',
-    });
+    // Keep Bible Answers useful if the configured companion is unavailable
+    // or its output cannot be verified against Scripture.
+    const term = (question.toLowerCase().match(/[a-z]{4,}/g) || ['love'])[0];
+    const verse = db.prepare('SELECT book, chapter, verse, text FROM bible_verses WHERE lower(text) LIKE ? LIMIT 1').get(`%${term}%`)
+      || db.prepare('SELECT book, chapter, verse, text FROM bible_verses ORDER BY RANDOM() LIMIT 1').get();
+    const also = verse ? [{ reference: `${verse.book} ${verse.chapter}:${verse.verse}`, text: verse.text }] : [];
+    const fallbackAnswer = verse
+      ? 'Here is a verified passage to begin exploring your question. Read it with the surrounding chapter; a fuller guided answer will return when the companion service is available.'
+      : 'Bible Answers is temporarily unavailable. Please try again shortly.';
+    db.prepare('INSERT INTO bible_answers_history (id, user_id, question, answer, also_json) VALUES (?, ?, ?, ?, ?)')
+      .run(randomUUID(), req.session.userId, question, fallbackAnswer, JSON.stringify(also));
+    return res.json({ question, answer: fallbackAnswer, also });
   }
 
   db.prepare('INSERT INTO bible_answers_history (id, user_id, question, answer, also_json) VALUES (?, ?, ?, ?, ?)')
@@ -7255,8 +7467,8 @@ router.post('/dms/:threadId/reel', requireAuth, (req, res) => {
       AND video_category IN ('workout','nature','animal','group') LIMIT 1`).get(videoId);
   if (!catalogItem && !ownedItem) return res.status(404).json({ error: 'reel_not_found' });
 
-  const title = catalogItem ? (catalogItem.title || 'A reel') : (ownedItem.content || 'A Functioning Faith Original');
-  const sent = dms.send(req.session.userId, req.params.threadId, `Shared a reel: ${title}`, {
+  const title = catalogItem ? (catalogItem.title || 'A Frame') : (ownedItem.content || 'A Functioning Faith Original');
+  const sent = dms.send(req.session.userId, req.params.threadId, `Shared a frame: ${title}`, {
     kind: 'reel',
     metadata: {
       video_id: videoId, title,
@@ -7266,7 +7478,7 @@ router.post('/dms/:threadId/reel', requireAuth, (req, res) => {
     replyToId: req.body && req.body.reply_to_id,
   });
   if (sent.error) return res.status(sent.error === 'blocked' ? 403 : 400).json(sent);
-  notify(sent.recipient_id, 'dm', `${displayName(req.session.userId)} shared a reel with you.`, { actor_id: req.session.userId, thread_id: req.params.threadId });
+  notify(sent.recipient_id, 'dm', `${displayName(req.session.userId)} shared a frame with you.`, { actor_id: req.session.userId, thread_id: req.params.threadId });
   res.status(201).json({ message: sent.message });
 });
 
@@ -7415,6 +7627,25 @@ router.delete('/dms/block/:userId', requireAuth, (req, res) => {
 // and an id belonging to somebody else is a 404 rather than a 403 so ids cannot
 // be probed.
 
+router.patch('/workouts/:id', requireAuth, (req, res) => {
+  const uid = req.session.userId;
+  const workout = db.prepare('SELECT id,type,duration_sec,distance_km FROM workouts WHERE id=? AND user_id=? AND end_time IS NOT NULL')
+    .get(req.params.id, uid);
+  if (!workout) return res.status(404).json({ error: 'not_found' });
+  const name = String((req.body || {}).name || '').trim().slice(0, 80);
+  const note = String((req.body || {}).description || '').trim().slice(0, 500);
+  db.prepare('UPDATE workouts SET name=?, note=? WHERE id=?').run(name || null, note || null, workout.id);
+
+  // Keep the workout's social post aligned with the member's edits. This
+  // updates only their post already linked to this exact workout.
+  const fallback = workout.distance_km
+    ? `Finished a ${Number(workout.distance_km).toFixed(2)} km ${String(workout.type || 'workout').toLowerCase()}.`
+    : `Finished a ${Math.round(Number(workout.duration_sec || 0) / 60)} minute ${String(workout.type || 'workout').toLowerCase()}.`;
+  const content = [name, note].filter(Boolean).join('\n\n') || fallback;
+  db.prepare('UPDATE posts SET content=? WHERE workout_id=? AND user_id=?').run(content, workout.id, uid);
+  res.json({ ok: true, id: workout.id, name: name || null, description: note || null });
+});
+
 router.get('/workouts', requireAuth, (req, res) => {
   const uid = req.session.userId;
   const limit = Math.min(Number(req.query.limit) || 30, 100);
@@ -7422,7 +7653,7 @@ router.get('/workouts', requireAuth, (req, res) => {
 
   const rows = db.prepare(`
     SELECT w.id, w.type, w.start_time, w.end_time, w.duration_sec, w.distance_km,
-           w.calories, w.avg_hr, w.max_hr, w.effort_score, w.peak_zone, w.note, w.source,
+           w.calories, w.avg_hr, w.max_hr, w.effort_score, w.peak_zone, w.note, w.name, w.source,
            CASE WHEN w.gps_path IS NOT NULL THEN 1 ELSE 0 END AS has_route,
            (SELECT p.id FROM posts p WHERE p.workout_id = w.id AND p.user_id = w.user_id LIMIT 1) AS post_id
     FROM workouts w

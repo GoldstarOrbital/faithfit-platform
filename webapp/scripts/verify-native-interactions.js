@@ -30,6 +30,14 @@ const postComposer = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', '
 const reelComposer = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'ReelComposerView.swift');
 const reelClient = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Networking', 'APIClient+MemberReels.swift');
 const notifications = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Networking', 'NotificationCoordinator.swift');
+const breathwork = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'BreathworkView.swift');
+const homeFeed = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'HomeFeedView.swift');
+const sharedComponents = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'SharedComponents.swift');
+const nativeApp = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'FunctioningFaithApp.swift');
+const bibleAnswers = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'BibleAnswersView.swift');
+const searchView = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'SearchView.swift');
+const dmConversation = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'DMConversationView.swift');
+const webApp = read('public', 'app.js');
 const media = read('lib', 'media.js');
 
 assert.match(client, /request\.timeoutInterval = timeoutInterval/, 'native requests need an explicit finite deadline');
@@ -68,7 +76,7 @@ assert.match(client, /func fetchPrivacySettings\(\)/, 'native app must load pers
 assert.match(client, /func setConsent\(scope: String, granted: Bool\)/, 'native app must persist biometric consent');
 assert.match(profile, /await APIClient\.shared\.fetchPrivacySettings\(\)/, 'profile must restore saved privacy choices');
 assert.match(workout, /guard biometricIngestEnabled, heartRate > 0, let workoutID/, 'biometric uploads must remain explicit opt-in');
-assert.match(workout, /Date\(\)\.timeIntervalSince\(lastBiometricUpload\) >= 60/, 'biometric uploads must be rate limited');
+assert.match(workout, /Date\(\)\.timeIntervalSince\((?:activeWorkout\.)?lastBiometricUpload\) >= 60/, 'biometric uploads must be rate limited');
 const appShell = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', 'AppShell.swift');
 const exploreShell = appShell.split('struct ExploreSectionShell')[1]?.split('\nstruct ')[0];
 assert.ok(exploreShell, 'Explore needs a dedicated section shell');
@@ -80,6 +88,9 @@ assert.match(liveActivity, /Activity<WorkoutLiveActivityAttributes>/, 'active wo
 assert.match(workout, /WorkoutLiveActivityManager\.shared\.start/, 'starting a workout must begin its Live Activity');
 assert.match(workout, /WorkoutLiveActivityManager\.shared\.end/, 'stopping a workout must dismiss its Live Activity');
 assert.match(tracker, /allowsBackgroundLocationUpdates = true/, 'live workouts must keep collecting location in the background');
+assert.match(tracker, /showsBackgroundLocationIndicator = false/, 'idle tracker must not display the system location indicator');
+assert.match(tracker, /guard isTracking else \{ return \}/, 'authorization changes must not start GPS outside an explicit workout');
+assert.match(tracker, /func stop\(\)[^]*isTracking = false[^]*stopUpdatingLocation\(\)[^]*showsBackgroundLocationIndicator = false/, 'finishing or pausing a workout must stop GPS and its indicator');
 assert.match(appInfo, /NSSupportsLiveActivities/, 'the app must declare Live Activity support');
 assert.match(appInfo, /UIBackgroundModes/, 'the app must declare its background location mode');
 assert.match(widgetProject, /FunctioningFaithWidgets:/, 'the generated project must include the Widget extension');
@@ -90,14 +101,54 @@ assert.match(reelComposer, /Choose an MP4 or MOV/, 'iPhone MOV files must be acc
 assert.match(reelComposer, /let mime = "video\/mp4"/, 'accepted camera videos must be exported to an iOS/web-playable MP4');
 assert.match(media, /const MAX_VIDEO_BYTES = 10 \* 1024 \* 1024/, 'the server must accommodate a short iPhone MOV');
 assert.match(reelComposer, /private static let maxBytes = 10 \* 1024 \* 1024/, 'the native reel picker must match the server upload cap');
-assert.match(reelComposer, /private func compressedVideoURL\(from sourceURL: URL\) async throws -> URL/, 'native Reel uploads must run through a client-side compression export');
+assert.match(reelComposer, /private func compressedVideoURL\(from sourceURL: URL, zoom: Double, position: Double\) async throws -> URL/, 'native Reel uploads must run through a client-side compression export');
 assert.match(reelComposer, /AVAssetExportPresetMediumQuality/, 'native Reel compression must use a practical mobile export preset');
 assert.match(reelComposer, /exportAsynchronously/, 'video compression must not block the SwiftUI interaction thread');
-assert.match(reelComposer, /uploadURL = try await compressedVideoURL\(from: url\)/, 'the uploaded Reel payload must come from the compressed output, not the camera original');
+assert.match(reelComposer, /uploadURL = try await compressedVideoURL\(from: (?:url|previewURL), zoom:/, 'the uploaded Reel payload must come from the compressed output, not the camera original');
 assert.match(workout, /struct PostWorkoutSummaryView/, 'stopping a workout must show a complete session recap');
 assert.match(workout, /Apple Health insight/, 'the recap must explain the actual available Apple Health data');
 assert.match(profile, /Heart-rate calm cue/, 'members need an explicit calm-cue preference');
-assert.match(workout, /Date\(\)\.timeIntervalSince\(lastHeartRateCalmCue\) >= 5 \* 60/, 'heart-rate calm cues must be rate limited');
+assert.match(workout, /Date\(\)\.timeIntervalSince\((?:activeWorkout\.)?lastHeartRateCalmCue\) >= 5 \* 60/, 'heart-rate calm cues must be rate limited');
 assert.match(notifications, /deliverHeartRateCalmCue/, 'the calm cue must reach the local-notification coordinator');
+assert.match(appShell, /overflowSections[^\n]*\.meditation/, 'Meditation must be reachable from the side panel');
+assert.match(appShell, /case \.reels: return "Frames"/, 'native short-form video must be branded Frames');
+assert.doesNotMatch(sharedComponents, /FFKeyboardDismissBridge|endEditing\(true\)/, 'window-level gestures must never steal SwiftUI field focus');
+assert.doesNotMatch(nativeApp, /FFKeyboardDismissBridge/, 'the app root must not install a keyboard-cancelling recognizer');
+assert.match(sharedComponents, /struct FFKeyboardEscapeModifier/, 'typing screens need a non-toolbar keyboard escape control');
+assert.match(sharedComponents, /func ffKeyboardReady\(\)/,
+  'modal typing screens need a presentation-local keyboard escape control');
+assert.match(nativeApp, /\.ffKeyboardEscape\(\)/, 'the keyboard escape control must be available throughout the app');
+assert.match(nativeApp, /\.scrollDismissesKeyboard\(\.interactively\)/, 'native scroll surfaces must dismiss the keyboard interactively');
+assert.doesNotMatch(appShell, /if keyboard\.isVisible\s*\{\s*content\s*\}\s*else/,
+  'keyboard opening must not replace the focused screen hierarchy');
+assert.match(appShell, /Color\.clear\.frame\(height: keyboard\.isVisible \? 0 : 104\)/,
+  'bottom-bar spacing must change without replacing focused content');
+assert.match(bibleAnswers, /keyboard\.coveredHeight/, 'Bible Answers must clear the measured keyboard frame');
+assert.match(searchView, /\.focused\(\$searchFocused\)/, 'Search must own explicit field focus');
+assert.match(dmConversation, /\.focused\(\$messageFocused\)/, 'DM composer must own explicit field focus');
+assert.match(dmInbox, /new-message-search-text-field/, 'new-message search must use an inline focusable field');
+for (const file of [
+  'BibleAnswersView.swift', 'CommentThreadView.swift', 'DMConversationView.swift',
+  'DMInboxView.swift', 'EditProfileView.swift', 'ExploreCatalog.swift',
+  'GroupDetailView.swift', 'PostComposerView.swift', 'ReelComposerView.swift',
+  'RemindersView.swift', 'SharePickerSheet.swift', 'StatsView.swift',
+  'StoryComposerView.swift', 'StoryViewerView.swift', 'WorkoutView.swift',
+]) {
+  const source = read('..', 'ios', 'FunctioningFaith', 'FunctioningFaith', 'Views', file);
+  assert.match(source, /\.ffKeyboardReady\(\)/,
+    `${file} contains a presented text-entry surface and must dismiss its own keyboard`);
+}
+assert.match(webApp, /function installKeyboardManager\(\)/, 'web editors need a shared mobile keyboard manager');
+assert.match(webApp, /done\.setAttribute\('aria-label', 'Hide keyboard'\)/, 'web editors need an accessible keyboard escape hatch');
+assert.match(webApp, /name: 'Frames'/, 'web short-form video must be branded Frames');
+assert.match(appShell, /struct MeditationSectionShell[^]*BreathworkView\(\)/, 'the side-panel Meditation destination must own breathwork');
+assert.doesNotMatch(appShell.split('struct TrainSectionShell')[1]?.split('\nstruct ')[0] || '', /id: "breathe"/, 'breathwork must no longer be buried in Train');
+assert.match(breathwork, /MeditationSoundscapePlayer[^]*AVAudioPlayerNode/, 'meditation needs offline ambient soundscapes');
+assert.match(breathwork, /scriptureBlock[^]*circleView/, 'guided meditation must lead with Scripture');
+const storiesPosition = homeFeed.indexOf('StoriesRail(isActive: isActive)');
+const missionPosition = homeFeed.indexOf('ScriptureInMotionCard()');
+const actionsPosition = homeFeed.indexOf('HomeActionsRow()');
+assert.ok(storiesPosition >= 0 && storiesPosition < missionPosition && missionPosition < actionsPosition,
+  'Moments must appear above Scripture in Motion and the route/Reels shortcuts');
 
 console.log(JSON.stringify({ native_action_contracts: true, timeout_boundary_seconds: 20, bluetooth_profiles: ['heart_rate', 'cycling_speed_cadence', 'cycling_power', 'fitness_machine'] }));

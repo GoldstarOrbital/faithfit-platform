@@ -50,6 +50,7 @@ private func configureReelAudioSession() {
 /// them. Native uploads are already returned with their compact data payload;
 /// catalogue items need only their thumbnail fetched ahead of the player.
 struct ReelsFeedView: View {
+    @EnvironmentObject private var session: NativeSession
     var isActive: Bool = true
 
     @State private var reels: [Reel] = []
@@ -80,36 +81,34 @@ struct ReelsFeedView: View {
     // depends entirely on that signal, so most scrolling never registered
     // and the same reels kept resurfacing on every open.
     @State private var impressedVideoIDs: Set<String> = []
+    /// The first two native clips are warmed while the member is still on the
+    /// current card. This stays deliberately memory-only and bounded: video
+    /// bytes are much larger than the disk-backed feed index and should not
+    /// survive sign-out or quietly consume storage.
+    @State private var preloadedVideoData: [String: String] = [:]
 
     private var visibleReels: [Reel] {
         showOriginalsOnly ? reels.filter { $0.provider == "functioning_faith" } : reels
     }
 
     var body: some View {
-        // The picker sits above the feed in its own strip rather than floating
-        // over the video. Overlaid, it covered the top of whatever was playing
-        // and read as part of the video instead of as the control that chooses
-        // which feed you are watching.
-        VStack(spacing: 0) {
-            if !reels.isEmpty { originalsToggle }
-            reelsBody
-        }
+        reelsBody
     }
 
     @ViewBuilder
     private var reelsBody: some View {
         Group {
             if isLoading && reels.isEmpty {
-                FFLoadingView(message: "Loading Reels…")
+                FFLoadingView(message: "Loading Frames…")
             } else if let errorMessage, reels.isEmpty {
                 FFErrorStateView(message: errorMessage, onRetry: { Task { await load() } })
             } else if reels.isEmpty {
-                FFEmptyStateView(title: "No Reels right now", systemImage: "play.rectangle", message: "Check back soon — or publish a short encouragement of your own.", actionTitle: "Create a Reel", action: { showComposer = true })
+                FFEmptyStateView(title: "No Frames right now", systemImage: "play.rectangle", message: "Check back soon — or publish a short encouragement of your own.", actionTitle: "Create a Frame", action: { showComposer = true })
             } else if visibleReels.isEmpty {
                 // The toggle is in the strip above now, so switching to
                 // Originals when there are none still leaves a way back to
                 // All Reels without leaving the tab.
-                FFEmptyStateView(title: "No Originals yet", systemImage: "play.rectangle", message: "Videos uploaded directly to Functioning Faith show up here.", actionTitle: "Create a Reel", action: { showComposer = true })
+                FFEmptyStateView(title: "No Originals yet", systemImage: "play.rectangle", message: "Videos uploaded directly to Functioning Faith show up here.", actionTitle: "Create a Frame", action: { showComposer = true })
             } else {
                 // A one-video-per-screen, edge-to-edge paged feed -- not a
                 // scrollable list of preview cards. Each page fills the
@@ -120,9 +119,11 @@ struct ReelsFeedView: View {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(visibleReels.enumerated()), id: \.element.id) { index, reel in
                             ReelPage(reel: reel, churchName: churchName,
+                                     prefetchedVideoData: preloadedVideoData[reel.videoID],
                                      isCurrent: currentReelID == reel.id,
                                      onPlay: { playingReel = reel },
                                      onLike: { react(reel, kind: "like") },
+                                     onDoubleTapLike: { if !reel.likedByMe { react(reel, kind: "like") } },
                                      onSave: { react(reel, kind: "save") },
                                      onComments: reel.provider == "functioning_faith" ? { openComments(for: reel) } : nil,
                                      onShare: { sharingReel = reel },
@@ -146,12 +147,25 @@ struct ReelsFeedView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarIfActive(isActive) {
             ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button { showOriginalsOnly = false } label: {
+                        Label("All Frames", systemImage: showOriginalsOnly ? "circle" : "checkmark")
+                    }
+                    Button { showOriginalsOnly = true } label: {
+                        Label("Functioning Faith Originals", systemImage: showOriginalsOnly ? "checkmark" : "circle")
+                    }
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                }
+                .accessibilityLabel(showOriginalsOnly ? "Showing Functioning Faith Originals" : "Showing all Frames")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showComposer = true
                 } label: {
                     Image(systemName: "plus")
                 }
-                .accessibilityLabel("Create a Reel")
+                .accessibilityLabel("Create a Frame")
             }
         }
         .task { await load() }
@@ -163,24 +177,9 @@ struct ReelsFeedView: View {
                 Task { await load() }
             }
         }
-        .alert("Could not load reels", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
+        .alert("Could not load Frames", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
-    }
-
-    private var originalsToggle: some View {
-        Picker("Feed", selection: $showOriginalsOnly.animation(.default)) {
-            Text("All Reels").tag(false)
-            Text("Functioning Faith Originals").tag(true)
-        }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, FFTheme.Space.md)
-        .padding(.top, FFTheme.Space.sm)
-        .padding(.bottom, FFTheme.Space.xs)
-        // Solid, not translucent: the 35% black was there to sit legibly on
-        // top of moving video. In its own strip it reads as part of the Reels
-        // surface, which is black.
-        .background(Color.black)
     }
 
     /// `forceRefresh` for a pull to refresh: the server marks reels
@@ -189,6 +188,16 @@ struct ReelsFeedView: View {
     private func load(forceRefresh: Bool = false) async {
         let generation = UUID()
         loadGeneration = generation
+        // Paint the previous feed synchronously first. The following request
+        // is a soft refresh, never a reason to make the member wait before
+        // starting their first swipe.
+        if reels.isEmpty, !forceRefresh, let userID = session.profile?.id,
+           let cached = ReelsCache.load(userID: userID) {
+            reels = cached.videos
+            churchName = cached.churchName
+            prefetch(after: -1)
+            warmNativeMedia(after: -1)
+        }
         isLoading = reels.isEmpty
         defer { if loadGeneration == generation { isLoading = false } }
         errorMessage = nil
@@ -197,8 +206,10 @@ struct ReelsFeedView: View {
             guard !Task.isCancelled, loadGeneration == generation else { return }
             reels = response.videos
             churchName = response.churchName
+            if let userID = session.profile?.id { ReelsCache.save(response, userID: userID) }
             impressedVideoIDs.removeAll()
             prefetch(after: -1)
+            warmNativeMedia(after: -1)
         } catch {
             guard !Task.isCancelled, loadGeneration == generation else { return }
             errorMessage = error.localizedDescription
@@ -254,6 +265,22 @@ struct ReelsFeedView: View {
         guard !urls.isEmpty else { return }
         Task { await ReelPrefetcher.shared.prefetch(urls) }
     }
+
+    private func warmNativeMedia(after index: Int) {
+        let candidates = reels.dropFirst(index + 1).filter {
+            $0.provider == "functioning_faith" && $0.videoData == nil && UUID(uuidString: $0.videoID) != nil
+        }.prefix(2)
+        guard !candidates.isEmpty else { return }
+        Task {
+            for reel in candidates {
+                guard let id = UUID(uuidString: reel.videoID), !Task.isCancelled else { return }
+                if let data = await ReelMediaPrefetcher.shared.videoData(for: id) {
+                    guard !Task.isCancelled else { return }
+                    preloadedVideoData[reel.videoID] = data
+                }
+            }
+        }
+    }
 }
 
 private actor ReelPrefetcher {
@@ -272,6 +299,31 @@ private actor ReelPrefetcher {
                 // still makes its normal request when the card becomes visible.
             }
         }
+    }
+}
+
+/// Bounded in-memory cache for only the next native clips. Fetching through
+/// the existing authenticated media endpoint preserves the same authorization
+/// and cancellation behavior as on-demand playback; the byte cap prevents a
+/// single long upload from turning navigation into an accidental download.
+private actor ReelMediaPrefetcher {
+    static let shared = ReelMediaPrefetcher()
+    private var values: [UUID: String] = [:]
+    private var order: [UUID] = []
+    private let maximumItems = 2
+    private let maximumEncodedBytes = 8 * 1024 * 1024
+
+    func videoData(for id: UUID) async -> String? {
+        if let value = values[id] { return value }
+        guard let value = try? await APIClient.shared.fetchPostMedia(id: id).videoData,
+              value.utf8.count <= maximumEncodedBytes else { return nil }
+        values[id] = value
+        order.removeAll { $0 == id }
+        order.append(id)
+        while order.count > maximumItems {
+            values.removeValue(forKey: order.removeFirst())
+        }
+        return value
     }
 }
 
@@ -302,9 +354,11 @@ private extension Reel {
 private struct ReelPage: View {
     let reel: Reel
     let churchName: String?
+    let prefetchedVideoData: String?
     let isCurrent: Bool
     let onPlay: () -> Void
     let onLike: () -> Void
+    let onDoubleTapLike: () -> Void
     let onSave: () -> Void
     let onComments: (() -> Void)?
     let onShare: () -> Void
@@ -345,8 +399,10 @@ private struct ReelPage: View {
     var body: some View {
         ZStack {
             Color.black
-            if isNativeInline, let dataURL = reel.videoData ?? loadedVideo {
+            if isNativeInline, let dataURL = reel.videoData ?? prefetchedVideoData ?? loadedVideo {
                 InlineReelPlayer(dataURL: dataURL, isActive: isCurrent)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2, perform: onDoubleTapLike)
             } else if isNativeInline && isCurrent {
                 if mediaError {
                     Button("Could not load video. Tap to retry") { mediaRetry += 1 }
@@ -354,12 +410,16 @@ private struct ReelPage: View {
                 } else { ProgressView("Preparing video…").tint(.white).foregroundStyle(.white) }
             } else if isYouTubeInline && isCurrent {
                 InlineYouTubeReelPlayer(videoID: reel.videoID)
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2, perform: onDoubleTapLike)
             } else if let thumb = reel.thumbnailURL, let url = URL(string: thumb) {
                 AsyncImage(url: url) { image in
                     image.resizable().scaledToFill()
                 } placeholder: {
                     Color.white.opacity(0.08)
                 }
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2, perform: onDoubleTapLike)
             } else {
                 LinearGradient(colors: [FFTheme.walnut0, FFTheme.walnut], startPoint: .top, endPoint: .bottom)
             }
@@ -384,19 +444,9 @@ private struct ReelPage: View {
                         // Category/source badges, matching the webapp's own
                         // .reel-meta row exactly -- same audience/source
                         // labels, same green-pill-plus-bordered-pill shape.
-                        HStack(spacing: 6) {
-                            Text(audienceLabel.uppercased())
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 8).padding(.vertical, 3)
-                                .background(FFTheme.meadow.opacity(0.85), in: Capsule())
-                            Text(sourceLabel)
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.9))
-                                .padding(.horizontal, 7).padding(.vertical, 3)
-                                .background(.black.opacity(0.38), in: Capsule())
-                                .overlay(Capsule().stroke(.white.opacity(0.2), lineWidth: 1))
-                        }
+                        Text("\(audienceLabel) · \(sourceLabel)")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.78))
                         Text(reel.title ?? "Untitled")
                             .font(.subheadline.weight(.bold))
                             .lineLimit(2)
@@ -428,13 +478,24 @@ private struct ReelPage: View {
 
                     VStack(spacing: 9) {
                         actionButton(systemImage: reel.likedByMe ? "heart.fill" : "heart", label: "\(reel.likeCount)", tint: reel.likedByMe ? FFTheme.seal : .white, action: onLike)
-                        actionButton(systemImage: reel.savedByMe ? "bookmark.fill" : "bookmark", label: "\(reel.saveCount)", tint: reel.savedByMe ? FFTheme.goldBright : .white, action: onSave)
                         if let onComments {
                             actionButton(systemImage: "bubble.left.fill", label: "Reply", tint: .white, action: onComments)
                         }
                         actionButton(systemImage: "paperplane.fill", label: "Share", tint: .white, action: onShare)
-                        actionButton(systemImage: "hand.thumbsdown", label: "Not for me", tint: .white.opacity(0.85), action: onNotInterested)
-                            .accessibilityLabel("Not interested")
+                        Menu {
+                            Button(action: onSave) {
+                                Label(reel.savedByMe ? "Remove from saved" : "Save Frame", systemImage: reel.savedByMe ? "bookmark.slash" : "bookmark")
+                            }
+                            Button(role: .destructive, action: onNotInterested) {
+                                Label("Not interested", systemImage: "hand.thumbsdown")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .font(.title3.weight(.bold)).foregroundStyle(.white)
+                                .frame(width: 44, height: 44)
+                                .background(.black.opacity(0.28), in: Circle())
+                        }
+                        .accessibilityLabel("More Frame actions")
                     }
                 }
                 .padding(.horizontal, FFTheme.Space.md)
@@ -452,7 +513,7 @@ private struct ReelPage: View {
         }
         .clipped()
         .task(id: "\(isCurrent)-\(mediaRetry)") {
-            guard isCurrent, isNativeInline, reel.videoData == nil, loadedVideo == nil,
+            guard isCurrent, isNativeInline, reel.videoData == nil, prefetchedVideoData == nil, loadedVideo == nil,
                   let id = UUID(uuidString: reel.videoID) else { return }
             mediaError = false
             do {
@@ -478,9 +539,8 @@ private struct ReelPage: View {
             }
             .foregroundStyle(tint)
             .frame(minWidth: 44, minHeight: 44)
-            .padding(.horizontal, 6).padding(.vertical, 4)
-            .background(.black.opacity(0.42), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 15, style: .continuous).stroke(.white.opacity(0.2), lineWidth: 1))
+            .padding(.horizontal, 2).padding(.vertical, 2)
+            .shadow(color: .black.opacity(0.65), radius: 4, y: 1)
         }
     }
 }

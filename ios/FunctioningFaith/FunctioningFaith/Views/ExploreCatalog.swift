@@ -30,6 +30,13 @@ enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
 
     var id: String { rawValue }
 
+    /// Breathwork has a dedicated Meditation section in the side panel.
+    /// Keep the enum case for saved/deep-linked destinations, but do not
+    /// duplicate it in Explore's Faith catalog.
+    static func visibleItems(in category: Category) -> [ExploreCatalogItem] {
+        allCases.filter { $0.category == category && $0 != .breathe }
+    }
+
     var category: Category {
         switch self {
         case .scripture, .bibleBrowse, .scripturePractice, .savedVerses, .bibleAnswers, .breathe, .heartCheckIn:
@@ -55,7 +62,7 @@ enum ExploreCatalogItem: String, CaseIterable, Identifiable, Hashable {
         case .groups: return "Groups"
         case .leaderboard: return "Leaderboard"
         case .recruiting: return "Recruiting"
-        case .reels: return "Reels"
+        case .reels: return "Frames"
         case .videos: return "Videos"
         case .podcasts: return "Podcasts"
         case .motivation: return "Motivation"
@@ -202,7 +209,7 @@ struct ExploreCatalogGrid: View {
     }
 
     private func categorySection(_ category: ExploreCatalogItem.Category) -> some View {
-        let items = ExploreCatalogItem.allCases.filter { $0.category == category }
+        let items = ExploreCatalogItem.visibleItems(in: category)
         return VStack(alignment: .leading, spacing: FFTheme.Space.xs) {
             if categories.count > 1 {
                 Text(category.rawValue)
@@ -515,6 +522,7 @@ private struct CreateGroupView: View {
         .navigationTitle("Create group")
         .toolbar { ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } } }
         .alert("Could not create group", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) { Button("OK", role: .cancel) {} } message: { Text(errorMessage ?? "") }
+        .ffKeyboardReady()
     }
 
     private func create() async {

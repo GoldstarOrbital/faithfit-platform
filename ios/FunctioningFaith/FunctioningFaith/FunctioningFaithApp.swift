@@ -66,6 +66,7 @@ struct FunctioningFaithApp: App {
                         session.requiresAccountSetup = requiresAccountSetup
                         if isNewAccount && !requiresAccountSetup { pendingOnboardingUserID = profile.id.uuidString }
                         MissionCache.warmFromDisk(userID: profile.id)
+                        _ = StoriesCache.load(userID: profile.id)
                         Task {
                             if let fetched = try? await APIClient.shared.fetchScriptureMission() {
                                 MissionCache.save(fetched, userID: profile.id)
@@ -78,6 +79,8 @@ struct FunctioningFaithApp: App {
             .environmentObject(biometricLock)
             .environmentObject(network)
             .environmentObject(deepLinks)
+            .scrollDismissesKeyboard(.interactively)
+            .ffKeyboardEscape()
             // Every branded surface is parchment. Respecting a system dark
             // text palette on that fixed light surface produces white-on-white
             // labels, so keep the native app's readable light palette until a

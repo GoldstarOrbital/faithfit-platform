@@ -54,8 +54,16 @@ final class DMStore: ObservableObject {
             }
             loadError = nil
         } catch {
-            loadError = error.localizedDescription
+            // A background refresh must never turn a populated inbox into a
+            // blocking "could not load" alert. Keep the conversations the
+            // member can already see and reserve the error state for a true
+            // empty first load.
+            loadError = threads.isEmpty ? error.localizedDescription : nil
         }
+    }
+
+    func clearLoadError() {
+        loadError = nil
     }
 
     /// Opens (or reopens) the conversation with someone and returns its

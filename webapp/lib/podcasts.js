@@ -8,6 +8,7 @@
 // real, currently-running independent Christian podcasts.
 const { randomUUID } = require('crypto');
 const db = require('./db');
+const push = require('./push');
 
 const FEEDS = [
   { title: 'The Bible Recap', host: 'Tara-Leigh Cobble', theme: 'devotion',
@@ -129,6 +130,8 @@ async function fetchFeed(url) {
 // Resilient: a failing feed is logged and skipped, never crashes the caller.
 async function refreshEpisodes({ maxAgeMin = 360 } = {}) {
   ensurePodcasts();
+  const hadEpisodes = db.prepare('SELECT COUNT(*) AS count FROM podcast_episodes').get().count > 0;
+  const known = db.prepare('SELECT 1 FROM podcast_episodes WHERE podcast_id = ? AND guid = ?');
   const rows = db.prepare('SELECT id, title, feed_url, last_fetched FROM podcasts WHERE feed_url IS NOT NULL').all();
   const upsert = db.prepare(`
     INSERT INTO podcast_episodes (id, podcast_id, guid, title, description, audio_url, link, duration_sec, published_at)
@@ -139,12 +142,17 @@ async function refreshEpisodes({ maxAgeMin = 360 } = {}) {
   `);
   const now = Date.now();
   let updated = 0;
+  const fresh = [];
   for (const p of rows) {
     if (maxAgeMin > 0 && p.last_fetched && (now - new Date(p.last_fetched).getTime()) < maxAgeMin * 60000) continue;
     try {
       const xml = await fetchFeed(p.feed_url);
       const episodes = parseFeed(xml);
-      for (const e of episodes) upsert.run({ id: randomUUID(), podcast_id: p.id, ...e });
+      for (const e of episodes) {
+        const isNew = !known.get(p.id, e.guid);
+        upsert.run({ id: randomUUID(), podcast_id: p.id, ...e });
+        if (isNew) fresh.push({ show: p.title, ...e });
+      }
       db.prepare('UPDATE podcasts SET last_fetched = ? WHERE id = ?').run(new Date().toISOString(), p.id);
       updated += episodes.length;
       console.log(`[podcasts] ${p.title}: ${episodes.length} episodes`);
@@ -152,7 +160,16 @@ async function refreshEpisodes({ maxAgeMin = 360 } = {}) {
       console.error(`[podcasts] failed to refresh ${p.title}: ${err.message}`);
     }
   }
-  return { updated };
+  if (hadEpisodes && fresh.length) {
+    const newest = fresh.sort((a, b) => String(b.published_at || '').localeCompare(String(a.published_at || '')))[0];
+    await push.broadcast('podcasts', {
+      title: newest.show,
+      body: newest.title,
+      url: '/?open=podcasts',
+      tag: `podcast:${newest.guid}`,
+    });
+  }
+  return { updated, new_episodes: fresh.length };
 }
 
 // Kick off a background refresh at startup and on an interval, without blocking

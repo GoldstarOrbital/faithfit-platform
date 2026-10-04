@@ -1,9 +1,22 @@
 node_modules/
 .env
+# Local Stripe Projects state can include provider session metadata. Railway
+# variables and database credentials are managed remotely and must never land
+# in this repository.
+.projects/
 *.log
 .DS_Store
 webapp/data/*.db
 webapp/data/*.db-*
+# Local editor scratch exports can contain fixture accounts and password hashes.
+webapp/UsersalexgAppDataLocal/
+
+# Local Xcode generation and archive output. Signing assets must remain local.
+ios/FunctioningFaith/FunctioningFaith.xcodeproj/
+ios/FunctioningFaith/build/
+*.mobileprovision
+*.p12
+*.cer
 
 # Rendered marketing video and frame exports (~359MB). Build outputs, not
 # source — the scripts that produce them live in tools/ and are tracked.

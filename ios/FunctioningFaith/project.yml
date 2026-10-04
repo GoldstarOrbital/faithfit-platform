@@ -18,8 +18,6 @@ targets:
         excludes:
           - Resources/Info.plist
           - Resources/FunctioningFaith.entitlements
-    entitlements:
-      path: FunctioningFaith/Resources/FunctioningFaith.entitlements
     dependencies:
       - target: FunctioningFaithWidgets
         embed: true
@@ -56,7 +54,7 @@ targets:
         "INFOPLIST_KEY_UISupportedInterfaceOrientations~ipad": UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight
         TARGETED_DEVICE_FAMILY: "1,2"
         MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1"
+        CURRENT_PROJECT_VERSION: "1790026757"
         SWIFT_OPTIMIZATION_LEVEL: "-Onone"
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
       configs:
@@ -64,6 +62,9 @@ targets:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
         Release:
           SWIFT_OPTIMIZATION_LEVEL: "-O"
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          PROVISIONING_PROFILE_SPECIFIER: "Functioning Faith App Store"
   FunctioningFaithWidgets:
     type: app-extension
     platform: iOS
@@ -71,6 +72,7 @@ targets:
       - path: FunctioningFaithWidgets
         excludes:
           - Info.plist
+          - FunctioningFaithWidgets.entitlements
       - path: FunctioningFaith/Shared
     settings:
       base:
@@ -80,8 +82,14 @@ targets:
         INFOPLIST_FILE: FunctioningFaithWidgets/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         PRODUCT_MODULE_NAME: FunctioningFaithWidgets
+        CODE_SIGN_ENTITLEMENTS: FunctioningFaithWidgets/FunctioningFaithWidgets.entitlements
         MARKETING_VERSION: "1.0.0"
-        CURRENT_PROJECT_VERSION: "1"
+        CURRENT_PROJECT_VERSION: "1790026757"
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+          PROVISIONING_PROFILE_SPECIFIER: "Functioning Faith Live Activity App Store"
   FunctioningFaithTests:
     type: bundle.unit-test
     platform: iOS
@@ -93,6 +101,10 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.functioningfaith.app.tests
         PRODUCT_MODULE_NAME: FunctioningFaithTests
+        # Unit-test bundles still need an Info.plist when Xcode signs them for
+        # an iOS Simulator destination. Generate it so CI and local launch
+        # checks run without a manually maintained test plist.
+        GENERATE_INFOPLIST_FILE: YES
 
 schemes:
   FunctioningFaith:

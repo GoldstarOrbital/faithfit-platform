@@ -127,6 +127,11 @@ app.use((req, res, next) => {
   res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' https://www.youtube.com https://www.youtube-nocookie.com https://challenges.cloudflare.com https://unpkg.com; style-src 'self' 'unsafe-inline' https://unpkg.com; img-src 'self' data: https:; media-src 'self' data: https:; frame-src https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com https://challenges.cloudflare.com; connect-src 'self' https://*.googleapis.com https://api.gloo.us https://api.scripture.api.bible; object-src 'none'; base-uri 'self'; form-action 'self' https://accounts.google.com https://appleid.apple.com; frame-ancestors 'self'");
   next();
 });
+// Reject an API flood before parsing a potentially large JSON payload. The
+// route-specific guards below still enforce member and AI budgets, but this
+// first boundary prevents unauthenticated clients from consuming memory and
+// CPU just by repeatedly sending bodies that would later be rejected.
+app.use('/api', rateLimit({ windowMs: 5 * 60 * 1000, max: 600, keyPrefix: 'api', message: 'Too many requests. Please slow down and try again shortly.' }));
 // Photos are resized in the browser before being sent as a data URL. Keep the
 // parser above the 1MB image cap so valid photo posts reach the route.
 // Photos stay tiny, but a verified short MP4/WebM can be up to 4MB. The media
@@ -154,13 +159,6 @@ app.use('/api', (req, res, next) => {
     : 'no-store');
   next();
 });
-// A blanket flood guard ahead of every API route. Generous enough that no
-// real member session comes close -- even a busy Home load is a couple
-// dozen calls -- strict enough that a scripted flood or a runaway retry
-// loop can no longer run up Railway compute or the paid APIs behind /api
-// unchecked. Auth and AI-cost routes layer stricter, purpose-built limits
-// of their own on top of this (see routes/api.js).
-app.use('/api', rateLimit({ windowMs: 5 * 60 * 1000, max: 600, keyPrefix: 'api', message: 'Too many requests. Please slow down and try again shortly.' }));
 app.use('/api', apiRoutes);
 // Versioned and separate from /api, because this one is a public contract:
 // /api may change with the app, /v1 may not. Third-party callers are exactly

@@ -35,7 +35,7 @@ struct IntroDemoView: View {
                 IntroFeatureSlide(
                     eyebrow: "Community",
                     headline: "Grow with others —\nalone or with your church",
-                    subcopy: "Follow friends, join a church group, and share encouragement through Reels built for the walk of faith."
+                    subcopy: "Follow friends, join a church group, and share encouragement through Frames built for the walk of faith."
                 ) { IntroCommunityShot() }.tag(4)
                 IntroFeatureSlide(
                     eyebrow: "Wearables",
@@ -445,7 +445,7 @@ private struct IntroScriptureShot: View {
 private struct IntroCommunityShot: View {
     var body: some View {
         VStack(spacing: 12) {
-            AppShotCard(title: "Reels") {
+            AppShotCard(title: "Frames") {
                 VStack(alignment: .leading, spacing: 9) {
                     ZStack(alignment: .topLeading) {
                         LinearGradient(colors: [FFTheme.meadow2, FFTheme.meadowDeep], startPoint: .topLeading, endPoint: .bottomTrailing)

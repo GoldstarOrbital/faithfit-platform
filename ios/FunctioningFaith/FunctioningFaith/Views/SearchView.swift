@@ -12,41 +12,92 @@ struct SearchView: View {
     @State private var isSearching = false
     @State private var errorMessage: String?
     @State private var searchTask: Task<Void, Never>?
+    @State private var searchGeneration = UUID()
+    @State private var selectedPersonID: UUID?
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
-        // .searchable() must NOT be applied inside a conditional branch --
-        // that was the actual bug, not placement or content type. It was
-        // previously wrapped in `if isActive { content.searchable(...) }
-        // else { content }`, on the theory that it's UIKit-bridged chrome
-        // like .toolbar and needed the same isActive gate (see
-        // AppShell.swift's ffRootBrand(isActive:)). But .toolbar's bug came
-        // from NINE simultaneously-mounted roots each installing their own
-        // competing toolbar; SearchView is the only always-mounted section
-        // root that calls .searchable() at all, so there's no competing
-        // installation for it to guard against in the first place -- and
-        // nesting the modifier inside one arm of an if/else is a known
-        // SwiftUI failure mode that keeps it from ever registering with the
-        // navigation bar, which is exactly why it rendered no field at all
-        // regardless of isActive or placement. AthleteSearchView applies
-        // .searchable() unconditionally on the same kind of conditional
-        // (ProgressView / ContentUnavailableView / List) content and works
-        // reliably -- this now matches that proven pattern exactly.
-        content
-            .searchable(text: $query, prompt: "People, groups, journeys, scripture…")
+        // Keep the field in the screen instead of relying on navigation-bar
+        // search chrome. This root stays mounted with the other tab roots,
+        // where UIKit's `.searchable` attachment can be lost.
+        VStack(spacing: 0) {
+            searchField
+            content
+        }
+            .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Search")
+            .navigationDestination(item: $selectedPersonID) { userID in
+                MemberProfileView(userID: userID)
+            }
             .onChange(of: query) { _, newValue in
                 searchTask?.cancel()
+                let generation = UUID()
+                searchGeneration = generation
                 let trimmed = newValue.trimmingCharacters(in: .whitespaces)
-                guard trimmed.count >= 2 else { results = nil; return }
+                guard trimmed.count >= 2 else { results = nil; isSearching = false; return }
                 searchTask = Task {
                     try? await Task.sleep(nanoseconds: 300_000_000) // debounce -- matches the web's own search-as-you-type pacing
                     guard !Task.isCancelled else { return }
-                    await runSearch(trimmed)
+                    await runSearch(trimmed, generation: generation)
                 }
+            }
+            .onChange(of: isActive) { _, active in
+                if !active { searchFocused = false }
             }
             .alert("Search failed", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
                 Button("OK", role: .cancel) { errorMessage = nil }
             } message: { Text(errorMessage ?? "") }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: FFTheme.Space.sm) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(FFTheme.inkSoft)
+            TextField("People, groups, journeys, scripture…", text: $query)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .focused($searchFocused)
+                .submitLabel(.search)
+                .onSubmit { searchImmediately() }
+                .accessibilityIdentifier("home-search-text-field")
+            if searchFocused {
+                Button {
+                    searchFocused = false
+                } label: {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                        .foregroundStyle(FFTheme.inkSoft)
+                }
+                .accessibilityLabel("Hide keyboard")
+            }
+            if !query.isEmpty {
+                Button {
+                    query = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(FFTheme.inkSoft)
+                }
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, FFTheme.Space.md)
+        .padding(.vertical, FFTheme.Space.sm)
+        .background(FFTheme.parchment2, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(FFTheme.hairline, lineWidth: 1)
+        }
+        .padding(.horizontal, FFTheme.Space.lg)
+        .padding(.vertical, FFTheme.Space.sm)
+        .accessibilityIdentifier("home-search-field")
+    }
+
+    private func searchImmediately() {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard trimmed.count >= 2 else { return }
+        searchTask?.cancel()
+        let generation = UUID()
+        searchGeneration = generation
+        searchTask = Task { await runSearch(trimmed, generation: generation) }
     }
 
     @ViewBuilder
@@ -75,12 +126,14 @@ struct SearchView: View {
     @ViewBuilder
     private func resultRow(_ item: SearchResultItem, groupType: String) -> some View {
         if groupType == "people", let uuid = UUID(uuidString: item.id) {
-            NavigationLink(value: SearchPersonDestination(id: uuid, name: item.title)) {
+            Button {
+                selectedPersonID = uuid
+            } label: {
                 resultLabel(item, systemImage: "person.crop.circle")
             }
-            .navigationDestination(for: SearchPersonDestination.self) { person in
-                MemberProfileView(userID: person.id)
-            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .accessibilityHint("Opens \(item.title)'s profile, where you can follow or message them")
         } else if groupType == "scripture", let ref = Self.parseScriptureReference(item.id) {
             NavigationLink {
                 BiblePassageView(book: ref.book, chapter: ref.chapter, highlightVerse: ref.verse)
@@ -114,7 +167,9 @@ struct SearchView: View {
                     Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
             }
+            Spacer(minLength: 0)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func icon(for groupType: String) -> String {
@@ -130,17 +185,18 @@ struct SearchView: View {
         }
     }
 
-    private func runSearch(_ q: String) async {
+    private func runSearch(_ q: String, generation: UUID) async {
         isSearching = true
-        do { results = try await APIClient.shared.search(q) }
-        catch { errorMessage = error.localizedDescription }
-        isSearching = false
+        defer { if searchGeneration == generation { isSearching = false } }
+        do {
+            let response = try await APIClient.shared.search(q)
+            guard !Task.isCancelled, searchGeneration == generation else { return }
+            results = response
+        } catch {
+            guard !Task.isCancelled, searchGeneration == generation else { return }
+            errorMessage = error.localizedDescription
+        }
     }
-}
-
-private struct SearchPersonDestination: Hashable {
-    let id: UUID
-    let name: String
 }
 
 #Preview {

@@ -534,6 +534,7 @@ private struct GoalComposerView: View {
         .alert("Could not save", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
             Button("OK", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
+        .ffKeyboardReady()
     }
 
     private func save() async {

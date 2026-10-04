@@ -88,6 +88,7 @@ struct CommentThreadView: View {
         } message: {
             Text(errorMessage ?? "Please try again.")
         }
+        .ffKeyboardReady()
     }
 
     private func load() async {

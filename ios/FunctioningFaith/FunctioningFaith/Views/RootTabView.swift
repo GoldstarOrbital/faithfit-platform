@@ -1,4 +1,5 @@
 import SwiftUI
+import WidgetKit
 
 /// The app's root shell. See AppShell.swift for the design: a persistent
 /// global bottom bar (Home, Reels, Scripture, Messages, Search) plus a
@@ -12,8 +13,12 @@ struct RootTabView: View {
     @EnvironmentObject private var network: NetworkMonitor
     @EnvironmentObject private var deepLinks: DeepLinkRouter
     @StateObject private var dmStore = DMStore()
+    @ObservedObject private var activeWorkout = ActiveWorkoutSession.shared
+    @ObservedObject private var keyboard = FFKeyboardState.shared
     @State private var showSidePanel = false
     @State private var showAskAI = false
+    @State private var homeScrollToTopRequest = 0
+    @State private var establishedInitialTab = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,11 +28,29 @@ struct RootTabView: View {
                 ZStack(alignment: .bottom) {
                     currentSection
                     if isGlobalBarActive {
-                        FeatureBottomBar(items: globalBarItems, selection: globalBarSelection)
+                        FeatureBottomBar(
+                            items: globalBarItems,
+                            selection: globalBarSelection,
+                            onReselect: { title in
+                                if title == AppTab.home.title { homeScrollToTopRequest &+= 1 }
+                            }
+                        )
                     }
-                    askAIButton
+                    if deepLinks.selectedTab != .reels {
+                        askAIButton
+                            .opacity(keyboard.isVisible ? 0 : 1)
+                            .allowsHitTesting(!keyboard.isVisible)
+                            .accessibilityHidden(keyboard.isVisible)
+                    }
                 }
                 .environmentObject(dmStore)
+
+                if activeWorkout.isActive {
+                    activeWorkoutIndicator
+                        .padding(.leading, FFTheme.Space.md)
+                        .padding(.top, FFTheme.Space.sm)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
 
                 if showSidePanel {
                     Color.black.opacity(0.25)
@@ -50,6 +73,12 @@ struct RootTabView: View {
             }
         }
         .task {
+            // A fresh signed-in shell always starts at Home. A real incoming
+            // deep link remains authoritative and is never overwritten.
+            if !establishedInitialTab {
+                establishedInitialTab = true
+                if deepLinks.pending == nil { deepLinks.selectedTab = .home }
+            }
             if let id = session.profile?.id {
                 await dmStore.configure(myUserID: id)
                 await dmStore.loadInbox()
@@ -59,7 +88,7 @@ struct RootTabView: View {
             // ask about notifications, and never before it (see
             // NotificationCoordinator.requestPermissionIfAnyCategoryAtDefault).
             await NotificationCoordinator.shared.requestPermissionIfAnyCategoryAtDefault()
-            // Warm Scripture in Motion (+ For You feed disk cache) before the
+            // Warm Scripture in Motion, For You, and Reels before the
             // member opens Home, so the SIM card paints from MissionCache on
             // the first frame instead of a ProgressView.
             await warmHomeLaunchCaches()
@@ -83,13 +112,20 @@ struct RootTabView: View {
     // visibility" trick TabView itself uses under the hood.
     private var currentSection: some View {
         ZStack {
-            section(.home) { HomeSectionShell(onTapLogo: openPanel, isActive: $0) }
+            section(.home) {
+                HomeSectionShell(
+                    onTapLogo: openPanel,
+                    isActive: $0,
+                    scrollToTopRequest: homeScrollToTopRequest
+                )
+            }
             section(.reels) { ReelsSectionShell(onTapLogo: openPanel, isActive: $0) }
             section(.scripture) { ScriptureSectionShell(onTapLogo: openPanel, isActive: $0) }
             section(.messages) { MessagesSectionShell(onTapLogo: openPanel, isActive: $0) }
             section(.search) { SearchSectionShell(onTapLogo: openPanel, isActive: $0) }
             section(.workouts) { TrainSectionShell(onTapLogo: openPanel, isActive: $0) }
             section(.explore) { ExploreSectionShell(onTapLogo: openPanel, isActive: $0) }
+            section(.meditation) { MeditationSectionShell(onTapLogo: openPanel, isActive: $0) }
             section(.profile) { ProfileSectionShell(onTapLogo: openPanel, isActive: $0) }
             section(.settings) { SettingsSectionShell(onTapLogo: openPanel, isActive: $0) }
         }
@@ -191,19 +227,48 @@ struct RootTabView: View {
     private func warmHomeLaunchCaches() async {
         guard let userID = session.profile?.id else { return }
         _ = MissionCache.load(userID: userID)
+        _ = StoriesCache.load(userID: userID)
         async let warmedMission = try? await APIClient.shared.fetchScriptureMission()
         async let warmedFeed = try? await APIClient.shared.fetchForYouFeed()
-        let (mission, posts) = await (warmedMission, warmedFeed)
+        async let warmedReels = try? await APIClient.shared.fetchReels()
+        async let warmedStories = try? await APIClient.shared.fetchStories()
+        let (mission, posts, reels, stories) = await (warmedMission, warmedFeed, warmedReels, warmedStories)
         if let mission {
             MissionCache.save(mission, userID: userID)
+            WidgetScriptureStore.save(reference: mission.reference, text: mission.text, context: "Your daily mission")
+            WidgetCenter.shared.reloadTimelines(ofKind: "FunctioningFaithScripture")
         }
         if let posts {
+            await MemberAvatarCache.shared.prefetch(posts.prefix(20).compactMap { post in
+                post.authorID.map { (id: $0, hasAvatar: post.authorHasAvatar) }
+            })
             FeedCache.save(posts, userID: userID, mode: HomeFeedMode.forYou.rawValue)
         }
+        if let reels { ReelsCache.save(reels, userID: userID) }
+        if let stories { StoriesCache.save(stories, userID: userID) }
     }
 
     private func openPanel() {
         withAnimation(.easeInOut(duration: 0.2)) { showSidePanel = true }
+    }
+
+    private var activeWorkoutIndicator: some View {
+        Button {
+            deepLinks.selectedTab = .workouts
+        } label: {
+            Label(
+                activeWorkout.isPaused ? "Workout paused" : "Recording workout",
+                systemImage: activeWorkout.isPaused ? "pause.circle.fill" : "location.fill"
+            )
+            .font(.caption.weight(.bold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .frame(minHeight: 36)
+            .background(Color.blue, in: Capsule())
+            .shadow(color: .black.opacity(0.18), radius: 5, y: 2)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Returns to the active workout")
     }
 }
 
@@ -220,7 +285,8 @@ extension View {
     /// screen so the brand mark opens the side panel from anywhere inside
     /// that section, not just its landing screen.
     func ffRootBrand(onTapLogo: @escaping () -> Void) -> some View {
-        toolbar {
+        navigationBarTitleDisplayMode(.inline)
+        .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button(action: onTapLogo) {
                     Image("BrandMark")
@@ -241,6 +307,12 @@ extension View {
                 .accessibilityHint("Shows Train, Explore, and Profile")
             }
         }
+        // Keyboard accessories belong to the screen that owns the focused
+        // field (Bible Answers and DMs install their own Done controls).
+        // Installing one beside this shared navigation-bar toolbar caused
+        // SwiftUI to rebuild both bars as the keyboard dismissed, leaving
+        // the navigation header and bottom chrome at the keyboard's size.
+        .scrollDismissesKeyboard(.interactively)
     }
 
     /// Same fix as ffRootBrand(isActive:), for any OTHER screen's own

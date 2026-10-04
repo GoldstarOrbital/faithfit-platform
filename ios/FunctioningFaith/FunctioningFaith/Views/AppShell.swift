@@ -31,16 +31,17 @@ extension AppTab: Identifiable {
     /// way the bar itself does. Settings is deliberately last: it's
     /// account-level, not a "section" the way Train/Explore/Profile are, so
     /// it sits at the bottom of the list on its own.
-    static let overflowSections: [AppTab] = [.home, .workouts, .explore, .profile, .settings]
+    static let overflowSections: [AppTab] = [.home, .workouts, .explore, .meditation, .profile, .settings]
 
     var title: String {
         switch self {
         case .home: return "Home"
         case .workouts: return "Train"
         case .explore: return "Explore"
+        case .meditation: return "Meditation"
         case .messages: return "Messages"
         case .profile: return "Profile"
-        case .reels: return "Reels"
+        case .reels: return "Frames"
         case .scripture: return "Scripture"
         case .search: return "Search"
         case .settings: return "Settings"
@@ -52,6 +53,7 @@ extension AppTab: Identifiable {
         case .home: return "house.fill"
         case .workouts: return "figure.run"
         case .explore: return "safari.fill"
+        case .meditation: return "sparkles"
         case .messages: return "bubble.left.and.bubble.right.fill"
         case .profile: return "person.crop.circle.fill"
         case .reels: return "rectangle.stack.fill"
@@ -101,12 +103,16 @@ struct SidePanelView: View {
             ZStack {
                 FFTheme.parchment0.ignoresSafeArea()
                 GeometryReader { geometry in
-                    ZStack(alignment: .top) {
-                        RoundedRectangle(cornerRadius: 9).frame(width: 30, height: 300)
-                        RoundedRectangle(cornerRadius: 9).frame(width: 170, height: 30).offset(y: 76)
-                    }
-                    .foregroundStyle(FFTheme.meadow.opacity(0.09))
-                    .position(x: geometry.size.width * 0.6, y: geometry.size.height * 0.68)
+                    // A restrained antique-gold cross echoes the app's
+                    // parchment, meadow, walnut, and brass palette while
+                    // remaining behind the panel's navigation controls.
+                    Image("SidePanelGoldCross")
+                        .resizable()
+                        .scaledToFit()
+                        .opacity(0.14)
+                        .frame(width: 210, height: 336)
+                        .rotationEffect(.degrees(-5))
+                        .position(x: geometry.size.width * 0.66, y: geometry.size.height * 0.67)
                 }
                 .allowsHitTesting(false).accessibilityHidden(true)
             }
@@ -157,13 +163,19 @@ struct FeatureBottomBarItem: Identifiable, Equatable {
 struct FeatureBottomBar: View {
     let items: [FeatureBottomBarItem]
     @Binding var selection: String
+    var onReselect: ((String) -> Void)? = nil
+    @ObservedObject private var keyboard = FFKeyboardState.shared
 
     var body: some View {
         HStack(spacing: 0) {
             ForEach(items) { item in
                 let isSelected = item.id == selection
                 Button {
-                    selection = item.id
+                    if isSelected {
+                        onReselect?(item.id)
+                    } else {
+                        selection = item.id
+                    }
                 } label: {
                     VStack(spacing: 3) {
                         ZStack(alignment: .topTrailing) {
@@ -185,7 +197,21 @@ struct FeatureBottomBar: View {
         }
         .padding(.top, FFTheme.Space.xs)
         .padding(.bottom, FFTheme.Space.xxs)
-        .background(FFTheme.walnut.ignoresSafeArea(edges: .bottom))
+        .background {
+            if keyboard.isVisible {
+                // The hidden bar must stop extending through the keyboard's
+                // safe area or sibling composers are laid out underneath it.
+                FFTheme.walnut
+            } else {
+                FFTheme.walnut.ignoresSafeArea(edges: .bottom)
+            }
+        }
+        // Never conditionally remove this subtree when the keyboard starts
+        // opening. Doing so rebuilt its sibling screen at the exact moment a
+        // TextField became first responder, which immediately cancelled focus.
+        .opacity(keyboard.isVisible ? 0 : 1)
+        .allowsHitTesting(!keyboard.isVisible)
+        .accessibilityHidden(keyboard.isVisible)
     }
 }
 
@@ -197,16 +223,27 @@ extension View {
     /// a Form) needs this to know to leave room at the bottom instead of
     /// letting its last rows land behind the bar.
     ///
-    /// 140pt, not 60: the floating "Ask Bible Answers" button (see
+    /// 104pt clears the floating "Ask Bible Answers" button (see
     /// RootTabView's askAIButton) floats globally above whichever bar is
     /// showing, on every screen -- 60pt only cleared the bar itself, which
     /// is how a "Follow" button on Explore's People-for-you list ended up
     /// partially covered by the AI button once it stopped being scoped to
-    /// just the Home tab. The AI button is a RootTabView-level overlay, not
-    /// something each screen can see, so the fix has to be "always leave
-    /// enough room for it" rather than something screen-specific.
+    /// just the Home tab. The previous 140pt inset left 36pt of visible dead
+    /// space after the button was reduced to the 44pt iOS tap target.
     func reserveFeatureBottomBar() -> some View {
-        safeAreaInset(edge: .bottom) { Color.clear.frame(height: 140) }
+        modifier(FeatureBottomBarReservation())
+    }
+}
+
+private struct FeatureBottomBarReservation: ViewModifier {
+    @ObservedObject private var keyboard = FFKeyboardState.shared
+
+    func body(content: Content) -> some View {
+        // Keep the modifier hierarchy stable while focus changes. The old
+        // if/else replaced the entire focused screen on keyboardWillShow.
+        content.safeAreaInset(edge: .bottom, spacing: 0) {
+            Color.clear.frame(height: keyboard.isVisible ? 0 : 104)
+        }
     }
 }
 
@@ -221,6 +258,7 @@ extension View {
 struct HomeSectionShell: View {
     let onTapLogo: () -> Void
     let isActive: Bool
+    let scrollToTopRequest: Int
     // Every section shell keeps its own NavigationPath so it can be popped
     // to root the moment the section stops being the visible one -- see
     // this shell struct's own .onChange(of: isActive) below for why: a
@@ -233,10 +271,11 @@ struct HomeSectionShell: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            HomeFeedView(isActive: isActive)
+            HomeFeedView(isActive: isActive, scrollToTopRequest: scrollToTopRequest)
                 .reserveFeatureBottomBar()
                 .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
         }
+        .onChange(of: scrollToTopRequest) { _, _ in path = NavigationPath() }
         .onChange(of: isActive) { _, active in if !active { path = NavigationPath() } }
     }
 }
@@ -298,7 +337,23 @@ struct SearchSectionShell: View {
     }
 }
 
-/// Train's five real sub-areas -- these used to be three toolbar icons plus
+/// Meditation lives in the left panel so breathwork has a calm, dedicated
+/// home instead of being buried inside workout tracking.
+struct MeditationSectionShell: View {
+    let onTapLogo: () -> Void
+    let isActive: Bool
+    @State private var path = NavigationPath()
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            BreathworkView()
+                .ffRootBrand(isActive: isActive, onTapLogo: onTapLogo)
+        }
+        .onChange(of: isActive) { _, active in if !active { path = NavigationPath() } }
+    }
+}
+
+/// Train's real sub-areas -- these used to be three toolbar icons plus
 /// an inline "See all" link on top of WorkoutView's own logging screen;
 /// now they're peers instead of being nested inside it.
 struct TrainSectionShell: View {
@@ -315,7 +370,6 @@ struct TrainSectionShell: View {
         FeatureBottomBarItem(id: "log", title: "Log", systemImage: "figure.run"),
         FeatureBottomBarItem(id: "history", title: "History", systemImage: "clock.arrow.circlepath"),
         FeatureBottomBarItem(id: "stats", title: "Stats", systemImage: "chart.bar.fill"),
-        FeatureBottomBarItem(id: "breathe", title: "Breathe", systemImage: "wind"),
         FeatureBottomBarItem(id: "heart", title: "Heart", systemImage: "heart.text.square.fill"),
     ]
 
@@ -327,7 +381,6 @@ struct TrainSectionShell: View {
                     case "log": WorkoutView()
                     case "history": WorkoutHistoryView()
                     case "stats": StatsView()
-                    case "breathe": BreathworkView()
                     default: HeartCheckInView()
                     }
                 }
@@ -379,6 +432,7 @@ struct ExploreSectionShell: View {
     @State private var subTab = "community"
     @State private var deepLinkGroup: ExploreGroup?
     @State private var deepLinkAthlete: DeepLinkAthleteRef?
+    @State private var deepLinkCatalogItem: ExploreCatalogItem?
     // See HomeSectionShell's path property for why every shell resets its
     // own navigation stack on deactivation.
     @State private var path = NavigationPath()
@@ -413,18 +467,31 @@ struct ExploreSectionShell: View {
             .navigationDestination(item: $deepLinkAthlete) { ref in
                 AthleteProfileDetailView(userID: ref.id, displayName: "")
             }
+            .navigationDestination(item: $deepLinkCatalogItem) { item in
+                item.destination
+            }
         }
         .task { openPendingDeepLinkGroupIfNeeded() }
         .task { openPendingDeepLinkAthleteIfNeeded() }
+        .task { openPendingExploreItemIfNeeded() }
         .onChange(of: deepLinks.openGroupID) { _, _ in openPendingDeepLinkGroupIfNeeded() }
         .onChange(of: deepLinks.openAthleteID) { _, _ in openPendingDeepLinkAthleteIfNeeded() }
+        .onChange(of: deepLinks.openExploreItem) { _, _ in openPendingExploreItemIfNeeded() }
         .onChange(of: isActive) { _, active in
             if !active {
                 path = NavigationPath()
                 deepLinkGroup = nil
                 deepLinkAthlete = nil
+                deepLinkCatalogItem = nil
             }
         }
+    }
+
+    private func openPendingExploreItemIfNeeded() {
+        guard let item = deepLinks.openExploreItem else { return }
+        subTab = "discover"
+        deepLinkCatalogItem = item
+        deepLinks.openExploreItem = nil
     }
 
     // functioningfaith://athlete/<id> (or /user/, /users/) used to just

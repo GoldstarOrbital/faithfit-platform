@@ -285,6 +285,24 @@ final class APIClient {
         return .authenticated(try await fetchSessionState())
     }
 
+    /// Always returns the same success response for an unknown address and a
+    /// real account. That preserves account privacy while giving a locked-out
+    /// member a reliable recovery path from the native sign-in screen.
+    func requestPasswordReset(email: String) async throws {
+        if useMock { return }
+        let _: AuthResponse = try await request(
+            "/api/auth/recovery/request", method: "POST", body: PasswordRecoveryRequest(email: email)
+        )
+    }
+
+    func changePassword(currentPassword: String, newPassword: String) async throws {
+        if useMock { return }
+        let _: AuthResponse = try await request(
+            "/api/security/password/change", method: "POST",
+            body: PasswordChangeRequest(currentPassword: currentPassword, newPassword: newPassword)
+        )
+    }
+
     func completeMfa(code: String) async throws -> NativeSessionState {
         if useMock { return NativeSessionState(profile: MockData.profile, accountSetupRequired: false) }
         let _: AuthResponse = try await request("/api/auth/mfa/complete", method: "POST", body: MfaBody(code: code))
@@ -331,18 +349,26 @@ final class APIClient {
     func startWorkout(type: String) async throws -> WorkoutSummary {
         if useMock { return MockData.activeWorkout(type: type) }
         let response: WorkoutStartResponse = try await request("/api/workouts/start", method: "POST", body: WorkoutStart(type: type))
-        return WorkoutSummary(id: response.id, type: type, startTime: .now, endTime: nil, calories: nil, avgHR: nil)
+        let verse = response.startVerse.map {
+            VerseSnippet(
+                id: $0.deepLink ?? $0.reference,
+                reference: $0.reference,
+                snippet: $0.snippet ?? $0.text ?? "",
+                deepLink: $0.deepLink ?? ""
+            )
+        }
+        return WorkoutSummary(id: response.id, type: type, startTime: .now, endTime: nil, calories: nil, avgHR: nil, startVerse: verse)
     }
 
-    func stopWorkout(id: UUID, gpsPoints: [[Double]], gpsDistanceKm: Double, sportMetrics: [String: Double] = [:]) async throws -> WorkoutCompletion {
+    func stopWorkout(id: UUID, gpsPoints: [[Double]], gpsDistanceKm: Double, activeDurationSec: Int, sportMetrics: [String: Double] = [:]) async throws -> WorkoutCompletion {
         if useMock {
-            return WorkoutCompletion(id: id, calories: TrainingMath.estimatedKcal(elapsed: 0, km: gpsDistanceKm), avgHR: nil, maxHR: nil, distanceKm: gpsDistanceKm, durationSec: 0, encouragement: nil, effort: nil)
+            return WorkoutCompletion(id: id, calories: TrainingMath.estimatedKcal(elapsed: 0, km: gpsDistanceKm), avgHR: nil, maxHR: nil, distanceKm: gpsDistanceKm, durationSec: 0, encouragement: nil, effort: nil, finishVerse: nil)
         }
         // UUID.uuidString is uppercase on Apple platforms. Workout IDs are
         // generated and stored by Node as lowercase strings, and SQLite's `=`
         // comparison is case-sensitive. Keep the wire ID canonical so stopping
         // the exact workout we started cannot become a false 404.
-        return try await request("/api/workouts/\(id.uuidString.lowercased())/stop", method: "POST", body: WorkoutStop(gpsPoints: gpsPoints, gpsDistanceKm: gpsDistanceKm, sportMetrics: sportMetrics))
+        return try await request("/api/workouts/\(id.uuidString.lowercased())/stop", method: "POST", body: WorkoutStop(gpsPoints: gpsPoints, gpsDistanceKm: gpsDistanceKm, activeDurationSec: activeDurationSec, sportMetrics: sportMetrics))
     }
 
     func fetchActivityTypes() async throws -> [ActivityTypeItem] {
@@ -356,7 +382,7 @@ final class APIClient {
 
     func logManualWorkout(type: String, durationMin: Double, distanceKm: Double?, note: String?) async throws -> ManualWorkoutResult {
         if useMock {
-            return ManualWorkoutResult(id: UUID().uuidString, type: type, calories: TrainingMath.estimatedKcal(elapsed: durationMin * 60, km: distanceKm ?? 0), distanceKm: distanceKm, durationSec: Int(durationMin * 60))
+            return ManualWorkoutResult(id: UUID().uuidString, type: type, calories: TrainingMath.estimatedKcal(elapsed: durationMin * 60, km: distanceKm ?? 0), distanceKm: distanceKm, durationSec: Int(durationMin * 60), finishVerse: nil)
         }
         return try await request("/api/workouts/manual", method: "POST", body: ManualWorkoutBody(
             type: type,
@@ -369,7 +395,7 @@ final class APIClient {
     func fetchWorkouts(limit: Int = 20) async throws -> [LoggedWorkout] {
         if useMock {
             return [
-                LoggedWorkout(id: "mock-1", type: "Run", startTime: ISO8601DateFormatter().string(from: .now.addingTimeInterval(-3600)), endTime: ISO8601DateFormatter().string(from: .now), durationSec: 1800, distanceKm: 5.0, calories: 300, note: nil, source: "live", paceMinPerKm: 6.0),
+                LoggedWorkout(id: "mock-1", type: "Run", startTime: ISO8601DateFormatter().string(from: .now.addingTimeInterval(-3600)), endTime: ISO8601DateFormatter().string(from: .now), durationSec: 1800, distanceKm: 5.0, calories: 300, note: nil, source: "live", paceMinPerKm: 6.0, name: nil),
             ]
         }
         let page: WorkoutLogPage = try await request("/api/workouts?limit=\(limit)")
@@ -402,6 +428,11 @@ final class APIClient {
         return try await request("/api/workouts/\(id)/gps-correction", method: "POST")
     }
 
+    func updateWorkout(id: String, name: String, description: String) async throws {
+        if useMock { return }
+        let _: WorkoutEditResponse = try await request("/api/workouts/\(id)", method: "PATCH", body: WorkoutEditBody(name: name, description: description))
+    }
+
     func fetchAthleteIntelligence() async throws -> AthleteTrainingIntelligence {
         if useMock { return AthleteTrainingIntelligence(trainingLog: [], fitness: AthleteFitness(ctl: 0, atl: 0, form: 0, label: "Balanced", disclaimer: "Training guidance only."), bestEfforts: [:], racePrediction: nil) }
         return try await request("/api/training/intelligence")
@@ -426,6 +457,17 @@ final class APIClient {
     func updateWorkoutBeacon(id: UUID, recipientID: UUID, latitude: Double, longitude: Double, accuracyM: Double?) async throws -> BeaconResult {
         if useMock { return BeaconResult(ok: true, expiresAt: ISO8601DateFormatter().string(from: .now.addingTimeInterval(14_400))) }
         return try await request("/api/workouts/\(id.uuidString.lowercased())/beacon", method: "POST", body: WorkoutBeaconBody(recipientID: recipientID.uuidString.lowercased(), latitude: latitude, longitude: longitude, accuracyM: accuracyM))
+    }
+
+    func stopWorkoutBeacon(id: UUID) async throws {
+        if useMock { return }
+        let _: ActionResponse = try await request("/api/workouts/\(id.uuidString.lowercased())/beacon", method: "DELETE")
+    }
+
+    func fetchActiveBeacons() async throws -> [ActiveBeacon] {
+        if useMock { return [] }
+        let response: ActiveBeaconsResponse = try await request("/api/beacons", forceRefresh: true)
+        return response.beacons
     }
 
     func fetchHeatmap(community: Bool = false) async throws -> WorkoutHeatmap {
@@ -1536,7 +1578,9 @@ final class APIClient {
         }
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
-        if http.statusCode == 401 {
+        let details = try? decoder.decode(APIErrorResponse.self, from: data)
+        if http.statusCode == 401,
+           ["session_expired", "session_inactive", "not_signed_in"].contains(details?.error) {
             // Every caller used to just get this thrown at it individually --
             // no single one of them is in a position to know the session
             // itself is gone, so a real expiry showed up as several
@@ -1547,7 +1591,6 @@ final class APIClient {
             throw APIError.notSignedIn
         }
         guard (200..<300).contains(http.statusCode) else {
-            let details = try? decoder.decode(APIErrorResponse.self, from: data)
             let message = details?.hint ?? details?.error?.replacingOccurrences(of: "_", with: " ").capitalized
             throw APIError.requestFailed(http.statusCode, message)
         }
@@ -1693,6 +1736,15 @@ private struct ReflectionBody: Encodable {
 }
 private struct APIErrorResponse: Decodable { let error: String?; let hint: String? }
 private struct Credentials: Encodable { let email: String; let password: String }
+private struct PasswordRecoveryRequest: Encodable { let email: String }
+private struct PasswordChangeRequest: Encodable {
+    let currentPassword: String
+    let newPassword: String
+    enum CodingKeys: String, CodingKey {
+        case currentPassword = "current_password"
+        case newPassword = "new_password"
+    }
+}
 private struct MfaBody: Encodable { let code: String }
 private struct NativeOAuthExchangeBody: Encodable {
     let code: String
@@ -1721,6 +1773,8 @@ private struct SaveRouteBody: Encodable {
     let path: [[Double]]
     enum CodingKeys: String, CodingKey { case name, path; case activityType = "activity_type" }
 }
+private struct WorkoutEditBody: Encodable { let name: String; let description: String }
+private struct WorkoutEditResponse: Decodable { let ok: Bool }
 private struct ManualWorkoutBody: Encodable {
     let type: String
     let durationMin: Double
@@ -1736,10 +1790,12 @@ private struct GroupPulseBody: Encodable { let kind: String; let note: String; l
 private struct WorkoutStop: Encodable {
     let gpsPoints: [[Double]]
     let gpsDistanceKm: Double
+    let activeDurationSec: Int
     let sportMetrics: [String: Double]
     enum CodingKeys: String, CodingKey {
         case gpsPoints = "gps_path"
         case gpsDistanceKm = "gps_distance_km"
+        case activeDurationSec = "active_duration_sec"
         case sportMetrics = "sport_metrics"
     }
 
@@ -1772,7 +1828,24 @@ private struct NativeAppleAuthResponse: Decodable {
         case mfaRequired = "mfa_required"
     }
 }
-private struct WorkoutStartResponse: Decodable { let id: UUID }
+private struct WorkoutStartResponse: Decodable {
+    struct VersePayload: Decodable {
+        let reference: String
+        let snippet: String?
+        let text: String?
+        let deepLink: String?
+        enum CodingKeys: String, CodingKey {
+            case reference, snippet, text
+            case deepLink = "deep_link"
+        }
+    }
+    let id: UUID
+    let startVerse: VersePayload?
+    enum CodingKeys: String, CodingKey {
+        case id
+        case startVerse = "start_verse"
+    }
+}
 
 // MARK: - DM wire types (field names match lib/dms.js's real response shapes exactly)
 

@@ -4,6 +4,11 @@ import UIKit
 #endif
 
 struct ProfileView: View {
+    enum Content: Equatable { case profile, settings }
+    let content: Content
+
+    init(content: Content = .profile) { self.content = content }
+
     @EnvironmentObject private var session: NativeSession
     @EnvironmentObject private var biometricLock: BiometricLock
     @StateObject private var healthKit = HealthKitManager.shared
@@ -13,6 +18,8 @@ struct ProfileView: View {
     @AppStorage("notifications.scripture") private var scriptureNotifications = true
     @AppStorage("notifications.community") private var communityNotifications = true
     @AppStorage("notifications.reminders") private var reminderNotifications = true
+    @AppStorage("notifications.podcasts") private var podcastNotifications = false
+    @AppStorage("notifications.news") private var newsNotifications = false
     @State private var profile: UserProfile?
     @AppStorage("privacy.biometricIngest") private var biometricConsent = false
     @AppStorage("privacy.scripturePersonalization") private var scripturePersonalization = false
@@ -45,23 +52,27 @@ struct ProfileView: View {
 
     var body: some View {
         Form {
-            if let profile {
-                statsSection(profile)
-                badgesSection(profile)
-                myPostsSection(profile)
+            if content == .profile {
+                if let profile {
+                    statsSection(profile)
+                    badgesSection(profile)
+                    myPostsSection(profile)
+                }
+                safetySection
+            } else {
+                healthKitSection
+                connectorsSection
+                privacySection
+                signInSecuritySection
+                appearanceSection
+                unitsSection
+                notificationsSection
+                remindersSection
+                accountManagementSection
             }
-            healthKitSection
-            connectorsSection
-            privacySection
-            safetySection
-            signInSecuritySection
-            appearanceSection
-            unitsSection
-            notificationsSection
-            remindersSection
         }
         .ffListChrome()
-        .navigationTitle("Profile")
+        .navigationTitle(content == .profile ? "Profile" : "Settings")
         .navigationDestination(isPresented: $showChristianPlaylists) {
             MusicPlaylistsView()
         }
@@ -76,19 +87,26 @@ struct ProfileView: View {
             // and seed the verse-hour picker from the same fetch.
             if let units = profile?.unitsSystem { unitsSystemRaw = units }
             dailyVerseHour = profile?.dailyVerseHour
-            if let userID = profile?.id,
-               let dataURL = try? await APIClient.shared.fetchAvatarData(userID: userID) {
-                avatarImage = ImageUpload.decode(dataURL)
-            }
-            pendingFollowRequests = (try? await APIClient.shared.fetchFollowRequests().count) ?? 0
-            stravaConfigured = (try? await APIClient.shared.isStravaConfigured()) ?? false
-            spotifyConfigured = (try? await APIClient.shared.isSpotifyConfigured()) ?? false
-            await loadConnections()
-            badgeCatalog = (try? await APIClient.shared.fetchBadgeCatalog()) ?? []
-            if let saved = try? await APIClient.shared.fetchPrivacySettings() { privacySettings = saved }
-            if let consent = try? await APIClient.shared.fetchConsentStatus() {
-                biometricConsent = consent.scopes.contains("biometric_ingest")
-                scripturePersonalization = consent.scopes.contains("scripture_personalization")
+            if content == .profile {
+                if let userID = profile?.id,
+                   let dataURL = try? await APIClient.shared.fetchAvatarData(userID: userID) {
+                    avatarImage = ImageUpload.decode(dataURL)
+                }
+                pendingFollowRequests = (try? await APIClient.shared.fetchFollowRequests().count) ?? 0
+                badgeCatalog = (try? await APIClient.shared.fetchBadgeCatalog()) ?? []
+            } else {
+                async let strava = try? APIClient.shared.isStravaConfigured()
+                async let spotify = try? APIClient.shared.isSpotifyConfigured()
+                async let connectionRequest = try? APIClient.shared.fetchConnections()
+                let (hasStrava, hasSpotify, loadedConnections) = await (strava, spotify, connectionRequest)
+                stravaConfigured = hasStrava ?? false
+                spotifyConfigured = hasSpotify ?? false
+                connections = loadedConnections ?? []
+                if let saved = try? await APIClient.shared.fetchPrivacySettings() { privacySettings = saved }
+                if let consent = try? await APIClient.shared.fetchConsentStatus() {
+                    biometricConsent = consent.scopes.contains("biometric_ingest")
+                    scripturePersonalization = consent.scopes.contains("scripture_personalization")
+                }
             }
         }
         .alert("Could not connect", isPresented: Binding(get: { connectorError != nil }, set: { if !$0 { connectorError = nil } })) {
@@ -110,6 +128,17 @@ struct ProfileView: View {
                 }
             }
         }
+    }
+
+    private var accountManagementSection: some View {
+        Section("Account") {
+            NavigationLink {
+                AccountManagementView()
+            } label: {
+                Label("Sign-in & account management", systemImage: "person.crop.circle.badge.gearshape")
+            }
+        }
+        .listRowBackground(FFTheme.parchment1)
     }
 
     // Split out of `body` (rather than inlined, the way the first draft had
@@ -506,6 +535,8 @@ struct ProfileView: View {
             if scriptureNotifications { dailyVerseHourPicker }
             notificationToggle(.community, isOn: $communityNotifications)
             notificationToggle(.reminders, isOn: $reminderNotifications)
+            notificationToggle(.podcasts, isOn: $podcastNotifications)
+            notificationToggle(.news, isOn: $newsNotifications)
             Toggle(isOn: $heartRateCalmNotifications) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Heart-rate calm cue")

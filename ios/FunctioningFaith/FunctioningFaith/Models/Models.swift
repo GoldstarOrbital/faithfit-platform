@@ -11,6 +11,7 @@ struct WorkoutSummary: Codable, Identifiable {
     var route: [[Double]]? = nil
     var durationSec: Double? = nil
     var averageSpeedKmh: Double? = nil
+    var startVerse: VerseSnippet? = nil
 }
 
 struct VerseSnippet: Codable, Identifiable {
@@ -18,6 +19,41 @@ struct VerseSnippet: Codable, Identifiable {
     let reference: String
     let snippet: String
     let deepLink: String
+
+    /// API verse payloads use `deep_link`, while older on-device caches were
+    /// written with Swift's synthesized `deepLink` key. Accept both so a
+    /// perfectly valid workout-completion response cannot fail decoding only
+    /// after the server has already saved the workout.
+    private enum CodingKeys: String, CodingKey {
+        case id, reference, snippet, deepLink
+        case deepLinkSnake = "deep_link"
+    }
+
+    init(id: String, reference: String, snippet: String, deepLink: String) {
+        self.id = id
+        self.reference = reference
+        self.snippet = snippet
+        self.deepLink = deepLink
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        reference = try container.decode(String.self, forKey: .reference)
+        snippet = try container.decode(String.self, forKey: .snippet)
+        deepLink = try container.decodeIfPresent(String.self, forKey: .deepLinkSnake)
+            ?? container.decodeIfPresent(String.self, forKey: .deepLink)
+            ?? ""
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(reference, forKey: .reference)
+        try container.encode(snippet, forKey: .snippet)
+        // Keep the established cache representation stable.
+        try container.encode(deepLink, forKey: .deepLink)
+    }
 }
 
 /// Result of "Sync & correct with GPS" (see webapp's gpsCorrection.js) --
@@ -43,6 +79,32 @@ struct ScriptureMission: Codable {
     let reference: String
     let text: String
     let coaching: String
+
+    /// Model providers occasionally wrap a one-line answer in Markdown bold
+    /// markers despite being asked for plain text. Older server fallbacks also
+    /// contained a mojibake dash. Keep both artifacts out of the visible card,
+    /// including missions already present in the on-device cache.
+    var displayCoaching: String {
+        coaching
+            .replacingOccurrences(of: "**", with: "")
+            .replacingOccurrences(of: "__", with: "")
+            .replacingOccurrences(of: "â€”", with: ", ")
+            .replacingOccurrences(of: "—", with: ", ")
+            .replacingOccurrences(of: "--", with: ", ")
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The card's structure is product copy, not remote configuration. This
+    /// bundled value gives a calm, complete first frame on a genuinely cold
+    /// launch; the live mission replaces it as soon as the verse request
+    /// returns.
+    static let preloaded = ScriptureMission(
+        headline: "Move with purpose",
+        reference: "Colossians 3:23",
+        text: "Whatever you do, work at it with all your heart, as working for the Lord.",
+        coaching: "Let this next small act of movement be an offering of care."
+    )
 }
 
 struct FeedPost: Codable, Identifiable {
@@ -159,10 +221,12 @@ struct WorkoutCompletion: Decodable, Identifiable {
     let durationSec: Int
     let encouragement: String?
     let effort: WorkoutCompletionEffort?
+    let finishVerse: VerseSnippet?
 
     enum CodingKeys: String, CodingKey {
         case id, calories, encouragement, effort
         case avgHR = "avg_hr", maxHR = "max_hr", distanceKm = "distance_km", durationSec = "duration_sec"
+        case finishVerse = "finish_verse"
     }
 }
 
@@ -213,7 +277,7 @@ struct MemberProfile: Decodable, Identifiable {
 struct MemberProfileStats: Decodable {
     let workouts: Int
     let posts: Int
-    let followers: Int?
+    var followers: Int?
     let following: Int?
 }
 
@@ -245,10 +309,10 @@ struct MutualFollowersResponse: Decodable {
 
 struct MemberProfileResponse: Decodable {
     let user: MemberProfile
-    let stats: MemberProfileStats
+    var stats: MemberProfileStats
     let posts: [MemberProfilePost]
     let isMe: Bool
-    let isFollowing: Bool
+    var isFollowing: Bool
     let isBlocked: Bool
     // The server has sent these since it shipped mute/restrict's web
     // initiation UI (see webapp/public/app.js's profile-mute/profile-restrict
@@ -257,7 +321,7 @@ struct MemberProfileResponse: Decodable {
     // (SafetyView) once they'd somehow already been set from the web.
     let isMuted: Bool
     let isRestricted: Bool
-    let followRequested: Bool
+    var followRequested: Bool
 
     enum CodingKeys: String, CodingKey {
         case user, stats, posts
@@ -537,7 +601,7 @@ struct ActivityBreakdownEntry: Decodable, Identifiable {
 // member's own uploaded clip, external Safari for anything else (a
 // church's arbitrary embed page isn't worth building a third player for).
 
-struct Reel: Decodable, Identifiable {
+struct Reel: Codable, Identifiable {
     let videoID: String
     let title: String?
     let description: String?
@@ -568,7 +632,7 @@ struct Reel: Decodable, Identifiable {
     }
 }
 
-struct ReelsFeedResponse: Decodable {
+struct ReelsFeedResponse: Codable {
     let videos: [Reel]
     let churchName: String?
     enum CodingKeys: String, CodingKey { case videos; case churchName = "church_name" }
@@ -805,7 +869,7 @@ enum PhotoCategory: String, CaseIterable, Identifiable {
 
 // ---- Stories / Moments (24h ephemeral) ----
 
-struct Story: Decodable, Identifiable {
+struct Story: Codable, Identifiable {
     let id: String
     let userID: String
     let content: String?
@@ -1706,6 +1770,21 @@ struct AthleteBestEffort: Decodable { let workoutID: String; let paceMinPerKm: D
 struct RacePrediction: Decodable { let basedOnKm: Double; let predictions: [RacePredictionEntry]; let disclaimer: String; enum CodingKeys: String, CodingKey { case basedOnKm="based_on_km"; case predictions, disclaimer } }
 struct RacePredictionEntry: Decodable, Identifiable { let distanceKm: Double; let estimatedSec: Int; let rangeSec: Int; var id: Double { distanceKm }; enum CodingKeys: String, CodingKey { case distanceKm="distance_km"; case estimatedSec="estimated_sec"; case rangeSec="range_sec" } }
 struct BeaconResult: Decodable { let ok: Bool; let expiresAt: String; enum CodingKeys: String, CodingKey { case ok; case expiresAt="expires_at" } }
+struct ActiveBeacon: Decodable, Identifiable {
+    let workoutID: String
+    let latitude: Double
+    let longitude: Double
+    let accuracyM: Double?
+    let updatedAt: String
+    let displayName: String
+    var id: String { workoutID }
+    enum CodingKeys: String, CodingKey {
+        case latitude, longitude
+        case workoutID = "workout_id", accuracyM = "accuracy_m"
+        case updatedAt = "updated_at", displayName = "display_name"
+    }
+}
+struct ActiveBeaconsResponse: Decodable { let beacons: [ActiveBeacon] }
 struct WorkoutHeatmap: Decodable { let scope: String; let cells: [HeatmapCell]; let privacy: String }
 struct HeatmapCell: Decodable, Identifiable { let latitude: Double; let longitude: Double; let count: Int; var id: String { "\(latitude),\(longitude)" } }
 struct SavedRouteResult: Decodable { let id: String; let distanceKm: Double; enum CodingKeys: String, CodingKey { case id; case distanceKm = "distance_km" } }
@@ -1748,6 +1827,8 @@ struct WorkoutAnalysis: Decodable {
     var distanceKm: Double? = nil
     var elevationGainM: Double? = nil
     var elevationLossM: Double? = nil
+    var name: String? = nil
+    var description: String? = nil
     enum CodingKeys: String, CodingKey {
         case note
         case workoutID = "workout_id"
@@ -1762,6 +1843,8 @@ struct WorkoutAnalysis: Decodable {
         case distanceKm = "distance_km"
         case elevationGainM = "elevation_gain_m"
         case elevationLossM = "elevation_loss_m"
+        case name
+        case description = "workout_note"
     }
 }
 struct MatchedWorkoutEffort: Decodable, Identifiable {
@@ -2030,9 +2113,10 @@ struct LoggedWorkout: Decodable, Identifiable {
     let note: String?
     let source: String?
     let paceMinPerKm: Double?
+    let name: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, type, calories, note, source
+        case id, type, calories, note, source, name
         case startTime = "start_time"
         case endTime = "end_time"
         case durationSec = "duration_sec"
@@ -2074,10 +2158,11 @@ struct ManualWorkoutResult: Decodable {
     let calories: Int
     let distanceKm: Double?
     let durationSec: Int
+    let finishVerse: VerseSnippet?
     enum CodingKeys: String, CodingKey {
         case id, type, calories
         case distanceKm = "distance_km"
         case durationSec = "duration_sec"
+        case finishVerse = "finish_verse"
     }
 }
-

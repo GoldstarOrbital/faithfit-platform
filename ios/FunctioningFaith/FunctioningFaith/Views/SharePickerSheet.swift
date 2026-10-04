@@ -77,6 +77,7 @@ struct SharePickerSheet: View {
                 Button("OK", role: .cancel) { errorMessage = nil }
             } message: { Text(errorMessage ?? "") }
         }
+        .ffKeyboardReady()
     }
 
     private func row(id: String, name: String, hasAvatar: Bool, existingThreadID: String?) -> some View {

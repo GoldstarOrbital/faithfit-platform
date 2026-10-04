@@ -4,8 +4,7 @@ import SwiftUI
 /// server accepts updates only for a current workout and expires them in four
 /// hours; this view never creates a public map.
 struct BeaconSafetyView: View {
-    let workoutID: UUID
-    let location: [Double]?
+    @ObservedObject private var activeWorkout = ActiveWorkoutSession.shared
     @Environment(\.dismiss) private var dismiss
     @State private var candidates: [CircleCandidate] = []
     @State private var selected: Set<String> = []
@@ -39,7 +38,7 @@ struct BeaconSafetyView: View {
                     }
                 }
                 if !status.isEmpty { Section { Text(status).font(.caption).foregroundStyle(.secondary) } }
-            }.navigationTitle("Safety Beacon").toolbar { ToolbarItem(placement:.confirmationAction) { Button("Share") { Task { await share() } }.disabled(selected.isEmpty || location == nil) }; ToolbarItem(placement:.cancellationAction) { Button("Done") { dismiss() } } }.task { await loadCandidates() }
+            }.navigationTitle("Safety Beacon").toolbar { ToolbarItem(placement:.confirmationAction) { Button("Share") { Task { await share() } }.disabled(selected.isEmpty || activeWorkout.tracker.points.last == nil) }; ToolbarItem(placement:.cancellationAction) { Button("Done") { dismiss() } } }.task { await loadCandidates() }
         }
     }
     private func loadCandidates() async {
@@ -47,7 +46,8 @@ struct BeaconSafetyView: View {
         loadError = nil
         defer { isLoading = false }
         do {
-            candidates = try await APIClient.shared.fetchCircleCandidates()
+            candidates = try await APIClient.shared.fetchCircleCandidates().filter(\.inCircle)
+            selected = Set(activeWorkout.beaconRecipients.map(\.uuidString))
         } catch is CancellationError {
             return
         } catch {
@@ -55,7 +55,15 @@ struct BeaconSafetyView: View {
         }
     }
     private func share() async {
-        guard let location, location.count == 2 else { status="Waiting for an accurate GPS location."; return }
-        do { for id in selected { guard let uuid=UUID(uuidString:id) else { continue }; _=try await APIClient.shared.updateWorkoutBeacon(id:workoutID, recipientID:uuid, latitude:location[0], longitude:location[1], accuracyM:nil) }; status="Beacon is live for your selected people." } catch { status=error.localizedDescription }
+        let recipients = Set(selected.compactMap(UUID.init(uuidString:)))
+        guard !recipients.isEmpty else { status = "Choose at least one trusted person."; return }
+        do {
+            try await activeWorkout.enableBeacon(for: recipients)
+            status = "Beacon is live and will update throughout this workout."
+        } catch {
+            status = activeWorkout.tracker.points.last == nil
+                ? "Waiting for an accurate GPS location."
+                : error.localizedDescription
+        }
     }
 }

@@ -55,7 +55,7 @@ struct WorkoutHistoryView: View {
     private func row(for workout: LoggedWorkout) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(workout.type).font(.subheadline.weight(.semibold))
+                Text(workout.name ?? workout.type).font(.subheadline.weight(.semibold))
                 Text(workout.startTime.prefix(16)).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()

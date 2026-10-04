@@ -12,11 +12,27 @@ struct WorkoutAnalysisView: View {
     @State private var correctionResult: GPSCorrectionResult?
     @State private var correctionError: String?
     @State private var showSharePicker = false
+    @State private var activityName = ""
+    @State private var activityDescription = ""
+    @State private var isSavingDetails = false
+    @State private var editStatus: String?
 
     var body: some View {
         Group {
             if let analysis {
                 List {
+                    Section("Workout post") {
+                        TextField("Workout name", text: $activityName)
+                        TextField("Description", text: $activityDescription, axis: .vertical)
+                            .lineLimit(2...6)
+                        Button {
+                            Task { await saveDetails() }
+                        } label: {
+                            if isSavingDetails { ProgressView() } else { Text("Save changes") }
+                        }
+                        .disabled(isSavingDetails)
+                        if let editStatus { Text(editStatus).font(.caption).foregroundStyle(.secondary) }
+                    }
                     if let intelligence {
                         Section("Workout summary") {
                             Text(intelligence.summary)
@@ -165,10 +181,22 @@ struct WorkoutAnalysisView: View {
     private func load() async {
         errorMessage = nil
         do {
-            analysis = try await APIClient.shared.fetchWorkoutAnalysis(id: workoutID)
+            let loaded = try await APIClient.shared.fetchWorkoutAnalysis(id: workoutID)
+            analysis = loaded
+            activityName = loaded.name ?? ""
+            activityDescription = loaded.description ?? ""
             intelligence = try? await APIClient.shared.fetchWorkoutIntelligenceSummary(id: workoutID)
         }
         catch { errorMessage = error.localizedDescription }
+    }
+
+    private func saveDetails() async {
+        isSavingDetails = true
+        defer { isSavingDetails = false }
+        do {
+            try await APIClient.shared.updateWorkout(id: workoutID, name: activityName, description: activityDescription)
+            editStatus = "Workout and shared post updated."
+        } catch { editStatus = error.localizedDescription }
     }
 }
 

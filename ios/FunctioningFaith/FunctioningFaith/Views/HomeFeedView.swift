@@ -16,6 +16,7 @@ struct HomeFeedView: View {
     // simultaneous-mounting concern; HomeSectionShell (AppShell.swift)
     // passes the real value.
     var isActive: Bool = true
+    var scrollToTopRequest: Int = 0
 
     // Home is a single top-level tab again (see AppShell.swift), so its
     // For You / Following choice is back to being this view's own
@@ -39,21 +40,23 @@ struct HomeFeedView: View {
     @State private var showBlockConfirmation = false
 
     var body: some View {
-        List {
+        ScrollViewReader { proxy in
+          List {
             HomeRhythmHeader()
+                .id("home-feed-top")
                 .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
-            HomeActionsRow()
-                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
+            StoriesRail(isActive: isActive)
+                .listRowInsets(EdgeInsets())
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
             ScriptureInMotionCard()
                 .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
-            StoriesRail(isActive: isActive)
-                .listRowInsets(EdgeInsets())
+            HomeActionsRow()
+                .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 8, trailing: 16))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
             FromExploreRail()
@@ -95,6 +98,9 @@ struct HomeFeedView: View {
                     onDelete: post.authorID == session.profile?.id ? { delete(post) } : nil,
                     onRouteChanged: { Task { await loadFeed(forceRefresh: true) } }
                 )
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
                     .onAppear { loadNextPageIfNeeded(post) }
                     .swipeActions(edge: .trailing) {
                         Button { toggleLike(post) } label: { Label(post.likedByMe ? "Unlike" : "Like", systemImage: post.likedByMe ? "heart.slash" : "heart.fill") }
@@ -209,6 +215,12 @@ struct HomeFeedView: View {
         .alert("Couldn’t complete that action", isPresented: Binding(get: { actionError != nil }, set: { if !$0 { actionError = nil } })) {
             Button("OK", role: .cancel) { actionError = nil }
         } message: { Text(actionError ?? "") }
+        .onChange(of: scrollToTopRequest) { _, _ in
+            withAnimation(.easeOut(duration: 0.25)) {
+                proxy.scrollTo("home-feed-top", anchor: .top)
+            }
+        }
+        }
     }
 
     // functioningfaith://post/<id> used to just switch to the Home tab and
@@ -249,6 +261,7 @@ struct HomeFeedView: View {
         // exactly as before.
         if posts.isEmpty, let userID = session.profile?.id,
            let cached = FeedCache.load(userID: userID, mode: requestedMode.rawValue) {
+            await warmAvatars(in: cached)
             posts = cached
         }
         isLoading = posts.isEmpty
@@ -262,12 +275,14 @@ struct HomeFeedView: View {
                 // paginated list isn't safe. No "load more" for this mode.
                 let fetched = try await APIClient.shared.fetchForYouFeed(forceRefresh: forceRefresh)
                 guard !Task.isCancelled, feedGeneration == generation, mode == requestedMode else { return }
+                await warmAvatars(in: fetched)
                 posts = fetched
                 nextCursor = nil
                 if let userID = session.profile?.id { FeedCache.save(fetched, userID: userID, mode: requestedMode.rawValue) }
             case .following:
                 let page = try await APIClient.shared.fetchFeedPage(followingOnly: true, forceRefresh: forceRefresh)
                 guard !Task.isCancelled, feedGeneration == generation, mode == requestedMode else { return }
+                await warmAvatars(in: page.posts)
                 posts = page.posts
                 if let userID = session.profile?.id { FeedCache.save(page.posts, userID: userID, mode: requestedMode.rawValue) }
                 nextCursor = page.nextCursor
@@ -291,6 +306,7 @@ struct HomeFeedView: View {
         do {
             let page = try await APIClient.shared.fetchFeedPage(before: cursor, followingOnly: true)
             guard !Task.isCancelled, feedGeneration == generation, mode == .following else { return }
+            await warmAvatars(in: page.posts)
             let existing = Set(posts.map(\.id))
             posts.append(contentsOf: page.posts.filter { !existing.contains($0.id) })
             nextCursor = page.nextCursor
@@ -298,6 +314,14 @@ struct HomeFeedView: View {
             guard !Task.isCancelled, feedGeneration == generation, mode == .following else { return }
             actionError = "Couldn’t load more posts. Pull down to try again."
         }
+    }
+
+    private func warmAvatars(in posts: [FeedPost]) async {
+        let members = posts.prefix(20).compactMap { post -> (id: UUID, hasAvatar: Bool)? in
+            guard let id = post.authorID else { return nil }
+            return (id, post.authorHasAvatar)
+        }
+        await MemberAvatarCache.shared.prefetch(members)
     }
 
     private func toggleLike(_ post: FeedPost) {
@@ -374,57 +398,79 @@ struct FeedPostRow: View {
     var onDelete: (() -> Void)? = nil
     var onRouteChanged: (() -> Void)? = nil
     @State private var confirmRouteSharing = false
+    @State private var confirmDeletion = false
     @State private var routeSaving = false
     @State private var routeError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let authorID = post.authorID {
-                NavigationLink {
-                    MemberProfileView(userID: authorID)
-                } label: {
-                    HStack(spacing: 8) {
-                        MemberAvatarView(userID: authorID, hasAvatar: post.authorHasAvatar, size: 30)
-                        Text(post.authorName)
-                            .font(.system(.subheadline, design: .default).weight(.semibold))
-                            .foregroundStyle(FFTheme.ink)
+            HStack(spacing: 8) {
+                if let authorID = post.authorID {
+                    NavigationLink {
+                        MemberProfileView(userID: authorID)
+                    } label: {
+                        HStack(spacing: 8) {
+                            MemberAvatarView(userID: authorID, hasAvatar: post.authorHasAvatar, size: 30)
+                            Text(post.authorName)
+                                .font(.system(.subheadline, design: .default).weight(.semibold))
+                                .foregroundStyle(FFTheme.ink)
+                        }
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open \(post.authorName)'s profile")
+                } else {
+                    Text(post.authorName)
+                        .font(.system(.subheadline, design: .default).weight(.semibold))
+                        .accessibilityAddTraits(.isHeader)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Open \(post.authorName)'s profile")
-            } else {
-                Text(post.authorName)
-                    .font(.system(.subheadline, design: .default).weight(.semibold))
-                    .accessibilityAddTraits(.isHeader)
+                Spacer()
+                Menu {
+                    if onDelete != nil {
+                        Button("Delete post", systemImage: "trash", role: .destructive) { confirmDeletion = true }
+                    } else {
+                        Button("Report post", systemImage: "exclamationmark.bubble", role: .destructive, action: onReport)
+                        if post.authorID != nil {
+                            Button("Block \(post.authorName)", systemImage: "person.slash", role: .destructive, action: onBlock)
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Post actions")
             }
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
 
             Text(post.content)
                 .font(.system(size: 16))
                 .dynamicTypeSize(.large ... .accessibility3)
+                .padding(.horizontal, 16)
 
-            Text(post.workout != nil ? "WORKOUT" : (post.videoCategory != nil || post.deferredMediaKind == "video" ? "REEL" : (post.verse != nil && post.photoCategory == nil ? "SCRIPTURE & REFLECTION" : "COMMUNITY POST")))
+            Text(post.workout != nil ? "WORKOUT" : (post.videoCategory != nil || post.deferredMediaKind == "video" ? "FRAME" : (post.verse != nil && post.photoCategory == nil ? "SCRIPTURE & REFLECTION" : "COMMUNITY POST")))
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(FFTheme.meadow)
+                .padding(.horizontal, 16)
 
             if let workout = post.workout {
                 WorkoutCard(workout: workout)
+                    .padding(.horizontal, 16)
                 if onDelete != nil {
                     Button(workout.route == nil ? "Share GPS route" : "Hide GPS route") { confirmRouteSharing = true }
                         .buttonStyle(.borderless).disabled(routeSaving)
+                        .padding(.horizontal, 16)
                 }
             }
 
             if let verse = post.verse {
                 VerseSnippetCard(verse: verse)
+                    .padding(.horizontal, 16)
             }
 
             #if canImport(UIKit)
             if let dataURL = post.photoData, let image = ImageUpload.decode(dataURL) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(maxWidth: .infinity, minHeight: 190, maxHeight: 360)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                EdgeToEdgePostImage(image: image)
                     .accessibilityLabel(post.photoCategory.map { "Post photo: \($0)" } ?? "Post photo")
             }
             #endif
@@ -466,8 +512,9 @@ struct FeedPostRow: View {
             .buttonStyle(.borderless)
             .font(.footnote.weight(.semibold))
             .accessibilityElement(children: .contain)
+            .padding(.horizontal, 16)
         }
-        .padding(.vertical, 6)
+        .padding(.bottom, 8)
         .confirmationDialog("Change route sharing?", isPresented: $confirmRouteSharing, titleVisibility: .visible) {
             Button(post.workout?.route == nil ? "Share trimmed route" : "Hide route") {
                 routeSaving = true
@@ -484,10 +531,16 @@ struct FeedPostRow: View {
         .alert("Route sharing", isPresented: Binding(get: { routeError != nil }, set: { if !$0 { routeError = nil } })) {
             Button("OK", role: .cancel) { routeError = nil }
         } message: { Text(routeError ?? "") }
+        .confirmationDialog("Delete this post?", isPresented: $confirmDeletion, titleVisibility: .visible) {
+            Button("Delete post", role: .destructive) { onDelete?() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently removes the post, its comments, likes, and saves.")
+        }
         .accessibilityElement(children: .contain)
         .contextMenu {
-            if let onDelete {
-                Button("Delete post", role: .destructive, action: onDelete)
+            if onDelete != nil {
+                Button("Delete post", role: .destructive) { confirmDeletion = true }
             } else {
                 Button("Report post", role: .destructive, action: onReport)
                 if post.authorID != nil {
@@ -497,6 +550,34 @@ struct FeedPostRow: View {
         }
     }
 }
+
+#if canImport(UIKit)
+enum PostMediaSizing {
+    /// Instagram-style feed media fills the viewport width while preserving a
+    /// useful 4:5 through 1.91:1 presentation range for extreme source sizes.
+    static func displayAspectRatio(for size: CGSize) -> CGFloat {
+        guard size.width > 0, size.height > 0 else { return 1 }
+        return min(1.91, max(0.8, size.width / size.height))
+    }
+}
+
+private struct EdgeToEdgePostImage: View {
+    let image: UIImage
+
+    var body: some View {
+        let aspect = PostMediaSizing.displayAspectRatio(for: image.size)
+        GeometryReader { geometry in
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: geometry.size.width, height: geometry.size.width / aspect)
+                .clipped()
+        }
+        .aspectRatio(aspect, contentMode: .fit)
+        .frame(maxWidth: .infinity)
+    }
+}
+#endif
 
 /// A feed post's video attachment -- tap-to-play with standard AVKit chrome,
 /// not autoplay: unlike the dedicated Reels tab's full-bleed paging feed,
@@ -517,7 +598,7 @@ private struct DeferredPostMediaView: View {
                 if let video = media.videoData {
                     FeedVideoView(dataURL: video)
                 } else if let photo = media.photoData, let image = ImageUpload.decode(photo) {
-                    Image(uiImage: image).resizable().scaledToFit()
+                    EdgeToEdgePostImage(image: image)
                         .accessibilityLabel("Post photo")
                 } else {
                     Text("This attachment is no longer available.").foregroundStyle(.secondary)
@@ -534,9 +615,8 @@ private struct DeferredPostMediaView: View {
                 .buttonStyle(.borderless)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 190, maxHeight: 360)
+        .frame(maxWidth: .infinity, minHeight: media == nil ? 190 : nil)
         .background(FFTheme.parchment1)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
         .task(id: postID) { if kind == "photo" { await load() } }
     }
 
@@ -571,7 +651,6 @@ internal struct FeedVideoView: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 360)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
         .task { prepare() }
     }
 
@@ -718,7 +797,7 @@ struct HomeActionsRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Button { destination = .reels } label: {
-                actionCard(title: "Watch Reels", subtitle: "Short encouragement & movement")
+                actionCard(title: "Watch Frames", subtitle: "Short encouragement & movement")
             }
             .buttonStyle(.plain)
             Button { destination = .journeys } label: {
@@ -826,33 +905,14 @@ struct ScriptureInMotionCard: View {
     /// synchronously. A cache hit never shows the ProgressView spiral.
     private var painted: ScriptureMission? {
         if let mission { return mission }
-        guard let userID = session.profile?.id else { return nil }
-        return MissionCache.load(userID: userID)
+        guard let userID = session.profile?.id else { return ScriptureMission.preloaded }
+        return MissionCache.load(userID: userID) ?? ScriptureMission.preloaded
     }
 
     var body: some View {
         Group {
             if let painted {
                 content(for: painted)
-            } else {
-                // Cold miss only (first launch / cleared cache). Prefer a calm
-                // static brand shell over a spinning ProgressView — Instagram/
-                // Strava never leave a spiral on the hero slot.
-                RoundedRectangle(cornerRadius: FFTheme.Radius.lg, style: .continuous)
-                    .fill(LinearGradient(colors: [FFTheme.goldBright.opacity(0.28), FFTheme.meadow2.opacity(0.22), FFTheme.parchment1], startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(height: 190)
-                    .overlay(alignment: .leading) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Label("SCRIPTURE IN MOTION", systemImage: "sparkles")
-                                .font(.caption.weight(.bold)).tracking(1)
-                                .foregroundStyle(FFTheme.inkSoft)
-                            Text("Preparing today's invitation…")
-                                .font(.subheadline)
-                                .foregroundStyle(FFTheme.inkSoft)
-                        }
-                        .padding(16)
-                    }
-                    .accessibilityLabel("Scripture in Motion")
             }
         }
         // .onAppear, not .task -- re-roll every return to Home. Cache already
@@ -903,7 +963,7 @@ struct ScriptureInMotionCard: View {
                     .clipShape(RoundedRectangle(cornerRadius: 1.5))
             }
 
-            Text(mission.coaching)
+            Text(mission.displayCoaching)
                 .font(.caption).foregroundStyle(FFTheme.inkSoft)
 
             HStack(spacing: 14) {

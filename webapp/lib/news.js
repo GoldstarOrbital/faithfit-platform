@@ -10,6 +10,7 @@
 
 const { randomUUID } = require('crypto');
 const db = require('./db');
+const push = require('./push');
 
 const FEEDS = [
   { source: 'Christianity Today', feed_url: 'https://www.christianitytoday.com/feed/' },
@@ -101,6 +102,8 @@ async function fetchFeed(url) {
 
 // Resilient: a failing outlet is logged and skipped, never crashes the caller.
 async function refreshNews() {
+  const hadNews = db.prepare('SELECT COUNT(*) AS count FROM news_items').get().count > 0;
+  const known = db.prepare('SELECT 1 FROM news_items WHERE source = ? AND guid = ?');
   const upsert = db.prepare(`
     INSERT INTO news_items (id, source, guid, title, summary, link, image_url, published_at)
     VALUES (@id, @source, @guid, @title, @summary, @link, @image_url, @published_at)
@@ -109,11 +112,16 @@ async function refreshNews() {
       image_url=excluded.image_url, published_at=excluded.published_at
   `);
   let updated = 0;
+  const fresh = [];
   for (const f of FEEDS) {
     try {
       const xml = await fetchFeed(f.feed_url);
       const items = parseFeed(xml);
-      for (const it of items) upsert.run({ id: randomUUID(), source: f.source, ...it });
+      for (const it of items) {
+        const isNew = !known.get(f.source, it.guid);
+        upsert.run({ id: randomUUID(), source: f.source, ...it });
+        if (isNew) fresh.push({ source: f.source, ...it });
+      }
       updated += items.length;
       console.log(`[news] ${f.source}: ${items.length} items`);
     } catch (err) {
@@ -121,7 +129,16 @@ async function refreshNews() {
     }
   }
   db.prepare(`DELETE FROM news_items WHERE published_at IS NOT NULL AND published_at < datetime('now', '-${MAX_AGE_DAYS} days')`).run();
-  return { updated };
+  if (hadNews && fresh.length) {
+    const newest = fresh.sort((a, b) => String(b.published_at || '').localeCompare(String(a.published_at || '')))[0];
+    await push.broadcast('news', {
+      title: newest.source,
+      body: newest.title,
+      url: '/?open=news',
+      tag: `news:${newest.guid}`,
+    });
+  }
+  return { updated, new_items: fresh.length };
 }
 
 function list({ limit = 40 } = {}) {

@@ -110,6 +110,7 @@ struct EditProfileView: View {
                 #endif
             }
         }
+        .ffKeyboardReady()
     }
 
     private var canSave: Bool {
@@ -219,6 +220,9 @@ struct EditProfileView: View {
                 avatarData: avatarData.map(ImageUpload.dataURL(from:))
             )
             let fresh = try await APIClient.shared.fetchProfile()
+            if let avatarData {
+                await MemberAvatarCache.shared.replace(ImageUpload.dataURL(from: avatarData), for: fresh.id)
+            }
             onSaved(fresh)
             dismiss()
         } catch {

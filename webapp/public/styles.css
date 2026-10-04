@@ -2654,6 +2654,29 @@ nav.tabbar button.active .icon svg { filter:drop-shadow(0 0 5px rgba(255,255,255
 
 .ba-explore-card { padding: 18px; }
 
+/* A single mobile-keyboard contract for every form, search, and DM. */
+#keyboard-dismiss {
+  position: fixed;
+  right: 12px;
+  bottom: calc(var(--keyboard-offset, 0px) + 10px);
+  z-index: 12000;
+  min-width: 64px;
+  min-height: 38px;
+  padding: 7px 14px;
+  border: 1px solid rgba(253,248,234,.42);
+  border-radius: 999px;
+  background: var(--walnut-1);
+  color: var(--parch-2);
+  font: 700 .86rem "Cinzel", serif;
+  box-shadow: 0 6px 20px rgba(20,12,6,.32);
+}
+#keyboard-dismiss[hidden] { display: none !important; }
+html.keyboard-open nav.tabbar { display: none !important; }
+html.keyboard-open .ba-compose { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+html.keyboard-open input,
+html.keyboard-open textarea,
+html.keyboard-open [contenteditable="true"] { scroll-margin-bottom: 88px; }
+
 @media (max-width: 760px) {
   .ba-shell {
     width: 100%;
@@ -2673,4 +2696,3 @@ nav.tabbar button.active .icon svg { filter:drop-shadow(0 0 5px rgba(255,255,255
   .ba-panel.ba-sidebar-open .ba-sidebar { transform: translateX(0); }
   .ba-sidebar-toggle { display: grid; }
 }
-

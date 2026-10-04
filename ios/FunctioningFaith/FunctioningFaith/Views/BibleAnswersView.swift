@@ -31,6 +31,7 @@ struct BibleAnswersView: View {
     @State private var memory: [BibleAnswer] = []
     @State private var showMemory = false
     @FocusState private var inputFocused: Bool
+    @ObservedObject private var keyboard = FFKeyboardState.shared
 
     private let starterPrompts = [
         "What does the Bible say about anxiety?",
@@ -53,9 +54,22 @@ struct BibleAnswersView: View {
                 } else {
                     conversation
                 }
-                if !suggestions.isEmpty { suggestionsRow }
+            }
+        }
+        // A bottom safe-area inset follows the keyboard in both navigation
+        // pushes and the floating sheet. Keeping the composer as ordinary
+        // content let the flexible empty state claim stale height and paint
+        // the field underneath the keyboard on some devices.
+        // Opt out of SwiftUI's inconsistent automatic keyboard avoidance for
+        // this nested navigation/sheet view, then reserve the exact covered
+        // height reported by UIKit. This keeps the complete editor visible.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(spacing: 0) {
+                if !suggestions.isEmpty && !inputFocused { suggestionsRow }
                 composeBar
             }
+            .padding(.bottom, keyboard.coveredHeight)
         }
         .navigationTitle("Bible Answers")
         .navigationBarTitleDisplayMode(.inline)
@@ -127,6 +141,8 @@ struct BibleAnswersView: View {
             suggestions = await loadedSuggestions ?? []
             hasLoadedHistory = true
         }
+        .onDisappear { inputFocused = false }
+        .ffKeyboardReady()
     }
 
     // MARK: - Personalized suggestions
@@ -323,10 +339,23 @@ struct BibleAnswersView: View {
                 .lineLimit(1...4)
                 .font(FFTheme.serif(15))
                 .focused($inputFocused)
+                .submitLabel(.send)
+                .onSubmit { Task { await ask() } }
                 .padding(.horizontal, FFTheme.Space.md)
                 .padding(.vertical, FFTheme.Space.sm)
                 .background(FFTheme.parchment2, in: Capsule())
                 .overlay(Capsule().strokeBorder(FFTheme.hairline, lineWidth: 1))
+            if inputFocused {
+                Button {
+                    inputFocused = false
+                } label: {
+                    Image(systemName: "keyboard.chevron.compact.down")
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(FFTheme.inkSoft)
+                .accessibilityLabel("Hide keyboard")
+            }
             Button {
                 Task { await ask() }
             } label: {

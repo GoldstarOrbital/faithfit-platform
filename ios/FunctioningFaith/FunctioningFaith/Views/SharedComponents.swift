@@ -1,4 +1,112 @@
 import SwiftUI
+import UIKit
+
+// MARK: - Keyboard behavior
+
+/// One source of truth for keyboard visibility. The app's persistent bottom
+/// chrome and its matching content reservation both read this value, so they
+/// disappear and return together instead of independently resizing around
+/// the keyboard and leaving stretched headers or a stale bottom gap.
+@MainActor
+final class FFKeyboardState: ObservableObject {
+    static let shared = FFKeyboardState()
+
+    @Published private(set) var isVisible = false
+    @Published private(set) var coveredHeight: CGFloat = 0
+    private var observers: [NSObjectProtocol] = []
+
+    private init() {
+        let center = NotificationCenter.default
+        observers.append(center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] note in
+            Task { @MainActor [weak self] in self?.updateFrame(from: note) }
+        })
+        observers.append(center.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] note in
+            Task { @MainActor [weak self] in self?.updateFrame(from: note) }
+        })
+        observers.append(center.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.clear() }
+        })
+        observers.append(center.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.clear() }
+        })
+        observers.append(center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
+            // If iOS backgrounds the scene while an editor is focused it does
+            // not always deliver keyboardWillHide. Never retain phantom
+            // keyboard spacing or hide the app's navigation after resume.
+            Task { @MainActor [weak self] in self?.clear() }
+        })
+    }
+
+    private func clear() {
+        isVisible = false
+        coveredHeight = 0
+    }
+
+    private func updateFrame(from note: Notification) {
+        guard let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
+            isVisible = true
+            return
+        }
+        let screenBounds = (UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?.screen.bounds) ?? UIScreen.main.bounds
+        let overlap = max(0, screenBounds.maxY - frame.minY)
+        coveredHeight = overlap
+        isVisible = overlap > 0
+    }
+
+    deinit {
+        observers.forEach(NotificationCenter.default.removeObserver)
+    }
+}
+
+/// A regular SwiftUI overlay, not a UIKit window gesture or keyboard toolbar.
+/// It can never intercept the tap that focuses a field, and it avoids the
+/// navigation-bar resizing glitches caused by `.toolbar(placement: .keyboard)`
+/// when several retained NavigationStacks are mounted under RootTabView.
+struct FFKeyboardEscapeModifier: ViewModifier {
+    @ObservedObject private var keyboard = FFKeyboardState.shared
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .topTrailing) {
+            Button {
+                UIApplication.shared.sendAction(
+                    #selector(UIResponder.resignFirstResponder),
+                    to: nil, from: nil, for: nil
+                )
+            } label: {
+                Label("Done", systemImage: "keyboard.chevron.compact.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(FFTheme.ink)
+                    .padding(.horizontal, 12)
+                    .frame(minHeight: 36)
+                    .background(.regularMaterial, in: Capsule())
+                    .overlay(Capsule().strokeBorder(FFTheme.hairline, lineWidth: 1))
+                    .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 6)
+            .padding(.trailing, 10)
+            .accessibilityLabel("Hide keyboard")
+            .opacity(keyboard.isVisible ? 1 : 0)
+            .allowsHitTesting(keyboard.isVisible)
+            .accessibilityHidden(!keyboard.isVisible)
+            .zIndex(100)
+        }
+    }
+}
+
+extension View {
+    func ffKeyboardEscape() -> some View { modifier(FFKeyboardEscapeModifier()) }
+
+    /// Apply at presentation boundaries (sheets/full-screen covers). An
+    /// overlay installed on the presenting view is rendered behind a SwiftUI
+    /// presentation, so modal editors need their own escape control.
+    func ffKeyboardReady() -> some View {
+        scrollDismissesKeyboard(.interactively)
+            .ffKeyboardEscape()
+    }
+}
 
 // MARK: - Member avatar
 
@@ -39,7 +147,7 @@ struct MemberAvatarView: View {
         .task(id: userID) {
             image = nil
             guard hasAvatar else { return }
-            if let dataURL = try? await APIClient.shared.fetchAvatarData(userID: userID) {
+            if let dataURL = await MemberAvatarCache.shared.dataURL(for: userID, hasAvatar: hasAvatar) {
                 image = ImageUpload.decode(dataURL)
             }
         }

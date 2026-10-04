@@ -1,7 +1,160 @@
 import XCTest
+import CoreLocation
 @testable import FunctioningFaith
 
 final class FunctioningFaithTests: XCTestCase {
+    func testLiveActivityStateCarriesAuthoritativeElapsedAndDistance() throws {
+        let state = WorkoutLiveActivityAttributes.ContentState(
+            startedAt: Date(timeIntervalSince1970: 100),
+            elapsedSeconds: 735,
+            isPaused: true,
+            updatedAt: Date(timeIntervalSince1970: 900),
+            distanceKm: 2.47,
+            speedKmh: nil,
+            heartRate: 132
+        )
+        let decoded = try JSONDecoder().decode(
+            WorkoutLiveActivityAttributes.ContentState.self,
+            from: JSONEncoder().encode(state)
+        )
+        XCTAssertEqual(decoded.elapsedSeconds, 735)
+        XCTAssertTrue(decoded.isPaused)
+        XCTAssertEqual(decoded.distanceKm, 2.47, accuracy: 0.001)
+    }
+
+    func testReelCropAlwaysCoversVerticalPlatformFrame() {
+        let source = CGSize(width: 1920, height: 1080)
+        let render = CGSize(width: 720, height: 1280)
+        for position in [-1.0, 0, 1.0] {
+            let transform = ReelCropMath.transform(
+                sourceSize: source,
+                preferredTransform: .identity,
+                renderSize: render,
+                zoom: 1.2,
+                position: position
+            )
+            let frame = CGRect(origin: .zero, size: source).applying(transform)
+            XCTAssertLessThanOrEqual(frame.minX, 0.01)
+            XCTAssertLessThanOrEqual(frame.minY, 0.01)
+            XCTAssertGreaterThanOrEqual(frame.maxX, render.width - 0.01)
+            XCTAssertGreaterThanOrEqual(frame.maxY, render.height - 0.01)
+        }
+    }
+
+    func testHorizontalReelPositionOnlyMovesOnHorizontalAxis() {
+        let source = CGSize(width: 1920, height: 1080)
+        let render = CGSize(width: 720, height: 1280)
+        let leftFrame = CGRect(origin: .zero, size: source).applying(
+            ReelCropMath.transform(sourceSize: source, preferredTransform: .identity,
+                                   renderSize: render, zoom: 1.2, position: -1)
+        )
+        let rightFrame = CGRect(origin: .zero, size: source).applying(
+            ReelCropMath.transform(sourceSize: source, preferredTransform: .identity,
+                                   renderSize: render, zoom: 1.2, position: 1)
+        )
+        XCTAssertEqual(leftFrame.midY, render.height / 2, accuracy: 0.01)
+        XCTAssertEqual(rightFrame.midY, render.height / 2, accuracy: 0.01)
+        XCTAssertNotEqual(leftFrame.midX, rightFrame.midX)
+    }
+
+    func testPostMediaUsesInstagramStyleFullWidthAspectBounds() {
+        XCTAssertEqual(PostMediaSizing.displayAspectRatio(for: CGSize(width: 800, height: 1000)), 0.8, accuracy: 0.001)
+        XCTAssertEqual(PostMediaSizing.displayAspectRatio(for: CGSize(width: 1000, height: 1000)), 1, accuracy: 0.001)
+        XCTAssertEqual(PostMediaSizing.displayAspectRatio(for: CGSize(width: 2400, height: 800)), 1.91, accuracy: 0.001)
+    }
+
+    @MainActor
+    func testFreshRouterAlwaysStartsOnHome() {
+        XCTAssertEqual(DeepLinkRouter().selectedTab, .home)
+    }
+
+    func testPopulatedInboxNeverShowsBlockingRefreshError() {
+        XCTAssertFalse(DMInboxPresentation.shouldShowLoadError(isLoading: false, hasThreads: true, error: "Timed out"))
+        XCTAssertFalse(DMInboxPresentation.shouldShowLoadError(isLoading: true, hasThreads: false, error: "Timed out"))
+        XCTAssertTrue(DMInboxPresentation.shouldShowLoadError(isLoading: false, hasThreads: false, error: "Timed out"))
+    }
+
+    func testAvatarCacheCanBeWarmedBeforeRowsRender() async {
+        let id = UUID()
+        let dataURL = "data:image/jpeg;base64,/9j/2Q=="
+        await MemberAvatarCache.shared.replace(dataURL, for: id)
+        let loaded = await MemberAvatarCache.shared.dataURL(for: id)
+        XCTAssertEqual(loaded, dataURL)
+        await MemberAvatarCache.shared.clearAll()
+    }
+
+    func testWorkoutTrackerRejectsImpossibleDistanceBeforeAccumulatingIt() {
+        let tracker = NativeWorkoutTracker()
+        tracker.start(activityType: "Walk")
+        defer { tracker.stop() }
+        let manager = CLLocationManager()
+        let start = CLLocation(coordinate: .init(latitude: 37, longitude: -122), altitude: 10,
+                               horizontalAccuracy: 5, verticalAccuracy: 5, timestamp: .now.addingTimeInterval(-6))
+        let impossible = CLLocation(coordinate: .init(latitude: 38, longitude: -122), altitude: 10,
+                                    horizontalAccuracy: 5, verticalAccuracy: 5, timestamp: .now.addingTimeInterval(-5))
+        let plausible = CLLocation(coordinate: .init(latitude: 37.0001, longitude: -122), altitude: 11,
+                                   horizontalAccuracy: 5, verticalAccuracy: 5, timestamp: .now)
+        tracker.locationManager(manager, didUpdateLocations: [start, impossible, plausible])
+        XCTAssertEqual(tracker.points.count, 2)
+        XCTAssertGreaterThan(tracker.distanceKm, 0.005)
+        XCTAssertLessThan(tracker.distanceKm, 0.02)
+    }
+
+    func testWorkoutLocationRequiresAnExplicitActiveSession() {
+        let tracker = NativeWorkoutTracker()
+        XCTAssertFalse(tracker.isTracking)
+        tracker.start(activityType: "Walk")
+        XCTAssertTrue(tracker.isTracking)
+        tracker.stop()
+        XCTAssertFalse(tracker.isTracking)
+    }
+
+    func testMeditationIsAFirstClassSidePanelDestination() {
+        XCTAssertTrue(AppTab.overflowSections.contains(.meditation))
+        XCTAssertFalse(AppTab.globalBarSections.contains(.meditation))
+        XCTAssertEqual(AppTab.meditation.title, "Meditation")
+        XCTAssertEqual(MeditationSoundscape.allCases.count, 4)
+    }
+
+    func testFramesBrandingPreservesTheExistingWireContract() {
+        XCTAssertEqual(AppTab.reels.title, "Frames")
+        XCTAssertEqual(ExploreCatalogItem.reels.name, "Frames")
+        XCTAssertEqual(ExploreCatalogItem.reels.rawValue, "reels")
+        XCTAssertTrue(AppTab.globalBarSections.contains(.reels))
+    }
+
+    func testWorkoutEditFieldsDecodeWithoutBreakingLegacyRows() throws {
+        let rich = try JSONDecoder().decode(LoggedWorkout.self, from: Data(#"{"id":"w1","type":"Walk","start_time":"2026-09-14","end_time":"2026-09-14","duration_sec":1200,"distance_km":1.5,"calories":90,"note":"Sunrise","source":"app","pace_min_per_km":13.3,"name":"Morning prayer walk"}"#.utf8))
+        XCTAssertEqual(rich.name, "Morning prayer walk")
+        let legacy = try JSONDecoder().decode(LoggedWorkout.self, from: Data(#"{"id":"w2","type":"Walk","start_time":"2026-09-13"}"#.utf8))
+        XCTAssertNil(legacy.name)
+    }
+
+    func testEditorialNotificationsAreExplicitOptIns() {
+        XCTAssertFalse(NotificationCategory.podcasts.defaultEnabled)
+        XCTAssertFalse(NotificationCategory.news.defaultEnabled)
+        XCTAssertEqual(NotificationCategory.podcasts.serverCategories, ["podcasts"])
+        XCTAssertEqual(NotificationCategory.news.serverCategories, ["news"])
+    }
+
+    func testEditorialNotificationDeepLinksReachTheirDestinations() {
+        XCTAssertEqual(DeepLink.parse(URL(string: "functioningfaith://podcasts")!), .podcasts)
+        XCTAssertEqual(DeepLink.parse(URL(string: "functioningfaith://news")!), .news)
+        XCTAssertEqual(DeepLink.fromNotificationURL("/?open=podcasts"), .podcasts)
+        XCTAssertEqual(DeepLink.fromNotificationURL("/?open=news"), .news)
+    }
+
+    func testScriptureMissionRemovesModelFormattingArtifacts() {
+        let mission = ScriptureMission(
+            headline: "Move with purpose",
+            reference: "Colossians 3:23",
+            text: "Whatever you do, work at it with all your heart.",
+            coaching: "**Take one faithful stepâ€”then keep moving.**"
+        )
+
+        XCTAssertEqual(mission.displayCoaching, "Take one faithful step, then keep moving.")
+    }
+
     func testWorkoutFeedMetricsAndSharedRouteSurviveCache() throws {
         var workout = WorkoutSummary(id: UUID(), type: "Run", startTime: .now, endTime: .now, calories: 200, avgHR: 135)
         workout.distanceKm = 5
@@ -23,6 +176,41 @@ final class FunctioningFaithTests: XCTestCase {
         XCTAssertNil(decoded.distanceKm)
         XCTAssertNil(decoded.route)
         XCTAssertNil(decoded.averageSpeedKmh)
+    }
+
+    func testWorkoutCompletionDecodesProductionFinishVerse() throws {
+        let json = """
+        {
+          "id":"00000000-0000-0000-0000-000000000001",
+          "calories":312,
+          "avg_hr":142,
+          "max_hr":171,
+          "distance_km":5.2,
+          "duration_sec":1840,
+          "encouragement":"A strong finish.",
+          "effort":{"effort_score":74,"peak_zone":"vigorous"},
+          "finish_verse":{
+            "id":"php.4.13",
+            "reference":"Philippians 4:13",
+            "snippet":"I can do all this through him who gives me strength.",
+            "deep_link":"youversion://bible/verse/php.4.13"
+          }
+        }
+        """
+
+        let completion = try JSONDecoder().decode(WorkoutCompletion.self, from: Data(json.utf8))
+        XCTAssertEqual(completion.id.uuidString.lowercased(), "00000000-0000-0000-0000-000000000001")
+        XCTAssertEqual(completion.durationSec, 1840)
+        XCTAssertEqual(completion.finishVerse?.reference, "Philippians 4:13")
+        XCTAssertEqual(completion.finishVerse?.deepLink, "youversion://bible/verse/php.4.13")
+    }
+
+    func testVerseSnippetStillDecodesExistingCamelCaseCache() throws {
+        let json = """
+        {"id":"psa.23.1","reference":"Psalm 23:1","snippet":"The Lord is my shepherd.","deepLink":"youversion://bible/verse/psa.23.1"}
+        """
+        let verse = try JSONDecoder().decode(VerseSnippet.self, from: Data(json.utf8))
+        XCTAssertEqual(verse.deepLink, "youversion://bible/verse/psa.23.1")
     }
 
     func testSocialOnboardingOnlyAppearsForTheNewlyRegisteredAccount() {
@@ -122,6 +310,11 @@ final class FunctioningFaithTests: XCTestCase {
             "bibleAnswers",
             "bibleBrowse", "scripturePractice", "savedVerses", "heartCheckIn", "churchFinder", "search",
         ])
+    }
+
+    func testBreathworkLivesOnlyInMeditationNotExploreFaith() {
+        XCTAssertFalse(ExploreCatalogItem.visibleItems(in: .faith).contains(.breathe))
+        XCTAssertTrue(AppTab.overflowSections.contains(.meditation))
     }
 
     func testWeeklyRecapDecodesRailwayShape() throws {

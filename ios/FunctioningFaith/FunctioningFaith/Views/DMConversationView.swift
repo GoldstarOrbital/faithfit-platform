@@ -22,6 +22,7 @@ struct DMConversationView: View {
     @State private var showVersePicker = false
     @State private var replyingTo: DMMessage?
     @State private var openVerseReference: OpenVerseReference?
+    @FocusState private var messageFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,6 +45,7 @@ struct DMConversationView: View {
                     }
                     .padding()
                 }
+                .scrollDismissesKeyboard(.interactively)
                 .onChange(of: conversation?.messages.count) { _, _ in
                     if let last = conversation?.messages.last?.id {
                         withAnimation { proxy.scrollTo(last, anchor: .bottom) }
@@ -82,6 +84,16 @@ struct DMConversationView: View {
                 TextField("Message…", text: $messageText, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...4)
+                    .focused($messageFocused)
+                    .accessibilityIdentifier("dm-message-text-field")
+                if messageFocused {
+                    Button {
+                        messageFocused = false
+                    } label: {
+                        Image(systemName: "keyboard.chevron.compact.down")
+                    }
+                    .accessibilityLabel("Hide keyboard")
+                }
                 Button {
                     Task {
                         if editingMessage != nil { await saveEdit() } else { await send() }
@@ -137,6 +149,7 @@ struct DMConversationView: View {
         } message: { Text(errorMessage ?? "") }
         .task { await load() }
         .task { await pollWhileVisible() }
+        .onDisappear { messageFocused = false }
     }
 
     private func replyPreviewSnippet(_ message: DMMessage) -> String {
@@ -368,7 +381,7 @@ private struct DMBubble: View {
                     .overlay(Image(systemName: "play.rectangle.fill").foregroundStyle(.tint))
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text("Shared a reel").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                Text("Shared a frame").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
                 Text(reel.title ?? "Untitled").font(.callout).lineLimit(2)
             }
             Spacer(minLength: 0)
@@ -434,7 +447,7 @@ private struct DMBubble: View {
         switch reply.kind {
         case "e2e": return "🔒 Encrypted message"
         case "verse": return reply.body ?? "Shared a verse"
-        case "reel": return reply.body ?? "Shared a reel"
+        case "reel": return reply.body ?? "Shared a frame"
         case "workout": return reply.body ?? "Shared a workout"
         case "bible_answer": return reply.body ?? "Shared a Bible Answers response"
         default: return reply.body ?? "…"
@@ -501,6 +514,7 @@ private struct DMVersePickerSheet: View {
                 Button("OK", role: .cancel) { errorMessage = nil }
             } message: { Text(errorMessage ?? "") }
         }
+        .ffKeyboardReady()
     }
 
     private func lookup() async {
