@@ -1,18 +1,71 @@
 # Functioning Faith
 
-A faith-based fitness + social web app — Strava and Instagram, reimagined around
-scripture, community, and Christian identity instead of vanity metrics. Track real
-runs, pair them with scripture, share your journey, and grow with others — alone or
-with your church.
+**One home for Christian movement, Scripture, and community.** Functioning Faith
+brings activity tracking, a social feed, short-form video, Bible reading, groups,
+and direct messages together around a simple idea: help people grow in faith and
+well-being through movement and meaningful community.
 
 **Live:** https://faithfit-demo-production.up.railway.app
 
-This is a real, production web app — a first-class responsive experience for both
-mobile-web and desktop. A full native SwiftUI iOS app lives at [`ios/FunctioningFaith/`](ios/FunctioningFaith/) and is the App Store shipping path (see [`APPSTORE.md`](APPSTORE.md) and the submission playbook inside that folder).
+This repository contains a responsive production web app and a **native SwiftUI
+iOS app**. The iPhone app is not a web-view wrapper: it has native navigation,
+workout tracking, HealthKit integration, Live Activities/widgets, and native
+social and Scripture experiences. The iOS project and its release checklist live
+at [`ios/FunctioningFaith/`](ios/FunctioningFaith/).
 
 > The deployed web application is entirely in [`webapp/`](webapp/). The other top-level
 > folders (`services/`, `migrations/`, `infra/`, `integrations/`, …) are an
 > earlier microservices scaffold that is **not used** by the live web app and can be ignored for day-to-day work. The `ios/` tree is active and is the native client.
+
+## The product, end to end
+
+Functioning Faith is designed as a connected experience rather than a collection
+of disconnected features. A member can discover a community, choose a workout,
+record the activity, reflect with Scripture, and share the result with people
+they trust—all in the same product.
+
+| Experience | What members can do |
+|---|---|
+| Move | Record GPS workouts, review activity metrics, connect supported sensors, and build consistency through journeys and challenges. |
+| Reflect | Read and search Scripture, save verses, join verse discussions, and receive context-aware encouragement. |
+| Connect | Share posts and reels, follow members, message, and find or create groups. |
+| Grow together | Bring activity and faith into church and local communities, with privacy and user choice at the center. |
+
+### How the iOS app works
+
+The iOS client is a first-party SwiftUI application (`ios/FunctioningFaith/`),
+targeting iOS 17 and later. It talks to the same HTTPS production API as the web
+app through a native `URLSession` API client; it does not embed the web site.
+
+1. **Sign in and navigate:** native account flows lead into Home, Workouts,
+   Explore, Scripture, Messages, and Profile experiences.
+2. **Record movement:** Core Location captures an opted-in GPS route and workout
+   telemetry. The workout screen presents live metrics; ActivityKit and the
+   WidgetKit extension expose an active-session experience outside the app.
+3. **Use health and sensors with permission:** HealthKit access is permissioned
+   by Apple. Bluetooth heart-rate sensors can provide live heart-rate data. The
+   app should only display data actually received from the device or service.
+4. **Reflect and share:** native Scripture, feed, groups, profile, and messaging
+   screens use the shared API. A workout can be reviewed and shared as a social
+   activity, subject to the member's visibility choice.
+5. **Build and verify:** XcodeGen generates the Xcode project from
+   [`project.yml`](ios/FunctioningFaith/project.yml); the repository includes an
+   iOS CI workflow and device/release checklists. See the iOS README for the
+   build steps and the release playbook for outstanding human/device gates.
+
+### Why this fits the Gloo AI Hackathon
+
+The product is built around human flourishing: technology supports movement,
+reflection, and relationships rather than replacing them. For the hackathon's
+“Humans, Agents, and the Future of Flourishing” theme, Functioning Faith makes AI
+a bounded assistant to a human-led faith practice—not an authority on Scripture
+or a substitute for community.
+
+The demo's central moment is **Scripture in Motion**: a real workout creates
+relevant context; Gloo can help select an appropriate passage and write brief
+coaching around it; YouVersion or the verified local library supplies the actual
+Bible text. The user can then read, reflect, or share that moment. The integration
+details and demo path are in [`docs/hackathon-readiness.md`](docs/hackathon-readiness.md).
 
 ## Hackathon build
 
@@ -20,9 +73,10 @@ The competition story is **Scripture in Motion**: a grounded Scripture moment at
 to real movement, a game-like world, and a community that helps people flourish. The
 demo script and integration checklist live in [`docs/hackathon-readiness.md`](docs/hackathon-readiness.md).
 
-Built on both contest platforms — **Gloo AI** for values-aligned inference and
-**YouVersion** for scripture — with a hard line between what a model may decide
-and what only scripture may say. See [Scripture, AI, and the line between
+The backend has adapters for **Gloo AI** and **YouVersion Platform**, with a hard
+line between what a model may decide and what only Scripture may say. Availability
+depends on server credentials and provider uptime; the app has a local fallback.
+See [Scripture, AI, and the line between
 them](#scripture-ai-and-the-line-between-them).
 
 ## Scripture, AI, and the line between them
@@ -33,7 +87,7 @@ different jobs:
 | | **Gloo AI Platform** | **YouVersion Platform** |
 |---|---|---|
 | Job | Decides **which** scripture fits this moment, and writes the words *around* it | Supplies **what the verse actually says** |
-| Why it | Values-aligned inference, and a `tradition` parameter no general model endpoint has | The canon, in 14 English translations, from the people who publish them |
+| Why it | Values-aligned inference, with faith context supplied explicitly rather than inferred from a member's identity | An authoritative Scripture API, with a local public-domain fallback |
 | Code | [`webapp/lib/gloo.js`](webapp/lib/gloo.js) | [`webapp/lib/youversion.js`](webapp/lib/youversion.js) |
 
 Scripture is supplied in three places, all through one verified path in
@@ -133,10 +187,11 @@ calls go out unshaped — a stranger's theology is never inferred from a church
 name. It is also **not public**: it's a setting, not a badge, so it's stripped
 from every profile payload except your own.
 
-Everything degrades. With no Gloo credentials the companion is absent and
-sessions use the authored verse lists; with no YouVersion key the local 22-book
-library serves and references beyond it stay bare. Neither is stubbed with a
-placeholder, and nothing is ever filled in from nowhere.
+Everything degrades deliberately. With no Gloo credentials, the companion is
+unavailable and sessions use authored verse lists. With no YouVersion key, the
+local public-domain library serves available text; references outside that local
+library are not fabricated. Neither integration is represented by a fake
+success response.
 
 ## What it does
 
@@ -249,7 +304,7 @@ a true no-op (not even a background timer) until its variables are present.
 
 Garmin, Apple Watch, COROS, Suunto, and Wahoo devices can sync through Strava today: connect the device to Strava, then connect Strava in Functioning Faith. Garmin's direct Health API requires approval as a Garmin Health partner, so direct Garmin credentials are intentionally not faked or exposed as a non-working connection.
 | `YOUTUBE_API_KEY` | Church devotionals + curated video library | Free tier | [Google Cloud Console](https://console.cloud.google.com/) → enable "YouTube Data API v3" → create an API key. Has a daily free quota; the church-website video path needs no key at all. |
-| `YOUVERSION_API_KEY` | Real verse text for the whole canon, in 14 English translations | Free | [YouVersion Platform](https://developers.youversion.com/). Sent as `x-yvp-app-key`. Without it the app serves its 22 locally ingested public-domain books and leaves other references bare. |
+| `YOUVERSION_API_KEY` | Verse text and canon data through YouVersion Platform | Free | [YouVersion Platform](https://developers.youversion.com/). Sent as `x-yvp-app-key`. Without it the app uses its local public-domain library and does not invent missing text. |
 | `GLOO_CLIENT_ID` / `GLOO_CLIENT_SECRET` | Values-aligned AI: moment-aware scripture selection + the verse companion | Metered | [Gloo AI Studio](https://studio.ai.gloo.com/) → API Credentials. OAuth2 client credentials. Without them the companion is absent and sessions use the authored verse lists. |
 | `GLOO_PUBLISHER` | Grounds companion answers in your own uploaded content (Gloo RAG) | — | Optional. Only meaningful once content is ingested into Gloo under your publisher; unset means ordinary completions. |
 

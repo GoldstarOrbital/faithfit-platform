@@ -1,46 +1,81 @@
-# Hackathon readiness — Scripture in Motion
+# Gloo AI Hackathon — Functioning Faith
 
 ## One-line pitch
 
-Functioning Faith turns a real walk, run, ride, or workout into a shared Scripture practice: your body moves through a living world, a verified passage meets the moment, and your community helps you keep going.
+Functioning Faith is a Christian movement and community app where a real workout
+can become a moment for Scripture, reflection, and connection—with AI helping
+select context, never inventing the Bible text.
 
-## The 60-second demo
+## The 60-second product demo
 
-1. Open the live app and enter the demo profile.
-2. On Home, show **Scripture in Motion**: a real verse, movement prompt, and “Read in Bible” handoff.
-3. Tap **Begin the mission** and choose a Bible, Middle-earth, or Narnia route.
-4. Show the visible third-person rider, animated world, route progress, and segment race panel.
-5. Finish/log the activity, then show the faith-grounded share card, XP, waypoint, and community feed.
-6. Open Stats and show the 28-day training log, freshness heuristic, custom goal, and effort zones.
+1. Open Home and show the combined movement, Scripture, and community experience.
+2. Start a GPS workout and show the live route and metrics. On iOS, the native
+   workout screen uses Core Location; the app also includes an ActivityKit Live
+   Activity and WidgetKit extension for an active session.
+3. Show how the activity can be reviewed and shared with the member's community.
+4. Open the Scripture moment or Bible reader and show the passage reference and
+   source text, distinct from any AI-written coaching sentence.
+5. Finish on a group, feed, or conversation to show that the product connects
+   personal practice to real people—not just a generated response.
 
-## Why it fits the challenge
+The demo should use a known-good account and a route/device setup tested before
+recording. Do not imply GPS, health, or wearable data is live unless the demo
+device actually supplies it.
 
-- **Gaming:** real-world movement advances an explorable 3D Scripture/story route.
-- **Wearables:** Bluetooth heart-rate data changes effort zones and Scripture moments; no sensor data is invented.
-- **Social:** people can share a workout, tag confirmed partners, follow one another, join groups, and compete on segments.
-- **Bible-first:** text comes from the verified local Scripture library, and coaching copy is clearly separated from the passage.
-- **Human flourishing:** metrics point toward consistency, community, reflection, and service—not body comparison.
+## How Gloo and YouVersion are used
 
-## Required submission integrations
+The server-side Gloo adapter (`webapp/lib/gloo.js`) can provide contextual
+selection and coaching. The YouVersion adapter (`webapp/lib/youversion.js`) can
+retrieve canon/version/passage data. Scripture text is resolved from a trusted
+source or the verified local public-domain library; a model response is never
+treated as Bible text. Requests are server-side so provider secrets are not
+exposed in browser code.
 
-The product is ready for the YouVersion Platform and Gloo AI Studio once event credentials are available. The live app currently uses a verified KJV/WEB fallback and must not claim official YouVersion or Gloo affiliation until those credentials and approvals are configured.
+Provider calls depend on the corresponding server credentials and provider
+availability. Without Gloo credentials, the app falls back to authored verse
+lists. Without YouVersion credentials, it can serve local public-domain text;
+unavailable references are not synthesized. Check `/api/ai/status` on the live
+service to inspect configured provider status and citation-verification counts.
 
-Before submission, add official event credentials through Railway variables and wire them behind server-side adapters. Never put API keys in browser JavaScript. Keep the fallback path so a demo remains usable if an external service is temporarily unavailable.
+These are technical integrations, not a claim of Gloo or YouVersion sponsorship,
+endorsement, or official affiliation. Follow the event's current entry rules and
+use of marks when preparing a submission.
 
-Suggested variables:
+## Why it fits “Humans, Agents, and the Future of Flourishing”
 
-```text
-YOUVERSION_API_BASE_URL=<official value from the developer dashboard>
-YOUVERSION_API_KEY=<server-side credential>
-GLOO_AI_BASE_URL=<official value from Gloo AI Studio>
-GLOO_AI_API_KEY=<server-side credential>
-```
+- **Human-led:** the member chooses whether to move, reflect, share, or engage an
+  AI feature; AI does not replace a pastor, coach, clinician, or community.
+- **Grounded:** the model can help with selection and surrounding language, but
+  Scripture passages are separately sourced and verified.
+- **Whole-person:** the product connects movement, faith practice, and community
+  rather than optimizing a single engagement metric.
+- **Useful across platforms:** a native iOS client and responsive web app share a
+  backend, so the core product story is not limited to a prototype screen.
+- **Privacy-aware:** location and health experiences depend on user permission;
+  workout visibility is controlled by the member.
 
-## Judge-proofing checklist
+## Submission readiness checklist
 
-- Demo account works without OAuth or device hardware.
-- A 3–4 minute recording shows the complete loop, including the faith moment.
-- Every Scripture passage is attributed and traceable to its source/version.
-- AI is used for contextual coaching only; it cannot fabricate, paraphrase as Scripture, or provide medical diagnoses.
-- Privacy defaults stay conservative: workout visibility is private unless the user chooses otherwise, and biometric consent is explicit.
-- The README, live URL, GitHub branch, and video use the same product name and one-line story.
+- [ ] Verify Gloo and YouVersion provider configuration in the target environment;
+      keep the demo usable with documented fallbacks.
+- [ ] Run the full demo once on the exact account, device, and network intended
+      for judging; record a backup demo.
+- [ ] Confirm every shown Scripture reference resolves to its displayed source
+      text and translation.
+- [ ] Confirm GPS, heart-rate, and health metrics are actual device data or label
+      them clearly as sample/demo values.
+- [ ] Check privacy settings, permissions, and account controls in the submitted
+      build.
+- [ ] Review current event rules, submission format, attribution, and deadlines
+      on the [Gloo AI Hackathon page](https://gloo.com/ai/hackathon).
+- [ ] Do not describe the app as App Store ready or TestFlight approved unless the
+      current signed build has completed Apple's processing and the required
+      device QA is complete.
+
+## Technical entry points
+
+- Product overview and setup: [`../README.md`](../README.md)
+- Native iOS build: [`../ios/FunctioningFaith/README.md`](../ios/FunctioningFaith/README.md)
+- iOS release/device checklist: [`../ios/FunctioningFaith/APP_STORE_SUBMISSION.md`](../ios/FunctioningFaith/APP_STORE_SUBMISSION.md)
+- Gloo adapter: [`../webapp/lib/gloo.js`](../webapp/lib/gloo.js)
+- YouVersion adapter: [`../webapp/lib/youversion.js`](../webapp/lib/youversion.js)

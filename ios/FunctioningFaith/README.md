@@ -1,7 +1,7 @@
 # Functioning Faith — native iOS
 
 Native SwiftUI app that talks to the same production API as the web client.
-This is the App Store shipping path (not a web-view wrapper).
+This is a first-party iOS client, not a web-view wrapper.
 
 **Bundle ID:** `com.functioningfaith.app`  
 **Deployment target:** iOS 17+  
@@ -22,19 +22,32 @@ open FunctioningFaith.xcodeproj
 
 ## What is already in the binary
 
-- Full tab shell: Home feed, Workouts, Explore, Messages (E2E DMs), Profile
-- Email / password + Sign in with Apple + other OAuth providers via `ASWebAuthenticationSession`
-- Live GPS workouts (Core Location) + HealthKit read-only sync (workouts, steps, workout HR)
-- Scripture browse / practice, groups, challenges, reels, podcasts, church finder
-- Report / block, in-app permanent account deletion (`DELETE /api/me`)
-- Privacy manifest, expanded usage strings, entitlements scaffold for Sign in with Apple + HealthKit
-- Config-driven base URL and Apple client ID (`Config.swift` + Info.plist keys)
+The active app target is defined in [`project.yml`](project.yml): iOS 17+, bundle
+ID `com.functioningfaith.app`, with a separately signed WidgetKit extension.
+
+- **Native app shell:** Home, Workouts, Explore, Scripture, Messages, Profile,
+  and Settings are SwiftUI experiences backed by the shared API.
+- **Authentication:** email/password and Sign in with Apple, with supported web
+  identity providers handed off through `ASWebAuthenticationSession`.
+- **Workout tracking:** Core Location route and telemetry capture, workout
+  history/summary, HealthKit authorization and sync, and Bluetooth heart-rate
+  sensor support. Data availability depends on device permissions and hardware.
+- **Out-of-app workout surface:** ActivityKit Live Activity plus a WidgetKit
+  extension for an active workout; these require a correctly signed build and
+  device testing to validate end-to-end.
+- **Faith and community:** Bible browse/search/practice, verse discussions,
+  journeys, groups, feed, reels, profiles, and direct messages.
+- **Safety and account controls:** reporting, blocking, and in-app account
+  deletion (`DELETE /api/me`).
+- **Platform configuration:** privacy manifest, usage descriptions, app icon
+  assets, and entitlement files are present in the project. Presence in source
+  does not by itself prove Apple portal capabilities or distribution signing.
 
 ## Operational docs (do not skip)
 
 | Document | Purpose |
 |---|---|
-| **[APP_STORE_SUBMISSION.md](APP_STORE_SUBMISSION.md)** | **Complete playbook for the remaining human steps** (App Icon, portal capabilities, device QA, E2E DM proof, App Store Connect, submit) |
+| **[APP_STORE_SUBMISSION.md](APP_STORE_SUBMISSION.md)** | Release playbook for Apple capabilities, signing, device QA, E2E DM proof, App Store Connect, and submission |
 | [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) | Mechanical QA gate on a signed physical device |
 | [docs/E2E_DM_VERIFICATION.md](docs/E2E_DM_VERIFICATION.md) | Byte-for-byte native ↔ web E2E crypto proof |
 | [../../APPSTORE.md](../../APPSTORE.md) | Guideline compliance narrative |
@@ -49,13 +62,15 @@ open FunctioningFaith.xcodeproj
 
 Server must have `APPLE_NATIVE_CLIENT_ID` matching `FFAppleClientID`.
 
-## Known remaining work (human only)
+## Release readiness: what this README does not certify
 
-See the playbook. In short:
-
-1. **App Icon** — asset catalog is not yet in the repo; required before archive.
-2. Enable Sign in with Apple + HealthKit on the App ID in the Apple Developer portal.
-3. Run the full device checklist and the E2E DM verification.
-4. Create the App Store Connect record, upload screenshots, fill privacy labels, submit.
-
-Nothing else in the native code path is blocking a submission once those steps are done.
+The repository contains the app icon assets and project configuration, but source
+files alone cannot establish that an App Store build is ready. Before calling a
+release ready, verify the current Apple Developer capabilities and provisioning
+for **both** the app and widget targets, build and install a signed release on a
+physical iPhone, complete [`RELEASE_CHECKLIST.md`](RELEASE_CHECKLIST.md), and
+prove native-to-web and web-to-native encrypted messaging using
+[`docs/E2E_DM_VERIFICATION.md`](docs/E2E_DM_VERIFICATION.md). Then confirm the
+current App Store Connect privacy, review-account, screenshot, and processing
+requirements in the playbook. CI compilation or an uploaded binary is not a
+substitute for that device and Apple-processing verification.
